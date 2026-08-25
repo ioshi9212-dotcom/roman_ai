@@ -1,0 +1,10 @@
+{
+  "session_id": null,
+  "source_novel_id": null,
+  "source_novel_version": 1,
+  "turn_number": 0,
+  "audit_required": false,
+  "handoff_required": false,
+  "handoff_generation": 0,
+  "last_audit_turn": 0
+}
