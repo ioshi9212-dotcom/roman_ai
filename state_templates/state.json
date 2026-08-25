@@ -1,0 +1,21 @@
+{
+  "current": {
+    "date": null,
+    "time": null,
+    "location": null,
+    "scene": null,
+    "present_characters": [],
+    "positions": {},
+    "unfinished_actions": []
+  },
+  "pov": {
+    "character_id": null,
+    "condition": {},
+    "clothing": null,
+    "inventory": []
+  },
+  "characters": {},
+  "relationships": {},
+  "threads": {},
+  "world": {}
+}
