@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Roman AI
-  version: 0.6.1
+  version: 0.7.0
   description: Persistent novel sessions for Custom GPT.
 servers:
   - url: https://romanai-production-0fdb.up.railway.app
@@ -25,12 +25,17 @@ components:
       properties:
         template_json:
           type: string
-          description: Complete novel template serialized as one valid JSON object string. Preserve every nested field and character card.
+          description: Complete novel template serialized as one valid JSON object string.
     SessionCreate:
       type: object
       required: [novel_id]
       properties:
         novel_id: {type: string}
+    TurnPrepare:
+      type: object
+      required: [user_input]
+      properties:
+        user_input: {type: string}
     TurnCommit:
       type: object
       required: [user_input, scene_output]
@@ -63,7 +68,7 @@ paths:
   /runtime:
     get:
       operationId: getRuntime
-      summary: Load current runtime rules, scene builder and memory contract
+      summary: Load runtime rules, scene builder and memory contract
       responses:
         '200': {description: Runtime documents}
   /novels:
@@ -74,7 +79,7 @@ paths:
         '200': {description: Novel list}
     post:
       operationId: saveNovel
-      summary: Save a simple library novel using structured fields
+      summary: Save a simple structured novel
       requestBody:
         required: true
         content:
@@ -85,7 +90,7 @@ paths:
   /novels/raw:
     post:
       operationId: saveNovelRaw
-      summary: Save a complete deeply nested novel template without losing arbitrary fields
+      summary: Save a complete deeply nested novel template
       requestBody:
         required: true
         content:
@@ -106,7 +111,7 @@ paths:
   /sessions:
     post:
       operationId: createSession
-      summary: Create a new isolated session from a library novel snapshot
+      summary: Create isolated session from a library snapshot
       requestBody:
         required: true
         content:
@@ -114,20 +119,43 @@ paths:
             schema: {$ref: '#/components/schemas/SessionCreate'}
       responses:
         '200': {description: Session metadata}
-        '404': {description: Novel not found}
   /sessions/{session_id}:
     get:
       operationId: getSession
-      summary: Load current session state and recent turns
+      summary: Load current session snapshot
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
       responses:
         '200': {description: Session snapshot}
-        '404': {description: Session not found}
+  /sessions/{session_id}/turn-packet:
+    post:
+      operationId: prepareTurn
+      summary: Build the exact chunked context package for the next user turn
+      parameters:
+        - {in: path, name: session_id, required: true, schema: {type: string}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/TurnPrepare'}
+      responses:
+        '200': {description: Packet manifest with packet_id and chunk_count}
+        '409': {description: Audit or handoff required}
+  /sessions/{session_id}/turn-packet/{packet_id}/{chunk_index}:
+    get:
+      operationId: getTurnPacketChunk
+      summary: Read one required chunk of the prepared turn context
+      parameters:
+        - {in: path, name: session_id, required: true, schema: {type: string}}
+        - {in: path, name: packet_id, required: true, schema: {type: string}}
+        - {in: path, name: chunk_index, required: true, schema: {type: integer}}
+      responses:
+        '200': {description: One packet chunk}
+        '403': {description: Invalid or stale packet}
   /sessions/{session_id}/characters/{character_id}/memory:
     get:
       operationId: getCharacterMemory
-      summary: Load persistent memory for one character
+      summary: Load one character memory directly for debugging or recovery
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
         - {in: path, name: character_id, required: true, schema: {type: string}}
@@ -145,7 +173,7 @@ paths:
         '200': {description: Raw turns}
     post:
       operationId: commitTurn
-      summary: Save one complete turn and persistent extracted changes
+      summary: Save one complete turn after every prepared packet chunk was read
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
       requestBody:
@@ -155,11 +183,11 @@ paths:
             schema: {$ref: '#/components/schemas/TurnCommit'}
       responses:
         '200': {description: Turn committed}
-        '409': {description: Audit or handoff required}
+        '409': {description: Audit, handoff or packet requirement failed}
   /sessions/{session_id}/audit:
     post:
       operationId: commitAudit
-      summary: Save repairs after the mandatory 15-turn audit
+      summary: Save mandatory 15-turn audit repairs
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
       requestBody:
@@ -169,16 +197,14 @@ paths:
             schema: {$ref: '#/components/schemas/AuditCommit'}
       responses:
         '200': {description: Audit committed}
-        '409': {description: Audit not required or range mismatch}
   /sessions/{session_id}/resume:
     post:
       operationId: resumeSession
-      summary: Build the transfer package after turn 60
+      summary: Build transfer package after turn 60
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
       responses:
-        '200': {description: Resume package with token and turns 55-60}
-        '409': {description: Audit required or handoff not required}
+        '200': {description: Resume package}
   /sessions/{session_id}/resume/confirm:
     post:
       operationId: confirmResume
@@ -192,4 +218,3 @@ paths:
             schema: {$ref: '#/components/schemas/ResumeConfirm'}
       responses:
         '200': {description: Transfer confirmed}
-        '403': {description: Invalid token}
