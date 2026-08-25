@@ -39,6 +39,18 @@ def test_sixty_turn_handoff_cycle():
                     },
                 },
             )
+            if result["audit_due"]:
+                start_turn, end_turn = result["audit_range"]
+                audit = storage.commit_audit(
+                    session_id,
+                    {
+                        "start_turn": start_turn,
+                        "end_turn": end_turn,
+                        "repairs": {},
+                        "notes": [],
+                    },
+                )
+                assert audit["audited_through"] == turn
 
         assert result["turn_number"] == 60
         assert result["audit_due"] is True
@@ -50,6 +62,7 @@ def test_sixty_turn_handoff_cycle():
 
         package = storage.build_resume_package(session_id)
         assert package["meta"]["turn_number"] == 60
+        assert package["meta"]["last_audit_turn"] == 60
         assert [t["turn_number"] for t in package["handoff_tail"]] == [55, 56, 57, 58, 59, 60]
         assert package["state"]["current"]["last_turn"] == 60
         assert len(package["chronology"]) == 60
