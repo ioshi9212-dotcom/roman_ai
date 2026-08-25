@@ -3,7 +3,8 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 
-from .models import AuditCommit, NovelRawSave, NovelTemplate, ResumeConfirm, SessionCreate, TurnCommit, TurnPrepare
+from .models import AuditCommit, NovelDraftCreate, NovelDraftSection, NovelRawSave, NovelTemplate, ResumeConfirm, SessionCreate, TurnCommit, TurnPrepare
+from .novel_drafts import create_draft, draft_status, finalize_draft, save_section
 from .storage import (
     build_resume_package,
     commit_audit,
@@ -27,8 +28,8 @@ RUNTIME_DIR = ROOT_DIR / "runtime"
 
 app = FastAPI(
     title="Roman AI",
-    version="0.7.0",
-    description="Novel session backend for Custom GPT. Persistent state, chunked turn context and character memory are stored on a Railway Volume.",
+    version="0.8.0",
+    description="Novel session backend for Custom GPT. Persistent state, staged novel drafts, chunked turn context and character memory are stored on a Railway Volume.",
 )
 
 
@@ -50,6 +51,43 @@ def runtime_get():
         "scene_builder": read("scene_builder.md"),
         "memory_contract": read("memory_contract.md"),
     }
+
+
+@app.post("/novel-drafts", operation_id="createNovelDraft")
+def novel_draft_create(body: NovelDraftCreate):
+    return create_draft(body.novel_id, body.title, body.version)
+
+
+@app.post("/novel-drafts/{draft_id}/sections", operation_id="saveNovelDraftSection")
+def novel_draft_section_save(draft_id: str, body: NovelDraftSection):
+    try:
+        return save_section(draft_id, body.section_name, body.section_json)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Draft not found")
+    except KeyError:
+        raise HTTPException(status_code=422, detail="Unknown section_name")
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(status_code=422, detail=f"Invalid section_json: {exc}")
+
+
+@app.get("/novel-drafts/{draft_id}", operation_id="getNovelDraftStatus")
+def novel_draft_status_get(draft_id: str):
+    try:
+        return draft_status(draft_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Draft not found")
+
+
+@app.post("/novel-drafts/{draft_id}/finalize", operation_id="finalizeNovelDraft")
+def novel_draft_finalize(draft_id: str):
+    try:
+        return finalize_draft(draft_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Draft not found")
+    except ValueError:
+        raise HTTPException(status_code=409, detail="Draft is incomplete")
+    except RuntimeError:
+        raise HTTPException(status_code=500, detail="Final saved novel verification failed")
 
 
 @app.get("/novels", operation_id="listNovels")
