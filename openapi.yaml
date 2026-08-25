@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Roman AI
-  version: 0.6.0
+  version: 0.6.1
   description: Persistent novel sessions for Custom GPT.
 servers:
   - url: https://romanai-production-0fdb.up.railway.app
@@ -19,6 +19,13 @@ components:
           type: array
           items: {type: object, additionalProperties: true}
         lore: {type: object, additionalProperties: true}
+    NovelRawSave:
+      type: object
+      required: [template_json]
+      properties:
+        template_json:
+          type: string
+          description: Complete novel template serialized as one valid JSON object string. Preserve every nested field and character card.
     SessionCreate:
       type: object
       required: [novel_id]
@@ -67,7 +74,7 @@ paths:
         '200': {description: Novel list}
     post:
       operationId: saveNovel
-      summary: Save or replace a library novel
+      summary: Save a simple library novel using structured fields
       requestBody:
         required: true
         content:
@@ -75,6 +82,18 @@ paths:
             schema: {$ref: '#/components/schemas/NovelTemplate'}
       responses:
         '200': {description: Saved novel}
+  /novels/raw:
+    post:
+      operationId: saveNovelRaw
+      summary: Save a complete deeply nested novel template without losing arbitrary fields
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/NovelRawSave'}
+      responses:
+        '200': {description: Complete novel saved}
+        '422': {description: Invalid JSON or missing novel_id/title}
   /novels/{novel_id}:
     get:
       operationId: getNovel
