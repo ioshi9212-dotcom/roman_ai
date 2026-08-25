@@ -11,6 +11,10 @@ class NovelTemplate(BaseModel):
     lore: Dict[str, Any] = Field(default_factory=dict)
 
 
+class NovelRawSave(BaseModel):
+    template_json: str
+
+
 class SessionCreate(BaseModel):
     novel_id: str
 
