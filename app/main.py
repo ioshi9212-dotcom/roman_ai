@@ -1,10 +1,14 @@
 from fastapi import FastAPI, HTTPException
 
-from .models import NovelTemplate, SessionCreate, TurnCommit
+from .models import AuditCommit, NovelTemplate, ResumeConfirm, SessionCreate, TurnCommit
 from .storage import (
+    build_resume_package,
+    commit_audit,
     commit_turn,
+    confirm_resume,
     create_session,
     get_novel,
+    get_turn_range,
     list_novels,
     load_session,
     save_novel,
@@ -13,7 +17,7 @@ from .storage import (
 
 app = FastAPI(
     title="Roman AI",
-    version="0.1.0",
+    version="0.2.0",
     description="Novel session backend for Custom GPT. Persistent state is stored on a Railway Volume.",
 )
 
@@ -58,9 +62,51 @@ def sessions_get(session_id: str):
         raise HTTPException(status_code=404, detail="Session not found")
 
 
+@app.get("/sessions/{session_id}/turns", operation_id="getTurnRange")
+def turns_get(session_id: str, start_turn: int, end_turn: int):
+    try:
+        return {"turns": get_turn_range(session_id, start_turn, end_turn)}
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+
 @app.post("/sessions/{session_id}/turns", operation_id="commitTurn")
 def turns_commit(session_id: str, body: TurnCommit):
     try:
         return commit_turn(session_id, body.model_dump())
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Session not found")
+    except RuntimeError as exc:
+        if str(exc) == "HANDOFF_REQUIRED":
+            raise HTTPException(status_code=409, detail="Session handoff is required before the next turn")
+        raise
+
+
+@app.post("/sessions/{session_id}/audit", operation_id="commitAudit")
+def audit_commit(session_id: str, body: AuditCommit):
+    try:
+        return commit_audit(session_id, body.model_dump())
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+
+@app.post("/sessions/{session_id}/resume", operation_id="resumeSession")
+def session_resume(session_id: str):
+    try:
+        return build_resume_package(session_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Session not found")
+    except RuntimeError as exc:
+        if str(exc) == "HANDOFF_NOT_REQUIRED":
+            raise HTTPException(status_code=409, detail="This session does not currently require handoff")
+        raise
+
+
+@app.post("/sessions/{session_id}/resume/confirm", operation_id="confirmResume")
+def session_resume_confirm(session_id: str, body: ResumeConfirm):
+    try:
+        return confirm_resume(session_id, body.resume_token)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Session not found")
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="Invalid resume token")
