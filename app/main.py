@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from fastapi import FastAPI, HTTPException
 
 from .models import AuditCommit, NovelTemplate, ResumeConfirm, SessionCreate, TurnCommit
@@ -16,9 +18,13 @@ from .storage import (
 )
 
 
+ROOT_DIR = Path(__file__).resolve().parent.parent
+RUNTIME_DIR = ROOT_DIR / "runtime"
+
+
 app = FastAPI(
     title="Roman AI",
-    version="0.5.1",
+    version="0.6.0",
     description="Novel session backend for Custom GPT. Persistent state and character memory are stored on a Railway Volume.",
 )
 
@@ -26,6 +32,21 @@ app = FastAPI(
 @app.get("/health", operation_id="health")
 def health():
     return {"ok": True}
+
+
+@app.get("/runtime", operation_id="getRuntime")
+def runtime_get():
+    def read(name: str) -> str:
+        path = RUNTIME_DIR / name
+        if not path.exists():
+            raise HTTPException(status_code=500, detail=f"Runtime file missing: {name}")
+        return path.read_text(encoding="utf-8")
+
+    return {
+        "rules": read("rules.md"),
+        "scene_builder": read("scene_builder.md"),
+        "memory_contract": read("memory_contract.md"),
+    }
 
 
 @app.get("/novels", operation_id="listNovels")
