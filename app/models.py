@@ -15,6 +15,17 @@ class NovelRawSave(BaseModel):
     template_json: str
 
 
+class NovelDraftCreate(BaseModel):
+    novel_id: str
+    title: str
+    version: int = 1
+
+
+class NovelDraftSection(BaseModel):
+    section_name: str
+    section_json: str
+
+
 class SessionCreate(BaseModel):
     novel_id: str
 
