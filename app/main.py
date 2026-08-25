@@ -1,8 +1,9 @@
+import json
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 
-from .models import AuditCommit, NovelTemplate, ResumeConfirm, SessionCreate, TurnCommit
+from .models import AuditCommit, NovelRawSave, NovelTemplate, ResumeConfirm, SessionCreate, TurnCommit
 from .storage import (
     build_resume_package,
     commit_audit,
@@ -24,7 +25,7 @@ RUNTIME_DIR = ROOT_DIR / "runtime"
 
 app = FastAPI(
     title="Roman AI",
-    version="0.6.0",
+    version="0.6.1",
     description="Novel session backend for Custom GPT. Persistent state and character memory are stored on a Railway Volume.",
 )
 
@@ -57,6 +58,19 @@ def novels_list():
 @app.post("/novels", operation_id="saveNovel")
 def novels_save(template: NovelTemplate):
     return save_novel(template.model_dump())
+
+
+@app.post("/novels/raw", operation_id="saveNovelRaw")
+def novels_save_raw(body: NovelRawSave):
+    try:
+        template = json.loads(body.template_json)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=422, detail=f"Invalid template_json: {exc.msg}")
+    if not isinstance(template, dict):
+        raise HTTPException(status_code=422, detail="template_json must decode to an object")
+    if not template.get("novel_id") or not template.get("title"):
+        raise HTTPException(status_code=422, detail="novel_id and title are required")
+    return save_novel(template)
 
 
 @app.get("/novels/{novel_id}", operation_id="getNovel")
