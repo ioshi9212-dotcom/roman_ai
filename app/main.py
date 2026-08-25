@@ -1,6 +1,4 @@
-import os
-
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import FastAPI, HTTPException
 
 from .models import AuditCommit, NovelTemplate, ResumeConfirm, SessionCreate, TurnCommit
 from .storage import (
@@ -18,19 +16,9 @@ from .storage import (
 )
 
 
-API_KEY = os.getenv("ROMAN_API_KEY", "")
-
-
-def require_api_key(x_api_key: str | None = Header(default=None)) -> None:
-    if not API_KEY:
-        raise HTTPException(status_code=503, detail="ROMAN_API_KEY is not configured")
-    if x_api_key != API_KEY:
-        raise HTTPException(status_code=401, detail="Invalid API key")
-
-
 app = FastAPI(
     title="Roman AI",
-    version="0.5.0",
+    version="0.5.1",
     description="Novel session backend for Custom GPT. Persistent state and character memory are stored on a Railway Volume.",
 )
 
@@ -40,17 +28,17 @@ def health():
     return {"ok": True}
 
 
-@app.get("/novels", operation_id="listNovels", dependencies=[Depends(require_api_key)])
+@app.get("/novels", operation_id="listNovels")
 def novels_list():
     return {"novels": list_novels()}
 
 
-@app.post("/novels", operation_id="saveNovel", dependencies=[Depends(require_api_key)])
+@app.post("/novels", operation_id="saveNovel")
 def novels_save(template: NovelTemplate):
     return save_novel(template.model_dump())
 
 
-@app.get("/novels/{novel_id}", operation_id="getNovel", dependencies=[Depends(require_api_key)])
+@app.get("/novels/{novel_id}", operation_id="getNovel")
 def novels_get(novel_id: str):
     try:
         return get_novel(novel_id)
@@ -58,7 +46,7 @@ def novels_get(novel_id: str):
         raise HTTPException(status_code=404, detail="Novel not found")
 
 
-@app.post("/sessions", operation_id="createSession", dependencies=[Depends(require_api_key)])
+@app.post("/sessions", operation_id="createSession")
 def sessions_create(body: SessionCreate):
     try:
         novel = get_novel(body.novel_id)
@@ -67,7 +55,7 @@ def sessions_create(body: SessionCreate):
     return create_session(novel)
 
 
-@app.get("/sessions/{session_id}", operation_id="getSession", dependencies=[Depends(require_api_key)])
+@app.get("/sessions/{session_id}", operation_id="getSession")
 def sessions_get(session_id: str):
     try:
         return load_session(session_id)
@@ -75,11 +63,7 @@ def sessions_get(session_id: str):
         raise HTTPException(status_code=404, detail="Session not found")
 
 
-@app.get(
-    "/sessions/{session_id}/characters/{character_id}/memory",
-    operation_id="getCharacterMemory",
-    dependencies=[Depends(require_api_key)],
-)
+@app.get("/sessions/{session_id}/characters/{character_id}/memory", operation_id="getCharacterMemory")
 def character_memory_get(session_id: str, character_id: str):
     try:
         return get_character_memory(session_id, character_id)
@@ -87,7 +71,7 @@ def character_memory_get(session_id: str, character_id: str):
         raise HTTPException(status_code=404, detail="Session not found")
 
 
-@app.get("/sessions/{session_id}/turns", operation_id="getTurnRange", dependencies=[Depends(require_api_key)])
+@app.get("/sessions/{session_id}/turns", operation_id="getTurnRange")
 def turns_get(session_id: str, start_turn: int, end_turn: int):
     try:
         return {"turns": get_turn_range(session_id, start_turn, end_turn)}
@@ -95,7 +79,7 @@ def turns_get(session_id: str, start_turn: int, end_turn: int):
         raise HTTPException(status_code=404, detail="Session not found")
 
 
-@app.post("/sessions/{session_id}/turns", operation_id="commitTurn", dependencies=[Depends(require_api_key)])
+@app.post("/sessions/{session_id}/turns", operation_id="commitTurn")
 def turns_commit(session_id: str, body: TurnCommit):
     try:
         return commit_turn(session_id, body.model_dump())
@@ -109,7 +93,7 @@ def turns_commit(session_id: str, body: TurnCommit):
         raise
 
 
-@app.post("/sessions/{session_id}/audit", operation_id="commitAudit", dependencies=[Depends(require_api_key)])
+@app.post("/sessions/{session_id}/audit", operation_id="commitAudit")
 def audit_commit(session_id: str, body: AuditCommit):
     try:
         return commit_audit(session_id, body.model_dump())
@@ -123,7 +107,7 @@ def audit_commit(session_id: str, body: AuditCommit):
         raise HTTPException(status_code=409, detail="Audit range does not match the current turn")
 
 
-@app.post("/sessions/{session_id}/resume", operation_id="resumeSession", dependencies=[Depends(require_api_key)])
+@app.post("/sessions/{session_id}/resume", operation_id="resumeSession")
 def session_resume(session_id: str):
     try:
         return build_resume_package(session_id)
@@ -137,11 +121,7 @@ def session_resume(session_id: str):
         raise
 
 
-@app.post(
-    "/sessions/{session_id}/resume/confirm",
-    operation_id="confirmResume",
-    dependencies=[Depends(require_api_key)],
-)
+@app.post("/sessions/{session_id}/resume/confirm", operation_id="confirmResume")
 def session_resume_confirm(session_id: str, body: ResumeConfirm):
     try:
         return confirm_resume(session_id, body.resume_token)
