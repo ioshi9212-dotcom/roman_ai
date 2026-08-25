@@ -52,6 +52,57 @@ def _read_turns(root: Path) -> List[Dict[str, Any]]:
     return turns
 
 
+def _memory_bucket(memory: Dict[str, Any], character_id: str) -> Dict[str, List[Dict[str, Any]]]:
+    bucket = memory.setdefault(character_id, {})
+    bucket.setdefault("knowledge", [])
+    bucket.setdefault("experiences", [])
+    bucket.setdefault("dialogue_memory", [])
+    return bucket
+
+
+def _upsert_by_id(items: List[Dict[str, Any]], item: Dict[str, Any], id_key: str) -> None:
+    item_id = item.get(id_key)
+    if not item_id:
+        return
+    for index, existing in enumerate(items):
+        if existing.get(id_key) == item_id:
+            items[index] = _deep_merge(existing, item)
+            return
+    items.append(deepcopy(item))
+
+
+def _apply_memory_events(memory: Dict[str, Any], extracted: Dict[str, Any], turn_number: int) -> Dict[str, Any]:
+    result = deepcopy(memory)
+
+    for item in extracted.get("knowledge_add", []) if isinstance(extracted.get("knowledge_add"), list) else []:
+        character_id = item.get("character_id")
+        if not character_id:
+            continue
+        record = deepcopy(item)
+        record.setdefault("learned_turn", turn_number)
+        record.setdefault("confidence", "certain")
+        _upsert_by_id(_memory_bucket(result, character_id)["knowledge"], record, "fact_id")
+
+    for item in extracted.get("experiences_add", []) if isinstance(extracted.get("experiences_add"), list) else []:
+        character_id = item.get("character_id")
+        if not character_id:
+            continue
+        record = deepcopy(item)
+        record.setdefault("turn", turn_number)
+        _upsert_by_id(_memory_bucket(result, character_id)["experiences"], record, "event_id")
+
+    for item in extracted.get("dialogue_memory_add", []) if isinstance(extracted.get("dialogue_memory_add"), list) else []:
+        participants = item.get("participants") or []
+        if isinstance(participants, str):
+            participants = [participants]
+        for character_id in participants:
+            record = deepcopy(item)
+            record.setdefault("turn", turn_number)
+            _upsert_by_id(_memory_bucket(result, character_id)["dialogue_memory"], record, "topic_id")
+
+    return result
+
+
 def list_novels() -> List[Dict[str, Any]]:
     ensure_dirs()
     result = []
@@ -92,7 +143,6 @@ def create_session(novel: Dict[str, Any]) -> Dict[str, Any]:
     initial_state = {
         "current": {},
         "characters": {},
-        "knowledge": {},
         "relationships": {},
         "threads": {},
         "world": {},
@@ -100,6 +150,7 @@ def create_session(novel: Dict[str, Any]) -> Dict[str, Any]:
     _write_json(root / "meta.json", meta)
     _write_json(root / "source.json", novel)
     _write_json(root / "state.json", initial_state)
+    _write_json(root / "memory.json", {})
     _write_json(root / "chronology.json", [])
     _write_json(root / "audits.json", [])
     (root / "turns.jsonl").write_text("", encoding="utf-8")
@@ -115,9 +166,18 @@ def load_session(session_id: str, recent_limit: int = 6) -> Dict[str, Any]:
         "meta": _read_json(root / "meta.json", {}),
         "source": _read_json(root / "source.json", {}),
         "state": _read_json(root / "state.json", {}),
+        "memory": _read_json(root / "memory.json", {}),
         "chronology": _read_json(root / "chronology.json", []),
         "recent_turns": turns[-recent_limit:],
     }
+
+
+def get_character_memory(session_id: str, character_id: str) -> Dict[str, Any]:
+    root = SESSIONS_DIR / session_id
+    if not root.exists():
+        raise FileNotFoundError(session_id)
+    memory = _read_json(root / "memory.json", {})
+    return _memory_bucket(memory, character_id)
 
 
 def get_turn_range(session_id: str, start_turn: int, end_turn: int) -> List[Dict[str, Any]]:
@@ -138,21 +198,25 @@ def commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         raise RuntimeError("HANDOFF_REQUIRED")
 
     turn_number = int(meta.get("turn_number", 0)) + 1
+    extracted = payload.get("extracted", {})
     entry = {
         "turn_number": turn_number,
         "saved_at": datetime.now(timezone.utc).isoformat(),
         "user_input": payload["user_input"],
         "scene_output": payload["scene_output"],
-        "extracted": payload.get("extracted", {}),
+        "extracted": extracted,
     }
     with (root / "turns.jsonl").open("a", encoding="utf-8") as fh:
         fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
-    extracted = payload.get("extracted", {})
     state = _read_json(root / "state.json", {})
     if isinstance(extracted.get("state_patch"), dict):
         state = _deep_merge(state, extracted["state_patch"])
         _write_json(root / "state.json", state)
+
+    memory = _read_json(root / "memory.json", {})
+    memory = _apply_memory_events(memory, extracted, turn_number)
+    _write_json(root / "memory.json", memory)
 
     chronology = _read_json(root / "chronology.json", [])
     if isinstance(extracted.get("chronology"), list):
@@ -195,10 +259,16 @@ def commit_audit(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     if isinstance(repairs.get("state_patch"), dict):
         state = _deep_merge(state, repairs["state_patch"])
         _write_json(root / "state.json", state)
+
+    memory = _read_json(root / "memory.json", {})
+    memory = _apply_memory_events(memory, repairs, expected_end)
+    _write_json(root / "memory.json", memory)
+
     chronology = _read_json(root / "chronology.json", [])
     if isinstance(repairs.get("chronology_add"), list):
         chronology.extend(repairs["chronology_add"])
         _write_json(root / "chronology.json", chronology)
+
     audits = _read_json(root / "audits.json", [])
     audits.append({
         "start_turn": payload["start_turn"],
@@ -231,9 +301,10 @@ def build_resume_package(session_id: str) -> Dict[str, Any]:
         "meta": meta,
         "source": _read_json(root / "source.json", {}),
         "state": _read_json(root / "state.json", {}),
+        "memory": _read_json(root / "memory.json", {}),
         "chronology": _read_json(root / "chronology.json", []),
         "handoff_tail": _read_json(root / "handoff_tail.json", []),
-        "instruction": "Restore this exact session. Treat source as canon, state as current truth, chronology as persistent history, and handoff_tail as the exact recent scene continuity. Do not summarize away details from handoff_tail before continuing.",
+        "instruction": "Restore this exact session. Source is canon, state is current truth, memory contains each character's knowledge/experience/dialogue history, chronology is persistent history, and handoff_tail is exact recent scene continuity. Never replace these with guesses.",
     }
 
 
