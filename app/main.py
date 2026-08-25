@@ -3,7 +3,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 
-from .models import AuditCommit, NovelRawSave, NovelTemplate, ResumeConfirm, SessionCreate, TurnCommit
+from .models import AuditCommit, NovelRawSave, NovelTemplate, ResumeConfirm, SessionCreate, TurnCommit, TurnPrepare
 from .storage import (
     build_resume_package,
     commit_audit,
@@ -12,9 +12,11 @@ from .storage import (
     create_session,
     get_character_memory,
     get_novel,
+    get_turn_packet_chunk,
     get_turn_range,
     list_novels,
     load_session,
+    prepare_turn_packet,
     save_novel,
 )
 
@@ -25,8 +27,8 @@ RUNTIME_DIR = ROOT_DIR / "runtime"
 
 app = FastAPI(
     title="Roman AI",
-    version="0.6.1",
-    description="Novel session backend for Custom GPT. Persistent state and character memory are stored on a Railway Volume.",
+    version="0.7.0",
+    description="Novel session backend for Custom GPT. Persistent state, chunked turn context and character memory are stored on a Railway Volume.",
 )
 
 
@@ -98,6 +100,32 @@ def sessions_get(session_id: str):
         raise HTTPException(status_code=404, detail="Session not found")
 
 
+@app.post("/sessions/{session_id}/turn-packet", operation_id="prepareTurn")
+def turn_packet_prepare(session_id: str, body: TurnPrepare):
+    try:
+        return prepare_turn_packet(session_id, body.user_input)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Session not found")
+    except RuntimeError as exc:
+        if str(exc) == "AUDIT_REQUIRED":
+            raise HTTPException(status_code=409, detail="Audit is required before preparing the next turn")
+        if str(exc) == "HANDOFF_REQUIRED":
+            raise HTTPException(status_code=409, detail="Session handoff is required before preparing the next turn")
+        raise
+
+
+@app.get("/sessions/{session_id}/turn-packet/{packet_id}/{chunk_index}", operation_id="getTurnPacketChunk")
+def turn_packet_chunk_get(session_id: str, packet_id: str, chunk_index: int):
+    try:
+        return get_turn_packet_chunk(session_id, packet_id, chunk_index)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Session not found")
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="Invalid or stale packet_id")
+    except IndexError:
+        raise HTTPException(status_code=404, detail="Chunk index out of range")
+
+
 @app.get("/sessions/{session_id}/characters/{character_id}/memory", operation_id="getCharacterMemory")
 def character_memory_get(session_id: str, character_id: str):
     try:
@@ -121,10 +149,14 @@ def turns_commit(session_id: str, body: TurnCommit):
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Session not found")
     except RuntimeError as exc:
-        if str(exc) == "AUDIT_REQUIRED":
-            raise HTTPException(status_code=409, detail="Audit is required before the next turn")
-        if str(exc) == "HANDOFF_REQUIRED":
-            raise HTTPException(status_code=409, detail="Session handoff is required before the next turn")
+        errors = {
+            "AUDIT_REQUIRED": "Audit is required before the next turn",
+            "HANDOFF_REQUIRED": "Session handoff is required before the next turn",
+            "TURN_PACKET_REQUIRED": "prepareTurn must be called for this exact user input before commitTurn",
+            "TURN_PACKET_INCOMPLETE": "Every turn packet chunk must be read before commitTurn",
+        }
+        if str(exc) in errors:
+            raise HTTPException(status_code=409, detail=errors[str(exc)])
         raise
 
 
