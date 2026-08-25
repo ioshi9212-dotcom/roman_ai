@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Roman AI
-  version: 0.5.1
+  version: 0.6.0
   description: Persistent novel sessions for Custom GPT.
 servers:
   - url: https://romanai-production-0fdb.up.railway.app
@@ -53,6 +53,12 @@ paths:
       summary: Check service health
       responses:
         '200': {description: Healthy}
+  /runtime:
+    get:
+      operationId: getRuntime
+      summary: Load current runtime rules, scene builder and memory contract
+      responses:
+        '200': {description: Runtime documents}
   /novels:
     get:
       operationId: listNovels
