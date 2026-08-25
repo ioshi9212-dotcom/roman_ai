@@ -7,6 +7,7 @@ from .storage import (
     commit_turn,
     confirm_resume,
     create_session,
+    get_character_memory,
     get_novel,
     get_turn_range,
     list_novels,
@@ -17,8 +18,8 @@ from .storage import (
 
 app = FastAPI(
     title="Roman AI",
-    version="0.3.0",
-    description="Novel session backend for Custom GPT. Persistent state is stored on a Railway Volume.",
+    version="0.4.0",
+    description="Novel session backend for Custom GPT. Persistent state and character memory are stored on a Railway Volume.",
 )
 
 
@@ -58,6 +59,14 @@ def sessions_create(body: SessionCreate):
 def sessions_get(session_id: str):
     try:
         return load_session(session_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+
+@app.get("/sessions/{session_id}/characters/{character_id}/memory", operation_id="getCharacterMemory")
+def character_memory_get(session_id: str, character_id: str):
+    try:
+        return get_character_memory(session_id, character_id)
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Session not found")
 
