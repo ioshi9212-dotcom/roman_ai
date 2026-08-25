@@ -1,0 +1,213 @@
+openapi: 3.1.0
+info:
+  title: Roman AI
+  version: 0.5.0
+  description: Persistent novel sessions for Custom GPT.
+servers:
+  - url: https://romanai-production-0fdb.up.railway.app
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+  schemas:
+    NovelTemplate:
+      type: object
+      required: [novel_id, title]
+      properties:
+        novel_id: {type: string}
+        title: {type: string}
+        version: {type: integer, default: 1}
+        novel: {type: object, additionalProperties: true}
+        characters:
+          type: array
+          items: {type: object, additionalProperties: true}
+        lore: {type: object, additionalProperties: true}
+    SessionCreate:
+      type: object
+      required: [novel_id]
+      properties:
+        novel_id: {type: string}
+    TurnCommit:
+      type: object
+      required: [user_input, scene_output]
+      properties:
+        user_input: {type: string}
+        scene_output: {type: string}
+        extracted: {type: object, additionalProperties: true}
+    AuditCommit:
+      type: object
+      required: [start_turn, end_turn]
+      properties:
+        start_turn: {type: integer}
+        end_turn: {type: integer}
+        repairs: {type: object, additionalProperties: true}
+        notes:
+          type: array
+          items: {type: string}
+    ResumeConfirm:
+      type: object
+      required: [resume_token]
+      properties:
+        resume_token: {type: string}
+security:
+  - ApiKeyAuth: []
+paths:
+  /health:
+    get:
+      operationId: health
+      security: []
+      summary: Check service health
+      responses:
+        '200':
+          description: Healthy
+  /novels:
+    get:
+      operationId: listNovels
+      summary: List library novels
+      responses:
+        '200': {description: Novel list}
+    post:
+      operationId: saveNovel
+      summary: Save or replace a library novel
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/NovelTemplate'}
+      responses:
+        '200': {description: Saved novel}
+  /novels/{novel_id}:
+    get:
+      operationId: getNovel
+      summary: Load one library novel
+      parameters:
+        - in: path
+          name: novel_id
+          required: true
+          schema: {type: string}
+      responses:
+        '200': {description: Novel}
+        '404': {description: Novel not found}
+  /sessions:
+    post:
+      operationId: createSession
+      summary: Create a new isolated session from a library novel snapshot
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/SessionCreate'}
+      responses:
+        '200': {description: Session metadata}
+        '404': {description: Novel not found}
+  /sessions/{session_id}:
+    get:
+      operationId: getSession
+      summary: Load current session state and recent turns
+      parameters:
+        - in: path
+          name: session_id
+          required: true
+          schema: {type: string}
+      responses:
+        '200': {description: Session snapshot}
+        '404': {description: Session not found}
+  /sessions/{session_id}/characters/{character_id}/memory:
+    get:
+      operationId: getCharacterMemory
+      summary: Load persistent memory for one character
+      parameters:
+        - in: path
+          name: session_id
+          required: true
+          schema: {type: string}
+        - in: path
+          name: character_id
+          required: true
+          schema: {type: string}
+      responses:
+        '200': {description: Character memory}
+        '404': {description: Session not found}
+  /sessions/{session_id}/turns:
+    get:
+      operationId: getTurnRange
+      summary: Load exact raw turns for audit or recovery
+      parameters:
+        - in: path
+          name: session_id
+          required: true
+          schema: {type: string}
+        - in: query
+          name: start_turn
+          required: true
+          schema: {type: integer}
+        - in: query
+          name: end_turn
+          required: true
+          schema: {type: integer}
+      responses:
+        '200': {description: Raw turns}
+    post:
+      operationId: commitTurn
+      summary: Save one complete turn and persistent extracted changes
+      parameters:
+        - in: path
+          name: session_id
+          required: true
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/TurnCommit'}
+      responses:
+        '200': {description: Turn committed}
+        '409': {description: Audit or handoff required}
+  /sessions/{session_id}/audit:
+    post:
+      operationId: commitAudit
+      summary: Save repairs after the mandatory 15-turn audit
+      parameters:
+        - in: path
+          name: session_id
+          required: true
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/AuditCommit'}
+      responses:
+        '200': {description: Audit committed}
+        '409': {description: Audit not required or range mismatch}
+  /sessions/{session_id}/resume:
+    post:
+      operationId: resumeSession
+      summary: Build the transfer package after turn 60
+      parameters:
+        - in: path
+          name: session_id
+          required: true
+          schema: {type: string}
+      responses:
+        '200': {description: Resume package with token and turns 55-60}
+        '409': {description: Audit required or handoff not required}
+  /sessions/{session_id}/resume/confirm:
+    post:
+      operationId: confirmResume
+      summary: Confirm successful transfer in the new chat
+      parameters:
+        - in: path
+          name: session_id
+          required: true
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ResumeConfirm'}
+      responses:
+        '200': {description: Transfer confirmed}
+        '403': {description: Invalid token}
