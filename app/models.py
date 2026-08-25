@@ -19,6 +19,10 @@ class SessionCreate(BaseModel):
     novel_id: str
 
 
+class TurnPrepare(BaseModel):
+    user_input: str
+
+
 class SessionMeta(BaseModel):
     session_id: str
     source_novel_id: str
