@@ -84,6 +84,7 @@ def create_session(novel: Dict[str, Any]) -> Dict[str, Any]:
         "source_novel_id": novel["novel_id"],
         "source_novel_version": novel.get("version", 1),
         "turn_number": 0,
+        "audit_required": False,
         "handoff_required": False,
         "handoff_generation": 0,
         "last_audit_turn": 0,
@@ -131,6 +132,8 @@ def commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     if not root.exists():
         raise FileNotFoundError(session_id)
     meta = _read_json(root / "meta.json", {})
+    if meta.get("audit_required"):
+        raise RuntimeError("AUDIT_REQUIRED")
     if meta.get("handoff_required"):
         raise RuntimeError("HANDOFF_REQUIRED")
 
@@ -159,6 +162,8 @@ def commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     meta["turn_number"] = turn_number
     audit_due = turn_number % 15 == 0
     handoff_due = turn_number % 60 == 0
+    if audit_due:
+        meta["audit_required"] = True
     if handoff_due:
         meta["handoff_required"] = True
         tail = get_turn_range(session_id, max(1, turn_number - 5), turn_number)
@@ -178,6 +183,13 @@ def commit_audit(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     root = SESSIONS_DIR / session_id
     if not root.exists():
         raise FileNotFoundError(session_id)
+    meta = _read_json(root / "meta.json", {})
+    expected_end = int(meta.get("turn_number", 0))
+    if not meta.get("audit_required"):
+        raise RuntimeError("AUDIT_NOT_REQUIRED")
+    if int(payload.get("end_turn", 0)) != expected_end:
+        raise ValueError("AUDIT_RANGE_MISMATCH")
+
     repairs = payload.get("repairs", {})
     state = _read_json(root / "state.json", {})
     if isinstance(repairs.get("state_patch"), dict):
@@ -196,10 +208,10 @@ def commit_audit(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         "saved_at": datetime.now(timezone.utc).isoformat(),
     })
     _write_json(root / "audits.json", audits)
-    meta = _read_json(root / "meta.json", {})
     meta["last_audit_turn"] = payload["end_turn"]
+    meta["audit_required"] = False
     _write_json(root / "meta.json", meta)
-    return {"ok": True, "audited_through": payload["end_turn"]}
+    return {"ok": True, "audited_through": payload["end_turn"], "handoff_required": bool(meta.get("handoff_required"))}
 
 
 def build_resume_package(session_id: str) -> Dict[str, Any]:
@@ -207,6 +219,8 @@ def build_resume_package(session_id: str) -> Dict[str, Any]:
     if not root.exists():
         raise FileNotFoundError(session_id)
     meta = _read_json(root / "meta.json", {})
+    if meta.get("audit_required"):
+        raise RuntimeError("AUDIT_REQUIRED")
     if not meta.get("handoff_required"):
         raise RuntimeError("HANDOFF_NOT_REQUIRED")
     token = secrets.token_urlsafe(24)
@@ -231,6 +245,8 @@ def confirm_resume(session_id: str, resume_token: str) -> Dict[str, Any]:
     if not saved or saved.get("token") != resume_token:
         raise PermissionError("INVALID_RESUME_TOKEN")
     meta = _read_json(root / "meta.json", {})
+    if meta.get("audit_required"):
+        raise RuntimeError("AUDIT_REQUIRED")
     meta["handoff_required"] = False
     meta["handoff_generation"] = int(meta.get("handoff_generation", 0)) + 1
     meta["last_resumed_at"] = datetime.now(timezone.utc).isoformat()
