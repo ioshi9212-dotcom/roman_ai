@@ -1,12 +1,29 @@
 openapi: 3.1.0
 info:
   title: Roman AI
-  version: 0.7.0
+  version: 0.8.0
   description: Persistent novel sessions for Custom GPT.
 servers:
   - url: https://romanai-production-0fdb.up.railway.app
 components:
   schemas:
+    NovelDraftCreate:
+      type: object
+      required: [novel_id, title]
+      properties:
+        novel_id: {type: string}
+        title: {type: string}
+        version: {type: integer, default: 1}
+    NovelDraftSection:
+      type: object
+      required: [section_name, section_json]
+      properties:
+        section_name:
+          type: string
+          enum: [novel, characters, lore, rules, hidden_lore, world, starting_state, story_direction]
+        section_json:
+          type: string
+          description: Exactly one valid JSON value for this section, with no prose before or after it.
     NovelTemplate:
       type: object
       required: [novel_id, title]
@@ -23,9 +40,7 @@ components:
       type: object
       required: [template_json]
       properties:
-        template_json:
-          type: string
-          description: Complete novel template serialized as one valid JSON object string.
+        template_json: {type: string}
     SessionCreate:
       type: object
       required: [novel_id]
@@ -71,6 +86,48 @@ paths:
       summary: Load runtime rules, scene builder and memory contract
       responses:
         '200': {description: Runtime documents}
+  /novel-drafts:
+    post:
+      operationId: createNovelDraft
+      summary: Start a staged draft for a new library novel
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/NovelDraftCreate'}
+      responses:
+        '200': {description: Draft status with draft_id}
+  /novel-drafts/{draft_id}/sections:
+    post:
+      operationId: saveNovelDraftSection
+      summary: Save or replace one complete novel section
+      parameters:
+        - {in: path, name: draft_id, required: true, schema: {type: string}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/NovelDraftSection'}
+      responses:
+        '200': {description: Updated draft status}
+        '422': {description: Invalid section JSON or name}
+  /novel-drafts/{draft_id}:
+    get:
+      operationId: getNovelDraftStatus
+      summary: Check which sections are saved and whether draft is complete
+      parameters:
+        - {in: path, name: draft_id, required: true, schema: {type: string}}
+      responses:
+        '200': {description: Draft status}
+  /novel-drafts/{draft_id}/finalize:
+    post:
+      operationId: finalizeNovelDraft
+      summary: Validate staged draft and save it into the permanent library
+      parameters:
+        - {in: path, name: draft_id, required: true, schema: {type: string}}
+      responses:
+        '200': {description: Finalized novel with verification summary}
+        '409': {description: Draft incomplete}
   /novels:
     get:
       operationId: listNovels
@@ -90,15 +147,14 @@ paths:
   /novels/raw:
     post:
       operationId: saveNovelRaw
-      summary: Save a complete deeply nested novel template
+      summary: Legacy one-shot save for small templates only; do not use for full novels
       requestBody:
         required: true
         content:
           application/json:
             schema: {$ref: '#/components/schemas/NovelRawSave'}
       responses:
-        '200': {description: Complete novel saved}
-        '422': {description: Invalid JSON or missing novel_id/title}
+        '200': {description: Saved novel}
   /novels/{novel_id}:
     get:
       operationId: getNovel
@@ -107,7 +163,6 @@ paths:
         - {in: path, name: novel_id, required: true, schema: {type: string}}
       responses:
         '200': {description: Novel}
-        '404': {description: Novel not found}
   /sessions:
     post:
       operationId: createSession
@@ -130,7 +185,7 @@ paths:
   /sessions/{session_id}/turn-packet:
     post:
       operationId: prepareTurn
-      summary: Build the exact chunked context package for the next user turn
+      summary: Build chunked context for the next user turn
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
       requestBody:
@@ -139,23 +194,21 @@ paths:
           application/json:
             schema: {$ref: '#/components/schemas/TurnPrepare'}
       responses:
-        '200': {description: Packet manifest with packet_id and chunk_count}
-        '409': {description: Audit or handoff required}
+        '200': {description: Packet manifest}
   /sessions/{session_id}/turn-packet/{packet_id}/{chunk_index}:
     get:
       operationId: getTurnPacketChunk
-      summary: Read one required chunk of the prepared turn context
+      summary: Read one required context chunk
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
         - {in: path, name: packet_id, required: true, schema: {type: string}}
         - {in: path, name: chunk_index, required: true, schema: {type: integer}}
       responses:
         '200': {description: One packet chunk}
-        '403': {description: Invalid or stale packet}
   /sessions/{session_id}/characters/{character_id}/memory:
     get:
       operationId: getCharacterMemory
-      summary: Load one character memory directly for debugging or recovery
+      summary: Load one character memory directly
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
         - {in: path, name: character_id, required: true, schema: {type: string}}
@@ -173,7 +226,7 @@ paths:
         '200': {description: Raw turns}
     post:
       operationId: commitTurn
-      summary: Save one complete turn after every prepared packet chunk was read
+      summary: Save one complete turn after every packet chunk was read
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
       requestBody:
@@ -183,7 +236,6 @@ paths:
             schema: {$ref: '#/components/schemas/TurnCommit'}
       responses:
         '200': {description: Turn committed}
-        '409': {description: Audit, handoff or packet requirement failed}
   /sessions/{session_id}/audit:
     post:
       operationId: commitAudit
