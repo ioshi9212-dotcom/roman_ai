@@ -1,16 +1,11 @@
 openapi: 3.1.0
 info:
   title: Roman AI
-  version: 0.5.0
+  version: 0.5.1
   description: Persistent novel sessions for Custom GPT.
 servers:
   - url: https://romanai-production-0fdb.up.railway.app
 components:
-  securitySchemes:
-    ApiKeyAuth:
-      type: apiKey
-      in: header
-      name: X-API-Key
   schemas:
     NovelTemplate:
       type: object
@@ -51,17 +46,13 @@ components:
       required: [resume_token]
       properties:
         resume_token: {type: string}
-security:
-  - ApiKeyAuth: []
 paths:
   /health:
     get:
       operationId: health
-      security: []
       summary: Check service health
       responses:
-        '200':
-          description: Healthy
+        '200': {description: Healthy}
   /novels:
     get:
       operationId: listNovels
@@ -83,10 +74,7 @@ paths:
       operationId: getNovel
       summary: Load one library novel
       parameters:
-        - in: path
-          name: novel_id
-          required: true
-          schema: {type: string}
+        - {in: path, name: novel_id, required: true, schema: {type: string}}
       responses:
         '200': {description: Novel}
         '404': {description: Novel not found}
@@ -107,10 +95,7 @@ paths:
       operationId: getSession
       summary: Load current session state and recent turns
       parameters:
-        - in: path
-          name: session_id
-          required: true
-          schema: {type: string}
+        - {in: path, name: session_id, required: true, schema: {type: string}}
       responses:
         '200': {description: Session snapshot}
         '404': {description: Session not found}
@@ -119,44 +104,25 @@ paths:
       operationId: getCharacterMemory
       summary: Load persistent memory for one character
       parameters:
-        - in: path
-          name: session_id
-          required: true
-          schema: {type: string}
-        - in: path
-          name: character_id
-          required: true
-          schema: {type: string}
+        - {in: path, name: session_id, required: true, schema: {type: string}}
+        - {in: path, name: character_id, required: true, schema: {type: string}}
       responses:
         '200': {description: Character memory}
-        '404': {description: Session not found}
   /sessions/{session_id}/turns:
     get:
       operationId: getTurnRange
       summary: Load exact raw turns for audit or recovery
       parameters:
-        - in: path
-          name: session_id
-          required: true
-          schema: {type: string}
-        - in: query
-          name: start_turn
-          required: true
-          schema: {type: integer}
-        - in: query
-          name: end_turn
-          required: true
-          schema: {type: integer}
+        - {in: path, name: session_id, required: true, schema: {type: string}}
+        - {in: query, name: start_turn, required: true, schema: {type: integer}}
+        - {in: query, name: end_turn, required: true, schema: {type: integer}}
       responses:
         '200': {description: Raw turns}
     post:
       operationId: commitTurn
       summary: Save one complete turn and persistent extracted changes
       parameters:
-        - in: path
-          name: session_id
-          required: true
-          schema: {type: string}
+        - {in: path, name: session_id, required: true, schema: {type: string}}
       requestBody:
         required: true
         content:
@@ -170,10 +136,7 @@ paths:
       operationId: commitAudit
       summary: Save repairs after the mandatory 15-turn audit
       parameters:
-        - in: path
-          name: session_id
-          required: true
-          schema: {type: string}
+        - {in: path, name: session_id, required: true, schema: {type: string}}
       requestBody:
         required: true
         content:
@@ -187,10 +150,7 @@ paths:
       operationId: resumeSession
       summary: Build the transfer package after turn 60
       parameters:
-        - in: path
-          name: session_id
-          required: true
-          schema: {type: string}
+        - {in: path, name: session_id, required: true, schema: {type: string}}
       responses:
         '200': {description: Resume package with token and turns 55-60}
         '409': {description: Audit required or handoff not required}
@@ -199,10 +159,7 @@ paths:
       operationId: confirmResume
       summary: Confirm successful transfer in the new chat
       parameters:
-        - in: path
-          name: session_id
-          required: true
-          schema: {type: string}
+        - {in: path, name: session_id, required: true, schema: {type: string}}
       requestBody:
         required: true
         content:
