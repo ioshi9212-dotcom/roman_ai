@@ -17,7 +17,7 @@ from .storage import (
 
 app = FastAPI(
     title="Roman AI",
-    version="0.2.0",
+    version="0.3.0",
     description="Novel session backend for Custom GPT. Persistent state is stored on a Railway Volume.",
 )
 
@@ -77,6 +77,8 @@ def turns_commit(session_id: str, body: TurnCommit):
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Session not found")
     except RuntimeError as exc:
+        if str(exc) == "AUDIT_REQUIRED":
+            raise HTTPException(status_code=409, detail="Audit is required before the next turn")
         if str(exc) == "HANDOFF_REQUIRED":
             raise HTTPException(status_code=409, detail="Session handoff is required before the next turn")
         raise
@@ -88,6 +90,12 @@ def audit_commit(session_id: str, body: AuditCommit):
         return commit_audit(session_id, body.model_dump())
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Session not found")
+    except RuntimeError as exc:
+        if str(exc) == "AUDIT_NOT_REQUIRED":
+            raise HTTPException(status_code=409, detail="Audit is not currently required")
+        raise
+    except ValueError:
+        raise HTTPException(status_code=409, detail="Audit range does not match the current turn")
 
 
 @app.post("/sessions/{session_id}/resume", operation_id="resumeSession")
@@ -97,6 +105,8 @@ def session_resume(session_id: str):
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Session not found")
     except RuntimeError as exc:
+        if str(exc) == "AUDIT_REQUIRED":
+            raise HTTPException(status_code=409, detail="Turn 60 audit must be completed before handoff")
         if str(exc) == "HANDOFF_NOT_REQUIRED":
             raise HTTPException(status_code=409, detail="This session does not currently require handoff")
         raise
@@ -110,3 +120,7 @@ def session_resume_confirm(session_id: str, body: ResumeConfirm):
         raise HTTPException(status_code=404, detail="Session not found")
     except PermissionError:
         raise HTTPException(status_code=403, detail="Invalid resume token")
+    except RuntimeError as exc:
+        if str(exc) == "AUDIT_REQUIRED":
+            raise HTTPException(status_code=409, detail="Audit is required before resume can be confirmed")
+        raise
