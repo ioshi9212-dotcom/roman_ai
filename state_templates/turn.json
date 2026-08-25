@@ -1,0 +1,13 @@
+{
+  "turn_number": null,
+  "saved_at": null,
+  "user_input": "",
+  "scene_output": "",
+  "extracted": {
+    "state_patch": {},
+    "chronology": [],
+    "knowledge_add": [],
+    "experiences_add": [],
+    "dialogue_memory_add": []
+  }
+}
