@@ -240,6 +240,55 @@ def get_turn_range(session_id: str, start_turn: int, end_turn: int) -> List[Dict
     return [t for t in _read_turns(root) if start_turn <= int(t.get("turn_number", 0)) <= end_turn]
 
 
+def get_audit_snapshot(session_id: str) -> Dict[str, Any]:
+    root = SESSIONS_DIR / session_id
+    if not root.exists():
+        raise FileNotFoundError(session_id)
+    meta = _read_json(root / "meta.json", {})
+    if not meta.get("audit_required"):
+        raise RuntimeError("AUDIT_NOT_REQUIRED")
+
+    end_turn = int(meta.get("turn_number", 0))
+    start_turn = max(int(meta.get("last_audit_turn", 0)) + 1, end_turn - 14)
+    state = _read_json(root / "state.json", {})
+    memory = _normalise_memory(_read_json(root / "memory.json", {}))
+    chronology = _read_json(root / "chronology.json", [])
+
+    recent_memory: Dict[str, Any] = {}
+    for character_id, bucket in memory.get("characters", {}).items():
+        if not isinstance(bucket, dict):
+            continue
+        knowledge = [x for x in bucket.get("knowledge", []) if int(x.get("learned_turn", 0) or 0) >= start_turn]
+        experiences = [x for x in bucket.get("experiences", []) if int(x.get("turn", 0) or 0) >= start_turn]
+        dialogue = [x for x in bucket.get("dialogue_memory", []) if int(x.get("turn", 0) or 0) >= start_turn]
+        if knowledge or experiences or dialogue:
+            recent_memory[character_id] = {
+                "knowledge": knowledge,
+                "experiences": experiences,
+                "dialogue_memory": dialogue,
+            }
+
+    recent_chronology = []
+    if isinstance(chronology, list):
+        for item in chronology:
+            if not isinstance(item, dict):
+                continue
+            turn = item.get("turn") or item.get("turn_number")
+            if turn is None or int(turn or 0) >= start_turn:
+                recent_chronology.append(item)
+        recent_chronology = recent_chronology[-40:]
+
+    return {
+        "audit_range": [start_turn, end_turn],
+        "state": state,
+        "saved_this_cycle": {
+            "chronology": recent_chronology,
+            "memory": recent_memory,
+        },
+        "instruction": "FAST AUDIT. Use the last 15 turns already visible in the current chat. Do not fetch raw turns. Add only missing chronology, character knowledge/experience/dialogue memory, and obvious state corrections. Then call commitAudit once.",
+    }
+
+
 def prepare_turn_packet(session_id: str, user_input: str) -> Dict[str, Any]:
     root = SESSIONS_DIR / session_id
     if not root.exists():
