@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Roman AI
-  version: 0.8.0
+  version: 0.9.0
   description: Persistent novel sessions for Custom GPT.
 servers:
   - url: https://romanai-production-0fdb.up.railway.app
@@ -110,7 +110,6 @@ paths:
             schema: {$ref: '#/components/schemas/NovelDraftSection'}
       responses:
         '200': {description: Updated draft status}
-        '422': {description: Invalid section JSON or name}
   /novel-drafts/{draft_id}:
     get:
       operationId: getNovelDraftStatus
@@ -127,7 +126,6 @@ paths:
         - {in: path, name: draft_id, required: true, schema: {type: string}}
       responses:
         '200': {description: Finalized novel with verification summary}
-        '409': {description: Draft incomplete}
   /novels:
     get:
       operationId: listNovels
@@ -182,6 +180,15 @@ paths:
         - {in: path, name: session_id, required: true, schema: {type: string}}
       responses:
         '200': {description: Session snapshot}
+  /sessions/{session_id}/audit-snapshot:
+    get:
+      operationId: getAuditSnapshot
+      summary: Get compact saved data for the current 15-turn audit without reloading raw scenes
+      parameters:
+        - {in: path, name: session_id, required: true, schema: {type: string}}
+      responses:
+        '200': {description: Current state plus chronology and memory saved during this audit cycle}
+        '409': {description: Audit not required}
   /sessions/{session_id}/turn-packet:
     post:
       operationId: prepareTurn
@@ -217,7 +224,7 @@ paths:
   /sessions/{session_id}/turns:
     get:
       operationId: getTurnRange
-      summary: Load exact raw turns for audit or recovery
+      summary: Emergency recovery or manual diagnostics only; do not use for normal 15-turn audit
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
         - {in: query, name: start_turn, required: true, schema: {type: integer}}
@@ -239,7 +246,7 @@ paths:
   /sessions/{session_id}/audit:
     post:
       operationId: commitAudit
-      summary: Save mandatory 15-turn audit repairs
+      summary: Finish the fast mandatory 15-turn audit with one repair commit
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
       requestBody:
