@@ -11,6 +11,7 @@ from .storage import (
     commit_turn,
     confirm_resume,
     create_session,
+    get_audit_snapshot,
     get_character_memory,
     get_novel,
     get_turn_packet_chunk,
@@ -28,8 +29,8 @@ RUNTIME_DIR = ROOT_DIR / "runtime"
 
 app = FastAPI(
     title="Roman AI",
-    version="0.8.0",
-    description="Novel session backend for Custom GPT. Persistent state, staged novel drafts, chunked turn context and character memory are stored on a Railway Volume.",
+    version="0.9.0",
+    description="Novel session backend for Custom GPT. Persistent state, staged novel drafts, fast audits, chunked turn context and character memory are stored on a Railway Volume.",
 )
 
 
@@ -136,6 +137,18 @@ def sessions_get(session_id: str):
         return load_session(session_id)
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Session not found")
+
+
+@app.get("/sessions/{session_id}/audit-snapshot", operation_id="getAuditSnapshot")
+def audit_snapshot_get(session_id: str):
+    try:
+        return get_audit_snapshot(session_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Session not found")
+    except RuntimeError as exc:
+        if str(exc) == "AUDIT_NOT_REQUIRED":
+            raise HTTPException(status_code=409, detail="Audit is not currently required")
+        raise
 
 
 @app.post("/sessions/{session_id}/turn-packet", operation_id="prepareTurn")
