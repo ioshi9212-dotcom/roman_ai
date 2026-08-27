@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any, Dict
 
 from . import storage
+from .novel_access import verify_novel
 
 
 REQUIRED_SECTIONS = ("novel", "characters", "lore")
@@ -124,17 +125,16 @@ def finalize_draft(draft_id: str) -> Dict[str, Any]:
     template.update(sections)
     storage.save_novel(template)
 
-    saved = storage.get_novel(template["novel_id"])
-    verification = {
-        "novel_present": bool(saved.get("novel")),
-        "lore_present": bool(saved.get("lore")),
-        "character_count": len(saved.get("characters", [])) if isinstance(saved.get("characters"), list) else 0,
-        "top_level_sections": sorted(saved.keys()),
-    }
-    if not verification["novel_present"] or verification["character_count"] == 0:
+    verification = verify_novel(template["novel_id"])
+    if not verification["ok"]:
         raise RuntimeError("FINAL_VERIFICATION_FAILED")
 
     path = _draft_path(draft_id)
     if path.exists():
         path.unlink()
-    return {"ok": True, "novel_id": saved["novel_id"], "verification": verification}
+    return {
+        "ok": True,
+        "novel_id": template["novel_id"],
+        "verification": verification,
+        "instruction": "Server-side verification passed. Do not call getNovel before createSession. Use prepareNovelRead only when full content must actually be inspected.",
+    }
