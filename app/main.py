@@ -3,6 +3,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 
+from .character_access import get_character_bundle
 from .models import AuditCommit, NovelDraftCreate, NovelDraftSection, NovelRawSave, NovelTemplate, ResumeConfirm, SessionCreate, TurnCommit, TurnPrepare
 from .novel_drafts import create_draft, draft_status, finalize_draft, save_section
 from .storage import (
@@ -29,8 +30,8 @@ RUNTIME_DIR = ROOT_DIR / "runtime"
 
 app = FastAPI(
     title="Roman AI",
-    version="0.9.0",
-    description="Novel session backend for Custom GPT. Persistent state, staged novel drafts, fast audits, chunked turn context and character memory are stored on a Railway Volume.",
+    version="1.0.0",
+    description="Novel session backend for Custom GPT. Persistent state, live character cards, staged novel drafts, fast audits, chunked turn context and character memory are stored on a Railway Volume.",
 )
 
 
@@ -175,6 +176,16 @@ def turn_packet_chunk_get(session_id: str, packet_id: str, chunk_index: int):
         raise HTTPException(status_code=403, detail="Invalid or stale packet_id")
     except IndexError:
         raise HTTPException(status_code=404, detail="Chunk index out of range")
+
+
+@app.get("/sessions/{session_id}/characters/{character_id}", operation_id="getCharacterBundle")
+def character_bundle_get(session_id: str, character_id: str):
+    try:
+        return get_character_bundle(session_id, character_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Session not found")
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Character not found")
 
 
 @app.get("/sessions/{session_id}/characters/{character_id}/memory", operation_id="getCharacterMemory")
