@@ -4,7 +4,7 @@ from pathlib import Path
 
 from app import storage
 from app.novel_access import get_novel_read_chunk, prepare_novel_read, verify_novel
-from app.novel_drafts import create_draft, finalize_draft, save_section
+from app.novel_drafts import create_draft, finalize_draft, prepare_draft_read, save_section
 
 
 def setup_temp_storage(tmp: str):
@@ -14,7 +14,7 @@ def setup_temp_storage(tmp: str):
     storage.ensure_dirs()
 
 
-def test_large_novel_is_verified_without_full_response_and_can_be_read_in_chunks():
+def test_large_library_novel_is_verified_without_full_response_and_can_be_read_in_chunks():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         huge_lore = {"archive": "x" * 40000}
@@ -51,7 +51,7 @@ def test_large_novel_is_verified_without_full_response_and_can_be_read_in_chunks
         assert reconstructed["lore"]["archive"] == huge_lore["archive"]
 
 
-def test_finalize_returns_compact_server_verification_without_get_novel_requirement():
+def test_finalize_keeps_large_draft_out_of_library_and_allows_chunked_verification():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         draft = create_draft("draft_large", "Draft Large")
@@ -63,5 +63,14 @@ def test_finalize_returns_compact_server_verification_without_get_novel_requirem
         assert result["ok"] is True
         assert result["verification"]["ok"] is True
         assert result["verification"]["character_count"] == 1
+        assert result["saved_to_library"] is False
+        assert storage.list_novels() == []
         assert "big" not in json.dumps(result)
-        assert "Do not call getNovel" in result["instruction"]
+
+        manifest = prepare_draft_read(draft_id)
+        text = ""
+        for index in range(manifest["chunk_count"]):
+            chunk = get_novel_read_chunk(manifest["read_id"], index)
+            text += chunk["content"]
+        reconstructed = json.loads(text)
+        assert reconstructed["lore"]["big"] == "y" * 30000
