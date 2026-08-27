@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Roman AI
-  version: 0.9.0
+  version: 1.0.0
   description: Persistent novel sessions for Custom GPT.
 servers:
   - url: https://romanai-production-0fdb.up.railway.app
@@ -57,7 +57,10 @@ components:
       properties:
         user_input: {type: string}
         scene_output: {type: string}
-        extracted: {type: object, additionalProperties: true}
+        extracted:
+          type: object
+          additionalProperties: true
+          description: Persistent changes. May include state_patch, chronology, knowledge_add, experiences_add, dialogue_memory_add and character_upserts.
     AuditCommit:
       type: object
       required: [start_turn, end_turn]
@@ -164,7 +167,7 @@ paths:
   /sessions:
     post:
       operationId: createSession
-      summary: Create isolated session from a library snapshot
+      summary: Create isolated session from a library snapshot and initialize starting state, cards and memory
       requestBody:
         required: true
         content:
@@ -175,7 +178,7 @@ paths:
   /sessions/{session_id}:
     get:
       operationId: getSession
-      summary: Load current session snapshot
+      summary: Load current session snapshot including live character cards
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
       responses:
@@ -192,7 +195,7 @@ paths:
   /sessions/{session_id}/turn-packet:
     post:
       operationId: prepareTurn
-      summary: Build chunked context for the next user turn
+      summary: Build chunked context for the next user turn including full canon slices and compact cast index
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
       requestBody:
@@ -212,10 +215,20 @@ paths:
         - {in: path, name: chunk_index, required: true, schema: {type: integer}}
       responses:
         '200': {description: One packet chunk}
+  /sessions/{session_id}/characters/{character_id}:
+    get:
+      operationId: getCharacterBundle
+      summary: Load full card, current state, personal memory and relationship for one known character before bringing them into a scene
+      parameters:
+        - {in: path, name: session_id, required: true, schema: {type: string}}
+        - {in: path, name: character_id, required: true, schema: {type: string}}
+      responses:
+        '200': {description: Full character bundle}
+        '404': {description: Session or character not found}
   /sessions/{session_id}/characters/{character_id}/memory:
     get:
       operationId: getCharacterMemory
-      summary: Load one character memory directly
+      summary: Load one character memory directly for debugging or recovery
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
         - {in: path, name: character_id, required: true, schema: {type: string}}
@@ -259,7 +272,7 @@ paths:
   /sessions/{session_id}/resume:
     post:
       operationId: resumeSession
-      summary: Build transfer package after turn 60
+      summary: Build transfer package after turn 60 including live cards and turns 55-60
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
       responses:
