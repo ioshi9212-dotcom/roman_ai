@@ -8,6 +8,7 @@
     "chronology": [],
     "knowledge_add": [],
     "experiences_add": [],
-    "dialogue_memory_add": []
+    "dialogue_memory_add": [],
+    "character_upserts": []
   }
 }
