@@ -89,3 +89,48 @@ def test_new_chat_novel_stays_out_of_library_until_explicit_publish():
         published = publish_draft_to_library(draft_id)
         assert published["published_to_library"] is True
         assert [item["novel_id"] for item in storage.list_novels()] == ["setup_test"]
+
+
+def test_session_preview_accepts_flexible_real_world_state_shapes():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        novel = {
+            "novel_id": "flex_preview",
+            "title": "Пепел и лаванда",
+            "version": 1,
+            "novel": {"pov_character": "elena"},
+            "characters": [
+                {"character_id": "elena", "name": "Елена", "is_pov": True},
+                {"character_id": "liam", "name": "Лиам"},
+            ],
+            "lore": {},
+            "starting_state": {"current": {"location": "Восточный сектор"}},
+        }
+        sid = storage.create_session(novel)["session_id"]
+        root = storage.SESSIONS_DIR / sid
+
+        state = storage._read_json(root / "state.json", {})
+        state["pov"] = "Елена"
+        state["current"] = {
+            "game_date": "04.09.1451",
+            "game_time": "10:20",
+            "place": "Жилой корпус",
+            "situation": "заселение",
+            "present_characters": {
+                "elena": {"present": True},
+                "liam": {"present": True},
+            },
+        }
+        state["threads"] = "unexpected-text-shape"
+        storage._write_json(root / "state.json", state)
+
+        preview = get_session_preview(sid)
+        assert preview["session_id"] == sid
+        assert preview["pov"]["character_id"] == "elena"
+        assert preview["pov"]["name"] == "Елена"
+        assert preview["start"]["date"] == "04.09.1451"
+        assert preview["start"]["time"] == "10:20"
+        assert preview["start"]["location"] == "Жилой корпус"
+        assert preview["start"]["scene"] == "заселение"
+        assert preview["start"]["present_characters"] == ["Елена", "Лиам"]
+        assert preview["active_threads"] == {}
