@@ -1,40 +1,34 @@
 # MEMORY CONTRACT
 
-The session memory is not one list. Keep three separate layers for every NPC.
+Не смешивай три разных вещи.
 
-## 1. knowledge
-Facts the character currently believes or knows.
-Each item should include:
-- fact_id
-- content
-- source
-- learned_turn
-- confidence: certain | likely | doubtful
+## CARD
+Кто персонаж вообще: личность, характер, биография, прошлое, привычки, устойчивые цели и важные связи. Полные карточки живут в `characters.json`. Они не переписываются каждый ход.
 
-## 2. experiences
-Events the character personally witnessed, heard, did or directly took part in.
-Each item should include:
-- event_id
-- turn
-- summary
-- role: saw | heard | did | received | participated
+Если во время игры появляется новый recurring/important NPC, сохрани его через `character_upserts`. Одноразовый фоновой человек карточки не требует.
 
-## 3. dialogue_memory
-Tracks topics already discussed with this character.
-Each record should include:
-- topic_id
-- turn
-- asked_by
-- asked_to
-- question
-- answer
-- status: answered | partial | refused | lied | unresolved
+## STATE
+Что с персонажем сейчас: место, присутствие в сцене, физическое состояние, текущая цель/статус, предметы и другое временное состояние. Это `state.json`.
 
-Rules:
-- A character must not behave as if an experienced event never happened.
-- A character must not ask the same answered question again by accident.
-- Re-asking is allowed only when there is a reason such as doubt, checking consistency, changed circumstances, an earlier partial/refused answer, deliberate pressure, or believable memory loss established in canon.
-- A lie is remembered as what the listener was told, not automatically as world truth.
-- World truth, POV knowledge and each NPC's knowledge are separate.
-- Do not delete old memories merely because they are not currently relevant.
-- Only load relevant memories into the scene context; the full memory remains stored on Railway.
+## PERSONAL MEMORY
+Для каждого персонажа отдельно:
+
+### knowledge
+Что персонаж знает или считает правдой.
+Поля по возможности: `fact_id`, `content`, `source`, `learned_turn`, `confidence`.
+
+### experiences
+Что персонаж лично видел, слышал, сделал, получил или пережил.
+Поля: `event_id`, `turn`, `summary`, `role`.
+
+### dialogue_memory
+Важные темы разговоров: вопросы, ответы, обещания, отказ, ложь, незакрытая тема.
+Поля: `topic_id`, `turn`, `asked_by`, `asked_to`, `question`, `answer`, `status`.
+
+## ПРАВИЛА
+- У каждого NPC своя память. Не копируй знание между персонажами без источника.
+- Ложь хранится как то, что слушателю сказали, а не автоматически как мировая истина.
+- Лично пережитое не исчезает только потому, что прошло много ходов.
+- Уже отвеченный вопрос не повторяется случайно. Повтор возможен намеренно: сомнение, проверка, давление, изменившиеся обстоятельства, прошлый partial/refused/lie или установленная проблема памяти.
+- Старую память не удаляй из-за временной нерелевантности.
+- Карточка задаёт характер и прошлое; memory добавляет пережитый опыт; state показывает настоящее. При написании NPC применяй все три слоя вместе.
