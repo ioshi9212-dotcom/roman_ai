@@ -6,7 +6,15 @@ from fastapi import FastAPI, HTTPException
 from .character_access import get_character_bundle
 from .models import AuditCommit, NovelDraftCreate, NovelDraftSection, NovelRawSave, NovelTemplate, ResumeConfirm, SessionCreate, TurnCommit, TurnPrepare
 from .novel_access import get_novel_read_chunk, prepare_novel_read, verify_novel
-from .novel_drafts import create_draft, draft_status, finalize_draft, save_section
+from .novel_drafts import (
+    create_draft,
+    create_session_from_draft,
+    draft_status,
+    finalize_draft,
+    prepare_draft_read,
+    publish_draft_to_library,
+    save_section,
+)
 from .session_preview import get_session_preview
 from .storage import (
     build_resume_package,
@@ -32,8 +40,8 @@ RUNTIME_DIR = ROOT_DIR / "runtime"
 
 app = FastAPI(
     title="Roman AI",
-    version="1.2.0",
-    description="Novel session backend for Custom GPT with verified setup, compact session preview, chunked reads, live character cards, fast audits and persistent Railway Volume state.",
+    version="1.3.0",
+    description="Persistent isolated novel sessions. New chat novels stay session-only unless explicitly published to the library.",
 )
 
 
@@ -91,7 +99,37 @@ def novel_draft_finalize(draft_id: str):
     except ValueError:
         raise HTTPException(status_code=409, detail="Draft is incomplete")
     except RuntimeError:
-        raise HTTPException(status_code=500, detail="Final saved novel verification failed")
+        raise HTTPException(status_code=500, detail="Final draft verification failed")
+
+
+@app.post("/novel-drafts/{draft_id}/read", operation_id="prepareDraftRead")
+def novel_draft_read_prepare(draft_id: str):
+    try:
+        return prepare_draft_read(draft_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Draft not found")
+    except RuntimeError:
+        raise HTTPException(status_code=409, detail="Draft must be finalized first")
+
+
+@app.post("/novel-drafts/{draft_id}/session", operation_id="createSessionFromDraft")
+def novel_draft_session_create(draft_id: str):
+    try:
+        return create_session_from_draft(draft_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Draft not found")
+    except RuntimeError:
+        raise HTTPException(status_code=409, detail="Draft must be finalized first")
+
+
+@app.post("/novel-drafts/{draft_id}/publish", operation_id="saveDraftToLibrary")
+def novel_draft_publish(draft_id: str):
+    try:
+        return publish_draft_to_library(draft_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Draft not found")
+    except RuntimeError:
+        raise HTTPException(status_code=409, detail="Draft must be finalized first")
 
 
 @app.get("/novels", operation_id="listNovels")
@@ -138,7 +176,7 @@ def novel_read_chunk_get(read_id: str, chunk_index: int):
     try:
         return get_novel_read_chunk(read_id, chunk_index)
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail="Novel read not found or already completed")
+        raise HTTPException(status_code=404, detail="Read not found or already completed")
     except IndexError:
         raise HTTPException(status_code=404, detail="Chunk index out of range")
 
