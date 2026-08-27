@@ -23,11 +23,10 @@ def _section_size(value: Any) -> int:
     return len(json.dumps(value, ensure_ascii=False, separators=(",", ":")))
 
 
-def verify_novel(novel_id: str) -> Dict[str, Any]:
-    novel = storage.get_novel(novel_id)
-    characters = novel.get("characters", [])
+def verify_template(template: Dict[str, Any]) -> Dict[str, Any]:
+    characters = template.get("characters", [])
     sections = {}
-    for key, value in novel.items():
+    for key, value in template.items():
         if key in {"novel_id", "title", "version"}:
             continue
         sections[key] = {
@@ -35,28 +34,31 @@ def verify_novel(novel_id: str) -> Dict[str, Any]:
             "non_empty": bool(value),
             "chars": _section_size(value),
         }
-
-    required_ok = bool(novel.get("novel")) and isinstance(characters, list) and len(characters) > 0 and novel.get("lore") is not None
+    required_ok = bool(template.get("novel")) and isinstance(characters, list) and len(characters) > 0 and template.get("lore") is not None
     return {
         "ok": required_ok,
-        "novel_id": novel.get("novel_id"),
-        "title": novel.get("title"),
-        "version": novel.get("version", 1),
+        "novel_id": template.get("novel_id"),
+        "title": template.get("title"),
+        "version": template.get("version", 1),
         "character_count": len(characters) if isinstance(characters, list) else 0,
         "sections": sections,
-        "top_level_sections": sorted(novel.keys()),
-        "total_chars": _section_size(novel),
+        "top_level_sections": sorted(template.keys()),
+        "total_chars": _section_size(template),
     }
 
 
-def prepare_novel_read(novel_id: str) -> Dict[str, Any]:
-    novel = storage.get_novel(novel_id)
-    text = json.dumps(novel, ensure_ascii=False, separators=(",", ":"))
+def verify_novel(novel_id: str) -> Dict[str, Any]:
+    return verify_template(storage.get_novel(novel_id))
+
+
+def prepare_template_read(template: Dict[str, Any], source_type: str, source_id: str) -> Dict[str, Any]:
+    text = json.dumps(template, ensure_ascii=False, separators=(",", ":"))
     chunks = [text[i:i + NOVEL_READ_CHUNK_CHARS] for i in range(0, len(text), NOVEL_READ_CHUNK_CHARS)] or ["{}"]
     read_id = secrets.token_urlsafe(12)
     payload = {
         "read_id": read_id,
-        "novel_id": novel_id,
+        "source_type": source_type,
+        "source_id": source_id,
         "chunk_count": len(chunks),
         "chunks": chunks,
         "read_chunks": [],
@@ -64,11 +66,16 @@ def prepare_novel_read(novel_id: str) -> Dict[str, Any]:
     storage._write_json(_read_path(read_id), payload)
     return {
         "read_id": read_id,
-        "novel_id": novel_id,
+        "source_type": source_type,
+        "source_id": source_id,
         "chunk_count": len(chunks),
         "total_chars": len(text),
-        "instruction": "Read chunks 0 through chunk_count-1 in order. Do not call getNovel for large novels.",
+        "instruction": "Read chunks 0 through chunk_count-1 in order.",
     }
+
+
+def prepare_novel_read(novel_id: str) -> Dict[str, Any]:
+    return prepare_template_read(storage.get_novel(novel_id), "library", novel_id)
 
 
 def get_novel_read_chunk(read_id: str, chunk_index: int) -> Dict[str, Any]:
@@ -86,7 +93,8 @@ def get_novel_read_chunk(read_id: str, chunk_index: int) -> Dict[str, Any]:
     all_read = len(read_chunks) == len(chunks)
     result = {
         "read_id": read_id,
-        "novel_id": payload.get("novel_id"),
+        "source_type": payload.get("source_type"),
+        "source_id": payload.get("source_id"),
         "chunk_index": chunk_index,
         "chunk_count": len(chunks),
         "content": chunks[chunk_index],
