@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Roman AI
-  version: 1.0.0
+  version: 1.1.0
   description: Persistent novel sessions for Custom GPT.
 servers:
   - url: https://romanai-production-0fdb.up.railway.app
@@ -124,11 +124,11 @@ paths:
   /novel-drafts/{draft_id}/finalize:
     post:
       operationId: finalizeNovelDraft
-      summary: Validate staged draft and save it into the permanent library
+      summary: Validate staged draft, save it and return compact server-side verification
       parameters:
         - {in: path, name: draft_id, required: true, schema: {type: string}}
       responses:
-        '200': {description: Finalized novel with verification summary}
+        '200': {description: Finalized novel with compact verification summary; no full novel payload}
   /novels:
     get:
       operationId: listNovels
@@ -156,14 +156,42 @@ paths:
             schema: {$ref: '#/components/schemas/NovelRawSave'}
       responses:
         '200': {description: Saved novel}
-  /novels/{novel_id}:
+  /novels/{novel_id}/verify:
     get:
-      operationId: getNovel
-      summary: Load one library novel
+      operationId: verifyNovel
+      summary: Verify a saved novel without returning the full novel
       parameters:
         - {in: path, name: novel_id, required: true, schema: {type: string}}
       responses:
-        '200': {description: Novel}
+        '200': {description: Compact section, size and character-count verification}
+        '404': {description: Novel not found}
+  /novels/{novel_id}/read:
+    post:
+      operationId: prepareNovelRead
+      summary: Prepare chunked reading of a large saved novel when full inspection is actually needed
+      parameters:
+        - {in: path, name: novel_id, required: true, schema: {type: string}}
+      responses:
+        '200': {description: read_id, chunk_count and total_chars}
+        '404': {description: Novel not found}
+  /novel-reads/{read_id}/{chunk_index}:
+    get:
+      operationId: getNovelReadChunk
+      summary: Read one chunk of a prepared large novel
+      parameters:
+        - {in: path, name: read_id, required: true, schema: {type: string}}
+        - {in: path, name: chunk_index, required: true, schema: {type: integer}}
+      responses:
+        '200': {description: One novel chunk and all_chunks_read flag}
+        '404': {description: Read not found, completed, or chunk out of range}
+  /novels/{novel_id}:
+    get:
+      operationId: getNovel
+      summary: Legacy full read for small novels only; for large novels use verifyNovel or prepareNovelRead
+      parameters:
+        - {in: path, name: novel_id, required: true, schema: {type: string}}
+      responses:
+        '200': {description: Full novel; may be too large for Actions}
   /sessions:
     post:
       operationId: createSession
