@@ -3,7 +3,15 @@ import tempfile
 from pathlib import Path
 
 from app import storage
-from app.novel_access import get_novel_read_chunk, prepare_novel_read
+from app.novel_access import get_novel_read_chunk
+from app.novel_drafts import (
+    create_draft,
+    create_session_from_draft,
+    finalize_draft,
+    prepare_draft_read,
+    publish_draft_to_library,
+    save_section,
+)
 from app.session_preview import get_session_preview
 from tests.helpers import commit_with_packet
 
@@ -15,13 +23,13 @@ def setup_temp_storage(tmp: str):
     storage.ensure_dirs()
 
 
-def test_setup_can_verify_saved_canon_preview_real_session_and_launch_first_scene():
+def test_new_chat_novel_stays_out_of_library_until_explicit_publish():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
-        novel = {
-            "novel_id": "setup_test",
-            "title": "Тишина между мирами",
-            "version": 1,
+
+        draft = create_draft("setup_test", "Тишина между мирами", 1)
+        draft_id = draft["draft_id"]
+        sections = {
             "novel": {"pov_character": "elena", "genre": "romance"},
             "rules": {"pov_control": "user"},
             "lore": {"public": "East and West are divided"},
@@ -41,9 +49,15 @@ def test_setup_can_verify_saved_canon_preview_real_session_and_launch_first_scen
                 }
             },
         }
-        storage.save_novel(novel)
+        for name, value in sections.items():
+            save_section(draft_id, name, json.dumps(value, ensure_ascii=False))
 
-        read = prepare_novel_read("setup_test")
+        finalized = finalize_draft(draft_id)
+        assert finalized["ok"] is True
+        assert finalized["saved_to_library"] is False
+        assert storage.list_novels() == []
+
+        read = prepare_draft_read(draft_id)
         full = ""
         for index in range(read["chunk_count"]):
             full += get_novel_read_chunk(read["read_id"], index)["content"]
@@ -52,9 +66,10 @@ def test_setup_can_verify_saved_canon_preview_real_session_and_launch_first_scen
         assert restored["hidden_lore"]["secret"] == "archive"
         assert len(restored["characters"]) == 2
 
-        meta = storage.create_session(novel)
+        meta = create_session_from_draft(draft_id)
         sid = meta["session_id"]
         assert sid
+        assert storage.list_novels() == []
 
         preview = get_session_preview(sid)
         assert preview["session_id"] == sid
@@ -70,3 +85,7 @@ def test_setup_can_verify_saved_canon_preview_real_session_and_launch_first_scen
             {"chronology": [{"turn": 1, "summary": "История началась"}]},
         )
         assert result["turn_number"] == 1
+
+        published = publish_draft_to_library(draft_id)
+        assert published["published_to_library"] is True
+        assert [item["novel_id"] for item in storage.list_novels()] == ["setup_test"]
