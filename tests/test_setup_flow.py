@@ -134,3 +134,43 @@ def test_session_preview_accepts_flexible_real_world_state_shapes():
         assert preview["start"]["scene"] == "заселение"
         assert preview["start"]["present_characters"] == ["Елена", "Лиам"]
         assert preview["active_threads"] == {}
+
+
+def test_create_session_from_draft_normalises_flexible_starting_state():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        draft = create_draft("real_shape", "Там, где шумит Аверн", 1)
+        draft_id = draft["draft_id"]
+        sections = {
+            "novel": {"pov_character": "Елена"},
+            "characters": [
+                {"character_id": "elena", "name": "Елена", "is_pov": True},
+                {"character_id": "aiden", "name": "Эйден"},
+            ],
+            "lore": {"world": "canon"},
+            "starting_state": {
+                "pov": "Елена",
+                "current": {
+                    "location": "Восточный сектор",
+                    "present_characters": {"elena": {"present": True}, "aiden": {"present": True}},
+                },
+                "characters": ["elena", "aiden"],
+                "relationships": [],
+                "threads": "none",
+            },
+        }
+        for name, value in sections.items():
+            save_section(draft_id, name, json.dumps(value, ensure_ascii=False))
+        finalize_draft(draft_id)
+
+        meta = create_session_from_draft(draft_id)
+        sid = meta["session_id"]
+        state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
+        assert state["pov"]["character_id"] == "elena"
+        assert isinstance(state["characters"], dict)
+        assert isinstance(state["relationships"], dict)
+        assert isinstance(state["threads"], dict)
+        assert state["current"]["present_characters"] == ["elena", "aiden"]
+        preview = get_session_preview(sid)
+        assert preview["pov"]["name"] == "Елена"
+        assert preview["start"]["present_characters"] == ["Елена", "Эйден"]
