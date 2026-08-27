@@ -5,6 +5,7 @@ from fastapi import FastAPI, HTTPException
 
 from .character_access import get_character_bundle
 from .models import AuditCommit, NovelDraftCreate, NovelDraftSection, NovelRawSave, NovelTemplate, ResumeConfirm, SessionCreate, TurnCommit, TurnPrepare
+from .novel_access import get_novel_read_chunk, prepare_novel_read, verify_novel
 from .novel_drafts import create_draft, draft_status, finalize_draft, save_section
 from .storage import (
     build_resume_package,
@@ -30,8 +31,8 @@ RUNTIME_DIR = ROOT_DIR / "runtime"
 
 app = FastAPI(
     title="Roman AI",
-    version="1.0.0",
-    description="Novel session backend for Custom GPT. Persistent state, live character cards, staged novel drafts, fast audits, chunked turn context and character memory are stored on a Railway Volume.",
+    version="1.1.0",
+    description="Novel session backend for Custom GPT with compact verification, chunked novel reads, live character cards, fast audits and persistent Railway Volume state.",
 )
 
 
@@ -113,6 +114,32 @@ def novels_save_raw(body: NovelRawSave):
     if not template.get("novel_id") or not template.get("title"):
         raise HTTPException(status_code=422, detail="novel_id and title are required")
     return save_novel(template)
+
+
+@app.get("/novels/{novel_id}/verify", operation_id="verifyNovel")
+def novel_verify_get(novel_id: str):
+    try:
+        return verify_novel(novel_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Novel not found")
+
+
+@app.post("/novels/{novel_id}/read", operation_id="prepareNovelRead")
+def novel_read_prepare(novel_id: str):
+    try:
+        return prepare_novel_read(novel_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Novel not found")
+
+
+@app.get("/novel-reads/{read_id}/{chunk_index}", operation_id="getNovelReadChunk")
+def novel_read_chunk_get(read_id: str, chunk_index: int):
+    try:
+        return get_novel_read_chunk(read_id, chunk_index)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Novel read not found or already completed")
+    except IndexError:
+        raise HTTPException(status_code=404, detail="Chunk index out of range")
 
 
 @app.get("/novels/{novel_id}", operation_id="getNovel")
