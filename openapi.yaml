@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Roman AI
-  version: 1.1.0
+  version: 1.2.0
   description: Persistent novel sessions for Custom GPT.
 servers:
   - url: https://romanai-production-0fdb.up.railway.app
@@ -168,7 +168,7 @@ paths:
   /novels/{novel_id}/read:
     post:
       operationId: prepareNovelRead
-      summary: Prepare chunked reading of a large saved novel when full inspection is actually needed
+      summary: Prepare chunked reading of a large saved novel for full setup verification
       parameters:
         - {in: path, name: novel_id, required: true, schema: {type: string}}
       responses:
@@ -195,14 +195,23 @@ paths:
   /sessions:
     post:
       operationId: createSession
-      summary: Create isolated session from a library snapshot and initialize starting state, cards and memory
+      summary: Create isolated session from a verified library snapshot and initialize starting state, cards and memory
       requestBody:
         required: true
         content:
           application/json:
             schema: {$ref: '#/components/schemas/SessionCreate'}
       responses:
-        '200': {description: Session metadata}
+        '200': {description: Session metadata with real session_id}
+  /sessions/{session_id}/preview:
+    get:
+      operationId: getSessionPreview
+      summary: Build a compact preview from the actually created session and stored start state
+      parameters:
+        - {in: path, name: session_id, required: true, schema: {type: string}}
+      responses:
+        '200': {description: Session id, POV, starting place/time, present cast, story direction and stored sections}
+        '404': {description: Session not found}
   /sessions/{session_id}:
     get:
       operationId: getSession
