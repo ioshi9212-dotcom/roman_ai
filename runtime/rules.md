@@ -5,10 +5,13 @@ Railway — источник постоянной памяти и канона. 
 ## СТАРТ
 1. `getRuntime`.
 2. `listNovels`.
-3. Готовая новелла: `createSession`.
-4. Новая: `createNovelDraft` → секции → `getNovelDraftStatus` → `finalizeNovelDraft` → `getNovel` → `createSession`.
-5. Не начинай сцену до успешной сессии.
-6. `createSession` сам создаёт runtime-state, живой реестр карточек и память из стартовой анкеты.
+3. Готовая новелла: сразу `createSession`. Не вызывай `getNovel` перед созданием сессии.
+4. Новая: `createNovelDraft` → секции → `getNovelDraftStatus` → `finalizeNovelDraft`.
+5. `finalizeNovelDraft` сам выполняет серверную проверку сохранённой новеллы. Если `verification.ok=true`, сразу `createSession`.
+6. Для короткой контрольной проверки используй `verifyNovel`, он не возвращает полный канон.
+7. Если действительно нужно прочитать всю большую новеллу: `prepareNovelRead` → все `getNovelReadChunk` 0...`chunk_count-1`. Для больших новелл `getNovel` не использовать.
+8. Не начинай сцену до успешной сессии.
+9. `createSession` сам создаёт runtime-state, живой реестр карточек и память из стартовой анкеты.
 
 ## КАЖДЫЙ ХОД
 1. Возьми ТОЧНЫЙ `user_input`.
