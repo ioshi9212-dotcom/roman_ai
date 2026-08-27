@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any, Dict
 
 from . import storage
-from .novel_access import verify_novel
+from .novel_access import prepare_template_read, verify_template
 
 
 REQUIRED_SECTIONS = ("novel", "characters", "lore")
@@ -53,13 +53,25 @@ def _parse_one_json(text: str) -> Any:
         if lines and lines[-1].strip() == "```":
             lines = lines[:-1]
         value = "\n".join(lines).strip()
-
     decoder = json.JSONDecoder()
     parsed, end = decoder.raw_decode(value)
-    trailing = value[end:].strip()
-    if trailing:
+    if value[end:].strip():
         raise ValueError("EXTRA_DATA")
     return parsed
+
+
+def _build_template(draft: Dict[str, Any]) -> Dict[str, Any]:
+    sections = deepcopy(draft["sections"])
+    template = {
+        "novel_id": draft["novel_id"],
+        "title": draft["title"],
+        "version": draft.get("version", 1),
+        "novel": sections.pop("novel"),
+        "characters": sections.pop("characters"),
+        "lore": sections.pop("lore"),
+    }
+    template.update(sections)
+    return template
 
 
 def create_draft(novel_id: str, title: str, version: int = 1) -> Dict[str, Any]:
@@ -70,6 +82,8 @@ def create_draft(novel_id: str, title: str, version: int = 1) -> Dict[str, Any]:
         "title": title,
         "version": version,
         "sections": {},
+        "finalized": False,
+        "published_to_library": False,
     }
     _write(_draft_path(draft_id), draft)
     return draft_status(draft_id)
@@ -83,9 +97,9 @@ def save_section(draft_id: str, section_name: str, section_json: str) -> Dict[st
     parsed = _parse_one_json(section_json)
     if section_name == "characters" and not isinstance(parsed, list):
         raise TypeError("characters must be a JSON array")
-    if section_name != "characters" and not isinstance(parsed, (dict, list, str, int, float, bool, type(None))):
-        raise TypeError("invalid JSON section")
     draft["sections"][section_name] = parsed
+    draft["finalized"] = False
+    draft.pop("finalized_template", None)
     _write(_draft_path(draft_id), draft)
     return draft_status(draft_id)
 
@@ -104,6 +118,8 @@ def draft_status(draft_id: str) -> Dict[str, Any]:
         "missing_required_sections": missing,
         "character_count": len(characters) if isinstance(characters, list) else 0,
         "ready_to_finalize": not missing and isinstance(characters, list) and len(characters) > 0,
+        "finalized": bool(draft.get("finalized")),
+        "published_to_library": bool(draft.get("published_to_library")),
     }
 
 
@@ -112,29 +128,50 @@ def finalize_draft(draft_id: str) -> Dict[str, Any]:
     status = draft_status(draft_id)
     if not status["ready_to_finalize"]:
         raise ValueError("DRAFT_INCOMPLETE")
-
-    sections = deepcopy(draft["sections"])
-    template = {
-        "novel_id": draft["novel_id"],
-        "title": draft["title"],
-        "version": draft.get("version", 1),
-        "novel": sections.pop("novel"),
-        "characters": sections.pop("characters"),
-        "lore": sections.pop("lore"),
-    }
-    template.update(sections)
-    storage.save_novel(template)
-
-    verification = verify_novel(template["novel_id"])
+    template = _build_template(draft)
+    verification = verify_template(template)
     if not verification["ok"]:
         raise RuntimeError("FINAL_VERIFICATION_FAILED")
+    draft["finalized"] = True
+    draft["finalized_template"] = template
+    _write(_draft_path(draft_id), draft)
+    return {
+        "ok": True,
+        "draft_id": draft_id,
+        "verification": verification,
+        "saved_to_library": False,
+        "instruction": "Draft is verified but NOT added to the library. Read it with prepareDraftRead, then createSessionFromDraft. Publish only on explicit user request.",
+    }
 
-    path = _draft_path(draft_id)
-    if path.exists():
-        path.unlink()
+
+def _finalized_template(draft_id: str) -> Dict[str, Any]:
+    draft = _read(draft_id)
+    template = draft.get("finalized_template")
+    if not draft.get("finalized") or not isinstance(template, dict):
+        raise RuntimeError("DRAFT_NOT_FINALIZED")
+    return template
+
+
+def prepare_draft_read(draft_id: str) -> Dict[str, Any]:
+    return prepare_template_read(_finalized_template(draft_id), "draft", draft_id)
+
+
+def create_session_from_draft(draft_id: str) -> Dict[str, Any]:
+    template = _finalized_template(draft_id)
+    meta = storage.create_session(template)
+    meta["source_type"] = "session_draft"
+    return meta
+
+
+def publish_draft_to_library(draft_id: str) -> Dict[str, Any]:
+    draft = _read(draft_id)
+    template = _finalized_template(draft_id)
+    storage.save_novel(template)
+    draft["published_to_library"] = True
+    _write(_draft_path(draft_id), draft)
     return {
         "ok": True,
         "novel_id": template["novel_id"],
-        "verification": verification,
-        "instruction": "Server-side verification passed. Do not call getNovel before createSession. Use prepareNovelRead only when full content must actually be inspected.",
+        "title": template["title"],
+        "published_to_library": True,
     }
