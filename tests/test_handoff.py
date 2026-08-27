@@ -2,6 +2,7 @@ import tempfile
 from pathlib import Path
 
 from app import storage
+from tests.helpers import audit_if_due, commit_with_packet
 
 
 def setup_temp_storage(tmp: str):
@@ -19,37 +20,27 @@ def test_sixty_turn_handoff_cycle():
             "novel_id": "test_novel",
             "title": "Test Novel",
             "version": 1,
-            "novel": {},
-            "characters": [],
+            "novel": {"pov_character": "rina"},
+            "characters": [{"character_id": "rina", "name": "Rina", "is_pov": True}],
             "lore": {},
+            "starting_state": {"current": {"location": "room", "present_characters": ["rina"]}},
         }
         storage.save_novel(novel)
         meta = storage.create_session(novel)
         session_id = meta["session_id"]
 
         for turn in range(1, 61):
-            result = storage.commit_turn(
+            result = commit_with_packet(
                 session_id,
+                f"user {turn}",
+                f"scene {turn}",
                 {
-                    "user_input": f"user {turn}",
-                    "scene_output": f"scene {turn}",
-                    "extracted": {
-                        "state_patch": {"current": {"last_turn": turn}},
-                        "chronology": [{"turn": turn, "summary": f"event {turn}"}],
-                    },
+                    "state_patch": {"current": {"last_turn": turn, "present_characters": ["rina"]}},
+                    "chronology": [{"turn": turn, "summary": f"event {turn}"}],
                 },
             )
-            if result["audit_due"]:
-                start_turn, end_turn = result["audit_range"]
-                audit = storage.commit_audit(
-                    session_id,
-                    {
-                        "start_turn": start_turn,
-                        "end_turn": end_turn,
-                        "repairs": {},
-                        "notes": [],
-                    },
-                )
+            audit = audit_if_due(session_id, result)
+            if audit:
                 assert audit["audited_through"] == turn
 
         assert result["turn_number"] == 60
@@ -65,13 +56,11 @@ def test_sixty_turn_handoff_cycle():
         assert package["meta"]["last_audit_turn"] == 60
         assert [t["turn_number"] for t in package["handoff_tail"]] == [55, 56, 57, 58, 59, 60]
         assert package["state"]["current"]["last_turn"] == 60
+        assert package["characters"][0]["character_id"] == "rina"
         assert len(package["chronology"]) == 60
 
         try:
-            storage.commit_turn(
-                session_id,
-                {"user_input": "should fail", "scene_output": "should fail", "extracted": {}},
-            )
+            storage.prepare_turn_packet(session_id, "should fail")
             assert False, "turn 61 must be blocked before resume"
         except RuntimeError as exc:
             assert str(exc) == "HANDOFF_REQUIRED"
@@ -80,10 +69,7 @@ def test_sixty_turn_handoff_cycle():
         assert confirmed["turn_number"] == 60
         assert confirmed["handoff_generation"] == 1
 
-        next_turn = storage.commit_turn(
-            session_id,
-            {"user_input": "user 61", "scene_output": "scene 61", "extracted": {}},
-        )
+        next_turn = commit_with_packet(session_id, "user 61", "scene 61", {})
         assert next_turn["turn_number"] == 61
 
         root = storage.SESSIONS_DIR / session_id
