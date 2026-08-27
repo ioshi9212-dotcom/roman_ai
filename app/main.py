@@ -7,6 +7,7 @@ from .character_access import get_character_bundle
 from .models import AuditCommit, NovelDraftCreate, NovelDraftSection, NovelRawSave, NovelTemplate, ResumeConfirm, SessionCreate, TurnCommit, TurnPrepare
 from .novel_access import get_novel_read_chunk, prepare_novel_read, verify_novel
 from .novel_drafts import create_draft, draft_status, finalize_draft, save_section
+from .session_preview import get_session_preview
 from .storage import (
     build_resume_package,
     commit_audit,
@@ -31,8 +32,8 @@ RUNTIME_DIR = ROOT_DIR / "runtime"
 
 app = FastAPI(
     title="Roman AI",
-    version="1.1.0",
-    description="Novel session backend for Custom GPT with compact verification, chunked novel reads, live character cards, fast audits and persistent Railway Volume state.",
+    version="1.2.0",
+    description="Novel session backend for Custom GPT with verified setup, compact session preview, chunked reads, live character cards, fast audits and persistent Railway Volume state.",
 )
 
 
@@ -157,6 +158,14 @@ def sessions_create(body: SessionCreate):
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Novel not found")
     return create_session(novel)
+
+
+@app.get("/sessions/{session_id}/preview", operation_id="getSessionPreview")
+def session_preview_get(session_id: str):
+    try:
+        return get_session_preview(session_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Session not found")
 
 
 @app.get("/sessions/{session_id}", operation_id="getSession")
