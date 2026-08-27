@@ -74,6 +74,62 @@ def _build_template(draft: Dict[str, Any]) -> Dict[str, Any]:
     return template
 
 
+def _character_ref(value: Any) -> Any:
+    if isinstance(value, dict):
+        return value.get("character_id") or value.get("id") or value.get("name") or value.get("full_name")
+    if isinstance(value, (str, int, float)):
+        return value
+    return None
+
+
+def _normalise_starting_state_for_session(template: Dict[str, Any]) -> Dict[str, Any]:
+    """Make permissive GPT-authored starting_state safe for the strict runtime state shape.
+
+    The finalized canon itself is not changed on disk. Only the isolated session snapshot
+    receives this normalized runtime representation.
+    """
+    result = deepcopy(template)
+    raw = result.get("starting_state")
+    state = deepcopy(raw) if isinstance(raw, dict) else {}
+
+    current = state.get("current")
+    if not isinstance(current, dict):
+        current = {}
+    present = current.get("present_characters", [])
+    if isinstance(present, dict):
+        present = list(present.keys())
+    elif present is None:
+        present = []
+    elif not isinstance(present, list):
+        present = [present]
+    current["present_characters"] = present
+    state["current"] = current
+
+    pov_raw = state.get("pov")
+    if isinstance(pov_raw, dict):
+        pov = deepcopy(pov_raw)
+    else:
+        ref = _character_ref(pov_raw)
+        pov = {"character_id": str(ref)} if ref is not None else {}
+    state["pov"] = pov
+
+    characters = state.get("characters")
+    if not isinstance(characters, dict):
+        state["characters"] = {}
+    relationships = state.get("relationships")
+    if not isinstance(relationships, dict):
+        state["relationships"] = {}
+    threads = state.get("threads")
+    if not isinstance(threads, (dict, list)):
+        state["threads"] = {}
+    world = state.get("world")
+    if not isinstance(world, dict):
+        state["world"] = {}
+
+    result["starting_state"] = state
+    return result
+
+
 def create_draft(novel_id: str, title: str, version: int = 1) -> Dict[str, Any]:
     draft_id = uuid.uuid4().hex
     draft = {
@@ -157,7 +213,7 @@ def prepare_draft_read(draft_id: str) -> Dict[str, Any]:
 
 
 def create_session_from_draft(draft_id: str) -> Dict[str, Any]:
-    template = _finalized_template(draft_id)
+    template = _normalise_starting_state_for_session(_finalized_template(draft_id))
     meta = storage.create_session(template)
     meta["source_type"] = "session_draft"
     return meta
