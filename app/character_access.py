@@ -23,7 +23,12 @@ def get_character_bundle(session_id: str, character_id: str) -> Dict[str, Any]:
         "character_id": character_id,
         "card": card,
         "current_state": character_state,
-        "memory": storage._memory_bucket(memory, character_id),
+        "personal_memory": storage._memory_bucket(memory, character_id),
         "relationship_to_pov": storage._relationship_hint(state, character_id),
-        "instruction": "Use card + current_state + memory + relationship together before writing this character into the scene.",
+        "instruction": (
+            "CARD and relationship are author context for characterization. PERSONAL_MEMORY is the authoritative source for what "
+            "this character personally knows about past events. Do not use chronology, source canon, another character's memory "
+            "or hidden card facts as this character's knowledge. In the current scene the character may learn only what they "
+            "personally see, hear, receive or are explicitly told while present."
+        ),
     }
