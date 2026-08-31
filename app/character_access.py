@@ -23,16 +23,17 @@ def get_character_bundle(session_id: str, character_id: str) -> Dict[str, Any]:
         "character_id": character_id,
         "card": card,
         "current_state": character_state,
+        "pov_familiarity": character_state.get("pov_familiarity") if isinstance(character_state, dict) else None,
         "personal_memory": storage._memory_bucket(memory, character_id),
         "relationship_to_pov": storage._relationship_hint(state, character_id),
         "instruction": (
             "CARD is objective author context. PERSONAL_MEMORY is the authoritative source for what this character personally knows. "
-            "RELATIONSHIP_TO_POV is this NPC's persistent directed attitude toward POV and must materially affect characterization: "
-            "wording, tone, initiative, willingness to approach or avoid, trust, suspicion, jealousy, warmth, hostility, physical distance, "
-            "risk-taking, help, conflict, attention and how naturally/often this NPC seeks contact with POV when circumstances allow. "
-            "Relationship numbers never override personality, goals, knowledge, obligations or current circumstances, but they are not decorative. "
-            "Do not invent POV->NPC feelings from them and do not treat NPC<->NPC relationships as POV relationships. "
-            "Do not use chronology, source canon, another character's memory or hidden card facts as this character's knowledge. "
+            "POV_FAMILIARITY is persistent identity continuity: known/acquainted means POV already knows this person and a first-time introduction is forbidden; "
+            "encountered means prior co-presence without guaranteed identity knowledge. When this registered character enters from offscreen, use this same card/ID and "
+            "describe a recognizable entrance consistent with the card instead of silently turning an anonymous newcomer into this person later. "
+            "RELATIONSHIP_TO_POV is this NPC's persistent directed attitude toward POV and must materially affect characterization: wording, tone, initiative, "
+            "willingness to approach or avoid, trust, suspicion, jealousy, warmth, hostility, physical distance, risk-taking, help, conflict and attention. "
+            "Do not invent POV->NPC feelings and do not use chronology, source canon, another character's memory or hidden card facts as this character's knowledge. "
             "In the current scene the character may learn only what they personally see, hear, receive or are explicitly told while present."
         ),
     }
