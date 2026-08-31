@@ -15,9 +15,9 @@ from .novel_drafts import (
     publish_draft_to_library,
     save_section,
 )
+from .resume_access import get_resume_chunk, prepare_resume_read
 from .session_preview import get_session_preview
 from .storage import (
-    build_resume_package,
     commit_audit,
     commit_turn,
     confirm_resume,
@@ -40,8 +40,8 @@ RUNTIME_DIR = ROOT_DIR / "runtime"
 
 app = FastAPI(
     title="Roman AI",
-    version="1.3.0",
-    description="Persistent isolated novel sessions. New chat novels stay session-only unless explicitly published to the library.",
+    version="1.4.0",
+    description="Persistent isolated novel sessions with chunked turn, draft and resume reads.",
 )
 
 
@@ -313,7 +313,7 @@ def audit_commit(session_id: str, body: AuditCommit):
 @app.post("/sessions/{session_id}/resume", operation_id="resumeSession")
 def session_resume(session_id: str):
     try:
-        return build_resume_package(session_id)
+        return prepare_resume_read(session_id)
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Session not found")
     except RuntimeError as exc:
@@ -322,6 +322,18 @@ def session_resume(session_id: str):
         if str(exc) == "HANDOFF_NOT_REQUIRED":
             raise HTTPException(status_code=409, detail="This session does not currently require handoff")
         raise
+
+
+@app.get("/sessions/{session_id}/resume/{read_id}/{chunk_index}", operation_id="getResumeChunk")
+def session_resume_chunk(session_id: str, read_id: str, chunk_index: int):
+    try:
+        return get_resume_chunk(session_id, read_id, chunk_index)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Resume read not found or already completed")
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="Invalid resume read")
+    except IndexError:
+        raise HTTPException(status_code=404, detail="Chunk index out of range")
 
 
 @app.post("/sessions/{session_id}/resume/confirm", operation_id="confirmResume")
