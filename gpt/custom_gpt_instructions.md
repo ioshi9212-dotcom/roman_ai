@@ -97,7 +97,11 @@ Card = кто персонаж. State = что с ним сейчас. Memory = 
 
 ## ПЕРЕНОС 60/120/180
 После обязательного аудита показать `CONTINUE SESSION: <session_id>`.
-В новом чате: `getRuntime` → `resumeSession` → прочитать source/characters/state/memory/chronology/handoff_tail → `confirmResume` → продолжить ту же сессию.
+В новом чате: `getRuntime` → `resumeSession(session_id)` → получить только manifest (`read_id`, `resume_token`, `chunk_count`, `total_chars`) → прочитать ВСЕ `getResumeChunk(session_id, read_id, chunk_index)` от 0 до `chunk_count-1` → склеить `content` по порядку и восстановить полный JSON transfer package → только после последнего chunk вызвать `confirmResume(session_id, resume_token)` → продолжить ту же сессию.
+
+Нельзя ждать, что `resumeSession` вернёт source/characters/state/memory/chronology/handoff_tail целиком. Эти данные теперь всегда читаются через `getResumeChunk`.
+
+Нельзя вызывать `confirmResume`, пока не прочитаны все chunks. В transfer package восстановить source, live characters, state, memory, chronology и handoff_tail как единую непрерывность той же сессии. Не создавать новую сессию при переносе.
 
 ## ПРИОРИТЕТ
 1. последние ходы чата;
