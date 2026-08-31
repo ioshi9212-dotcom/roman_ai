@@ -38,15 +38,13 @@ def _resolve_character_id(cards, value: Any) -> str | None:
 
 
 def _canonicalize_state_character_refs(cards, state: Dict[str, Any]) -> Dict[str, Any]:
-    result = dict(state) if isinstance(state, dict) else {}
-    result = storage._deep_merge({}, result)
+    result = storage._deep_merge({}, state if isinstance(state, dict) else {})
 
     pov = result.get("pov") if isinstance(result.get("pov"), dict) else {}
-    if isinstance(pov, dict):
-        resolved = _resolve_character_id(cards, pov.get("character_id"))
-        if resolved:
-            pov["character_id"] = resolved
-        result["pov"] = pov
+    resolved = _resolve_character_id(cards, pov.get("character_id")) if isinstance(pov, dict) else None
+    if resolved:
+        pov["character_id"] = resolved
+    result["pov"] = pov
 
     current = result.get("current") if isinstance(result.get("current"), dict) else {}
     present = current.get("present_characters", [])
@@ -73,8 +71,8 @@ def _refresh_session_familiarity(session_id: str) -> Dict[str, Any]:
         raise FileNotFoundError(session_id)
     source = storage._read_json(root / "source.json", {})
     cards = storage._load_cards(root, source)
-    state = storage._read_json(root / "state.json", {})
-    state = _canonicalize_state_character_refs(cards, state)
+    original_state = storage._read_json(root / "state.json", {})
+    state = _canonicalize_state_character_refs(cards, original_state)
     memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
     chronology = storage._read_json(root / "chronology.json", [])
     turns = storage._read_turns(root)
@@ -87,7 +85,7 @@ def _refresh_session_familiarity(session_id: str) -> Dict[str, Any]:
         turns,
         int(meta.get("turn_number", 0)),
     )
-    if refreshed != storage._read_json(root / "state.json", {}):
+    if refreshed != original_state:
         storage._write_json(root / "state.json", refreshed)
     return {
         "root": root,
@@ -151,6 +149,12 @@ def _augment_packet(session_id: str, manifest: Dict[str, Any]) -> Dict[str, Any]
         for row in registry
     ]
     context["author_context"] = author_context
+
+    # Keep the original compact packet fields available at top level too. Older
+    # scenes/tests and some Custom GPT instructions still read these names directly.
+    for key in ("novel", "novel_rules", "novel_lore", "hidden_lore", "story_direction", "world_canon", "character_cards", "relationships", "chronology_recent", "recent_turns"):
+        if key in author_context:
+            context[key] = author_context[key]
 
     text = json.dumps(context, ensure_ascii=False, separators=(",", ":"))
     chunks = [text[i:i + storage.MAX_PACKET_CHARS] for i in range(0, len(text), storage.MAX_PACKET_CHARS)] or ["{}"]
