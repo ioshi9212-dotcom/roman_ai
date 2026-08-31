@@ -54,6 +54,13 @@ def inject_required_turn_context(context: Dict[str, Any], cards: List[Dict[str, 
         "MANDATORY. Read scene_builder completely before writing and follow its FORMAT exactly. "
         "Do not shorten, reorder, omit or replace its blocks."
     )
+    context["pov_participation_contract"] = documents["pov_contract"]
+    context["pov_participation_instruction"] = (
+        "MANDATORY GLOBAL POV RULE. POV must remain an active participant throughout the scene. "
+        "Write ordinary in-character POV dialogue, reactions, thoughts and small actions without asking permission; "
+        "do not reduce POV to silence, one-word replies or body-only reactions merely to preserve player agency. "
+        "Stop only before genuinely consequential POV choices defined by the contract."
+    )
 
     context["source_full"] = deepcopy(source)
     context["state_full"] = deepcopy(state)
