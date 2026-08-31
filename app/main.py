@@ -36,8 +36,8 @@ RUNTIME_DIR = ROOT_DIR / "runtime"
 
 app = FastAPI(
     title="Roman AI",
-    version="1.5.0",
-    description="Persistent isolated novel sessions. A session continues directly by session_id across chats; no transfer package is required.",
+    version="1.6.0",
+    description="Persistent isolated novel sessions with compact long-range chronology and per-character memory.",
 )
 
 
@@ -287,6 +287,7 @@ def turns_commit(session_id: str, body: TurnCommit):
             "AUDIT_REQUIRED": "Audit is required before the next turn",
             "TURN_PACKET_REQUIRED": "prepareTurn must be called for this exact user input before commitTurn",
             "TURN_PACKET_INCOMPLETE": "Every turn packet chunk must be read before commitTurn",
+            "PERSISTENCE_REVIEW_REQUIRED": "Before commitTurn explicitly review chronology and per-character memory. extracted must include persistence_reviewed=true plus chronology, knowledge_add, experiences_add and dialogue_memory_add arrays, even when empty.",
         }
         if str(exc) in errors:
             raise HTTPException(status_code=409, detail=errors[str(exc)])
