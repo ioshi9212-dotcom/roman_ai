@@ -36,7 +36,7 @@ RUNTIME_DIR = ROOT_DIR / "runtime"
 
 app = FastAPI(
     title="Roman AI",
-    version="1.6.0",
+    version="1.6.1",
     description="Persistent isolated novel sessions with compact long-range chronology and per-character memory.",
 )
 
@@ -48,21 +48,21 @@ def health():
 
 @app.get("/runtime", operation_id="getRuntime")
 def runtime_get():
-    def read(name: str) -> str:
-        path = RUNTIME_DIR / name
-        if not path.exists():
-            raise HTTPException(status_code=500, detail=f"Runtime file missing: {name}")
-        return path.read_text(encoding="utf-8")
-
-    result = {
-        "rules": read("rules.md"),
-        "scene_builder": read("scene_builder.md"),
-        "memory_contract": read("memory_contract.md"),
+    return {
+        "ok": True,
+        "runtime_version": "1.6.1",
+        "contracts": [
+            "isolated persistent sessions",
+            "character registry and POV familiarity",
+            "per-character knowledge and perception",
+            "compact long-range chronology with anchors",
+            "direct same-session continuation across chats",
+            "mandatory persistence review before commit",
+            "15-turn audit",
+            "temporal causality and no-retcon repair",
+        ],
+        "instruction": "This is a compact compatibility check only. Detailed rules are enforced by the server, Custom GPT instructions and each turn packet; no large runtime document download is required.",
     }
-    continuity = RUNTIME_DIR / "continuity_contract.md"
-    if continuity.exists():
-        result["continuity_contract"] = continuity.read_text(encoding="utf-8")
-    return result
 
 
 @app.post("/novel-drafts", operation_id="createNovelDraft")
