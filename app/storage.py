@@ -194,7 +194,10 @@ def _load_cards(root: Path, source: Dict[str, Any]) -> List[Dict[str, Any]]:
 
 def _present_character_ids(state: Dict[str, Any]) -> List[str]:
     result: List[str] = []
-    present = state.get("current", {}).get("present_characters", [])
+    current = state.get("current", {}) if isinstance(state.get("current"), dict) else {}
+    present = current.get("present_characters", [])
+    if isinstance(present, dict):
+        present = list(present.keys())
     if isinstance(present, str):
         present = [present]
     for value in present if isinstance(present, list) else []:
@@ -202,10 +205,12 @@ def _present_character_ids(state: Dict[str, Any]) -> List[str]:
             value = value.get("character_id") or value.get("id") or value.get("name")
         if value:
             result.append(str(value))
-    for cid, info in (state.get("characters", {}) or {}).items():
+    runtime = state.get("characters", {}) if isinstance(state.get("characters"), dict) else {}
+    for cid, info in runtime.items():
         if isinstance(info, dict) and info.get("present") is True:
             result.append(str(cid))
-    pov_id = state.get("pov", {}).get("character_id")
+    pov = state.get("pov", {}) if isinstance(state.get("pov"), dict) else {}
+    pov_id = pov.get("character_id")
     if pov_id:
         result.append(str(pov_id))
     return list(dict.fromkeys(result))
@@ -265,6 +270,37 @@ def _cast_index(cards: List[Dict[str, Any]], state: Dict[str, Any], current_turn
     return result
 
 
+def _character_knowledge_lenses(
+    cards: List[Dict[str, Any]],
+    state: Dict[str, Any],
+    memory: Dict[str, Any],
+    character_ids: List[str],
+) -> Dict[str, Any]:
+    card_map = {_card_id(card): card for card in cards}
+    runtime = state.get("characters", {}) if isinstance(state.get("characters"), dict) else {}
+    present = set(_present_character_ids(state))
+    result: Dict[str, Any] = {}
+    for cid in character_ids:
+        card = card_map.get(cid)
+        if not card:
+            continue
+        result[cid] = {
+            "character_id": cid,
+            "name": _card_name(card),
+            "present_at_turn_start": cid in present,
+            "current_state": runtime.get(cid, {}) if isinstance(runtime.get(cid), dict) else {},
+            "personal_memory": deepcopy(_memory_bucket(memory, cid)),
+            "relationship_to_pov": _relationship_hint(state, cid),
+            "knowledge_rule": (
+                "For this character's speech, decisions, questions, assumptions and recognition of past facts, "
+                "personal_memory is the only authoritative source of prior learned information. Author chronology, "
+                "recent turns, cards and lore do not become this character's knowledge. During the current scene, "
+                "the character may learn only what they personally see, hear, receive or are explicitly told while present."
+            ),
+        }
+    return result
+
+
 def _apply_character_upserts(cards: List[Dict[str, Any]], extracted: Dict[str, Any]) -> List[Dict[str, Any]]:
     result = _normalise_cards(cards)
     index = {_card_id(card): i for i, card in enumerate(result)}
@@ -289,9 +325,13 @@ def _apply_character_upserts(cards: List[Dict[str, Any]], extracted: Dict[str, A
 
 def _refresh_runtime_presence(state: Dict[str, Any], cards: List[Dict[str, Any]], turn_number: int) -> Dict[str, Any]:
     state = deepcopy(state)
-    state.setdefault("characters", {})
-    current = state.setdefault("current", {})
+    if not isinstance(state.get("characters"), dict):
+        state["characters"] = {}
+    current = state.get("current") if isinstance(state.get("current"), dict) else {}
+    state["current"] = current
     present = current.get("present_characters", [])
+    if isinstance(present, dict):
+        present = list(present.keys())
     if isinstance(present, str):
         present = [present]
     present_ids = set(str(x.get("character_id") or x.get("id") or x.get("name")) if isinstance(x, dict) else str(x) for x in present if x)
@@ -344,10 +384,12 @@ def create_session(novel: Dict[str, Any]) -> Dict[str, Any]:
     starting_state = novel.get("starting_state") if isinstance(novel.get("starting_state"), dict) else {}
     state = _deep_merge(state, starting_state)
     pov_id = _find_pov_id(novel, cards)
-    if pov_id and not state.get("pov", {}).get("character_id"):
-        state.setdefault("pov", {})["character_id"] = pov_id
+    if not isinstance(state.get("pov"), dict):
+        state["pov"] = {}
+    if pov_id and not state["pov"].get("character_id"):
+        state["pov"]["character_id"] = pov_id
     if isinstance(novel.get("world"), dict):
-        state["world"] = _deep_merge(novel.get("world", {}), state.get("world", {}))
+        state["world"] = _deep_merge(novel.get("world", {}), state.get("world", {}) if isinstance(state.get("world"), dict) else {})
 
     memory = _template("memory.json", {"characters": {}})
     memory = _normalise_memory(memory)
@@ -435,7 +477,7 @@ def get_audit_snapshot(session_id: str) -> Dict[str, Any]:
         "audit_range": [start_turn, end_turn],
         "state": state,
         "saved_this_cycle": {"chronology": recent_chronology, "memory": recent_memory},
-        "instruction": "FAST AUDIT. Use the last 15 turns already visible in the current chat. Do not fetch raw turns. Add only missing chronology, character knowledge/experience/dialogue memory, and obvious state corrections. Then call commitAudit once.",
+        "instruction": "FAST AUDIT. Use the last 15 turns already visible in the current chat. Do not fetch raw turns. Add only missing chronology, character knowledge/experience/dialogue memory, and obvious state corrections. Never copy chronology into a character's memory unless the scene proves that character personally saw, heard, received or was told the information. Then call commitAudit once.",
     }
 
 
@@ -456,31 +498,50 @@ def prepare_turn_packet(session_id: str, user_input: str) -> Dict[str, Any]:
     chronology = _read_json(root / "chronology.json", [])
     turns = _read_turns(root)
     relevant_ids = _relevant_character_ids(cards, state, user_input)
-
-    card_map = {_card_id(card): card for card in cards}
-    relevant_cards = [card_map[cid] for cid in relevant_ids if cid in card_map]
-    relevant_memory = {cid: _memory_bucket(memory, cid) for cid in relevant_ids}
+    present_ids = _present_character_ids(state)
 
     context = {
-        "packet_version": 2,
+        "packet_version": 3,
         "session": meta,
         "expected_turn": int(meta.get("turn_number", 0)) + 1,
         "user_input": user_input,
         "scene_state": state,
-        "novel": source.get("novel", {}),
-        "novel_rules": source.get("rules", {}),
-        "novel_lore": source.get("lore", {}),
-        "hidden_lore": source.get("hidden_lore", {}),
-        "story_direction": source.get("story_direction", {}),
-        "world_canon": source.get("world", {}),
         "cast_index": _cast_index(cards, state, int(meta.get("turn_number", 0))),
         "relevant_character_ids": relevant_ids,
-        "character_cards": relevant_cards,
-        "character_memory": relevant_memory,
+        "present_character_ids_at_turn_start": present_ids,
+        "scene_characters": _character_knowledge_lenses(cards, state, memory, relevant_ids),
+        "knowledge_boundary": {
+            "rule": "World history is not character knowledge.",
+            "instruction": (
+                "Before writing ANY line, question, assumption, recognition, reaction or deliberate action for a scene character, "
+                "check that character's scene_characters[character_id].personal_memory. A past fact is usable by that character only "
+                "if it is stored there or the current scene itself gives the fact to that character through direct sight, hearing, "
+                "a message, physical receipt or explicit speech while the character is present. Do this independently for every "
+                "character in the scene, including POV. Never infer that a character knows something merely because it exists in "
+                "author_context.chronology_recent, author_context.recent_turns, cards, lore, relationships or source canon. "
+                "When the current scene teaches a durable fact, commit knowledge_add/experiences_add/dialogue_memory_add only for "
+                "the characters who actually perceived or received it. Characters absent from that exchange do not learn it. "
+                "If someone arrives later, they do not retroactively hear what happened before arrival."
+            ),
+        },
         "active_threads": state.get("threads", {}),
-        "relationships": state.get("relationships", {}),
-        "chronology_recent": chronology[-30:] if isinstance(chronology, list) else chronology,
-        "recent_turns": turns[-6:],
+        "author_context": {
+            "instruction": (
+                "AUTHOR/ENGINE ONLY. These fields preserve objective continuity and control NPC/world truth. They are NOT a source "
+                "of personal knowledge for any character. Use them to keep the world consistent, never to give a character facts "
+                "that are missing from that character's personal_memory."
+            ),
+            "novel": source.get("novel", {}),
+            "novel_rules": source.get("rules", {}),
+            "novel_lore": source.get("lore", {}),
+            "hidden_lore": source.get("hidden_lore", {}),
+            "story_direction": source.get("story_direction", {}),
+            "world_canon": source.get("world", {}),
+            "character_cards": [{"character_id": _card_id(card), "card": card} for card in cards if _card_id(card) in set(relevant_ids)],
+            "relationships": state.get("relationships", {}),
+            "chronology_recent": chronology[-30:] if isinstance(chronology, list) else chronology,
+            "recent_turns": turns[-6:],
+        },
     }
     text = json.dumps(context, ensure_ascii=False, separators=(",", ":"))
     chunks = [text[i:i + MAX_PACKET_CHARS] for i in range(0, len(text), MAX_PACKET_CHARS)] or ["{}"]
@@ -499,7 +560,11 @@ def prepare_turn_packet(session_id: str, user_input: str) -> Dict[str, Any]:
         "prepared_for_turn": packet["prepared_for_turn"],
         "chunk_count": packet["chunk_count"],
         "relevant_character_ids": relevant_ids,
-        "instruction": "Read every chunk from 0 through chunk_count-1 before writing or committing the scene. cast_index is the compact roster; full cards and personal memory are included for scene-relevant characters.",
+        "instruction": (
+            "Read every chunk before writing or committing. For every character who appears in the scene, first check that "
+            "character's scene_characters personal_memory. author_context is objective author knowledge only and must never be "
+            "treated as something a character personally knows."
+        ),
     }
 
 
@@ -631,7 +696,7 @@ def build_resume_package(session_id: str) -> Dict[str, Any]:
         "memory": _normalise_memory(_read_json(root / "memory.json", {})),
         "chronology": _read_json(root / "chronology.json", []),
         "handoff_tail": _read_json(root / "handoff_tail.json", []),
-        "instruction": "Restore this exact session. Source is immutable starting canon; characters is the live card registry including NPCs created after start; state is current truth; memory is personal character memory; chronology is persistent history; handoff_tail is exact recent scene continuity.",
+        "instruction": "Restore this exact session. Source is immutable starting canon; characters is the live card registry including NPCs created after start; state is current truth; memory is personal character memory; chronology is objective persistent history and never personal knowledge by itself; handoff_tail is exact recent scene continuity.",
     }
 
 
