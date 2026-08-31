@@ -14,5 +14,5 @@ def test_runtime_contains_active_pov_contract():
 
 def test_runtime_version_bumped_for_pov_contract():
     manifest = runtime_manifest()
-    assert manifest["runtime_version"] == "1.7.1"
+    assert manifest["runtime_version"] == "1.7.2"
     assert manifest["chunk_count"] >= 1
