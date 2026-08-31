@@ -25,8 +25,9 @@ def test_runtime_is_complete_and_chunked():
     manifest = runtime_access.runtime_manifest()
     chunks = [runtime_access.runtime_chunk(i)["content"] for i in range(manifest["chunk_count"])]
     payload = json.loads("".join(chunks))
-    assert set(payload["documents"]) == {"rules", "scene_builder", "memory_contract", "continuity_contract"}
+    assert set(payload["documents"]) == {"rules", "scene_builder", "pov_contract", "memory_contract", "continuity_contract"}
     assert "Формат обязателен" in payload["documents"]["scene_builder"]
+    assert "POV НЕ должен искусственно молчать" in payload["documents"]["pov_contract"]
     assert manifest["total_chars"] == sum(len(x) for x in chunks)
 
 
@@ -81,5 +82,8 @@ def test_turn_packet_contains_full_source_state_cards_memory_and_chronology_with
         assert {x["character_id"] for x in context["present_character_cards"]} == {"pov", "npc"}
         assert context["runtime_documents"]["rules"]
         assert context["runtime_documents"]["scene_builder"]
+        assert context["runtime_documents"]["pov_contract"]
         assert context["runtime_documents"]["memory_contract"]
         assert context["runtime_documents"]["continuity_contract"]
+        assert context["pov_participation_contract"] == context["runtime_documents"]["pov_contract"]
+        assert "active participant" in context["pov_participation_instruction"]
