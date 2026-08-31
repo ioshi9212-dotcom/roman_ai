@@ -90,7 +90,7 @@ def test_explicit_introduction_survives_new_chat_continuation():
         _, packet2 = read_packet(session_id, "(ждать)")
         kai2 = next(row for row in packet2["character_registry"] if row["character_id"] == "kai")
         assert kai2["pov_familiarity"]["status"] == "acquainted"
-        assert "first-time introduction" in packet2["character_registry_instruction"]
+        assert "Never stage a first introduction" in packet2["character_registry_instruction"]
 
 
 def test_shared_scene_without_identity_is_only_encountered():
