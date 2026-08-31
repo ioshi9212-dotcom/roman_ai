@@ -21,7 +21,7 @@ def read_packet_context(session_id: str, user_input: str):
     return packet, json.loads(text)
 
 
-def test_starting_state_full_canon_and_cast_are_available():
+def test_starting_state_full_canon_cast_scene_builder_and_all_cards_are_available():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         novel = {
@@ -35,9 +35,9 @@ def test_starting_state_full_canon_and_cast_are_available():
             "world": {"city": "Eastern Sector"},
             "story_direction": {"focus": "relationships first"},
             "characters": [
-                {"character_id": "elena", "name": "Elena", "is_pov": True, "role": "POV"},
+                {"character_id": "elena", "name": "Elena", "is_pov": True, "role": "POV", "past": "artist"},
                 {"character_id": "aiden", "name": "Aiden", "role": "commander", "past": "lost his former team"},
-                {"character_id": "liam", "name": "Liam", "role": "commander"},
+                {"character_id": "liam", "name": "Liam", "role": "commander", "past": "academy graduate"},
             ],
             "starting_state": {
                 "current": {"location": "training hall", "present_characters": ["elena", "aiden"]},
@@ -54,13 +54,30 @@ def test_starting_state_full_canon_and_cast_are_available():
         packet, context = read_packet_context(sid, "Начать стартовую сцену")
         assert "elena" in packet["relevant_character_ids"]
         assert "aiden" in packet["relevant_character_ids"]
-        assert {x["character_id"] for x in context["character_cards"]} == {"elena", "aiden"}
+        assert packet["full_character_card_count"] == 3
+
+        all_ids = {x["character_id"] for x in context["character_cards"]}
+        assert all_ids == {"elena", "aiden", "liam"}
+        assert {x["character_id"] for x in context["all_character_cards"]} == all_ids
+        assert {x["character_id"] for x in context["present_character_cards"]} == {"elena", "aiden"}
+        liam = next(x for x in context["all_character_cards"] if x["character_id"] == "liam")
+        assert liam["card"]["past"] == "academy graduate"
+
         assert {x["character_id"] for x in context["cast_index"]} == {"elena", "aiden", "liam"}
         assert {x["character_id"] for x in context["character_registry"]} == {"elena", "aiden", "liam"}
         assert context["novel_rules"]["tone"] == "cinematic"
         assert context["hidden_lore"]["secret"].startswith("Aiden")
         assert context["story_direction"]["focus"] == "relationships first"
         assert context["world_canon"]["city"] == "Eastern Sector"
+
+        builder = context["scene_builder"]
+        assert "Формат обязателен" in builder
+        assert "🎭 {название новеллы} · {время года}" in builder
+        assert "Что я могу сделать:" in builder
+        assert "Что я могу сказать:" in builder
+        assert "Что я могу подумать:" in builder
+        assert "Ход {turn_number} · цикл {cycle_position}/15" in builder
+        assert "FORMAT" in context["scene_builder_instruction"]
 
 
 def test_new_recurring_npc_becomes_live_card_and_returns_later():
