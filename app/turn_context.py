@@ -24,21 +24,26 @@ def present_character_cards(cards: List[Dict[str, Any]], state: Dict[str, Any]) 
     ]
 
 
-def inject_required_turn_context(
-    context: Dict[str, Any],
-    *,
-    source: Dict[str, Any],
-    cards: List[Dict[str, Any]],
-    state: Dict[str, Any],
-    memory: Dict[str, Any],
-    chronology: Any,
-) -> Dict[str, Any]:
-    """Inject the complete persistent writing context before packet chunking.
+def _session_persistent_data(context: Dict[str, Any]) -> tuple[Dict[str, Any], Dict[str, Any], Any]:
+    session = context.get("session") if isinstance(context.get("session"), dict) else {}
+    session_id = session.get("session_id")
+    if not session_id:
+        return {}, {"characters": {}}, []
+    root = storage.SESSIONS_DIR / str(session_id)
+    return (
+        storage._read_json(root / "source.json", {}),
+        storage._normalise_memory(storage._read_json(root / "memory.json", {})),
+        storage._read_json(root / "chronology.json", []),
+    )
 
-    Nothing in these durable sources is shortened or summarized here. The final JSON
-    is split into MAX_PACKET_CHARS chunks by session_runtime, so large cards, rules,
-    chronology and memories remain byte-for-byte available to the model.
+
+def inject_required_turn_context(context: Dict[str, Any], cards: List[Dict[str, Any]], state: Dict[str, Any]) -> Dict[str, Any]:
+    """Inject complete durable context before the JSON is split into chunks.
+
+    Full rules, source, cards, state, memories and chronology are preserved. Chunking
+    happens only after serialization, so nothing here is shortened or summarized.
     """
+    source, memory, chronology = _session_persistent_data(context)
     documents = runtime_documents()
     all_cards = full_character_cards(cards)
     present_cards = present_character_cards(cards, state)
@@ -64,7 +69,7 @@ def inject_required_turn_context(
     context["full_context_contract"] = {
         "no_truncation": True,
         "instruction": (
-            "The packet contains the full runtime documents, full source/questionnaire/canon, full current state, "
+            "The packet contains full runtime documents, full source/questionnaire/canon, full current state, "
             "all full character cards, all saved character memories and the complete chronology. Read every chunk before writing."
         ),
     }
