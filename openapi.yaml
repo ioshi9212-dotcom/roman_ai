@@ -1,8 +1,8 @@
 openapi: 3.1.0
 info:
   title: Roman AI
-  version: 1.4.0
-  description: Persistent isolated novel sessions for Custom GPT with chunked turn, novel and resume reads.
+  version: 1.5.0
+  description: Persistent isolated novel sessions. Existing sessions continue directly by session_id across chats; no transfer package or resume chunks are used.
 servers:
   - url: https://romanai-production-0fdb.up.railway.app
 components:
@@ -21,26 +21,7 @@ components:
         section_name:
           type: string
           enum: [novel, characters, lore, rules, hidden_lore, world, starting_state, story_direction]
-        section_json:
-          type: string
-          description: Exactly one valid JSON value for this section, with no prose before or after it.
-    NovelTemplate:
-      type: object
-      required: [novel_id, title]
-      properties:
-        novel_id: {type: string}
-        title: {type: string}
-        version: {type: integer, default: 1}
-        novel: {type: object, additionalProperties: true}
-        characters:
-          type: array
-          items: {type: object, additionalProperties: true}
-        lore: {type: object, additionalProperties: true}
-    NovelRawSave:
-      type: object
-      required: [template_json]
-      properties:
-        template_json: {type: string}
+        section_json: {type: string}
     SessionCreate:
       type: object
       required: [novel_id]
@@ -71,11 +52,6 @@ components:
         notes:
           type: array
           items: {type: string}
-    ResumeConfirm:
-      type: object
-      required: [resume_token]
-      properties:
-        resume_token: {type: string}
 paths:
   /health:
     get:
@@ -86,7 +62,7 @@ paths:
   /runtime:
     get:
       operationId: getRuntime
-      summary: Load runtime rules, scene builder and memory contract
+      summary: Load runtime rules including continuity and knowledge contracts
       responses:
         '200': {description: Runtime documents}
   /novel-drafts:
@@ -116,7 +92,7 @@ paths:
   /novel-drafts/{draft_id}:
     get:
       operationId: getNovelDraftStatus
-      summary: Check saved sections, finalized state and whether the draft was explicitly published
+      summary: Check saved sections and finalized state
       parameters:
         - {in: path, name: draft_id, required: true, schema: {type: string}}
       responses:
@@ -128,80 +104,45 @@ paths:
       parameters:
         - {in: path, name: draft_id, required: true, schema: {type: string}}
       responses:
-        '200': {description: Compact verification summary with saved_to_library=false}
-        '409': {description: Draft incomplete}
+        '200': {description: Compact verification summary}
   /novel-drafts/{draft_id}/read:
     post:
       operationId: prepareDraftRead
-      summary: Prepare chunked reading of the finalized session-only draft for content verification
+      summary: Prepare chunked reading of a finalized draft
       parameters:
         - {in: path, name: draft_id, required: true, schema: {type: string}}
       responses:
         '200': {description: read_id, chunk_count and total_chars}
-        '409': {description: Draft not finalized}
   /novel-drafts/{draft_id}/session:
     post:
       operationId: createSessionFromDraft
-      summary: Create a new isolated session directly from a finalized draft without touching the library
+      summary: Create an isolated session directly from a finalized draft
       parameters:
         - {in: path, name: draft_id, required: true, schema: {type: string}}
       responses:
-        '200': {description: Session metadata with real session_id}
-        '409': {description: Draft not finalized}
+        '200': {description: Session metadata with session_id}
   /novel-drafts/{draft_id}/publish:
     post:
       operationId: saveDraftToLibrary
-      summary: Explicitly publish a finalized draft to the reusable novel library; call only on direct user request
+      summary: Explicitly publish a finalized draft to the reusable library
       parameters:
         - {in: path, name: draft_id, required: true, schema: {type: string}}
       responses:
         '200': {description: Draft published to library}
-        '409': {description: Draft not finalized}
   /novels:
     get:
       operationId: listNovels
-      summary: List only explicitly saved reusable library novels
+      summary: List explicitly saved reusable library novels
       responses:
         '200': {description: Novel list}
-    post:
-      operationId: saveNovel
-      summary: Explicit direct library save for a small structured template; never use automatically during normal new-session setup
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: {$ref: '#/components/schemas/NovelTemplate'}
-      responses:
-        '200': {description: Saved library novel}
-  /novels/raw:
-    post:
-      operationId: saveNovelRaw
-      summary: Legacy explicit library save for small templates only; never use automatically during normal setup
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: {$ref: '#/components/schemas/NovelRawSave'}
-      responses:
-        '200': {description: Saved library novel}
-  /novels/{novel_id}/verify:
-    get:
-      operationId: verifyNovel
-      summary: Verify an existing library novel without returning its full content
-      parameters:
-        - {in: path, name: novel_id, required: true, schema: {type: string}}
-      responses:
-        '200': {description: Compact verification}
-        '404': {description: Novel not found}
   /novels/{novel_id}/read:
     post:
       operationId: prepareNovelRead
-      summary: Prepare chunked reading of an existing library novel
+      summary: Prepare chunked reading of a library novel
       parameters:
         - {in: path, name: novel_id, required: true, schema: {type: string}}
       responses:
         '200': {description: read_id, chunk_count and total_chars}
-        '404': {description: Novel not found}
   /novel-reads/{read_id}/{chunk_index}:
     get:
       operationId: getNovelReadChunk
@@ -211,56 +152,47 @@ paths:
         - {in: path, name: chunk_index, required: true, schema: {type: integer}}
       responses:
         '200': {description: One chunk and all_chunks_read flag}
-        '404': {description: Read not found, completed, or chunk out of range}
-  /novels/{novel_id}:
-    get:
-      operationId: getNovel
-      summary: Legacy full read for small library novels only
-      parameters:
-        - {in: path, name: novel_id, required: true, schema: {type: string}}
-      responses:
-        '200': {description: Full library novel}
   /sessions:
     post:
       operationId: createSession
-      summary: Create an isolated session from an existing reusable library novel
+      summary: Create an isolated session from an existing library novel
       requestBody:
         required: true
         content:
           application/json:
             schema: {$ref: '#/components/schemas/SessionCreate'}
       responses:
-        '200': {description: Session metadata with real session_id}
+        '200': {description: Session metadata with session_id}
   /sessions/{session_id}/preview:
     get:
       operationId: getSessionPreview
-      summary: Build a compact preview from the actually created isolated session
+      summary: Build a compact preview from an actually created session
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
       responses:
         '200': {description: Stored session preview}
-        '404': {description: Session not found}
-  /sessions/{session_id}:
-    get:
-      operationId: getSession
-      summary: Load current isolated session snapshot including live character cards
+  /sessions/{session_id}/resume:
+    post:
+      operationId: resumeSession
+      summary: Reconnect to this exact existing session without copying or transferring it
+      description: Returns a compact checkpoint and live character registry. On the next gameplay input call prepareTurn for this same session_id.
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
       responses:
-        '200': {description: Session snapshot}
+        '200': {description: Compact same-session checkpoint with character_registry}
+        '404': {description: Session not found}
   /sessions/{session_id}/audit-snapshot:
     get:
       operationId: getAuditSnapshot
-      summary: Get compact saved data for the current 15-turn audit without reloading raw scenes
+      summary: Get compact saved data for the current 15-turn audit
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
       responses:
         '200': {description: Current state plus chronology and memory saved during this audit cycle}
-        '409': {description: Audit not required}
   /sessions/{session_id}/turn-packet:
     post:
       operationId: prepareTurn
-      summary: Build chunked context for the next user turn
+      summary: Build chunked authoritative context for the next turn, including live character registry and POV familiarity
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
       requestBody:
@@ -283,17 +215,16 @@ paths:
   /sessions/{session_id}/characters/{character_id}:
     get:
       operationId: getCharacterBundle
-      summary: Load full card, current state, personal memory and relationship-to-POV for one known character
+      summary: Load full card, current state, POV familiarity, personal memory and relationship-to-POV for one registered character
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
         - {in: path, name: character_id, required: true, schema: {type: string}}
       responses:
         '200': {description: Full character bundle}
-        '404': {description: Session or character not found}
   /sessions/{session_id}/characters/{character_id}/memory:
     get:
       operationId: getCharacterMemory
-      summary: Load one character memory directly for debugging or recovery
+      summary: Load one character memory directly for diagnostics or recovery
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
         - {in: path, name: character_id, required: true, schema: {type: string}}
@@ -302,7 +233,7 @@ paths:
   /sessions/{session_id}/turns:
     get:
       operationId: getTurnRange
-      summary: Emergency recovery or manual diagnostics only; do not use for normal 15-turn audit
+      summary: Emergency recovery or manual diagnostics only
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
         - {in: query, name: start_turn, required: true, schema: {type: integer}}
@@ -324,7 +255,7 @@ paths:
   /sessions/{session_id}/audit:
     post:
       operationId: commitAudit
-      summary: Finish the fast mandatory 15-turn audit with one repair commit
+      summary: Finish the mandatory 15-turn audit with one repair commit
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
       requestBody:
@@ -334,36 +265,3 @@ paths:
             schema: {$ref: '#/components/schemas/AuditCommit'}
       responses:
         '200': {description: Audit committed}
-  /sessions/{session_id}/resume:
-    post:
-      operationId: resumeSession
-      summary: Prepare a chunked transfer package after turn 60
-      parameters:
-        - {in: path, name: session_id, required: true, schema: {type: string}}
-      responses:
-        '200': {description: Resume manifest with read_id, resume_token, chunk_count and total_chars}
-        '409': {description: Audit or handoff state does not permit resume}
-  /sessions/{session_id}/resume/{read_id}/{chunk_index}:
-    get:
-      operationId: getResumeChunk
-      summary: Read one chunk of the prepared transfer package; read all chunks before confirmResume
-      parameters:
-        - {in: path, name: session_id, required: true, schema: {type: string}}
-        - {in: path, name: read_id, required: true, schema: {type: string}}
-        - {in: path, name: chunk_index, required: true, schema: {type: integer}}
-      responses:
-        '200': {description: One resume chunk and all_chunks_read flag}
-        '404': {description: Resume read not found, completed, or chunk out of range}
-  /sessions/{session_id}/resume/confirm:
-    post:
-      operationId: confirmResume
-      summary: Confirm successful transfer in the new chat after every resume chunk was read
-      parameters:
-        - {in: path, name: session_id, required: true, schema: {type: string}}
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: {$ref: '#/components/schemas/ResumeConfirm'}
-      responses:
-        '200': {description: Transfer confirmed}
