@@ -1,8 +1,8 @@
 openapi: 3.1.0
 info:
   title: Roman AI
-  version: 1.6.1
-  description: Persistent isolated novel sessions with compact long-range chronology and explicit per-turn persistence review.
+  version: 1.7.0
+  description: Persistent isolated novel sessions with complete chunked runtime, canon, cards, memory and chronology.
 servers:
   - url: https://romanai-production-0fdb.up.railway.app
 components:
@@ -42,24 +42,18 @@ components:
           type: object
           required: [persistence_reviewed, chronology, knowledge_add, experiences_add, dialogue_memory_add]
           properties:
-            persistence_reviewed:
-              type: boolean
-              description: Must be true after explicitly reviewing durable chronology and each character's personal memory.
+            persistence_reviewed: {type: boolean}
             chronology:
               type: array
-              description: Usually 0-2 compact durable objective events. Omit routine actions. Use broad period by default; exact time only when time_critical.
               items: {type: object, additionalProperties: true}
             knowledge_add:
               type: array
-              description: Durable facts learned by specific characters who actually perceived or received them.
               items: {type: object, additionalProperties: true}
             experiences_add:
               type: array
-              description: Important events personally experienced by specific characters.
               items: {type: object, additionalProperties: true}
             dialogue_memory_add:
               type: array
-              description: Important conversation memory for actual participants/listeners.
               items: {type: object, additionalProperties: true}
             state_patch: {type: object, additionalProperties: true}
             character_upserts:
@@ -86,10 +80,19 @@ paths:
   /runtime:
     get:
       operationId: getRuntime
-      summary: Check RomanAI runtime compatibility
-      description: Compact version/contract check only. Do not call this on `начнем`; ask setup questions first. Detailed rules are enforced by the server, Custom GPT instructions and turn packets.
+      summary: Prepare the complete runtime documents as safe chunks
+      description: Returns only a manifest. The runtime itself is not shortened; read every getRuntimeChunk from 0 to chunk_count-1.
       responses:
-        '200': {description: Compact runtime version and contract list}
+        '200': {description: Runtime chunk manifest}
+  /runtime/{chunk_index}:
+    get:
+      operationId: getRuntimeChunk
+      summary: Read one chunk of the complete runtime rules
+      parameters:
+        - {in: path, name: chunk_index, required: true, schema: {type: integer}}
+      responses:
+        '200': {description: One runtime chunk}
+        '404': {description: Chunk index out of range}
   /novel-drafts:
     post:
       operationId: createNovelDraft
@@ -125,11 +128,11 @@ paths:
   /novel-drafts/{draft_id}/finalize:
     post:
       operationId: finalizeNovelDraft
-      summary: Verify and freeze a session-only draft without adding it to the library
+      summary: Verify and freeze a session-only draft
       parameters:
         - {in: path, name: draft_id, required: true, schema: {type: string}}
       responses:
-        '200': {description: Compact verification summary}
+        '200': {description: Verification summary}
   /novel-drafts/{draft_id}/read:
     post:
       operationId: prepareDraftRead
@@ -141,11 +144,11 @@ paths:
   /novel-drafts/{draft_id}/session:
     post:
       operationId: createSessionFromDraft
-      summary: Create an isolated session directly from a finalized draft
+      summary: Create an isolated session from a finalized draft
       parameters:
         - {in: path, name: draft_id, required: true, schema: {type: string}}
       responses:
-        '200': {description: Session metadata with session_id}
+        '200': {description: Session metadata}
   /novel-drafts/{draft_id}/publish:
     post:
       operationId: saveDraftToLibrary
@@ -153,11 +156,11 @@ paths:
       parameters:
         - {in: path, name: draft_id, required: true, schema: {type: string}}
       responses:
-        '200': {description: Draft published to library}
+        '200': {description: Draft published}
   /novels:
     get:
       operationId: listNovels
-      summary: List explicitly saved reusable library novels
+      summary: List reusable library novels
       responses:
         '200': {description: Novel list}
   /novels/{novel_id}/read:
@@ -167,7 +170,7 @@ paths:
       parameters:
         - {in: path, name: novel_id, required: true, schema: {type: string}}
       responses:
-        '200': {description: read_id, chunk_count and total_chars}
+        '200': {description: Prepared read}
   /novel-reads/{read_id}/{chunk_index}:
     get:
       operationId: getNovelReadChunk
@@ -176,48 +179,48 @@ paths:
         - {in: path, name: read_id, required: true, schema: {type: string}}
         - {in: path, name: chunk_index, required: true, schema: {type: integer}}
       responses:
-        '200': {description: One chunk and all_chunks_read flag}
+        '200': {description: One chunk}
   /sessions:
     post:
       operationId: createSession
-      summary: Create an isolated session from an existing library novel
+      summary: Create an isolated session from a library novel
       requestBody:
         required: true
         content:
           application/json:
             schema: {$ref: '#/components/schemas/SessionCreate'}
       responses:
-        '200': {description: Session metadata with session_id}
+        '200': {description: Session metadata}
   /sessions/{session_id}/preview:
     get:
       operationId: getSessionPreview
-      summary: Build a compact preview from an actually created session
+      summary: Build a compact preview from an existing session
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
       responses:
-        '200': {description: Stored session preview}
+        '200': {description: Session preview}
   /sessions/{session_id}/resume:
     post:
       operationId: resumeSession
-      summary: Reconnect to this exact existing session without copying or transferring it
-      description: Returns a compact checkpoint and live character registry. On the next gameplay input call prepareTurn for this same session_id.
+      summary: Reconnect to the exact existing session
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
       responses:
-        '200': {description: Compact same-session checkpoint with character_registry and chronology_context}
+        '200': {description: Same-session checkpoint}
         '404': {description: Session not found}
   /sessions/{session_id}/audit-snapshot:
     get:
       operationId: getAuditSnapshot
-      summary: Get compact saved data for the current 15-turn audit
+      summary: Get data for the current 15-turn audit
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
       responses:
-        '200': {description: Current state plus chronology and memory saved during this audit cycle}
+        '200': {description: Audit snapshot}
   /sessions/{session_id}/turn-packet:
     post:
       operationId: prepareTurn
-      summary: Build authoritative chunked context with character registry, personal memory and compact long-range chronology
+      summary: Build complete chunked context without truncating persistent canon
+      description: Packet includes full runtime documents, full source, full state, all full character cards, all saved character memory and complete chronology, then splits the serialized JSON into chunks.
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
       requestBody:
@@ -240,16 +243,16 @@ paths:
   /sessions/{session_id}/characters/{character_id}:
     get:
       operationId: getCharacterBundle
-      summary: Load full card, current state, POV familiarity, personal memory and relationship-to-POV for one registered character
+      summary: Load one complete character bundle
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
         - {in: path, name: character_id, required: true, schema: {type: string}}
       responses:
-        '200': {description: Full character bundle}
+        '200': {description: Character bundle}
   /sessions/{session_id}/characters/{character_id}/memory:
     get:
       operationId: getCharacterMemory
-      summary: Load one character memory directly for diagnostics or recovery
+      summary: Load one character memory directly
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
         - {in: path, name: character_id, required: true, schema: {type: string}}
@@ -267,7 +270,7 @@ paths:
         '200': {description: Raw turns}
     post:
       operationId: commitTurn
-      summary: Save one complete turn after all packet chunks and mandatory persistence review
+      summary: Save one complete turn after every packet chunk was read
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
       requestBody:
@@ -277,11 +280,11 @@ paths:
             schema: {$ref: '#/components/schemas/TurnCommit'}
       responses:
         '200': {description: Turn committed}
-        '409': {description: Audit, packet reading or persistence review is incomplete}
+        '409': {description: Audit, packet reading or persistence review incomplete}
   /sessions/{session_id}/audit:
     post:
       operationId: commitAudit
-      summary: Finish the mandatory 15-turn audit with one compact repair commit
+      summary: Finish the mandatory 15-turn audit
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
       requestBody:
