@@ -28,6 +28,8 @@ def test_runtime_is_complete_and_chunked():
     assert set(payload["documents"]) == {"rules", "scene_builder", "pov_contract", "memory_contract", "continuity_contract"}
     assert "Формат обязателен" in payload["documents"]["scene_builder"]
     assert "POV НЕ должен искусственно молчать" in payload["documents"]["pov_contract"]
+    assert "NO KNOWLEDGE LAUNDERING" in payload["documents"]["scene_builder"]
+    assert "НЕ ЛЕГАЛИЗОВАТЬ УТЕЧКУ" in payload["documents"]["memory_contract"]
     assert manifest["total_chars"] == sum(len(x) for x in chunks)
 
 
@@ -71,6 +73,7 @@ def test_turn_packet_contains_full_source_state_cards_memory_and_chronology_with
         manifest, context = read_packet(sid)
         assert manifest["chunk_count"] > 1
         assert context["full_context_contract"]["no_truncation"] is True
+        assert context["full_context_contract"]["author_truth_is_quarantined_from_character_knowledge"] is True
         assert context["source_full"] == novel
         assert context["state_full"] == storage._read_json(root / "state.json", {})
         assert context["memory_full"] == memory
@@ -87,3 +90,7 @@ def test_turn_packet_contains_full_source_state_cards_memory_and_chronology_with
         assert context["runtime_documents"]["continuity_contract"]
         assert context["pov_participation_contract"] == context["runtime_documents"]["pov_contract"]
         assert "active participant" in context["pov_participation_instruction"]
+        assert context["knowledge_guard"]["mandatory"] is True
+        assert context["knowledge_guard"]["personal_memory_path"] == "memory_full.characters[character_id]"
+        assert "Mere proximity" in context["knowledge_guard"]["instruction"]
+        assert "NEVER keep the leak" in context["knowledge_guard"]["instruction"]
