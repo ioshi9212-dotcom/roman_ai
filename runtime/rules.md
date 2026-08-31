@@ -198,7 +198,9 @@ Card не является Memory. Chronology не является Memory. Rece
 
 ## ПЕРЕНОС 60/120/180
 После аудита показать `CONTINUE SESSION: <session_id>`.
-В новом чате: `getRuntime` → `resumeSession` → прочитать все chunks → `confirmResume` → продолжить ту же сессию.
+В новом чате: `getRuntime` → `resumeSession(session_id)` → получить manifest с `read_id`, `resume_token`, `chunk_count`, `total_chars` → прочитать ВСЕ `getResumeChunk(session_id, read_id, chunk_index)` по порядку от 0 до `chunk_count-1` → склеить `content` и восстановить полный JSON transfer package → только после последнего chunk вызвать `confirmResume(session_id, resume_token)` → продолжить ту же сессию.
+
+`resumeSession` больше НЕ возвращает source/characters/state/memory/chronology/handoff_tail одним большим ответом. Эти данные всегда читаются через chunks. Не создавать новую сессию при переносе.
 
 ## ПРИОРИТЕТ
 Для объективной правды мира:
