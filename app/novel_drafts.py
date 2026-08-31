@@ -82,13 +82,29 @@ def _character_ref(value: Any) -> Any:
     return None
 
 
+def _resolve_character_ref(cards: list[Dict[str, Any]], value: Any) -> str | None:
+    ref = _character_ref(value)
+    if ref is None:
+        return None
+    needle = str(ref).casefold().replace("ё", "е").strip()
+    for card in cards:
+        cid = storage._card_id(card)
+        if cid.casefold().replace("ё", "е") == needle:
+            return cid
+        for alias in storage._card_names(card):
+            if str(alias).casefold().replace("ё", "е").strip() == needle:
+                return cid
+    return str(ref)
+
+
 def _normalise_starting_state_for_session(template: Dict[str, Any]) -> Dict[str, Any]:
-    """Make permissive GPT-authored starting_state safe for the strict runtime state shape.
+    """Make permissive GPT-authored starting_state safe for the runtime state shape.
 
     The finalized canon itself is not changed on disk. Only the isolated session snapshot
     receives this normalized runtime representation.
     """
     result = deepcopy(template)
+    cards = storage._normalise_cards(result.get("characters", []))
     raw = result.get("starting_state")
     state = deepcopy(raw) if isinstance(raw, dict) else {}
 
@@ -102,15 +118,23 @@ def _normalise_starting_state_for_session(template: Dict[str, Any]) -> Dict[str,
         present = []
     elif not isinstance(present, list):
         present = [present]
-    current["present_characters"] = present
+    canonical_present = []
+    for value in present:
+        resolved = _resolve_character_ref(cards, value)
+        if resolved:
+            canonical_present.append(resolved)
+    current["present_characters"] = list(dict.fromkeys(canonical_present))
     state["current"] = current
 
     pov_raw = state.get("pov")
     if isinstance(pov_raw, dict):
         pov = deepcopy(pov_raw)
+        resolved = _resolve_character_ref(cards, pov.get("character_id") or pov.get("id") or pov.get("name"))
+        if resolved:
+            pov["character_id"] = resolved
     else:
-        ref = _character_ref(pov_raw)
-        pov = {"character_id": str(ref)} if ref is not None else {}
+        resolved = _resolve_character_ref(cards, pov_raw)
+        pov = {"character_id": resolved} if resolved else {}
     state["pov"] = pov
 
     characters = state.get("characters")
