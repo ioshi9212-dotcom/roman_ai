@@ -4,7 +4,7 @@ import json
 from typing import Any, Dict
 
 from . import storage
-from .character_registry import build_character_registry, refresh_pov_familiarity, registry_instruction
+from .character_registry import build_character_registry, normalize_name, refresh_pov_familiarity, registry_instruction
 
 
 def _clear_legacy_handoff(root, meta: Dict[str, Any]) -> Dict[str, Any]:
@@ -21,6 +21,52 @@ def _clear_legacy_handoff(root, meta: Dict[str, Any]) -> Dict[str, Any]:
     return meta
 
 
+def _resolve_character_id(cards, value: Any) -> str | None:
+    if isinstance(value, dict):
+        value = value.get("character_id") or value.get("id") or value.get("name")
+    if not value:
+        return None
+    needle = normalize_name(value)
+    for card in cards:
+        cid = storage._card_id(card)
+        if normalize_name(cid) == needle:
+            return cid
+        for alias in storage._card_names(card):
+            if normalize_name(alias) == needle:
+                return cid
+    return None
+
+
+def _canonicalize_state_character_refs(cards, state: Dict[str, Any]) -> Dict[str, Any]:
+    result = dict(state) if isinstance(state, dict) else {}
+    result = storage._deep_merge({}, result)
+
+    pov = result.get("pov") if isinstance(result.get("pov"), dict) else {}
+    if isinstance(pov, dict):
+        resolved = _resolve_character_id(cards, pov.get("character_id"))
+        if resolved:
+            pov["character_id"] = resolved
+        result["pov"] = pov
+
+    current = result.get("current") if isinstance(result.get("current"), dict) else {}
+    present = current.get("present_characters", [])
+    values = list(present.keys()) if isinstance(present, dict) else [present] if isinstance(present, str) else present if isinstance(present, list) else []
+    canonical = []
+    for value in values:
+        resolved = _resolve_character_id(cards, value)
+        if resolved:
+            canonical.append(resolved)
+        elif isinstance(value, dict):
+            raw = value.get("character_id") or value.get("id") or value.get("name")
+            if raw:
+                canonical.append(str(raw))
+        elif value:
+            canonical.append(str(value))
+    current["present_characters"] = list(dict.fromkeys(canonical))
+    result["current"] = current
+    return result
+
+
 def _refresh_session_familiarity(session_id: str) -> Dict[str, Any]:
     root = storage.SESSIONS_DIR / session_id
     if not root.exists():
@@ -28,6 +74,7 @@ def _refresh_session_familiarity(session_id: str) -> Dict[str, Any]:
     source = storage._read_json(root / "source.json", {})
     cards = storage._load_cards(root, source)
     state = storage._read_json(root / "state.json", {})
+    state = _canonicalize_state_character_refs(cards, state)
     memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
     chronology = storage._read_json(root / "chronology.json", [])
     turns = storage._read_turns(root)
@@ -40,7 +87,7 @@ def _refresh_session_familiarity(session_id: str) -> Dict[str, Any]:
         turns,
         int(meta.get("turn_number", 0)),
     )
-    if refreshed != state:
+    if refreshed != storage._read_json(root / "state.json", {}):
         storage._write_json(root / "state.json", refreshed)
     return {
         "root": root,
@@ -66,6 +113,7 @@ def _augment_packet(session_id: str, manifest: Dict[str, Any]) -> Dict[str, Any]
     registry = build_character_registry(snapshot["cards"], snapshot["state"])
     by_id = {row["character_id"]: row for row in registry if row.get("character_id")}
 
+    context["scene_state"] = snapshot["state"]
     context["character_registry"] = registry
     context["character_registry_instruction"] = registry_instruction()
 
