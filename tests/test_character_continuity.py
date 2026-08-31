@@ -12,6 +12,18 @@ def setup_temp_storage(tmp: str):
     storage.ensure_dirs()
 
 
+def reviewed(**extra):
+    base = {
+        "persistence_reviewed": True,
+        "chronology": [],
+        "knowledge_add": [],
+        "experiences_add": [],
+        "dialogue_memory_add": [],
+    }
+    base.update(extra)
+    return base
+
+
 def read_packet(session_id: str, user_input: str):
     manifest = session_runtime.prepare_turn_packet(session_id, user_input)
     parts = []
@@ -53,16 +65,16 @@ def test_explicit_introduction_survives_new_chat_continuation():
             {
                 "user_input": "Привет.",
                 "scene_output": "Кай представился Елене. Они познакомились и обменялись именами.",
-                "extracted": {
-                    "state_patch": {"current": {"present_characters": ["elena", "kai"]}},
-                    "chronology": [
-                        {"turn": 1, "summary": "Елена и Кай познакомились и обменялись именами."}
+                "extracted": reviewed(
+                    state_patch={"current": {"present_characters": ["elena", "kai"]}},
+                    chronology=[
+                        {"summary": "Елена и Кай познакомились и обменялись именами.", "importance": "anchor"}
                     ],
-                    "knowledge_add": [
+                    knowledge_add=[
                         {"character_id": "elena", "fact_id": "kai_name", "content": "Мужчину зовут Кай"},
                         {"character_id": "kai", "fact_id": "elena_name", "content": "Девушку зовут Елена"},
                     ],
-                },
+                ),
             },
         )
         assert result["handoff_required"] is False
@@ -71,7 +83,6 @@ def test_explicit_introduction_survives_new_chat_continuation():
         state = storage._read_json(root / "state.json", {})
         assert state["characters"]["kai"]["pov_familiarity"]["status"] == "acquainted"
 
-        # Simulate a legacy session that had been frozen by the old 60-turn handoff mechanism.
         meta = storage._read_json(root / "meta.json", {})
         meta["handoff_required"] = True
         storage._write_json(root / "meta.json", meta)
@@ -83,7 +94,6 @@ def test_explicit_introduction_survives_new_chat_continuation():
         assert kai["pov_familiarity"]["status"] == "acquainted"
         assert storage._read_json(root / "meta.json", {})["handoff_required"] is False
 
-        # A new chat/next turn reads the same session and cannot forget the acquaintance.
         state = storage._read_json(root / "state.json", {})
         state["current"]["present_characters"] = ["elena"]
         storage._write_json(root / "state.json", state)
@@ -97,13 +107,13 @@ def test_shared_scene_without_identity_is_only_encountered():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         session_id = storage.create_session(make_novel())["session_id"]
-        _, _ = read_packet(session_id, "(посмотреть на мужчину)")
+        read_packet(session_id, "(посмотреть на мужчину)")
         session_runtime.commit_turn(
             session_id,
             {
                 "user_input": "(посмотреть на мужчину)",
                 "scene_output": "Мужчина молча прошёл мимо. Имя никто не называл.",
-                "extracted": {"state_patch": {"current": {"present_characters": ["elena", "kai"]}}},
+                "extracted": reviewed(state_patch={"current": {"present_characters": ["elena", "kai"]}}),
             },
         )
         state = storage._read_json(storage.SESSIONS_DIR / session_id / "state.json", {})
@@ -114,22 +124,22 @@ def test_named_runtime_npc_is_added_to_live_registry():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         session_id = storage.create_session(make_novel())["session_id"]
-        _, _ = read_packet(session_id, "(войти в кофейню)")
+        read_packet(session_id, "(войти в кофейню)")
         session_runtime.commit_turn(
             session_id,
             {
                 "user_input": "(войти в кофейню)",
                 "scene_output": "Бариста представилась как Мара.",
-                "extracted": {
-                    "character_upserts": [
+                "extracted": reviewed(
+                    character_upserts=[
                         {"character_id": "mara", "name": "Мара", "role": "бариста, повторяющийся NPC"}
                     ],
-                    "state_patch": {"current": {"present_characters": ["elena", "mara"]}},
-                    "chronology": [{"turn": 1, "summary": "Елена познакомилась с Марой."}],
-                    "knowledge_add": [
+                    state_patch={"current": {"present_characters": ["elena", "mara"]}},
+                    chronology=[{"summary": "Елена познакомилась с Марой.", "importance": "anchor"}],
+                    knowledge_add=[
                         {"character_id": "elena", "fact_id": "mara_name", "content": "Бариста зовут Мара"}
                     ],
-                },
+                ),
             },
         )
         checkpoint = session_runtime.continue_session(session_id)
@@ -154,7 +164,7 @@ def test_turn_sixty_no_longer_creates_handoff_gate():
         manifest, _ = read_packet(session_id, "ход 60")
         result = session_runtime.commit_turn(
             session_id,
-            {"user_input": "ход 60", "scene_output": "scene 60", "extracted": {}},
+            {"user_input": "ход 60", "scene_output": "scene 60", "extracted": reviewed()},
         )
         assert manifest["prepared_for_turn"] == 60
         assert result["turn_number"] == 60
