@@ -1,0 +1,85 @@
+import json
+import tempfile
+from pathlib import Path
+
+from app import runtime_access, session_runtime, storage
+
+
+def setup_temp_storage(tmp: str):
+    storage.DATA_DIR = Path(tmp)
+    storage.LIBRARY_DIR = storage.DATA_DIR / "library"
+    storage.SESSIONS_DIR = storage.DATA_DIR / "sessions"
+    storage.ensure_dirs()
+
+
+def read_packet(session_id: str):
+    manifest = session_runtime.prepare_turn_packet(session_id, "test")
+    text = "".join(
+        storage.get_turn_packet_chunk(session_id, manifest["packet_id"], i)["content"]
+        for i in range(manifest["chunk_count"])
+    )
+    return manifest, json.loads(text)
+
+
+def test_runtime_is_complete_and_chunked():
+    manifest = runtime_access.runtime_manifest()
+    chunks = [runtime_access.runtime_chunk(i)["content"] for i in range(manifest["chunk_count"])]
+    payload = json.loads("".join(chunks))
+    assert set(payload["documents"]) == {"rules", "scene_builder", "memory_contract", "continuity_contract"}
+    assert "Формат обязателен" in payload["documents"]["scene_builder"]
+    assert manifest["total_chars"] == sum(len(x) for x in chunks)
+
+
+def test_turn_packet_contains_full_source_state_cards_memory_and_chronology_without_truncation():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        huge = "X" * 18000
+        novel = {
+            "novel_id": "full_context",
+            "title": "Full Context",
+            "novel": {"pov_character": "pov", "questionnaire": huge},
+            "rules": {"custom": huge},
+            "lore": {"public": huge},
+            "hidden_lore": {"secret": huge},
+            "world": {"world": huge},
+            "story_direction": {"direction": huge},
+            "characters": [
+                {"character_id": "pov", "name": "POV", "is_pov": True, "bio": huge},
+                {"character_id": "npc", "name": "NPC", "bio": huge},
+                {"character_id": "away", "name": "Away", "bio": huge},
+            ],
+            "starting_state": {
+                "current": {"location": "room", "present_characters": ["pov", "npc"]},
+                "relationships": {"npc": {"trust": 17}},
+            },
+        }
+        sid = storage.create_session(novel)["session_id"]
+        root = storage.SESSIONS_DIR / sid
+
+        memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
+        memory["characters"]["pov"]["knowledge"] = [{"fact_id": "old", "fact": huge, "learned_turn": 1}]
+        memory["characters"]["away"]["dialogue_memory"] = [{"topic_id": "away-topic", "summary": huge, "turn": 1}]
+        storage._write_json(root / "memory.json", memory)
+
+        chronology = [
+            {"event_id": f"e{i}", "turn_number": i, "event": f"event-{i}-" + huge[:200], "importance": "normal"}
+            for i in range(1, 81)
+        ]
+        storage._write_json(root / "chronology.json", chronology)
+
+        manifest, context = read_packet(sid)
+        assert manifest["chunk_count"] > 1
+        assert context["full_context_contract"]["no_truncation"] is True
+        assert context["source_full"] == novel
+        assert context["state_full"] == storage._read_json(root / "state.json", {})
+        assert context["memory_full"] == memory
+        assert context["chronology_full"] == chronology
+        assert len(context["chronology_full"]) == 80
+        assert context["chronology_full"][0]["event_id"] == "e1"
+        assert context["chronology_full"][-1]["event_id"] == "e80"
+        assert {x["character_id"] for x in context["all_character_cards"]} == {"pov", "npc", "away"}
+        assert {x["character_id"] for x in context["present_character_cards"]} == {"pov", "npc"}
+        assert context["runtime_documents"]["rules"]
+        assert context["runtime_documents"]["scene_builder"]
+        assert context["runtime_documents"]["memory_contract"]
+        assert context["runtime_documents"]["continuity_contract"]
