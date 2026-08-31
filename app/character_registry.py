@@ -173,6 +173,20 @@ def _card_initial_familiarity(card: Dict[str, Any]) -> Dict[str, Any] | None:
     return None
 
 
+def _relationship_evidence(state: Dict[str, Any], character_id: str) -> bool:
+    relationships = state.get("relationships", {}) if isinstance(state, dict) else {}
+    if not isinstance(relationships, dict):
+        return False
+    value = relationships.get(character_id)
+    if value is None:
+        value = relationships.get(f"{character_id}->pov")
+    if isinstance(value, dict):
+        return bool(value)
+    if isinstance(value, list):
+        return bool(value)
+    return value not in (None, "", 0, False)
+
+
 def _prefer(existing: Dict[str, Any] | None, candidate: Dict[str, Any]) -> Dict[str, Any]:
     if not isinstance(existing, dict) or not existing.get("status"):
         return deepcopy(candidate)
@@ -243,6 +257,11 @@ def refresh_pov_familiarity(
             existing = _prefer(existing, {
                 "status": "known",
                 "source": "pov_memory_identity",
+            })
+        elif _relationship_evidence(result, cid):
+            existing = _prefer(existing, {
+                "status": "known",
+                "source": "legacy_relationship_evidence",
             })
 
         seen_turn = info.get("last_seen_turn")
