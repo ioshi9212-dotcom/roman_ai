@@ -25,9 +25,18 @@ def test_runtime_is_complete_and_chunked():
     manifest = runtime_access.runtime_manifest()
     chunks = [runtime_access.runtime_chunk(i)["content"] for i in range(manifest["chunk_count"])]
     payload = json.loads("".join(chunks))
-    assert set(payload["documents"]) == {"rules", "scene_builder", "pov_contract", "memory_contract", "continuity_contract"}
+    assert set(payload["documents"]) == {
+        "rules",
+        "scene_builder",
+        "pov_contract",
+        "npc_agency_contract",
+        "memory_contract",
+        "continuity_contract",
+    }
     assert "Формат обязателен" in payload["documents"]["scene_builder"]
     assert "POV НЕ должен искусственно молчать" in payload["documents"]["pov_contract"]
+    assert "не обязаны выбирать психологически правильное" in payload["documents"]["npc_agency_contract"]
+    assert "он хотел взять её за руку, но не стал" in payload["documents"]["npc_agency_contract"]
     assert "NO KNOWLEDGE LAUNDERING" in payload["documents"]["scene_builder"]
     assert "НЕ ЛЕГАЛИЗОВАТЬ УТЕЧКУ" in payload["documents"]["memory_contract"]
     assert manifest["total_chars"] == sum(len(x) for x in chunks)
@@ -86,10 +95,14 @@ def test_turn_packet_contains_full_source_state_cards_memory_and_chronology_with
         assert context["runtime_documents"]["rules"]
         assert context["runtime_documents"]["scene_builder"]
         assert context["runtime_documents"]["pov_contract"]
+        assert context["runtime_documents"]["npc_agency_contract"]
         assert context["runtime_documents"]["memory_contract"]
         assert context["runtime_documents"]["continuity_contract"]
         assert context["pov_participation_contract"] == context["runtime_documents"]["pov_contract"]
         assert "active participant" in context["pov_participation_instruction"]
+        assert context["npc_agency_contract"] == context["runtime_documents"]["npc_agency_contract"]
+        assert "NOT from universal therapy" in context["npc_agency_instruction"]
+        assert "Do not automatically soften" in context["npc_agency_instruction"]
         assert context["knowledge_guard"]["mandatory"] is True
         assert context["knowledge_guard"]["personal_memory_path"] == "memory_full.characters[character_id]"
         assert "Mere proximity" in context["knowledge_guard"]["instruction"]
