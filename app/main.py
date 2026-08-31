@@ -4,7 +4,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException
 
 from .character_access import get_character_bundle
-from .models import AuditCommit, NovelDraftCreate, NovelDraftSection, NovelRawSave, NovelTemplate, ResumeConfirm, SessionCreate, TurnCommit, TurnPrepare
+from .models import AuditCommit, NovelDraftCreate, NovelDraftSection, NovelRawSave, NovelTemplate, SessionCreate, TurnCommit, TurnPrepare
 from .novel_access import get_novel_read_chunk, prepare_novel_read, verify_novel
 from .novel_drafts import (
     create_draft,
@@ -15,12 +15,9 @@ from .novel_drafts import (
     publish_draft_to_library,
     save_section,
 )
-from .resume_access import get_resume_chunk, prepare_resume_read
 from .session_preview import get_session_preview
+from .session_runtime import commit_audit, commit_turn, continue_session, prepare_turn_packet
 from .storage import (
-    commit_audit,
-    commit_turn,
-    confirm_resume,
     create_session,
     get_audit_snapshot,
     get_character_memory,
@@ -29,7 +26,6 @@ from .storage import (
     get_turn_range,
     list_novels,
     load_session,
-    prepare_turn_packet,
     save_novel,
 )
 
@@ -40,8 +36,8 @@ RUNTIME_DIR = ROOT_DIR / "runtime"
 
 app = FastAPI(
     title="Roman AI",
-    version="1.4.0",
-    description="Persistent isolated novel sessions with chunked turn, draft and resume reads.",
+    version="1.5.0",
+    description="Persistent isolated novel sessions. A session continues directly by session_id across chats; no transfer package is required.",
 )
 
 
@@ -58,11 +54,15 @@ def runtime_get():
             raise HTTPException(status_code=500, detail=f"Runtime file missing: {name}")
         return path.read_text(encoding="utf-8")
 
-    return {
+    result = {
         "rules": read("rules.md"),
         "scene_builder": read("scene_builder.md"),
         "memory_contract": read("memory_contract.md"),
     }
+    continuity = RUNTIME_DIR / "continuity_contract.md"
+    if continuity.exists():
+        result["continuity_contract"] = continuity.read_text(encoding="utf-8")
+    return result
 
 
 @app.post("/novel-drafts", operation_id="createNovelDraft")
@@ -235,8 +235,6 @@ def turn_packet_prepare(session_id: str, body: TurnPrepare):
     except RuntimeError as exc:
         if str(exc) == "AUDIT_REQUIRED":
             raise HTTPException(status_code=409, detail="Audit is required before preparing the next turn")
-        if str(exc) == "HANDOFF_REQUIRED":
-            raise HTTPException(status_code=409, detail="Session handoff is required before preparing the next turn")
         raise
 
 
@@ -287,7 +285,6 @@ def turns_commit(session_id: str, body: TurnCommit):
     except RuntimeError as exc:
         errors = {
             "AUDIT_REQUIRED": "Audit is required before the next turn",
-            "HANDOFF_REQUIRED": "Session handoff is required before the next turn",
             "TURN_PACKET_REQUIRED": "prepareTurn must be called for this exact user input before commitTurn",
             "TURN_PACKET_INCOMPLETE": "Every turn packet chunk must be read before commitTurn",
         }
@@ -313,38 +310,6 @@ def audit_commit(session_id: str, body: AuditCommit):
 @app.post("/sessions/{session_id}/resume", operation_id="resumeSession")
 def session_resume(session_id: str):
     try:
-        return prepare_resume_read(session_id)
+        return continue_session(session_id)
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Session not found")
-    except RuntimeError as exc:
-        if str(exc) == "AUDIT_REQUIRED":
-            raise HTTPException(status_code=409, detail="Turn 60 audit must be completed before handoff")
-        if str(exc) == "HANDOFF_NOT_REQUIRED":
-            raise HTTPException(status_code=409, detail="This session does not currently require handoff")
-        raise
-
-
-@app.get("/sessions/{session_id}/resume/{read_id}/{chunk_index}", operation_id="getResumeChunk")
-def session_resume_chunk(session_id: str, read_id: str, chunk_index: int):
-    try:
-        return get_resume_chunk(session_id, read_id, chunk_index)
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail="Resume read not found or already completed")
-    except PermissionError:
-        raise HTTPException(status_code=403, detail="Invalid resume read")
-    except IndexError:
-        raise HTTPException(status_code=404, detail="Chunk index out of range")
-
-
-@app.post("/sessions/{session_id}/resume/confirm", operation_id="confirmResume")
-def session_resume_confirm(session_id: str, body: ResumeConfirm):
-    try:
-        return confirm_resume(session_id, body.resume_token)
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail="Session not found")
-    except PermissionError:
-        raise HTTPException(status_code=403, detail="Invalid resume token")
-    except RuntimeError as exc:
-        if str(exc) == "AUDIT_REQUIRED":
-            raise HTTPException(status_code=409, detail="Audit is required before resume can be confirmed")
-        raise
