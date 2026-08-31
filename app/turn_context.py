@@ -61,6 +61,15 @@ def inject_required_turn_context(context: Dict[str, Any], cards: List[Dict[str, 
         "do not reduce POV to silence, one-word replies or body-only reactions merely to preserve player agency. "
         "Stop only before genuinely consequential POV choices defined by the contract."
     )
+    context["npc_agency_contract"] = documents["npc_agency_contract"]
+    context["npc_agency_instruction"] = (
+        "MANDATORY GLOBAL NPC AGENCY RULE. NPC behavior comes from that NPC's character, desires, goals, advantage, fears, "
+        "relationships, knowledge, duties and current situation, NOT from universal therapy, boundary etiquette or author-approved "
+        "psychological correctness. Do not automatically soften, restrain or make NPCs ask permission. If the specific NPC would act, "
+        "let them act: intervene, grab a hand/wrist, block a path, take an item, raise their voice, order, pressure, hug or initiate a kiss "
+        "without a preliminary permission question when consistent with the character and scene. Do not praise restraint as 'better' or "
+        "narrate 'wanted to but did not' merely to model healthy boundaries. Consequential POV reactions and choices remain with the player."
+    )
 
     context["source_full"] = deepcopy(source)
     context["state_full"] = deepcopy(state)
