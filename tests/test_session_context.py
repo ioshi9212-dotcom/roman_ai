@@ -2,7 +2,7 @@ import json
 import tempfile
 from pathlib import Path
 
-from app import storage
+from app import session_runtime, storage
 from tests.helpers import commit_with_packet
 
 
@@ -14,7 +14,7 @@ def setup_temp_storage(tmp: str):
 
 
 def read_packet_context(session_id: str, user_input: str):
-    packet = storage.prepare_turn_packet(session_id, user_input)
+    packet = session_runtime.prepare_turn_packet(session_id, user_input)
     text = ""
     for index in range(packet["chunk_count"]):
         text += storage.get_turn_packet_chunk(session_id, packet["packet_id"], index)["content"]
@@ -56,6 +56,7 @@ def test_starting_state_full_canon_and_cast_are_available():
         assert "aiden" in packet["relevant_character_ids"]
         assert {x["character_id"] for x in context["character_cards"]} == {"elena", "aiden"}
         assert {x["character_id"] for x in context["cast_index"]} == {"elena", "aiden", "liam"}
+        assert {x["character_id"] for x in context["character_registry"]} == {"elena", "aiden", "liam"}
         assert context["novel_rules"]["tone"] == "cinematic"
         assert context["hidden_lore"]["secret"].startswith("Aiden")
         assert context["story_direction"]["focus"] == "relationships first"
@@ -97,4 +98,6 @@ def test_new_recurring_npc_becomes_live_card_and_returns_later():
         packet, context = read_packet_context(sid, "Посмотреть на Нокса")
         assert "knox" in packet["relevant_character_ids"]
         knox = next(x for x in context["character_cards"] if x["character_id"] == "knox")
-        assert knox["past"] == "former scout"
+        assert knox["card"]["past"] == "former scout"
+        registry_knox = next(x for x in context["character_registry"] if x["character_id"] == "knox")
+        assert registry_knox["name"] == "Knox"
