@@ -1,5 +1,4 @@
 import json
-from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 
@@ -15,6 +14,7 @@ from .novel_drafts import (
     publish_draft_to_library,
     save_section,
 )
+from .runtime_access import runtime_chunk, runtime_manifest
 from .session_preview import get_session_preview
 from .session_runtime import commit_audit, commit_turn, continue_session, prepare_turn_packet
 from .storage import (
@@ -30,14 +30,10 @@ from .storage import (
 )
 
 
-ROOT_DIR = Path(__file__).resolve().parent.parent
-RUNTIME_DIR = ROOT_DIR / "runtime"
-
-
 app = FastAPI(
     title="Roman AI",
-    version="1.6.1",
-    description="Persistent isolated novel sessions with compact long-range chronology and per-character memory.",
+    version="1.7.0",
+    description="Persistent isolated novel sessions with complete chunked canon, runtime rules, character cards, memory and chronology.",
 )
 
 
@@ -48,21 +44,15 @@ def health():
 
 @app.get("/runtime", operation_id="getRuntime")
 def runtime_get():
-    return {
-        "ok": True,
-        "runtime_version": "1.6.1",
-        "contracts": [
-            "isolated persistent sessions",
-            "character registry and POV familiarity",
-            "per-character knowledge and perception",
-            "compact long-range chronology with anchors",
-            "direct same-session continuation across chats",
-            "mandatory persistence review before commit",
-            "15-turn audit",
-            "temporal causality and no-retcon repair",
-        ],
-        "instruction": "This is a compact compatibility check only. Detailed rules are enforced by the server, Custom GPT instructions and each turn packet; no large runtime document download is required.",
-    }
+    return runtime_manifest()
+
+
+@app.get("/runtime/{chunk_index}", operation_id="getRuntimeChunk")
+def runtime_chunk_get(chunk_index: int):
+    try:
+        return runtime_chunk(chunk_index)
+    except IndexError:
+        raise HTTPException(status_code=404, detail="Runtime chunk index out of range")
 
 
 @app.post("/novel-drafts", operation_id="createNovelDraft")
