@@ -8,8 +8,8 @@ from . import storage
 
 
 RUNTIME_DIR = Path(__file__).resolve().parent.parent / "runtime"
-RUNTIME_VERSION = "1.7.0"
-RUNTIME_FILES = ("rules.md", "scene_builder.md", "memory_contract.md", "continuity_contract.md")
+RUNTIME_VERSION = "1.7.1"
+RUNTIME_FILES = ("rules.md", "scene_builder.md", "pov_contract.md", "memory_contract.md", "continuity_contract.md")
 
 
 def runtime_documents() -> Dict[str, str]:
