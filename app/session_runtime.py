@@ -6,6 +6,7 @@ from typing import Any, Dict, List
 
 from . import storage
 from .character_registry import build_character_registry, normalize_name, refresh_pov_familiarity, registry_instruction
+from .relationship_runtime import relationship_patch_from_scene
 from .turn_context import inject_required_turn_context
 
 
@@ -343,6 +344,18 @@ def _prepare_extracted_for_commit(
     state = _canonicalize_state_character_refs(cards, state)
 
     result = _normalise_memory_event_ids(extracted, turn_number)
+    footer_relationship_patch = relationship_patch_from_scene(
+        payload.get("scene_output", ""),
+        cards=cards,
+        state=state,
+        resolve_character_id=_resolve_character_id,
+        present_character_ids=storage._present_character_ids,
+    )
+    if footer_relationship_patch:
+        existing_state_patch = result.get("state_patch") if isinstance(result.get("state_patch"), dict) else {}
+        result["state_patch"] = storage._deep_merge(existing_state_patch, footer_relationship_patch)
+        state = storage._deep_merge(state, footer_relationship_patch)
+
     result["chronology"] = _normalise_chronology_events(
         result.get("chronology"),
         turn_number=turn_number,
@@ -439,11 +452,23 @@ def _augment_packet(session_id: str, manifest: Dict[str, Any]) -> Dict[str, Any]
             "Use major for important but less foundational events; otherwise normal."
         ),
     }
+    context["relationship_policy"] = {
+        "required_review_every_turn": True,
+        "direction": "NPC -> POV only",
+        "instruction": (
+            "Re-evaluate every present NPC's relationship indicators after the whole scene, not only after explicit confessions. "
+            "The numbers represent the NPC's current internal attitude and must move when the scene materially changes it. Kissing, repeated embracing, chosen physical closeness, vulnerability, meaningful help, trust, rejection, jealousy, betrayal, fear, conflict or a clear relationship turning point are normally relationship-relevant. "
+            "Do not freeze the same indicators across many turns while the relationship is visibly escalating or deteriorating unless that specific NPC has a concrete character-based reason for no internal change. Ordinary meaningful change is usually 1-3 points; stronger turning points may justify more. "
+            "Do not increase everything mechanically: change only indicators actually affected, allow negative deltas, and preserve /0 when nothing genuinely changed. "
+            "The visible footer is the end-of-turn relationship snapshot. Its numeric values are persisted automatically by the server, so calculate the post-scene value and delta consistently."
+        ),
+    }
     context["persistence_contract"] = {
         "required": True,
         "instruction": (
             "Before commitTurn review persistence explicitly. extracted MUST contain persistence_reviewed=true and four arrays even when empty: chronology, knowledge_add, experiences_add, dialogue_memory_add. "
-            "Do not send extracted={}. If a scene is pure routine and creates no durable fact, chronology may be []. Knowledge/memory arrays may also be empty, but only after checking every present character separately."
+            "Do not send extracted={}. If a scene is pure routine and creates no durable fact, chronology may be []. Knowledge/memory arrays may also be empty, but only after checking every present character separately. "
+            "Relationship persistence does not depend on state_patch: the server saves the final numeric values printed in the required Relationships footer for present NPC -> POV."
         ),
     }
 
@@ -466,7 +491,7 @@ def _augment_packet(session_id: str, manifest: Dict[str, Any]) -> Dict[str, Any]
     result["instruction"] = (
         "Read every chunk before writing. scene_builder is mandatory and its FORMAT must be followed exactly. "
         "The packet contains full cards for every registered character plus personal-memory lenses for scene-relevant characters. "
-        "Check character_registry and long-range chronology; before commit review persistence and never send extracted={}."
+        "Check character_registry, long-range chronology and relationship_policy; before commit review persistence and never send extracted={}."
     )
     return result
 
@@ -498,6 +523,10 @@ def commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     result = dict(result)
     result["handoff_required"] = False
     result["saved_chronology_events"] = len(payload["extracted"].get("chronology", []))
+    result["relationships_persisted_from_footer"] = bool(
+        isinstance(payload["extracted"].get("state_patch"), dict)
+        and isinstance(payload["extracted"]["state_patch"].get("relationships"), dict)
+    )
     return result
 
 
