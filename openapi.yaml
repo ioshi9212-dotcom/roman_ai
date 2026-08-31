@@ -1,8 +1,8 @@
 openapi: 3.1.0
 info:
   title: Roman AI
-  version: 1.5.0
-  description: Persistent isolated novel sessions. Existing sessions continue directly by session_id across chats; no transfer package or resume chunks are used.
+  version: 1.6.0
+  description: Persistent isolated novel sessions with compact long-range chronology and explicit per-turn persistence review.
 servers:
   - url: https://romanai-production-0fdb.up.railway.app
 components:
@@ -34,14 +34,38 @@ components:
         user_input: {type: string}
     TurnCommit:
       type: object
-      required: [user_input, scene_output]
+      required: [user_input, scene_output, extracted]
       properties:
         user_input: {type: string}
         scene_output: {type: string}
         extracted:
           type: object
+          required: [persistence_reviewed, chronology, knowledge_add, experiences_add, dialogue_memory_add]
+          properties:
+            persistence_reviewed:
+              type: boolean
+              description: Must be true after explicitly reviewing durable chronology and each character's personal memory.
+            chronology:
+              type: array
+              description: Usually 0-2 compact durable objective events. Omit routine actions. Use broad period by default; exact time only when time_critical.
+              items: {type: object, additionalProperties: true}
+            knowledge_add:
+              type: array
+              description: Durable facts learned by specific characters who actually perceived or received them.
+              items: {type: object, additionalProperties: true}
+            experiences_add:
+              type: array
+              description: Important events personally experienced by specific characters.
+              items: {type: object, additionalProperties: true}
+            dialogue_memory_add:
+              type: array
+              description: Important conversation memory for actual participants/listeners.
+              items: {type: object, additionalProperties: true}
+            state_patch: {type: object, additionalProperties: true}
+            character_upserts:
+              type: array
+              items: {type: object, additionalProperties: true}
           additionalProperties: true
-          description: Persistent changes. May include state_patch, chronology, knowledge_add, experiences_add, dialogue_memory_add and character_upserts.
     AuditCommit:
       type: object
       required: [start_turn, end_turn]
@@ -62,7 +86,7 @@ paths:
   /runtime:
     get:
       operationId: getRuntime
-      summary: Load runtime rules including continuity and knowledge contracts
+      summary: Load runtime rules including continuity, compact chronology and knowledge contracts
       responses:
         '200': {description: Runtime documents}
   /novel-drafts:
@@ -179,7 +203,7 @@ paths:
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
       responses:
-        '200': {description: Compact same-session checkpoint with character_registry}
+        '200': {description: Compact same-session checkpoint with character_registry and chronology_context}
         '404': {description: Session not found}
   /sessions/{session_id}/audit-snapshot:
     get:
@@ -192,7 +216,7 @@ paths:
   /sessions/{session_id}/turn-packet:
     post:
       operationId: prepareTurn
-      summary: Build chunked authoritative context for the next turn, including live character registry and POV familiarity
+      summary: Build authoritative chunked context with character registry, personal memory and compact long-range chronology
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
       requestBody:
@@ -242,7 +266,7 @@ paths:
         '200': {description: Raw turns}
     post:
       operationId: commitTurn
-      summary: Save one complete turn after every packet chunk was read
+      summary: Save one complete turn after all packet chunks and mandatory persistence review
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
       requestBody:
@@ -252,10 +276,11 @@ paths:
             schema: {$ref: '#/components/schemas/TurnCommit'}
       responses:
         '200': {description: Turn committed}
+        '409': {description: Audit, packet reading or persistence review is incomplete}
   /sessions/{session_id}/audit:
     post:
       operationId: commitAudit
-      summary: Finish the mandatory 15-turn audit with one repair commit
+      summary: Finish the mandatory 15-turn audit with one compact repair commit
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
       requestBody:
