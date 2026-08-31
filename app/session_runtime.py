@@ -6,6 +6,7 @@ from typing import Any, Dict, List
 
 from . import storage
 from .character_registry import build_character_registry, normalize_name, refresh_pov_familiarity, registry_instruction
+from .turn_context import inject_required_turn_context
 
 
 RECENT_CHRONOLOGY_EVENTS = 12
@@ -414,6 +415,7 @@ def _augment_packet(session_id: str, manifest: Dict[str, Any]) -> Dict[str, Any]
         "Use it for objective continuity only. Personal knowledge still comes only from each character's personal_memory and current perception."
     )
     context["author_context"] = author_context
+    context = inject_required_turn_context(context, snapshot["cards"], snapshot["state"])
 
     context["chronology_policy"] = {
         "goal": "Detailed enough for durable canon, compact enough to remain useful after hundreds of turns.",
@@ -446,8 +448,8 @@ def _augment_packet(session_id: str, manifest: Dict[str, Any]) -> Dict[str, Any]
     }
 
     for key in ("novel", "novel_rules", "novel_lore", "hidden_lore", "story_direction", "world_canon", "character_cards", "relationships", "chronology_recent", "recent_turns"):
-        if key in author_context:
-            context[key] = author_context[key]
+        if key in context.get("author_context", {}):
+            context[key] = context["author_context"][key]
 
     text = json.dumps(context, ensure_ascii=False, separators=(",", ":"))
     chunks = [text[i:i + storage.MAX_PACKET_CHARS] for i in range(0, len(text), storage.MAX_PACKET_CHARS)] or ["{}"]
@@ -459,10 +461,12 @@ def _augment_packet(session_id: str, manifest: Dict[str, Any]) -> Dict[str, Any]
     result = dict(manifest)
     result["chunk_count"] = len(chunks)
     result["character_registry_count"] = len(registry)
+    result["full_character_card_count"] = len(snapshot["cards"])
     result["chronology_context_count"] = len(chronology_context)
     result["instruction"] = (
-        "Read every chunk. Check character_registry and long-range chronology context before writing. "
-        "If an existing offscreen registered character enters, call getCharacterBundle first. Before commit, review persistence and never send extracted={}."
+        "Read every chunk before writing. scene_builder is mandatory and its FORMAT must be followed exactly. "
+        "The packet contains full cards for every registered character plus personal-memory lenses for scene-relevant characters. "
+        "Check character_registry and long-range chronology; before commit review persistence and never send extracted={}."
     )
     return result
 
@@ -561,6 +565,6 @@ def continue_session(session_id: str) -> Dict[str, Any]:
         ),
         "instruction": (
             "Continue this exact existing session. Nothing was copied, transferred or recreated. "
-            "On the next gameplay input call prepareTurn for this same session_id; it will load recent turns, current state, personal memories, live character registry and a compact long-range chronology slice directly from persistent storage."
+            "On the next gameplay input call prepareTurn for this same session_id; it will load the exact scene builder, all full character cards, current state, personal memories, live registry, recent turns and compact long-range chronology directly from persistent storage."
         ),
     }
