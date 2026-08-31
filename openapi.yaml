@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Roman AI
-  version: 1.6.0
+  version: 1.6.1
   description: Persistent isolated novel sessions with compact long-range chronology and explicit per-turn persistence review.
 servers:
   - url: https://romanai-production-0fdb.up.railway.app
@@ -86,9 +86,10 @@ paths:
   /runtime:
     get:
       operationId: getRuntime
-      summary: Load runtime rules including continuity, compact chronology and knowledge contracts
+      summary: Check RomanAI runtime compatibility
+      description: Compact version/contract check only. Do not call this on `начнем`; ask setup questions first. Detailed rules are enforced by the server, Custom GPT instructions and turn packets.
       responses:
-        '200': {description: Runtime documents}
+        '200': {description: Compact runtime version and contract list}
   /novel-drafts:
     post:
       operationId: createNovelDraft
