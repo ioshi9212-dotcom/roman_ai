@@ -1,73 +1,37 @@
-import json
-import secrets
-from pathlib import Path
 from typing import Any, Dict
 
-from . import storage
+from . import novel_access, storage
 
 
-RESUME_CHUNK_CHARS = 12000
-
-
-def _reads_dir() -> Path:
-    path = storage.DATA_DIR / "resume_reads"
-    path.mkdir(parents=True, exist_ok=True)
-    return path
-
-
-def _read_path(session_id: str, read_id: str) -> Path:
-    return _reads_dir() / f"{session_id}__{read_id}.json"
+RESUME_CHUNK_CHARS = novel_access.NOVEL_READ_CHUNK_CHARS
 
 
 def prepare_resume_read(session_id: str) -> Dict[str, Any]:
     package = storage.build_resume_package(session_id)
-    text = json.dumps(package, ensure_ascii=False, separators=(",", ":"))
-    chunks = [text[i:i + RESUME_CHUNK_CHARS] for i in range(0, len(text), RESUME_CHUNK_CHARS)] or ["{}"]
-    read_id = secrets.token_urlsafe(12)
-    payload = {
-        "session_id": session_id,
-        "read_id": read_id,
-        "resume_token": package["resume_token"],
-        "chunk_count": len(chunks),
-        "chunks": chunks,
-        "read_chunks": [],
-    }
-    storage._write_json(_read_path(session_id, read_id), payload)
+    manifest = novel_access.prepare_template_read(package, "resume", session_id)
     return {
         "session_id": session_id,
-        "read_id": read_id,
+        "read_id": manifest["read_id"],
         "resume_token": package["resume_token"],
-        "chunk_count": len(chunks),
-        "total_chars": len(text),
-        "instruction": "Read every resume chunk from 0 through chunk_count-1 in order, reconstruct the JSON package, then call confirmResume with resume_token only after all chunks were read.",
+        "chunk_count": manifest["chunk_count"],
+        "total_chars": manifest["total_chars"],
+        "instruction": (
+            "Read every chunk from 0 through chunk_count-1 in order. Preferred action: getResumeChunk. "
+            "Compatibility action: getNovelReadChunk works with the same read_id. Reconstruct the JSON package, "
+            "then call confirmResume with resume_token only after all chunks were read."
+        ),
     }
 
 
 def get_resume_chunk(session_id: str, read_id: str, chunk_index: int) -> Dict[str, Any]:
-    path = _read_path(session_id, read_id)
-    if not path.exists():
-        raise FileNotFoundError(read_id)
-    payload = storage._read_json(path, {})
-    if payload.get("session_id") != session_id or payload.get("read_id") != read_id:
+    result = novel_access.get_novel_read_chunk(read_id, chunk_index)
+    if result.get("source_type") != "resume" or result.get("source_id") != session_id:
         raise PermissionError("INVALID_RESUME_READ")
-    chunks = payload.get("chunks", [])
-    if chunk_index < 0 or chunk_index >= len(chunks):
-        raise IndexError("CHUNK_OUT_OF_RANGE")
-
-    read_chunks = set(payload.get("read_chunks", []))
-    read_chunks.add(chunk_index)
-    payload["read_chunks"] = sorted(read_chunks)
-    storage._write_json(path, payload)
-    all_read = len(read_chunks) == len(chunks)
-
-    result = {
+    return {
         "session_id": session_id,
         "read_id": read_id,
-        "chunk_index": chunk_index,
-        "chunk_count": len(chunks),
-        "content": chunks[chunk_index],
-        "all_chunks_read": all_read,
+        "chunk_index": result["chunk_index"],
+        "chunk_count": result["chunk_count"],
+        "content": result["content"],
+        "all_chunks_read": result["all_chunks_read"],
     }
-    if all_read:
-        path.unlink(missing_ok=True)
-    return result
