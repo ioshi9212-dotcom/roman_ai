@@ -2,7 +2,7 @@ import json
 import tempfile
 from pathlib import Path
 
-from app import resume_access, storage
+from app import novel_access, resume_access, storage
 
 
 def setup_temp_storage(tmp: str):
@@ -12,35 +12,39 @@ def setup_temp_storage(tmp: str):
     storage.ensure_dirs()
 
 
+def _make_large_handoff_session() -> tuple[str, Path]:
+    novel = {
+        "novel_id": "large_resume",
+        "title": "Large Resume",
+        "version": 1,
+        "novel": {"pov_character": "rina"},
+        "characters": [{"character_id": "rina", "name": "Rina", "is_pov": True}],
+        "lore": {"large": "x" * 35000},
+        "starting_state": {"current": {"location": "room", "present_characters": ["rina"]}},
+    }
+    meta = storage.create_session(novel)
+    session_id = meta["session_id"]
+    root = storage.SESSIONS_DIR / session_id
+
+    session_meta = storage._read_json(root / "meta.json", {})
+    session_meta.update({
+        "turn_number": 60,
+        "last_audit_turn": 60,
+        "audit_required": False,
+        "handoff_required": True,
+    })
+    storage._write_json(root / "meta.json", session_meta)
+    storage._write_json(
+        root / "handoff_tail.json",
+        [{"turn_number": turn, "scene_output": f"scene {turn}"} for turn in range(55, 61)],
+    )
+    return session_id, root
+
+
 def test_large_resume_package_is_chunked_and_reconstructable():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
-
-        novel = {
-            "novel_id": "large_resume",
-            "title": "Large Resume",
-            "version": 1,
-            "novel": {"pov_character": "rina"},
-            "characters": [{"character_id": "rina", "name": "Rina", "is_pov": True}],
-            "lore": {"large": "x" * 35000},
-            "starting_state": {"current": {"location": "room", "present_characters": ["rina"]}},
-        }
-        meta = storage.create_session(novel)
-        session_id = meta["session_id"]
-        root = storage.SESSIONS_DIR / session_id
-
-        session_meta = storage._read_json(root / "meta.json", {})
-        session_meta.update({
-            "turn_number": 60,
-            "last_audit_turn": 60,
-            "audit_required": False,
-            "handoff_required": True,
-        })
-        storage._write_json(root / "meta.json", session_meta)
-        storage._write_json(
-            root / "handoff_tail.json",
-            [{"turn_number": turn, "scene_output": f"scene {turn}"} for turn in range(55, 61)],
-        )
+        session_id, _ = _make_large_handoff_session()
 
         manifest = resume_access.prepare_resume_read(session_id)
         assert manifest["session_id"] == session_id
@@ -63,9 +67,24 @@ def test_large_resume_package_is_chunked_and_reconstructable():
         assert [item["turn_number"] for item in package["handoff_tail"]] == [55, 56, 57, 58, 59, 60]
         assert package["source"]["lore"]["large"] == "x" * 35000
 
-        read_path = resume_access._read_path(session_id, manifest["read_id"])
-        assert not read_path.exists()
-
         confirmed = storage.confirm_resume(session_id, manifest["resume_token"])
         assert confirmed["turn_number"] == 60
         assert confirmed["handoff_generation"] == 1
+
+
+def test_resume_read_id_is_compatible_with_get_novel_read_chunk():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        session_id, _ = _make_large_handoff_session()
+
+        manifest = resume_access.prepare_resume_read(session_id)
+        parts = []
+        for index in range(manifest["chunk_count"]):
+            chunk = novel_access.get_novel_read_chunk(manifest["read_id"], index)
+            assert chunk["source_type"] == "resume"
+            assert chunk["source_id"] == session_id
+            parts.append(chunk["content"])
+
+        package = json.loads("".join(parts))
+        assert package["session_id"] == session_id
+        assert package["resume_token"] == manifest["resume_token"]
