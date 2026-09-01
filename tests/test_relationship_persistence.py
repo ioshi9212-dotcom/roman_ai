@@ -2,8 +2,6 @@ import json
 import tempfile
 from pathlib import Path
 
-import pytest
-
 from app import session_runtime, storage
 
 
@@ -65,146 +63,134 @@ def scene(metrics: str, turn=1):
 Ход {turn} · цикл {turn}/15"""
 
 
-def test_relationship_footer_is_persisted_without_manual_state_patch():
+def test_flat_relationships_migrate_to_old_generator_documents():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         sid = storage.create_session(
             novel(starting_relationships={"adrian": {"симпатия": 10, "близость": 5}})
         )["session_id"]
         context = read_all_packet_chunks(sid, "test")
-        assert context["relationship_policy"]["required_review_every_turn"] is True
-        assert context["relationship_policy"]["metric_names_locked"] is True
+        state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
+
+        assert "relationship_documents" in state
+        relation = state["relationship_documents"]["adrian"]["relations"][0]
+        assert relation["target_character_id"] == "rina"
+        assert {(item["label"], item["value"]) for item in relation["dimensions"]} == {
+            ("симпатия", 10),
+            ("близость", 5),
+        }
+        assert "relationship_schemas" not in state
+        assert context["runtime_documents"]["relationship_contract"]
         assert context["relationship_policy"]["authoritative_start_snapshot"]["adrian"]["metrics"] == {
             "симпатия": 10,
             "близость": 5,
         }
-        assert "DO NOT rename" in context["relationship_policy"]["instruction"]
-        assert "FINAL VALUE = saved start value + displayed delta" in context["relationship_policy"]["instruction"]
 
+
+def test_footer_persists_changes_and_accepts_missing_delta_like_old_generator():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(
+            novel(starting_relationships={"adrian": {"симпатия": 10, "близость": 5}})
+        )["session_id"]
+        read_all_packet_chunks(sid, "test")
         result = session_runtime.commit_turn(
             sid,
             {
                 "user_input": "test",
-                "scene_output": scene("симпатия 12/+2; близость 7/+2"),
+                "scene_output": scene("симпатия 12/+2; близость 5"),
                 "extracted": extracted(),
             },
         )
         assert result["relationships_persisted_from_footer"] is True
         state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
-        assert state["relationships"]["adrian"] == {"симпатия": 12, "близость": 7}
-        assert state["relationship_schemas"]["adrian"] == ["симпатия", "близость"]
+        assert state["relationships"]["adrian"]["симпатия"] == 12
+        assert state["relationships"]["adrian"]["близость"] == 5
+        relation = state["relationship_documents"]["adrian"]["relations"][0]
+        assert {(item["label"], item["value"]) for item in relation["dimensions"]} == {
+            ("симпатия", 12),
+            ("близость", 5),
+        }
 
 
-def test_relationship_metric_names_cannot_change_on_reunion():
+def test_reunion_with_completely_new_metric_words_does_not_replace_saved_relationship():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         sid = storage.create_session(
-            novel(starting_relationships={"adrian": {"симпатия": 10, "близость": 5}})
+            novel(starting_relationships={"adrian": {"симпатия": 35, "доверие": 18, "влечение": 42}})
         )["session_id"]
-        read_all_packet_chunks(sid, "test")
-        with pytest.raises(RuntimeError, match="RELATIONSHIP_SCHEMA_MISMATCH:adrian"):
-            session_runtime.commit_turn(
-                sid,
-                {
-                    "user_input": "test",
-                    "scene_output": scene("влечение 12/+2; доверие 7/+2"),
-                    "extracted": extracted(),
-                },
-            )
-        state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
-        assert state["relationships"]["adrian"] == {"симпатия": 10, "близость": 5}
-
-
-def test_relationship_final_value_must_equal_saved_value_plus_delta():
-    with tempfile.TemporaryDirectory() as tmp:
-        setup_temp_storage(tmp)
-        sid = storage.create_session(
-            novel(starting_relationships={"adrian": {"симпатия": 10, "близость": 5}})
-        )["session_id"]
-        read_all_packet_chunks(sid, "test")
-        with pytest.raises(RuntimeError, match="RELATIONSHIP_ARITHMETIC_MISMATCH:adrian:симпатия"):
-            session_runtime.commit_turn(
-                sid,
-                {
-                    "user_input": "test",
-                    "scene_output": scene("симпатия 50/+2; близость 7/+2"),
-                    "extracted": extracted(),
-                },
-            )
-
-
-def test_first_footer_establishes_schema_then_it_is_sticky():
-    with tempfile.TemporaryDirectory() as tmp:
-        setup_temp_storage(tmp)
-        sid = storage.create_session(novel())["session_id"]
         read_all_packet_chunks(sid, "first")
         session_runtime.commit_turn(
             sid,
             {
                 "user_input": "first",
-                "scene_output": scene("интерес 8/+1; доверие 3/+1"),
+                "scene_output": scene("интерес 70; нежность 55"),
                 "extracted": extracted(),
             },
         )
         state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
-        assert state["relationship_schemas"]["adrian"] == ["интерес", "доверие"]
-        assert state["relationships"]["adrian"] == {"интерес": 8, "доверие": 3}
+        assert state["relationships"]["adrian"] == {
+            "симпатия": 35,
+            "доверие": 18,
+            "влечение": 42,
+        }
 
-        read_all_packet_chunks(sid, "second")
+        context = read_all_packet_chunks(sid, "reunion")
+        assert context["relationship_policy"]["authoritative_start_snapshot"]["adrian"]["metrics"] == {
+            "симпатия": 35,
+            "доверие": 18,
+            "влечение": 42,
+        }
+
+
+def test_partial_footer_update_preserves_other_established_dimensions():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(
+            novel(starting_relationships={"adrian": {"симпатия": 35, "доверие": 18, "влечение": 42}})
+        )["session_id"]
+        read_all_packet_chunks(sid, "test")
         session_runtime.commit_turn(
             sid,
             {
-                "user_input": "second",
-                "scene_output": scene("интерес 10/+2; доверие 3/+0", turn=2),
+                "user_input": "test",
+                "scene_output": scene("симпатия 37/+2"),
                 "extracted": extracted(),
             },
         )
         state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
-        assert state["relationships"]["adrian"] == {"интерес": 10, "доверие": 3}
+        assert state["relationships"]["adrian"] == {
+            "симпатия": 37,
+            "доверие": 18,
+            "влечение": 42,
+        }
 
 
-def test_prepare_turn_repairs_old_renamed_metrics_from_turn_history():
+def test_missing_relation_recovers_from_last_visible_footer():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         sid = storage.create_session(novel())["session_id"]
         root = storage.SESSIONS_DIR / sid
-
-        turns = [
-            {
-                "turn_number": 1,
-                "scene_output": scene("симпатия 10/+1; близость 5/+1", turn=1),
-            },
-            {
-                "turn_number": 2,
-                "scene_output": scene("симпатия 12/+2; близость 6/+1", turn=2),
-            },
-            {
-                "turn_number": 3,
-                "scene_output": scene("влечение 77/+65; доверие 91/+85", turn=3),
-            },
-        ]
         with (root / "turns.jsonl").open("w", encoding="utf-8") as fh:
-            for turn in turns:
-                fh.write(json.dumps(turn, ensure_ascii=False) + "\n")
-        broken_state = storage._read_json(root / "state.json", {})
-        broken_state["relationships"] = {
-            "adrian": {
-                "симпатия": 12,
-                "близость": 6,
-                "влечение": 77,
-                "доверие": 91,
-            }
-        }
-        storage._write_json(root / "state.json", broken_state)
+            fh.write(
+                json.dumps(
+                    {"turn_number": 4, "scene_output": scene("симпатия 22; доверие 11", turn=4)},
+                    ensure_ascii=False,
+                )
+                + "\n"
+            )
+        state = storage._read_json(root / "state.json", {})
+        state["relationships"] = {}
+        state.pop("relationship_documents", None)
+        storage._write_json(root / "state.json", state)
 
         context = read_all_packet_chunks(sid, "reunion")
-        assert context["relationship_policy"]["authoritative_start_snapshot"]["adrian"] == {
-            "metrics": {"симпатия": 12, "близость": 6},
-            "schema": ["симпатия", "близость"],
-        }
         repaired = storage._read_json(root / "state.json", {})
-        assert repaired["relationships"]["adrian"] == {"симпатия": 12, "близость": 6}
-        assert repaired["relationship_schemas"]["adrian"] == ["симпатия", "близость"]
+        assert repaired["relationships"]["adrian"] == {"симпатия": 22, "доверие": 11}
+        assert context["relationship_policy"]["authoritative_start_snapshot"]["adrian"]["metrics"] == {
+            "симпатия": 22,
+            "доверие": 11,
+        }
 
 
 def test_relationship_key_by_character_name_is_canonicalized_to_id():
@@ -219,7 +205,7 @@ def test_relationship_key_by_character_name_is_canonicalized_to_id():
         }
         state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
         assert "Эдриан" not in state["relationships"]
-        assert state["relationships"]["adrian"] == {"симпатия": 10}
+        assert state["relationships"]["adrian"]["симпатия"] == 10
 
 
 def test_absent_npc_footer_cannot_overwrite_relationship():
