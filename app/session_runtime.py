@@ -6,7 +6,12 @@ from typing import Any, Dict, List
 
 from . import storage
 from .character_registry import build_character_registry, normalize_name, refresh_pov_familiarity, registry_instruction
-from .relationship_runtime import relationship_patch_from_scene
+from .relationship_runtime import (
+    overwrite_relationship_snapshots,
+    relationship_patch_from_scene,
+    relationship_snapshot_for_present,
+    repair_relationship_state,
+)
 from .turn_context import inject_required_turn_context
 
 
@@ -86,6 +91,13 @@ def _refresh_session_familiarity(session_id: str) -> Dict[str, Any]:
     memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
     chronology = storage._read_json(root / "chronology.json", [])
     turns = storage._read_turns(root)
+    state = repair_relationship_state(
+        state,
+        source=source,
+        turns=turns,
+        cards=cards,
+        resolve_character_id=_resolve_character_id,
+    )
     meta = storage._read_json(root / "meta.json", {})
     refreshed = refresh_pov_familiarity(
         cards,
@@ -338,12 +350,25 @@ def _prepare_extracted_for_commit(
 
     source = storage._read_json(root / "source.json", {})
     cards = storage._load_cards(root, source)
+    turns = storage._read_turns(root)
     state = storage._read_json(root / "state.json", {})
-    if isinstance(extracted.get("state_patch"), dict):
-        state = storage._deep_merge(state, extracted["state_patch"])
     state = _canonicalize_state_character_refs(cards, state)
+    state = repair_relationship_state(
+        state,
+        source=source,
+        turns=turns,
+        cards=cards,
+        resolve_character_id=_resolve_character_id,
+    )
 
     result = _normalise_memory_event_ids(extracted, turn_number)
+    existing_state_patch = deepcopy(result.get("state_patch")) if isinstance(result.get("state_patch"), dict) else {}
+    existing_state_patch.pop("relationships", None)
+    existing_state_patch.pop("relationship_schemas", None)
+    if existing_state_patch:
+        state = storage._deep_merge(state, existing_state_patch)
+    result["state_patch"] = existing_state_patch
+
     footer_relationship_patch = relationship_patch_from_scene(
         payload.get("scene_output", ""),
         cards=cards,
@@ -352,8 +377,7 @@ def _prepare_extracted_for_commit(
         present_character_ids=storage._present_character_ids,
     )
     if footer_relationship_patch:
-        existing_state_patch = result.get("state_patch") if isinstance(result.get("state_patch"), dict) else {}
-        result["state_patch"] = storage._deep_merge(existing_state_patch, footer_relationship_patch)
+        result["state_patch"] = storage._deep_merge(result["state_patch"], footer_relationship_patch)
         state = storage._deep_merge(state, footer_relationship_patch)
 
     result["chronology"] = _normalise_chronology_events(
@@ -455,12 +479,16 @@ def _augment_packet(session_id: str, manifest: Dict[str, Any]) -> Dict[str, Any]
     context["relationship_policy"] = {
         "required_review_every_turn": True,
         "direction": "NPC -> POV only",
+        "metric_names_locked": True,
+        "authoritative_start_snapshot": relationship_snapshot_for_present(
+            snapshot["state"], present_character_ids=storage._present_character_ids
+        ),
         "instruction": (
-            "Re-evaluate every present NPC's relationship indicators after the whole scene, not only after explicit confessions. "
-            "The numbers represent the NPC's current internal attitude and must move when the scene materially changes it. Kissing, repeated embracing, chosen physical closeness, vulnerability, meaningful help, trust, rejection, jealousy, betrayal, fear, conflict or a clear relationship turning point are normally relationship-relevant. "
-            "Do not freeze the same indicators across many turns while the relationship is visibly escalating or deteriorating unless that specific NPC has a concrete character-based reason for no internal change. Ordinary meaningful change is usually 1-3 points; stronger turning points may justify more. "
-            "Do not increase everything mechanically: change only indicators actually affected, allow negative deltas, and preserve /0 when nothing genuinely changed. "
-            "The visible footer is the end-of-turn relationship snapshot. Its numeric values are persisted automatically by the server, so calculate the post-scene value and delta consistently."
+            "For each present NPC, use authoritative_start_snapshot as the ONLY relationship starting point. Once that NPC has relationship metric names, those names are sticky across scenes, absences, day changes and later encounters: DO NOT rename, replace, add or swap them. "
+            "Re-evaluate the same indicators after the whole scene. The numbers represent the NPC's current internal attitude and must move when the scene materially changes it. Kissing, repeated embracing, chosen physical closeness, vulnerability, meaningful help, trust, rejection, jealousy, betrayal, fear, conflict or a clear relationship turning point are normally relationship-relevant. "
+            "Ordinary meaningful change is usually 1-3 points; stronger turning points may justify more. Do not increase everything mechanically: change only indicators actually affected, allow negative deltas, and use /0 when nothing genuinely changed. "
+            "For every established metric, footer arithmetic is strict: FINAL VALUE = saved start value + displayed delta. Never invent a fresh baseline on a reunion. The server rejects renamed metrics and broken arithmetic. "
+            "The visible footer is the end-of-turn snapshot and the server persists those validated final values exactly."
         ),
     }
     context["persistence_contract"] = {
@@ -468,7 +496,7 @@ def _augment_packet(session_id: str, manifest: Dict[str, Any]) -> Dict[str, Any]
         "instruction": (
             "Before commitTurn review persistence explicitly. extracted MUST contain persistence_reviewed=true and four arrays even when empty: chronology, knowledge_add, experiences_add, dialogue_memory_add. "
             "Do not send extracted={}. If a scene is pure routine and creates no durable fact, chronology may be []. Knowledge/memory arrays may also be empty, but only after checking every present character separately. "
-            "Relationship persistence does not depend on state_patch: the server saves the final numeric values printed in the required Relationships footer for present NPC -> POV."
+            "Relationship persistence does not depend on model-authored state_patch: relationship changes come only from the validated required Relationships footer."
         ),
     }
 
@@ -491,7 +519,8 @@ def _augment_packet(session_id: str, manifest: Dict[str, Any]) -> Dict[str, Any]
     result["instruction"] = (
         "Read every chunk before writing. scene_builder is mandatory and its FORMAT must be followed exactly. "
         "The packet contains full cards for every registered character plus personal-memory lenses for scene-relevant characters. "
-        "Check character_registry, long-range chronology and relationship_policy; before commit review persistence and never send extracted={}."
+        "Check character_registry, long-range chronology and the authoritative relationship snapshot; never rename established relationship metrics or invent a fresh baseline. "
+        "Before commit review persistence and never send extracted={}."
     )
     return result
 
@@ -516,17 +545,26 @@ def commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     turn_number = int(meta.get("turn_number", 0)) + 1
     payload = deepcopy(payload)
     payload["extracted"] = _prepare_extracted_for_commit(payload, root=root, turn_number=turn_number)
+    relationship_patch = {}
+    state_patch = payload["extracted"].get("state_patch")
+    if isinstance(state_patch, dict):
+        relationship_patch = {
+            key: deepcopy(state_patch[key])
+            for key in ("relationships", "relationship_schemas")
+            if key in state_patch
+        }
     result = storage.commit_turn(session_id, payload)
+    if relationship_patch:
+        persisted_state = storage._read_json(root / "state.json", {})
+        persisted_state = overwrite_relationship_snapshots(persisted_state, relationship_patch)
+        storage._write_json(root / "state.json", persisted_state)
     meta = storage._read_json(root / "meta.json", {})
     _clear_legacy_handoff(root, meta)
     _refresh_session_familiarity(session_id)
     result = dict(result)
     result["handoff_required"] = False
     result["saved_chronology_events"] = len(payload["extracted"].get("chronology", []))
-    result["relationships_persisted_from_footer"] = bool(
-        isinstance(payload["extracted"].get("state_patch"), dict)
-        and isinstance(payload["extracted"]["state_patch"].get("relationships"), dict)
-    )
+    result["relationships_persisted_from_footer"] = bool(relationship_patch.get("relationships"))
     return result
 
 
@@ -592,8 +630,10 @@ def continue_session(session_id: str) -> Dict[str, Any]:
             relevant_character_ids=storage._present_character_ids(state),
             location=_current_value(state, "location", "place", "area"),
         ),
+        "relationships": state.get("relationships", {}),
+        "relationship_schemas": state.get("relationship_schemas", {}),
         "instruction": (
             "Continue this exact existing session. Nothing was copied, transferred or recreated. "
-            "On the next gameplay input call prepareTurn for this same session_id; it will load the exact scene builder, all full character cards, current state, personal memories, live registry, recent turns and compact long-range chronology directly from persistent storage."
+            "On the next gameplay input call prepareTurn for this same session_id; it will load the exact scene builder, all full character cards, current state, personal memories, live registry, stable relationship schemas/values, recent turns and compact long-range chronology directly from persistent storage."
         ),
     }
