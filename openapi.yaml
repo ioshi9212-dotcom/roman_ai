@@ -1,8 +1,8 @@
 openapi: 3.1.0
 info:
   title: Roman AI
-  version: 1.7.0
-  description: Persistent isolated novel sessions with complete chunked runtime, canon, cards, memory and chronology.
+  version: 1.7.5
+  description: Persistent isolated novel sessions with complete chunked runtime, canon, cards, memory, chronology and audits.
 servers:
   - url: https://romanai-production-0fdb.up.railway.app
 components:
@@ -211,11 +211,26 @@ paths:
   /sessions/{session_id}/audit-snapshot:
     get:
       operationId: getAuditSnapshot
-      summary: Get data for the current 15-turn audit
+      summary: Prepare a complete lossless 15-turn audit as chunks
+      description: Returns only an audit manifest. Nothing is compressed or truncated. Read every getAuditSnapshotChunk from 0 to chunk_count-1 before commitAudit.
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
       responses:
-        '200': {description: Audit snapshot}
+        '200': {description: Audit manifest with audit_id and chunk_count}
+        '409': {description: Audit is not currently required}
+  /sessions/{session_id}/audit-snapshot/{audit_id}/{chunk_index}:
+    get:
+      operationId: getAuditSnapshotChunk
+      summary: Read one chunk of the complete lossless audit context
+      description: Chunks reconstruct the exact full audit payload including current runtime documents, source, all cards, full state, full memory, full chronology and exact saved turns for the 15-turn audit range.
+      parameters:
+        - {in: path, name: session_id, required: true, schema: {type: string}}
+        - {in: path, name: audit_id, required: true, schema: {type: string}}
+        - {in: path, name: chunk_index, required: true, schema: {type: integer}}
+      responses:
+        '200': {description: One audit context chunk}
+        '403': {description: Invalid or stale audit_id}
+        '404': {description: Chunk index out of range}
   /sessions/{session_id}/turn-packet:
     post:
       operationId: prepareTurn
@@ -284,7 +299,7 @@ paths:
   /sessions/{session_id}/audit:
     post:
       operationId: commitAudit
-      summary: Finish the mandatory 15-turn audit
+      summary: Finish the mandatory 15-turn audit after every audit chunk was read
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
       requestBody:
@@ -294,3 +309,4 @@ paths:
             schema: {$ref: '#/components/schemas/AuditCommit'}
       responses:
         '200': {description: Audit committed}
+        '409': {description: Audit manifest/chunk reading incomplete or audit range mismatch}
