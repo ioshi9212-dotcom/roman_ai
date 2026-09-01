@@ -44,6 +44,49 @@ def _resolve_character_id(cards: List[Dict[str, Any]], value: Any) -> str | None
     return None
 
 
+def _card_name(card: Dict[str, Any], fallback: str) -> str:
+    identity = card.get("identity") if isinstance(card.get("identity"), dict) else {}
+    return str(
+        card.get("name")
+        or card.get("full_name")
+        or identity.get("name")
+        or fallback
+    )
+
+
+def _present_npc_candidates(cards: List[Dict[str, Any]], state: Dict[str, Any], lens: Dict[str, Any]) -> List[Dict[str, Any]]:
+    pov = state.get("pov") if isinstance(state.get("pov"), dict) else {}
+    pov_id = str(pov.get("character_id") or "")
+    by_id = {storage._card_id(card): card for card in cards if storage._card_id(card)}
+    saved = {
+        str(item.get("owner_character_id")): item
+        for item in lens.get("relations_in_current_scene", [])
+        if isinstance(item, dict) and item.get("owner_character_id")
+    }
+    result: List[Dict[str, Any]] = []
+    for character_id in storage._present_character_ids(state):
+        character_id = str(character_id)
+        if not character_id or character_id == pov_id:
+            continue
+        card = by_id.get(character_id, {})
+        relation = saved.get(character_id)
+        dimensions = relation.get("dimensions", []) if isinstance(relation, dict) else []
+        result.append(
+            {
+                "character_id": character_id,
+                "name": _card_name(card, character_id),
+                "has_saved_relationship": bool(dimensions),
+                "saved_dimensions": deepcopy(dimensions),
+                "initialization_rule": (
+                    "If saved_dimensions exist, continue exactly this relationship. If they are empty, this NPC still must be evaluated during the scene. "
+                    "As soon as the NPC meaningfully perceives/interacts with POV and a real attitude exists, initialize 1-3 natural relationship dimensions "
+                    "from character + goals + knowledge + current interaction and show them in the footer. Do not leave the relationship block empty merely because this is a new chat/session or there was no previous numeric baseline."
+                ),
+            }
+        )
+    return result
+
+
 def _session_persistent_data(context: Dict[str, Any]) -> tuple[Dict[str, Any], Dict[str, Any], Any]:
     session = context.get("session") if isinstance(context.get("session"), dict) else {}
     session_id = session.get("session_id")
@@ -91,16 +134,26 @@ def inject_required_turn_context(context: Dict[str, Any], cards: List[Dict[str, 
         "narrate 'wanted to but did not' merely to model healthy boundaries. Consequential POV reactions and choices remain with the player."
     )
     context["relationship_contract"] = documents["relationship_contract"]
-    context["relationship_lens"] = build_relationship_lens(
+    relationship_lens = build_relationship_lens(
         state,
         cards=cards,
         present_character_ids=storage._present_character_ids,
         resolve_character_id=_resolve_character_id,
     )
+    relationship_lens["present_npc_candidates"] = _present_npc_candidates(cards, state, relationship_lens)
+    relationship_lens["initialization_required"] = True
+    relationship_lens["initialization_instruction"] = (
+        "A missing saved relation is NOT a reason to omit relationships forever. Evaluate every present NPC candidate. "
+        "For an NPC with saved dimensions, preserve them. For an NPC without saved dimensions, once this scene establishes a real directional attitude toward POV, "
+        "create 1-3 specific dimensions natural to that NPC (for example sympathy, suspicion, attraction, respect, irritation, jealousy, trust, resentment, closeness) "
+        "and print them in the visible footer. Never use a generic 'interest' placeholder. The first appearance may omit /delta because there is no prior numeric baseline."
+    )
+    context["relationship_lens"] = relationship_lens
     context["relationship_lens_instruction"] = (
         "MANDATORY. relationship_lens is the old-generator causal relationship layer and is authoritative for current NPC->POV relations. "
-        "Every present NPC that already has saved dimensions in relations_in_current_scene must appear in the visible Relationships footer. "
-        "Carry the same saved dimensions through absences and later meetings; do not recreate the relation from scratch."
+        "Every present NPC is listed in present_npc_candidates even when no relationship has been saved yet. "
+        "Existing dimensions MUST appear in the visible Relationships footer. Missing dimensions must be initialized when the current interaction actually establishes an attitude; "
+        "do not output an empty relationship block simply because this is a new chat or fresh relationship. Carry saved dimensions across absences and later meetings."
     )
 
     context["source_full"] = deepcopy(source)
