@@ -30,6 +30,7 @@ def test_runtime_is_complete_and_chunked():
         "scene_builder",
         "pov_contract",
         "npc_agency_contract",
+        "relationship_contract",
         "memory_contract",
         "continuity_contract",
     }
@@ -37,6 +38,8 @@ def test_runtime_is_complete_and_chunked():
     assert "POV НЕ должен искусственно молчать" in payload["documents"]["pov_contract"]
     assert "не обязаны выбирать психологически правильное" in payload["documents"]["npc_agency_contract"]
     assert "он хотел взять её за руку, но не стал" in payload["documents"]["npc_agency_contract"]
+    assert "RELATIONSHIP LENS" in payload["documents"]["relationship_contract"]
+    assert "строка в footer ОБЯЗАТЕЛЬНА" in payload["documents"]["relationship_contract"]
     assert "NO KNOWLEDGE LAUNDERING" in payload["documents"]["scene_builder"]
     assert "НЕ ЛЕГАЛИЗОВАТЬ УТЕЧКУ" in payload["documents"]["memory_contract"]
     assert manifest["total_chars"] == sum(len(x) for x in chunks)
@@ -96,6 +99,7 @@ def test_turn_packet_contains_full_source_state_cards_memory_and_chronology_with
         assert context["runtime_documents"]["scene_builder"]
         assert context["runtime_documents"]["pov_contract"]
         assert context["runtime_documents"]["npc_agency_contract"]
+        assert context["runtime_documents"]["relationship_contract"]
         assert context["runtime_documents"]["memory_contract"]
         assert context["runtime_documents"]["continuity_contract"]
         assert context["pov_participation_contract"] == context["runtime_documents"]["pov_contract"]
