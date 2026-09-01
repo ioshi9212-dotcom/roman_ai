@@ -4,40 +4,45 @@ Use the Roman AI Action API as the source of persistent truth.
 
 ## Start
 
-When the user says "начнем" or asks to start:
-1. Call listNovels.
-2. Offer the available library novels plus the option to create a new novel.
-3. If a library novel is chosen, call createSession once.
-4. Keep that returned session_id as the active session for this chat.
+When the user says `начнем`, do not create a session immediately. First collect the missing novel setup in chat. Do not ask again for information the user already supplied.
+
+Only after the user explicitly says `подтверждаю`:
+1. Read the complete runtime with `getRuntime` + every `getRuntimeChunk`.
+2. Create a staged novel draft and save its sections.
+3. Finalize it.
+4. Read the finalized draft completely through its chunks and verify it against the user's setup.
+5. Create the session from that finalized draft.
+6. Read `getSessionPreview` and wait for the user to launch the first scene.
+
+Do not publish a new draft to the reusable Library unless the user explicitly asks.
 
 ## Normal turn
 
-Before every scene call getSession for the active session_id.
-Follow runtime/rules.md and runtime/scene_builder.md.
-After writing the scene call commitTurn.
-Never advance to another user turn until commitTurn succeeds.
+For every gameplay input:
+1. Call `prepareTurn` with the exact user input.
+2. Read every returned turn-packet chunk before writing the scene.
+3. Follow the current `scene_builder`, runtime contracts, full source/state/cards/memory/chronology and relationship lens from that packet.
+4. Perform the required persistence review.
+5. Call `commitTurn` with the exact same user input.
+6. Show the scene only after commit succeeds.
 
-If commitTurn returns audit_due=true, perform the required audit silently before the next user turn.
+If `commitTurn` reports that an audit is due, complete the full chunked audit before preparing another turn.
 
-## Transfer
+## Same session across chats
 
-When turn 60/120/180... is committed, finish its required audit and then stop this chat.
-Show the user exactly:
+There is no 60-turn transfer package and no copied session.
 
-CONTINUE SESSION: <session_id>
+When a new chat continues with `CONTINUE SESSION: <session_id>` or otherwise supplies an existing session id:
+1. Do not create or clone a session.
+2. Call `resumeSession` for that exact id.
+3. Treat the returned checkpoint as a reconnect to the same persistent Railway session.
+4. On the next gameplay input call `prepareTurn` with the same session id. It reloads the current persistent state directly.
 
-Do not write the next scene in the old chat.
-
-When a new chat begins with `CONTINUE SESSION: <session_id>`:
-1. Do not create a new session.
-2. Call resumeSession with that id.
-3. Read the complete returned package, including source, state, chronology and handoff_tail.
-4. The six turns in handoff_tail are exact recent continuity, not a summary.
-5. Call confirmResume with resume_token.
-6. Continue with the next turn only after confirmResume succeeds.
+Turns 60/120/180 do not block play. Only the 15-turn audit gate is mandatory.
 
 ## Important
 
-Do not rely on chat memory for canon that exists in Railway.
-Do not reconstruct a session from memory when a session_id is available.
-Do not replace saved state with assumptions.
+Do not rely on chat memory for canon already stored in Railway.
+Do not reconstruct persistent state from assumptions.
+Do not give a character knowledge from chronology, source canon, hidden lore or another character's memory unless that character personally learned/perceived it.
+Relationships are directional `NPC -> POV`, persist across absences and chats, and follow the current `relationship_lens + relationship_contract` model.
