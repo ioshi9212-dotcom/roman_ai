@@ -71,6 +71,9 @@ def test_turn_packet_uses_one_relationship_model():
         policy = packet["relationship_policy"]
         assert policy["source_of_truth"] == "relationship_lens + relationship_contract"
         assert "metric_names_locked" not in policy
+        assert policy["authoritative_start_snapshot"]["adrian"]["metrics"] == {
+            "симпатия": 10
+        }
         assert "relationship_updates" in packet["persistence_contract"]
 
 
@@ -169,7 +172,7 @@ def test_departed_npc_relationship_persists_without_visible_footer_line():
         assert relation["last_changed_turn"] == 1
 
 
-def test_absent_npc_in_visible_footer_is_rejected():
+def test_absent_npc_visible_footer_is_ignored_for_persistence():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         sid = storage.create_session(
@@ -177,29 +180,28 @@ def test_absent_npc_in_visible_footer_is_rejected():
         )["session_id"]
 
         read_turn_packet(sid, "(Эдриан уходит)")
-        with pytest.raises(HTTPException) as exc:
-            session_runtime.commit_turn(
-                sid,
-                {
-                    "user_input": "(Эдриан уходит)",
-                    "scene_output": """🎭 Runtime fixes
+        session_runtime.commit_turn(
+            sid,
+            {
+                "user_input": "(Эдриан уходит)",
+                "scene_output": """🎭 Runtime fixes
 
 Состояние: одна
 Отношения:
 Эдриан - симпатия 11/+1
 
 Ход 1 · цикл 1/15""",
-                    "extracted": reviewed(
-                        state_patch={
-                            "current": {
-                                "present_characters": ["rina"],
-                            }
+                "extracted": reviewed(
+                    state_patch={
+                        "current": {
+                            "present_characters": ["rina"],
                         }
-                    ),
-                },
-            )
-        assert exc.value.status_code == 409
-        assert exc.value.detail["code"] == "RELATIONSHIP_FOOTER_ABSENT_NPC"
+                    }
+                ),
+            },
+        )
+        state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
+        assert state["relationships"]["adrian"]["симпатия"] == 10
 
 
 def test_bad_relationship_delta_is_rejected():
