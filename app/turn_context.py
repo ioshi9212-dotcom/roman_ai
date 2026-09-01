@@ -4,6 +4,7 @@ from copy import deepcopy
 from typing import Any, Dict, List
 
 from . import storage
+from .relationship_runtime import build_relationship_lens
 from .runtime_access import runtime_documents
 
 
@@ -22,6 +23,25 @@ def present_character_cards(cards: List[Dict[str, Any]], state: Dict[str, Any]) 
         for card in cards
         if storage._card_id(card) in present
     ]
+
+
+def _normalise_name(value: Any) -> str:
+    return " ".join(str(value or "").casefold().replace("ё", "е").split())
+
+
+def _resolve_character_id(cards: List[Dict[str, Any]], value: Any) -> str | None:
+    if isinstance(value, dict):
+        value = value.get("character_id") or value.get("id") or value.get("name")
+    needle = _normalise_name(value)
+    if not needle:
+        return None
+    for card in cards:
+        cid = storage._card_id(card)
+        if _normalise_name(cid) == needle:
+            return cid
+        if any(_normalise_name(alias) == needle for alias in storage._card_names(card)):
+            return cid
+    return None
 
 
 def _session_persistent_data(context: Dict[str, Any]) -> tuple[Dict[str, Any], Dict[str, Any], Any]:
@@ -69,6 +89,18 @@ def inject_required_turn_context(context: Dict[str, Any], cards: List[Dict[str, 
         "let them act: intervene, grab a hand/wrist, block a path, take an item, raise their voice, order, pressure, hug or initiate a kiss "
         "without a preliminary permission question when consistent with the character and scene. Do not praise restraint as 'better' or "
         "narrate 'wanted to but did not' merely to model healthy boundaries. Consequential POV reactions and choices remain with the player."
+    )
+    context["relationship_contract"] = documents["relationship_contract"]
+    context["relationship_lens"] = build_relationship_lens(
+        state,
+        cards=cards,
+        present_character_ids=storage._present_character_ids,
+        resolve_character_id=_resolve_character_id,
+    )
+    context["relationship_lens_instruction"] = (
+        "MANDATORY. relationship_lens is the old-generator causal relationship layer and is authoritative for current NPC->POV relations. "
+        "Every present NPC that already has saved dimensions in relations_in_current_scene must appear in the visible Relationships footer. "
+        "Carry the same saved dimensions through absences and later meetings; do not recreate the relation from scratch."
     )
 
     context["source_full"] = deepcopy(source)
