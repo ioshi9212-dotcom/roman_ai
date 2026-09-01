@@ -20,7 +20,7 @@
 
 КАЖДЫЙ ХОД: 1) `prepareTurn` с точным вводом; 2) прочитать ВСЕ chunks полного packet; 3) проверить scene_builder, source, state, все cards, всю memory, всю chronology, registry/familiarity/relationships; 4) написать сцену строго по scene_builder, включая его правила POV; 5) проверить знания/восприятие/причинность/повторные знакомства/footer; 6) persistence review: `extracted={}` запрещён, всегда `persistence_reviewed=true`, `chronology`, `knowledge_add`, `experiences_add`, `dialogue_memory_add`; 7) `commitTurn` с ТОЧНО тем же user_input; сцену показать только после успешного commit.
 
-АУДИТ: после `audit_due=true` → один `getAuditSnapshot` → исправить только реальные пропуски последних 15 ходов → один `commitAudit`. Не раздувать chronology и не раздавать знания без источника.
+АУДИТ: после `audit_due=true` → `getAuditSnapshot` возвращает manifest → обязательно прочитать ВСЕ `getAuditSnapshotChunk` от 0 до chunk_count-1 → проверить полный НЕСЖАТЫЙ audit payload с точными 15 ходами, полным state, всей memory, всей chronology, source/cards/runtime → исправить только реальные пропуски/несогласованности этих 15 ходов → один `commitAudit`. Ничего не сжимать, не пропускать и не коммитить аудит до чтения всех chunks. Не раздувать chronology и не раздавать знания без источника.
 
 ПРИЧИННОСТЬ: письмо/сообщение/план/подготовленный предмет содержит только факты, известные создателю на момент создания. Не чинить ошибки ретконом без установленного канона.
 
