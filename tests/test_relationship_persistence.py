@@ -2,6 +2,9 @@ import json
 import tempfile
 from pathlib import Path
 
+import pytest
+from fastapi import HTTPException
+
 from app import session_runtime, storage
 
 
@@ -113,21 +116,25 @@ def test_footer_persists_changes_and_accepts_missing_delta_like_old_generator():
         }
 
 
-def test_reunion_with_completely_new_metric_words_does_not_replace_saved_relationship():
+def test_reunion_with_completely_new_metric_words_is_rejected():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         sid = storage.create_session(
             novel(starting_relationships={"adrian": {"симпатия": 35, "доверие": 18, "влечение": 42}})
         )["session_id"]
         read_all_packet_chunks(sid, "first")
-        session_runtime.commit_turn(
-            sid,
-            {
-                "user_input": "first",
-                "scene_output": scene("интерес 70; нежность 55"),
-                "extracted": extracted(),
-            },
-        )
+        with pytest.raises(HTTPException) as exc:
+            session_runtime.commit_turn(
+                sid,
+                {
+                    "user_input": "first",
+                    "scene_output": scene("интерес 70; нежность 55"),
+                    "extracted": extracted(),
+                },
+            )
+        assert exc.value.status_code == 409
+        assert exc.value.detail["code"] == "RELATIONSHIP_DIMENSIONS_INCOMPLETE"
+
         state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
         assert state["relationships"]["adrian"] == {
             "симпатия": 35,
@@ -135,32 +142,29 @@ def test_reunion_with_completely_new_metric_words_does_not_replace_saved_relatio
             "влечение": 42,
         }
 
-        context = read_all_packet_chunks(sid, "reunion")
-        assert context["relationship_policy"]["authoritative_start_snapshot"]["adrian"]["metrics"] == {
-            "симпатия": 35,
-            "доверие": 18,
-            "влечение": 42,
-        }
 
-
-def test_partial_footer_update_preserves_other_established_dimensions():
+def test_partial_footer_is_rejected_when_established_dimensions_are_missing():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         sid = storage.create_session(
             novel(starting_relationships={"adrian": {"симпатия": 35, "доверие": 18, "влечение": 42}})
         )["session_id"]
         read_all_packet_chunks(sid, "test")
-        session_runtime.commit_turn(
-            sid,
-            {
-                "user_input": "test",
-                "scene_output": scene("симпатия 37/+2"),
-                "extracted": extracted(),
-            },
-        )
+        with pytest.raises(HTTPException) as exc:
+            session_runtime.commit_turn(
+                sid,
+                {
+                    "user_input": "test",
+                    "scene_output": scene("симпатия 37/+2"),
+                    "extracted": extracted(),
+                },
+            )
+        assert exc.value.status_code == 409
+        assert exc.value.detail["code"] == "RELATIONSHIP_DIMENSIONS_INCOMPLETE"
+
         state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
         assert state["relationships"]["adrian"] == {
-            "симпатия": 37,
+            "симпатия": 35,
             "доверие": 18,
             "влечение": 42,
         }
@@ -208,20 +212,24 @@ def test_relationship_key_by_character_name_is_canonicalized_to_id():
         assert state["relationships"]["adrian"]["симпатия"] == 10
 
 
-def test_absent_npc_footer_cannot_overwrite_relationship():
+def test_absent_npc_footer_is_rejected_and_cannot_overwrite_relationship():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         sid = storage.create_session(
             novel(present=False, starting_relationships={"adrian": {"симпатия": 10}})
         )["session_id"]
         read_all_packet_chunks(sid, "test")
-        session_runtime.commit_turn(
-            sid,
-            {
-                "user_input": "test",
-                "scene_output": scene("симпатия 99/+89"),
-                "extracted": extracted(),
-            },
-        )
+        with pytest.raises(HTTPException) as exc:
+            session_runtime.commit_turn(
+                sid,
+                {
+                    "user_input": "test",
+                    "scene_output": scene("симпатия 99/+89"),
+                    "extracted": extracted(),
+                },
+            )
+        assert exc.value.status_code == 409
+        assert exc.value.detail["code"] == "RELATIONSHIP_FOOTER_ABSENT_NPC"
+
         state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
         assert state["relationships"]["adrian"]["симпатия"] == 10
