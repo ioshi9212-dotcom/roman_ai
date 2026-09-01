@@ -2,6 +2,7 @@ import json
 
 from fastapi import FastAPI, HTTPException
 
+from .audit_runtime import get_audit_snapshot
 from .character_access import get_character_bundle
 from .models import AuditCommit, NovelDraftCreate, NovelDraftSection, NovelRawSave, NovelTemplate, SessionCreate, TurnCommit, TurnPrepare
 from .novel_access import get_novel_read_chunk, prepare_novel_read, verify_novel
@@ -19,7 +20,6 @@ from .session_preview import get_session_preview
 from .session_runtime import commit_audit, commit_turn, continue_session, prepare_turn_packet
 from .storage import (
     create_session,
-    get_audit_snapshot,
     get_character_memory,
     get_novel,
     get_turn_packet_chunk,
