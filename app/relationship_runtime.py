@@ -24,8 +24,6 @@ def _norm(value: Any) -> str:
 
 
 def _dimension_key(label: str) -> str:
-    # Russian labels are valid stable keys for the lightweight runtime.
-    # Keep ASCII keys supplied by relationship_updates unchanged.
     return _norm(label).replace(" ", "_")
 
 
@@ -88,7 +86,6 @@ def _flat_relationships(
     cards: Iterable[Dict[str, Any]],
     resolve_character_id: Callable[[Iterable[Dict[str, Any]], Any], str | None],
 ) -> Dict[str, Dict[str, Any]]:
-    """Canonicalize legacy `state.relationships` without deleting established data."""
     if not isinstance(relationships, dict):
         return {}
     result: Dict[str, Dict[str, Any]] = {}
@@ -197,7 +194,6 @@ def _normalise_documents(
                 normalised_relations.append(item)
             docs[owner_id] = {"owner_character_id": owner_id, "relations": normalised_relations}
 
-    # Migrate the lightweight RomanAI flat relationship map into the old-generator document shape.
     flat = _flat_relationships(
         state.get("relationships", {}), cards=cards, resolve_character_id=resolve_character_id
     )
@@ -271,19 +267,16 @@ def _sync_flat_from_documents(state: Dict[str, Any], docs: Dict[str, Dict[str, A
             str(item.get("label") or item.get("key")): item.get("value")
             for item in _normalise_dimensions(relation.get("dimensions"))
         }
-        # Preserve non-numeric metadata from old flat state, but dimension values come from docs.
         old = flat.get(owner_id) if isinstance(flat.get(owner_id), dict) else {}
         metadata = {str(k): deepcopy(v) for k, v in old.items() if not _is_number(v)}
         canonical_flat[owner_id] = {**metadata, **metrics}
 
-    # Keep unrelated/unknown relationship buckets instead of deleting them.
     for raw_key, value in flat.items():
         if raw_key not in canonical_flat and isinstance(value, dict):
             canonical_flat[str(raw_key)] = deepcopy(value)
 
     result["relationships"] = canonical_flat
     result["relationship_documents"] = deepcopy(docs)
-    # Remove the short-lived schema-lock experiment. The old generator did not use it.
     result.pop("relationship_schemas", None)
     return result
 
@@ -296,20 +289,17 @@ def repair_relationship_state(
     cards: Iterable[Dict[str, Any]],
     resolve_character_id: Callable[[Iterable[Dict[str, Any]], Any], str | None],
 ) -> Dict[str, Any]:
-    """Migrate/repair RomanAI relationships into the old-generator directed document model.
+    """Migrate/repair into the old-generator directed relationship document model.
 
-    Durable saved state wins. History is used only when a relation disappeared completely,
-    which lets sessions damaged by the recent schema-lock experiment recover their last shown
-    relationship values instead of silently starting from zero.
+    Durable saved state wins. History is used only if a relation disappeared completely, so
+    sessions damaged by the recent schema-lock experiment can recover the last shown values.
     """
     result = deepcopy(state if isinstance(state, dict) else {})
     docs = _normalise_documents(result, cards=cards, resolve_character_id=resolve_character_id)
     pov = result.get("pov") if isinstance(result.get("pov"), dict) else {}
     pov_id = str(pov.get("character_id") or "")
 
-    latest = _latest_footer_values(
-        turns, cards=cards, resolve_character_id=resolve_character_id
-    )
+    latest = _latest_footer_values(turns, cards=cards, resolve_character_id=resolve_character_id)
     for owner_id, metrics in latest.items():
         if owner_id == pov_id:
             continue
@@ -388,7 +378,6 @@ def relationship_snapshot_for_present(
     *,
     present_character_ids: Callable[[Dict[str, Any]], list[str]],
 ) -> Dict[str, Any]:
-    """Compatibility helper used by older packets/tests."""
     relationships = state.get("relationships", {}) if isinstance(state.get("relationships"), dict) else {}
     pov = state.get("pov") if isinstance(state.get("pov"), dict) else {}
     pov_id = str(pov.get("character_id") or "")
@@ -398,7 +387,9 @@ def relationship_snapshot_for_present(
             continue
         relation = relationships.get(character_id)
         if isinstance(relation, dict):
-            result[character_id] = {"metrics": deepcopy(relation)}
+            metrics = {str(k): v for k, v in relation.items() if _is_number(v)}
+            if metrics:
+                result[character_id] = {"metrics": metrics}
     return result
 
 
@@ -419,14 +410,13 @@ def _merge_dimensions(existing: List[Dict[str, Any]], incoming: List[Dict[str, A
         index = by_key.get(identity)
         if index is None:
             index = by_label.get(label_identity)
-        item = {"key": key, "label": label, "value": value}
         if index is None:
             if len(result) >= MAX_DIMENSIONS:
                 continue
-            result.append(item)
+            result.append({"key": key, "label": label, "value": value})
             index = len(result) - 1
         else:
-            # Preserve the established display label/key while updating the value.
+            # Value changes, established key/label do not silently rename.
             result[index]["value"] = value
         by_key[_norm(result[index].get("key"))] = index
         by_label[_norm(result[index].get("label"))] = index
@@ -494,13 +484,7 @@ def apply_footer_fallback(
     resolve_character_id: Callable[[Iterable[Dict[str, Any]], Any], str | None],
     present_character_ids: Callable[[Dict[str, Any]], list[str]],
 ) -> Dict[str, Any]:
-    """Backward-compatible fallback for GPTs that have not reimported the new optional update field.
-
-    Footer changes update matching established dimensions and may add a genuinely new dimension.
-    They never delete/rename established dimensions. If a reunion footer replaces the entire
-    established vocabulary with unrelated labels, persistence ignores that reinvention so the
-    next packet still carries the real relationship lens.
-    """
+    """Old-style footer fallback: merge changes, never replace the relationship document."""
     footer = _footer_by_character(scene_output, cards=cards, resolve_character_id=resolve_character_id)
     if not footer:
         return deepcopy(state)
@@ -524,10 +508,13 @@ def apply_footer_fallback(
         existing = _normalise_dimensions(relation.get("dimensions"))
         existing_labels = {_norm(item.get("label")) for item in existing}
         footer_labels = {_norm(item.get("label")) for item in metrics}
+
+        # If an established relationship suddenly returns with a completely different
+        # vocabulary, keep the durable relationship instead of replacing it. This is the
+        # reunion bug that triggered the rollback to the old generator model.
         if existing and footer_labels and existing_labels.isdisjoint(footer_labels):
-            # This is exactly the recent "new words/new numbers on reunion" failure mode.
-            # Do not let one bad footer replace the persistent relationship model.
             continue
+
         incoming = [
             {"key": item["key"], "label": item["label"], "value": item["value"]}
             for item in metrics
@@ -541,11 +528,42 @@ def apply_footer_fallback(
     return _sync_flat_from_documents(result, docs)
 
 
-def relationship_patch_from_scene(*args: Any, **kwargs: Any) -> Dict[str, Any]:
-    """Deprecated compatibility shim. Relationships are no longer a strict footer schema."""
-    return {}
+def relationship_patch_from_scene(
+    scene_output: str,
+    *,
+    cards: Iterable[Dict[str, Any]],
+    state: Dict[str, Any],
+    resolve_character_id: Callable[[Iterable[Dict[str, Any]], Any], str | None],
+    present_character_ids: Callable[[Dict[str, Any]], list[str]],
+) -> Dict[str, Any]:
+    """Compatibility path used by current commit code.
+
+    Unlike the short-lived schema-lock implementation, this never rejects a scene for a renamed
+    or missing metric. It applies the old-generator merge semantics and returns only changed
+    persistent relationship documents/maps.
+    """
+    updated = apply_footer_fallback(
+        state,
+        scene_output,
+        cards=cards,
+        turn_number=0,
+        resolve_character_id=resolve_character_id,
+        present_character_ids=present_character_ids,
+    )
+    patch: Dict[str, Any] = {}
+    for key in ("relationships", "relationship_documents"):
+        if updated.get(key) != state.get(key):
+            patch[key] = deepcopy(updated.get(key, {}))
+    return patch
 
 
 def overwrite_relationship_snapshots(state: Dict[str, Any], patch: Dict[str, Any]) -> Dict[str, Any]:
-    """Deprecated compatibility shim kept for imports from older deployed code."""
-    return deepcopy(state)
+    """Compatibility merge. Storage already received the same state_patch during commit."""
+    result = deepcopy(state if isinstance(state, dict) else {})
+    if isinstance(patch.get("relationships"), dict):
+        relationships = result.get("relationships") if isinstance(result.get("relationships"), dict) else {}
+        for character_id, relation in patch["relationships"].items():
+            relationships[str(character_id)] = deepcopy(relation)
+        result["relationships"] = relationships
+    result.pop("relationship_schemas", None)
+    return result
