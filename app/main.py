@@ -2,7 +2,12 @@ import json
 
 from fastapi import FastAPI, HTTPException
 
-from .audit_runtime import get_audit_snapshot
+from .audit_runtime import (
+    clear_audit_packet,
+    get_audit_snapshot,
+    get_audit_snapshot_chunk,
+    require_complete_audit_read,
+)
 from .character_access import get_character_bundle
 from .models import AuditCommit, NovelDraftCreate, NovelDraftSection, NovelRawSave, NovelTemplate, SessionCreate, TurnCommit, TurnPrepare
 from .novel_access import get_novel_read_chunk, prepare_novel_read, verify_novel
@@ -32,8 +37,8 @@ from .storage import (
 
 app = FastAPI(
     title="Roman AI",
-    version="1.7.0",
-    description="Persistent isolated novel sessions with complete chunked canon, runtime rules, character cards, memory and chronology.",
+    version="1.7.5",
+    description="Persistent isolated novel sessions with complete chunked canon, runtime rules, character cards, memory, chronology and audits.",
 )
 
 
@@ -216,6 +221,21 @@ def audit_snapshot_get(session_id: str):
         raise
 
 
+@app.get(
+    "/sessions/{session_id}/audit-snapshot/{audit_id}/{chunk_index}",
+    operation_id="getAuditSnapshotChunk",
+)
+def audit_snapshot_chunk_get(session_id: str, audit_id: str, chunk_index: int):
+    try:
+        return get_audit_snapshot_chunk(session_id, audit_id, chunk_index)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Session not found")
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="Invalid or stale audit_id")
+    except IndexError:
+        raise HTTPException(status_code=404, detail="Audit chunk index out of range")
+
+
 @app.post("/sessions/{session_id}/turn-packet", operation_id="prepareTurn")
 def turn_packet_prepare(session_id: str, body: TurnPrepare):
     try:
@@ -287,12 +307,20 @@ def turns_commit(session_id: str, body: TurnCommit):
 @app.post("/sessions/{session_id}/audit", operation_id="commitAudit")
 def audit_commit(session_id: str, body: AuditCommit):
     try:
-        return commit_audit(session_id, body.model_dump())
+        require_complete_audit_read(session_id, body.start_turn, body.end_turn)
+        result = commit_audit(session_id, body.model_dump())
+        clear_audit_packet(session_id)
+        return result
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Session not found")
     except RuntimeError as exc:
-        if str(exc) == "AUDIT_NOT_REQUIRED":
-            raise HTTPException(status_code=409, detail="Audit is not currently required")
+        errors = {
+            "AUDIT_NOT_REQUIRED": "Audit is not currently required",
+            "AUDIT_PACKET_REQUIRED": "Call getAuditSnapshot first, then read every getAuditSnapshotChunk before commitAudit",
+            "AUDIT_PACKET_INCOMPLETE": "Every audit snapshot chunk must be read before commitAudit",
+        }
+        if str(exc) in errors:
+            raise HTTPException(status_code=409, detail=errors[str(exc)])
         raise
     except ValueError:
         raise HTTPException(status_code=409, detail="Audit range does not match the current turn")
