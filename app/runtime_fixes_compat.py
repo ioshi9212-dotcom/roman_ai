@@ -72,6 +72,10 @@ def _rewrite_turn_packet(session_id: str, manifest: Dict[str, Any]) -> Dict[str,
     policy["authoritative_start_snapshot_note"] = (
         "Compatibility diagnostic only. relationship_lens + relationship_contract remain the single relationship model."
     )
+    policy["footer_validation"] = (
+        "Server-enforced: only NPCs present at scene end may appear; every established dimension for a present NPC must be shown; "
+        "displayed delta arithmetic must match the saved start value."
+    )
     context["relationship_policy"] = policy
 
     text = json.dumps(context, ensure_ascii=False, separators=(",", ":"))
@@ -82,7 +86,7 @@ def _rewrite_turn_packet(session_id: str, manifest: Dict[str, Any]) -> Dict[str,
     packet["chunks"] = chunks
     packet["chunk_count"] = len(chunks)
     packet["read_chunks"] = []
-    packet["runtime_fix_version"] = 2
+    packet["runtime_fix_version"] = 3
     storage._write_json(root / "turn_packet.json", packet)
 
     result = dict(result)
@@ -118,8 +122,14 @@ def _validate_dimensions(
             )
         incoming_by_norm[normalized] = item
 
-    # Partial footers remain backward compatible. Omitted established dimensions
-    # are preserved by relationship_runtime rather than erased or renamed.
+    missing = set(baseline_by_norm) - set(incoming_by_norm)
+    if missing:
+        base._http_error(
+            409,
+            "RELATIONSHIP_DIMENSIONS_INCOMPLETE",
+            "The footer must show every established relationship dimension for a present NPC.",
+        )
+
     for normalized, old_value in baseline_by_norm.items():
         item = incoming_by_norm.get(normalized)
         if not item:
@@ -159,10 +169,13 @@ def _validate_visible_footer(
                 "RELATIONSHIP_DIRECTION_INVALID",
                 "Relationships footer may contain NPC -> POV only, never POV -> NPC.",
             )
+        if owner_id not in final_present:
+            base._http_error(
+                409,
+                "RELATIONSHIP_FOOTER_ABSENT_NPC",
+                "An NPC absent at scene end must not be printed in the visible Relationships footer.",
+            )
 
-    # Lines for already-absent NPCs are tolerated for backward compatibility,
-    # but the persistence layer ignores them. The packet tells the model not to
-    # render them and to use relationship_updates for genuine departed-NPC changes.
     for owner_id in final_present:
         if not owner_id or owner_id == pov_id:
             continue
