@@ -6,6 +6,11 @@
 
 Основная игровая связь: `NPC -> POV`. POV -> NPC не назначать. В видимом footer показывать только присутствующих NPC -> POV.
 
+## ПРИОРИТЕТ
+`relationship_lens` + этот contract являются авторитетной моделью отношений.
+
+Если в packet остался совместимый служебный блок со словами `metric_names_locked`, `strict arithmetic`, `RELATIONSHIP_SCHEMA_MISMATCH`, `authoritative_start_snapshot` или требованием обязательно печатать `/0`, НЕ считай его отдельной моделью и не позволяй ему отменить этот contract. Это наследие переходной реализации. Используй `relationship_lens` и старую модель ниже.
+
 ## RELATIONSHIP LENS
 Каждый turn packet должен содержать `relationship_lens` для текущей сцены. Для каждой сохранённой связи там могут быть:
 - `relationship_type`;
