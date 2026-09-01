@@ -8,7 +8,7 @@ from . import storage
 
 
 RUNTIME_DIR = Path(__file__).resolve().parent.parent / "runtime"
-RUNTIME_VERSION = "1.7.4"
+RUNTIME_VERSION = "1.7.5"
 RUNTIME_FILES = (
     "rules.md",
     "scene_builder.md",
