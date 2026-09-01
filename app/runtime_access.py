@@ -8,12 +8,13 @@ from . import storage
 
 
 RUNTIME_DIR = Path(__file__).resolve().parent.parent / "runtime"
-RUNTIME_VERSION = "1.7.3"
+RUNTIME_VERSION = "1.7.4"
 RUNTIME_FILES = (
     "rules.md",
     "scene_builder.md",
     "pov_contract.md",
     "npc_agency_contract.md",
+    "relationship_contract.md",
     "memory_contract.md",
     "continuity_contract.md",
 )
