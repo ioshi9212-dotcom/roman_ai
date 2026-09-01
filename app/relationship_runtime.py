@@ -5,7 +5,9 @@ from copy import deepcopy
 from typing import Any, Callable, Dict, Iterable, List, Tuple
 
 
-_METRIC_RE = re.compile(r"^(.+?)\s+(-?\d+(?:\.\d+)?)\s*/\s*([+-]?\d+(?:\.\d+)?)$")
+# Old generator footer accepted both `доверие 10/+1` and `доверие 10`.
+_METRIC_RE = re.compile(r"^(.+?)\s+(-?\d+(?:\.\d+)?)(?:\s*/\s*([+-]?\d+(?:\.\d+)?))?$")
+MAX_DIMENSIONS = 8
 
 
 def _number(text: str) -> int | float:
@@ -17,11 +19,17 @@ def _is_number(value: Any) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
-def _metric_key(value: Any) -> str:
+def _norm(value: Any) -> str:
     return " ".join(str(value).casefold().replace("ё", "е").split())
 
 
-def _raw_footer_entries(scene_output: str) -> List[Tuple[str, List[Tuple[str, int | float, int | float]]]]:
+def _dimension_key(label: str) -> str:
+    # Russian labels are valid stable keys for the lightweight runtime.
+    # Keep ASCII keys supplied by relationship_updates unchanged.
+    return _norm(label).replace(" ", "_")
+
+
+def _raw_footer_entries(scene_output: str) -> List[Tuple[str, List[Dict[str, Any]]]]:
     if not isinstance(scene_output, str) or "Отношения:" not in scene_output:
         return []
     lines = scene_output.splitlines()
@@ -30,7 +38,7 @@ def _raw_footer_entries(scene_output: str) -> List[Tuple[str, List[Tuple[str, in
     except StopIteration:
         return []
 
-    result: List[Tuple[str, List[Tuple[str, int | float, int | float]]]] = []
+    result: List[Tuple[str, List[Dict[str, Any]]]] = []
     for raw_line in lines[start:]:
         line = raw_line.strip()
         if not line:
@@ -40,55 +48,174 @@ def _raw_footer_entries(scene_output: str) -> List[Tuple[str, List[Tuple[str, in
         if " - " not in line:
             continue
         name, raw_metrics = line.split(" - ", 1)
-        metrics: List[Tuple[str, int | float, int | float]] = []
+        metrics: List[Dict[str, Any]] = []
         for raw_metric in raw_metrics.split(";"):
             match = _METRIC_RE.match(raw_metric.strip())
             if not match:
                 continue
             label = match.group(1).strip()
-            if label:
-                metrics.append((label, _number(match.group(2)), _number(match.group(3))))
+            if not label:
+                continue
+            metrics.append(
+                {
+                    "key": _dimension_key(label),
+                    "label": label,
+                    "value": _number(match.group(2)),
+                    "delta": _number(match.group(3)) if match.group(3) is not None else None,
+                }
+            )
         if metrics:
             result.append((name.strip(), metrics))
     return result
 
 
-def _canonical_relationship_map(
+def _resolve_map_key(
+    cards: Iterable[Dict[str, Any]],
+    raw_key: Any,
+    resolve_character_id: Callable[[Iterable[Dict[str, Any]], Any], str | None],
+) -> str | None:
+    text = str(raw_key or "").strip()
+    if not text:
+        return None
+    if "->" in text:
+        text = text.split("->", 1)[0].strip()
+    return resolve_character_id(cards, text) or text
+
+
+def _flat_relationships(
     relationships: Any,
     *,
     cards: Iterable[Dict[str, Any]],
     resolve_character_id: Callable[[Iterable[Dict[str, Any]], Any], str | None],
-) -> Dict[str, Any]:
+) -> Dict[str, Dict[str, Any]]:
+    """Canonicalize legacy `state.relationships` without deleting established data."""
     if not isinstance(relationships, dict):
         return {}
-    result: Dict[str, Any] = {}
-    for raw_key, value in relationships.items():
-        text = str(raw_key)
-        base = text.split("->", 1)[0].strip() if "->" in text else text.strip()
-        character_id = resolve_character_id(cards, base) or base
-        if not character_id:
+    result: Dict[str, Dict[str, Any]] = {}
+    for raw_key, raw_value in relationships.items():
+        character_id = _resolve_map_key(cards, raw_key, resolve_character_id)
+        if not character_id or not isinstance(raw_value, dict):
             continue
-        if character_id in result and isinstance(result[character_id], dict) and isinstance(value, dict):
-            merged = deepcopy(result[character_id])
-            merged.update(deepcopy(value))
-            result[character_id] = merged
-        else:
-            result[character_id] = deepcopy(value)
+        bucket = result.setdefault(character_id, {})
+        for key, value in raw_value.items():
+            bucket[str(key)] = deepcopy(value)
     return result
 
 
-def _numeric_metrics(value: Any) -> Dict[str, int | float]:
+def _dimensions_from_flat(value: Any) -> List[Dict[str, Any]]:
     if not isinstance(value, dict):
-        return {}
-    return {str(key): val for key, val in value.items() if _is_number(val)}
+        return []
+    result: List[Dict[str, Any]] = []
+    for label, metric_value in value.items():
+        if not _is_number(metric_value):
+            continue
+        result.append(
+            {
+                "key": _dimension_key(str(label)),
+                "label": str(label),
+                "value": metric_value,
+            }
+        )
+    return result[:MAX_DIMENSIONS]
 
 
-def _schema_for_relation(value: Any) -> List[str]:
-    return list(_numeric_metrics(value).keys())
+def _normalise_dimensions(value: Any) -> List[Dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    result: List[Dict[str, Any]] = []
+    seen = set()
+    for raw in value:
+        if not isinstance(raw, dict):
+            continue
+        label = str(raw.get("label") or raw.get("key") or "").strip()
+        metric_value = raw.get("value")
+        if not label or not _is_number(metric_value):
+            continue
+        key = str(raw.get("key") or _dimension_key(label)).strip()
+        identity = _norm(key)
+        if not identity or identity in seen:
+            continue
+        result.append({"key": key, "label": label, "value": metric_value})
+        seen.add(identity)
+        if len(result) >= MAX_DIMENSIONS:
+            break
+    return result
 
 
-def _find_relation(relationships: Dict[str, Any], character_id: str) -> Any:
-    return relationships.get(character_id) or relationships.get(f"{character_id}->pov")
+def _empty_relation(owner_id: str, pov_id: str, dimensions: List[Dict[str, Any]]) -> Dict[str, Any]:
+    return {
+        "target_character_id": pov_id,
+        "relationship_type": "установленная связь" if dimensions else "не установлено",
+        "relationship_context": "",
+        "current_dynamic": "",
+        "dimensions": deepcopy(dimensions),
+        "beliefs_about_target": [],
+        "unresolved_between_them": [],
+        "dynamic_constraints": [],
+        "change_reasons": [],
+        "last_changed_turn": 0,
+    }
+
+
+def _normalise_documents(
+    state: Dict[str, Any],
+    *,
+    cards: Iterable[Dict[str, Any]],
+    resolve_character_id: Callable[[Iterable[Dict[str, Any]], Any], str | None],
+) -> Dict[str, Dict[str, Any]]:
+    pov = state.get("pov") if isinstance(state.get("pov"), dict) else {}
+    pov_id = str(pov.get("character_id") or "")
+    raw_docs = state.get("relationship_documents")
+    docs: Dict[str, Dict[str, Any]] = {}
+
+    if isinstance(raw_docs, dict):
+        for raw_owner, raw_doc in raw_docs.items():
+            owner_id = _resolve_map_key(cards, raw_owner, resolve_character_id)
+            if not owner_id or owner_id == pov_id or not isinstance(raw_doc, dict):
+                continue
+            relations = raw_doc.get("relations") if isinstance(raw_doc.get("relations"), list) else []
+            normalised_relations: List[Dict[str, Any]] = []
+            for relation in relations:
+                if not isinstance(relation, dict):
+                    continue
+                target = resolve_character_id(cards, relation.get("target_character_id")) or str(
+                    relation.get("target_character_id") or ""
+                )
+                if not target:
+                    continue
+                item = deepcopy(relation)
+                item["target_character_id"] = target
+                item["dimensions"] = _normalise_dimensions(item.get("dimensions"))
+                item.setdefault("relationship_type", "установленная связь")
+                item.setdefault("relationship_context", "")
+                item.setdefault("current_dynamic", "")
+                item.setdefault("beliefs_about_target", [])
+                item.setdefault("unresolved_between_them", [])
+                item.setdefault("dynamic_constraints", [])
+                item.setdefault("change_reasons", [])
+                item.setdefault("last_changed_turn", 0)
+                normalised_relations.append(item)
+            docs[owner_id] = {"owner_character_id": owner_id, "relations": normalised_relations}
+
+    # Migrate the lightweight RomanAI flat relationship map into the old-generator document shape.
+    flat = _flat_relationships(
+        state.get("relationships", {}), cards=cards, resolve_character_id=resolve_character_id
+    )
+    for owner_id, values in flat.items():
+        if owner_id == pov_id:
+            continue
+        doc = docs.setdefault(owner_id, {"owner_character_id": owner_id, "relations": []})
+        relation = next(
+            (item for item in doc["relations"] if str(item.get("target_character_id")) == pov_id),
+            None,
+        )
+        if relation is None and pov_id:
+            relation = _empty_relation(owner_id, pov_id, _dimensions_from_flat(values))
+            doc["relations"].append(relation)
+        elif relation is not None and not relation.get("dimensions"):
+            relation["dimensions"] = _dimensions_from_flat(values)
+
+    return docs
 
 
 def _footer_by_character(
@@ -96,12 +223,68 @@ def _footer_by_character(
     *,
     cards: Iterable[Dict[str, Any]],
     resolve_character_id: Callable[[Iterable[Dict[str, Any]], Any], str | None],
-) -> Dict[str, List[Tuple[str, int | float, int | float]]]:
-    result: Dict[str, List[Tuple[str, int | float, int | float]]] = {}
+) -> Dict[str, List[Dict[str, Any]]]:
+    result: Dict[str, List[Dict[str, Any]]] = {}
     for name, metrics in _raw_footer_entries(scene_output):
         character_id = resolve_character_id(cards, name)
         if character_id:
             result[str(character_id)] = metrics
+    return result
+
+
+def _latest_footer_values(
+    turns: List[Dict[str, Any]],
+    *,
+    cards: Iterable[Dict[str, Any]],
+    resolve_character_id: Callable[[Iterable[Dict[str, Any]], Any], str | None],
+) -> Dict[str, List[Dict[str, Any]]]:
+    latest: Dict[str, List[Dict[str, Any]]] = {}
+    for turn in turns if isinstance(turns, list) else []:
+        footer = _footer_by_character(
+            turn.get("scene_output", "") if isinstance(turn, dict) else "",
+            cards=cards,
+            resolve_character_id=resolve_character_id,
+        )
+        latest.update(footer)
+    return latest
+
+
+def _sync_flat_from_documents(state: Dict[str, Any], docs: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
+    result = deepcopy(state if isinstance(state, dict) else {})
+    pov = result.get("pov") if isinstance(result.get("pov"), dict) else {}
+    pov_id = str(pov.get("character_id") or "")
+    flat = result.get("relationships") if isinstance(result.get("relationships"), dict) else {}
+    canonical_flat: Dict[str, Dict[str, Any]] = {}
+
+    for owner_id, doc in docs.items():
+        relation = next(
+            (
+                item
+                for item in doc.get("relations", [])
+                if isinstance(item, dict) and str(item.get("target_character_id")) == pov_id
+            ),
+            None,
+        )
+        if relation is None:
+            continue
+        metrics = {
+            str(item.get("label") or item.get("key")): item.get("value")
+            for item in _normalise_dimensions(relation.get("dimensions"))
+        }
+        # Preserve non-numeric metadata from old flat state, but dimension values come from docs.
+        old = flat.get(owner_id) if isinstance(flat.get(owner_id), dict) else {}
+        metadata = {str(k): deepcopy(v) for k, v in old.items() if not _is_number(v)}
+        canonical_flat[owner_id] = {**metadata, **metrics}
+
+    # Keep unrelated/unknown relationship buckets instead of deleting them.
+    for raw_key, value in flat.items():
+        if raw_key not in canonical_flat and isinstance(value, dict):
+            canonical_flat[str(raw_key)] = deepcopy(value)
+
+    result["relationships"] = canonical_flat
+    result["relationship_documents"] = deepcopy(docs)
+    # Remove the short-lived schema-lock experiment. The old generator did not use it.
+    result.pop("relationship_schemas", None)
     return result
 
 
@@ -113,84 +296,91 @@ def repair_relationship_state(
     cards: Iterable[Dict[str, Any]],
     resolve_character_id: Callable[[Iterable[Dict[str, Any]], Any], str | None],
 ) -> Dict[str, Any]:
-    """Canonicalize relationship keys and repair old metric-name drift.
+    """Migrate/repair RomanAI relationships into the old-generator directed document model.
 
-    The first established metric schema is sticky. History is used only to discover that
-    original schema, never to replay values, because old scene footers do not prove that an
-    NPC was physically present. Current durable state remains the value source; numeric keys
-    outside the canonical schema are pruned as stale drift from the old bug.
+    Durable saved state wins. History is used only when a relation disappeared completely,
+    which lets sessions damaged by the recent schema-lock experiment recover their last shown
+    relationship values instead of silently starting from zero.
     """
     result = deepcopy(state if isinstance(state, dict) else {})
-    relationships = _canonical_relationship_map(
-        result.get("relationships", {}), cards=cards, resolve_character_id=resolve_character_id
-    )
-    raw_schemas = _canonical_relationship_map(
-        result.get("relationship_schemas", {}), cards=cards, resolve_character_id=resolve_character_id
-    )
+    docs = _normalise_documents(result, cards=cards, resolve_character_id=resolve_character_id)
+    pov = result.get("pov") if isinstance(result.get("pov"), dict) else {}
+    pov_id = str(pov.get("character_id") or "")
 
-    starting = source.get("starting_state") if isinstance(source.get("starting_state"), dict) else {}
-    starting_relationships = _canonical_relationship_map(
-        starting.get("relationships", {}), cards=cards, resolve_character_id=resolve_character_id
+    latest = _latest_footer_values(
+        turns, cards=cards, resolve_character_id=resolve_character_id
     )
-
-    schemas: Dict[str, List[str]] = {}
-    all_ids = set(relationships) | set(starting_relationships) | set(raw_schemas)
-    earliest_footer_schema: Dict[str, List[str]] = {}
-    for turn in turns if isinstance(turns, list) else []:
-        footer = _footer_by_character(
-            turn.get("scene_output", "") if isinstance(turn, dict) else "",
-            cards=cards,
-            resolve_character_id=resolve_character_id,
+    for owner_id, metrics in latest.items():
+        if owner_id == pov_id:
+            continue
+        doc = docs.setdefault(owner_id, {"owner_character_id": owner_id, "relations": []})
+        relation = next(
+            (item for item in doc["relations"] if str(item.get("target_character_id")) == pov_id),
+            None,
         )
-        for character_id, metrics in footer.items():
-            all_ids.add(character_id)
-            earliest_footer_schema.setdefault(character_id, [label for label, _, _ in metrics])
+        if relation is None and pov_id:
+            relation = _empty_relation(owner_id, pov_id, [])
+            doc["relations"].append(relation)
+        if relation is not None and not relation.get("dimensions"):
+            relation["dimensions"] = [
+                {"key": item["key"], "label": item["label"], "value": item["value"]}
+                for item in metrics[:MAX_DIMENSIONS]
+            ]
 
-    for character_id in all_ids:
-        existing_schema = raw_schemas.get(character_id)
-        if isinstance(existing_schema, list) and all(isinstance(x, str) and x.strip() for x in existing_schema):
-            schema = [str(x).strip() for x in existing_schema]
-        else:
-            schema = _schema_for_relation(starting_relationships.get(character_id))
-            if not schema:
-                schema = deepcopy(earliest_footer_schema.get(character_id, []))
-            if not schema:
-                schema = _schema_for_relation(relationships.get(character_id))
-        if not schema:
+    return _sync_flat_from_documents(result, docs)
+
+
+def build_relationship_lens(
+    state: Dict[str, Any],
+    *,
+    cards: Iterable[Dict[str, Any]],
+    present_character_ids: Callable[[Dict[str, Any]], list[str]],
+    resolve_character_id: Callable[[Iterable[Dict[str, Any]], Any], str | None],
+) -> Dict[str, Any]:
+    """Port of the old generator's relationship_lens, limited to NPC -> POV."""
+    docs = _normalise_documents(state, cards=cards, resolve_character_id=resolve_character_id)
+    pov = state.get("pov") if isinstance(state.get("pov"), dict) else {}
+    pov_id = str(pov.get("character_id") or "")
+    present = list(dict.fromkeys(present_character_ids(state)))
+
+    names: Dict[str, str] = {}
+    for card in cards:
+        cid = str(card.get("character_id") or card.get("id") or card.get("name") or "")
+        if cid:
+            identity = card.get("identity") if isinstance(card.get("identity"), dict) else {}
+            names[cid] = str(card.get("name") or card.get("full_name") or identity.get("name") or cid)
+
+    relations: List[Dict[str, Any]] = []
+    for owner_id in present:
+        if owner_id == pov_id:
             continue
+        doc = docs.get(owner_id, {})
+        for relation in doc.get("relations", []) if isinstance(doc, dict) else []:
+            if not isinstance(relation, dict) or str(relation.get("target_character_id")) != pov_id:
+                continue
+            relations.append(
+                {
+                    "owner_character_id": owner_id,
+                    "owner_name": names.get(owner_id, owner_id),
+                    "target_character_id": pov_id,
+                    "target_name": names.get(pov_id, pov_id),
+                    "relationship_type": relation.get("relationship_type"),
+                    "relationship_context": relation.get("relationship_context"),
+                    "current_dynamic": relation.get("current_dynamic"),
+                    "dimensions": _normalise_dimensions(relation.get("dimensions")),
+                    "beliefs_about_target": deepcopy(relation.get("beliefs_about_target", [])),
+                    "unresolved_between_them": deepcopy(relation.get("unresolved_between_them", [])),
+                    "dynamic_constraints": deepcopy(relation.get("dynamic_constraints", [])),
+                    "last_changed_turn": int(relation.get("last_changed_turn", 0) or 0),
+                }
+            )
 
-        schema_by_key = {_metric_key(label): label for label in schema}
-        if len(schema_by_key) != len(schema):
-            continue
-        schema = list(schema_by_key.values())
-        schemas[character_id] = schema
-
-        old_relation = relationships.get(character_id)
-        existing = _numeric_metrics(old_relation)
-        existing_by_key = {_metric_key(label): value for label, value in existing.items()}
-        starting_values = _numeric_metrics(starting_relationships.get(character_id))
-        starting_by_key = {_metric_key(label): value for label, value in starting_values.items()}
-
-        current: Dict[str, int | float] = {}
-        for key, canonical_label in schema_by_key.items():
-            if key in existing_by_key:
-                current[canonical_label] = existing_by_key[key]
-            elif key in starting_by_key:
-                current[canonical_label] = starting_by_key[key]
-
-        metadata = {
-            str(key): deepcopy(value)
-            for key, value in old_relation.items()
-            if isinstance(old_relation, dict) and not _is_number(value)
-        } if isinstance(old_relation, dict) else {}
-        if current:
-            relationships[character_id] = {**metadata, **current}
-        elif metadata:
-            relationships[character_id] = metadata
-
-    result["relationships"] = relationships
-    result["relationship_schemas"] = schemas
-    return result
+    return {
+        "relations_in_current_scene": relations,
+        "instruction": (
+            "Relationship dimensions are causal state, not decorative footer numbers. Before choosing an NPC reaction, line, initiative or interpretation, combine their actual dimensions with personality, goals, knowledge and current state. Absence of a dimension is not zero. Do not create 'interest' as a generic fallback merely because the footer needs a number. Preserve established dimensions across absences and later meetings; create or change only dimensions genuinely established by this relationship and scene. If a present NPC already has dimensions here, the visible Relationships footer MUST show those same dimensions and current values, plus only real scene deltas. Do not replace the set with freshly invented words on a reunion."
+        ),
+    }
 
 
 def relationship_snapshot_for_present(
@@ -198,8 +388,8 @@ def relationship_snapshot_for_present(
     *,
     present_character_ids: Callable[[Dict[str, Any]], list[str]],
 ) -> Dict[str, Any]:
+    """Compatibility helper used by older packets/tests."""
     relationships = state.get("relationships", {}) if isinstance(state.get("relationships"), dict) else {}
-    schemas = state.get("relationship_schemas", {}) if isinstance(state.get("relationship_schemas"), dict) else {}
     pov = state.get("pov") if isinstance(state.get("pov"), dict) else {}
     pov_id = str(pov.get("character_id") or "")
     result: Dict[str, Any] = {}
@@ -208,94 +398,154 @@ def relationship_snapshot_for_present(
             continue
         relation = relationships.get(character_id)
         if isinstance(relation, dict):
-            result[character_id] = {
-                "metrics": _numeric_metrics(relation),
-                "schema": deepcopy(schemas.get(character_id, [])),
-            }
+            result[character_id] = {"metrics": deepcopy(relation)}
     return result
 
 
-def relationship_patch_from_scene(
+def _merge_dimensions(existing: List[Dict[str, Any]], incoming: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    result = _normalise_dimensions(existing)
+    by_key = {_norm(item.get("key") or item.get("label")): index for index, item in enumerate(result)}
+    by_label = {_norm(item.get("label")): index for index, item in enumerate(result)}
+    for raw in incoming:
+        if not isinstance(raw, dict):
+            continue
+        label = str(raw.get("label") or raw.get("key") or "").strip()
+        value = raw.get("value")
+        if not label or not _is_number(value):
+            continue
+        key = str(raw.get("key") or _dimension_key(label)).strip()
+        identity = _norm(key)
+        label_identity = _norm(label)
+        index = by_key.get(identity)
+        if index is None:
+            index = by_label.get(label_identity)
+        item = {"key": key, "label": label, "value": value}
+        if index is None:
+            if len(result) >= MAX_DIMENSIONS:
+                continue
+            result.append(item)
+            index = len(result) - 1
+        else:
+            # Preserve the established display label/key while updating the value.
+            result[index]["value"] = value
+        by_key[_norm(result[index].get("key"))] = index
+        by_label[_norm(result[index].get("label"))] = index
+    return result
+
+
+def apply_relationship_updates(
+    state: Dict[str, Any],
+    updates: Any,
+    *,
+    cards: Iterable[Dict[str, Any]],
+    turn_number: int,
+    resolve_character_id: Callable[[Iterable[Dict[str, Any]], Any], str | None],
+) -> Dict[str, Any]:
+    if not isinstance(updates, list) or not updates:
+        return deepcopy(state)
+    result = deepcopy(state)
+    docs = _normalise_documents(result, cards=cards, resolve_character_id=resolve_character_id)
+    pov = result.get("pov") if isinstance(result.get("pov"), dict) else {}
+    pov_id = str(pov.get("character_id") or "")
+
+    for raw in updates:
+        if not isinstance(raw, dict):
+            continue
+        owner_id = resolve_character_id(cards, raw.get("owner_character_id") or raw.get("character_id"))
+        target_id = resolve_character_id(cards, raw.get("target_character_id") or pov_id)
+        if not owner_id or not target_id or owner_id == pov_id or target_id != pov_id:
+            continue
+        incoming_dimensions = _normalise_dimensions(raw.get("dimensions"))
+        doc = docs.setdefault(owner_id, {"owner_character_id": owner_id, "relations": []})
+        relation = next(
+            (item for item in doc["relations"] if str(item.get("target_character_id")) == target_id),
+            None,
+        )
+        if relation is None:
+            relation = _empty_relation(owner_id, target_id, [])
+            doc["relations"].append(relation)
+        relation["dimensions"] = _merge_dimensions(relation.get("dimensions", []), incoming_dimensions)
+        for field in (
+            "relationship_type",
+            "relationship_context",
+            "current_dynamic",
+            "beliefs_about_target",
+            "unresolved_between_them",
+            "dynamic_constraints",
+        ):
+            if field in raw:
+                relation[field] = deepcopy(raw[field])
+        reasons = raw.get("change_reasons")
+        if isinstance(reasons, list) and reasons:
+            existing_reasons = relation.get("change_reasons") if isinstance(relation.get("change_reasons"), list) else []
+            relation["change_reasons"] = (existing_reasons + [str(x) for x in reasons if str(x).strip()])[-50:]
+        if incoming_dimensions or any(field in raw for field in ("current_dynamic", "relationship_type")):
+            relation["last_changed_turn"] = turn_number
+
+    return _sync_flat_from_documents(result, docs)
+
+
+def apply_footer_fallback(
+    state: Dict[str, Any],
     scene_output: str,
     *,
     cards: Iterable[Dict[str, Any]],
-    state: Dict[str, Any],
+    turn_number: int,
     resolve_character_id: Callable[[Iterable[Dict[str, Any]], Any], str | None],
     present_character_ids: Callable[[Dict[str, Any]], list[str]],
 ) -> Dict[str, Any]:
-    """Validate and persist the authoritative end-of-turn footer snapshot.
+    """Backward-compatible fallback for GPTs that have not reimported the new optional update field.
 
-    Once metric names exist for NPC -> POV they are immutable unless repaired explicitly.
-    For an established metric, displayed final value MUST equal previous saved value + delta.
+    Footer changes update matching established dimensions and may add a genuinely new dimension.
+    They never delete/rename established dimensions. If a reunion footer replaces the entire
+    established vocabulary with unrelated labels, persistence ignores that reinvention so the
+    next packet still carries the real relationship lens.
     """
     footer = _footer_by_character(scene_output, cards=cards, resolve_character_id=resolve_character_id)
     if not footer:
-        return {}
-
-    present = set(present_character_ids(state))
-    pov = state.get("pov") if isinstance(state.get("pov"), dict) else {}
+        return deepcopy(state)
+    result = deepcopy(state)
+    docs = _normalise_documents(result, cards=cards, resolve_character_id=resolve_character_id)
+    pov = result.get("pov") if isinstance(result.get("pov"), dict) else {}
     pov_id = str(pov.get("character_id") or "")
-    relationships = state.get("relationships", {}) if isinstance(state.get("relationships"), dict) else {}
-    schemas = state.get("relationship_schemas", {}) if isinstance(state.get("relationship_schemas"), dict) else {}
+    present = set(present_character_ids(result))
 
-    patch_relationships: Dict[str, Dict[str, int | float]] = {}
-    patch_schemas: Dict[str, List[str]] = {}
-
-    for character_id, metrics in footer.items():
-        if character_id == pov_id or character_id not in present:
+    for owner_id, metrics in footer.items():
+        if owner_id == pov_id or owner_id not in present:
             continue
+        doc = docs.setdefault(owner_id, {"owner_character_id": owner_id, "relations": []})
+        relation = next(
+            (item for item in doc["relations"] if str(item.get("target_character_id")) == pov_id),
+            None,
+        )
+        if relation is None:
+            relation = _empty_relation(owner_id, pov_id, [])
+            doc["relations"].append(relation)
+        existing = _normalise_dimensions(relation.get("dimensions"))
+        existing_labels = {_norm(item.get("label")) for item in existing}
+        footer_labels = {_norm(item.get("label")) for item in metrics}
+        if existing and footer_labels and existing_labels.isdisjoint(footer_labels):
+            # This is exactly the recent "new words/new numbers on reunion" failure mode.
+            # Do not let one bad footer replace the persistent relationship model.
+            continue
+        incoming = [
+            {"key": item["key"], "label": item["label"], "value": item["value"]}
+            for item in metrics
+        ]
+        before = {item["key"]: item["value"] for item in existing}
+        relation["dimensions"] = _merge_dimensions(existing, incoming)
+        after = {item["key"]: item["value"] for item in relation["dimensions"]}
+        if after != before:
+            relation["last_changed_turn"] = turn_number
 
-        previous = _numeric_metrics(_find_relation(relationships, character_id))
-        schema = schemas.get(character_id)
-        if not isinstance(schema, list) or not schema:
-            schema = list(previous.keys()) if previous else [label for label, _, _ in metrics]
-        schema = [str(label).strip() for label in schema if str(label).strip()]
-        schema_by_key = {_metric_key(label): label for label in schema}
-        footer_by_key = {_metric_key(label): (label, value, delta) for label, value, delta in metrics}
+    return _sync_flat_from_documents(result, docs)
 
-        if set(footer_by_key) != set(schema_by_key):
-            raise RuntimeError(f"RELATIONSHIP_SCHEMA_MISMATCH:{character_id}")
 
-        previous_by_key = {_metric_key(label): value for label, value in previous.items()}
-        final_metrics: Dict[str, int | float] = {}
-        for key, canonical_label in schema_by_key.items():
-            _, value, delta = footer_by_key[key]
-            if key in previous_by_key:
-                expected = float(previous_by_key[key]) + float(delta)
-                if abs(expected - float(value)) > 1e-9:
-                    raise RuntimeError(f"RELATIONSHIP_ARITHMETIC_MISMATCH:{character_id}:{canonical_label}")
-            final_metrics[canonical_label] = value
-
-        patch_relationships[character_id] = final_metrics
-        patch_schemas[character_id] = list(schema_by_key.values())
-
-    patch: Dict[str, Any] = {}
-    if patch_relationships:
-        patch["relationships"] = patch_relationships
-    if patch_schemas:
-        patch["relationship_schemas"] = patch_schemas
-    return patch
+def relationship_patch_from_scene(*args: Any, **kwargs: Any) -> Dict[str, Any]:
+    """Deprecated compatibility shim. Relationships are no longer a strict footer schema."""
+    return {}
 
 
 def overwrite_relationship_snapshots(state: Dict[str, Any], patch: Dict[str, Any]) -> Dict[str, Any]:
-    """Apply validated relationship snapshots as replacement, pruning stale numeric metrics."""
-    result = deepcopy(state if isinstance(state, dict) else {})
-    relationships = result.get("relationships") if isinstance(result.get("relationships"), dict) else {}
-    schemas = result.get("relationship_schemas") if isinstance(result.get("relationship_schemas"), dict) else {}
-    patch_relationships = patch.get("relationships") if isinstance(patch.get("relationships"), dict) else {}
-    patch_schemas = patch.get("relationship_schemas") if isinstance(patch.get("relationship_schemas"), dict) else {}
-
-    for character_id, metrics in patch_relationships.items():
-        old = relationships.get(character_id)
-        metadata = {
-            str(key): deepcopy(value)
-            for key, value in old.items()
-            if isinstance(old, dict) and not _is_number(value)
-        } if isinstance(old, dict) else {}
-        relationships[character_id] = {**metadata, **deepcopy(metrics)}
-    for character_id, schema in patch_schemas.items():
-        schemas[character_id] = deepcopy(schema)
-
-    result["relationships"] = relationships
-    result["relationship_schemas"] = schemas
-    return result
+    """Deprecated compatibility shim kept for imports from older deployed code."""
+    return deepcopy(state)
