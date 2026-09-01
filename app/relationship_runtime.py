@@ -113,11 +113,12 @@ def repair_relationship_state(
     cards: Iterable[Dict[str, Any]],
     resolve_character_id: Callable[[Iterable[Dict[str, Any]], Any], str | None],
 ) -> Dict[str, Any]:
-    """Canonicalize relationship keys and reconstruct the stable metric schema/value chain.
+    """Canonicalize relationship keys and repair old metric-name drift.
 
-    Existing sessions may contain duplicate name-vs-id keys or stray metrics created by an
-    older footer bug. The first established schema is sticky. Later footer lines with renamed
-    metrics or broken value/delta arithmetic are ignored when reconstructing the durable state.
+    The first established metric schema is sticky. History is used only to discover that
+    original schema, never to replay values, because old scene footers do not prove that an
+    NPC was physically present. Current durable state remains the value source; numeric keys
+    outside the canonical schema are pruned as stale drift from the old bug.
     """
     result = deepcopy(state if isinstance(state, dict) else {})
     relationships = _canonical_relationship_map(
@@ -133,18 +134,17 @@ def repair_relationship_state(
     )
 
     schemas: Dict[str, List[str]] = {}
-    reconstructed: Dict[str, Dict[str, int | float]] = {}
-
     all_ids = set(relationships) | set(starting_relationships) | set(raw_schemas)
-    turn_footers: List[Dict[str, List[Tuple[str, int | float, int | float]]]] = []
+    earliest_footer_schema: Dict[str, List[str]] = {}
     for turn in turns if isinstance(turns, list) else []:
         footer = _footer_by_character(
             turn.get("scene_output", "") if isinstance(turn, dict) else "",
             cards=cards,
             resolve_character_id=resolve_character_id,
         )
-        turn_footers.append(footer)
-        all_ids.update(footer)
+        for character_id, metrics in footer.items():
+            all_ids.add(character_id)
+            earliest_footer_schema.setdefault(character_id, [label for label, _, _ in metrics])
 
     for character_id in all_ids:
         existing_schema = raw_schemas.get(character_id)
@@ -153,10 +153,7 @@ def repair_relationship_state(
         else:
             schema = _schema_for_relation(starting_relationships.get(character_id))
             if not schema:
-                for footer in turn_footers:
-                    if character_id in footer:
-                        schema = [label for label, _, _ in footer[character_id]]
-                        break
+                schema = deepcopy(earliest_footer_schema.get(character_id, []))
             if not schema:
                 schema = _schema_for_relation(relationships.get(character_id))
         if not schema:
@@ -165,41 +162,22 @@ def repair_relationship_state(
         schema_by_key = {_metric_key(label): label for label in schema}
         if len(schema_by_key) != len(schema):
             continue
-        schemas[character_id] = list(schema_by_key.values())
-
-        base = _numeric_metrics(starting_relationships.get(character_id))
-        base_by_key = {_metric_key(label): value for label, value in base.items()}
-        current: Dict[str, int | float] = {}
-        if set(base_by_key) == set(schema_by_key):
-            current = {schema_by_key[key]: base_by_key[key] for key in schema_by_key}
-
-        for footer in turn_footers:
-            metrics = footer.get(character_id)
-            if not metrics:
-                continue
-            footer_by_key = {_metric_key(label): (value, delta) for label, value, delta in metrics}
-            if set(footer_by_key) != set(schema_by_key):
-                continue
-            if not current:
-                current = {schema_by_key[key]: footer_by_key[key][0] for key in schema_by_key}
-                continue
-            valid = True
-            for key, canonical_label in schema_by_key.items():
-                previous = current[canonical_label]
-                value, delta = footer_by_key[key]
-                if abs(float(previous) + float(delta) - float(value)) > 1e-9:
-                    valid = False
-                    break
-            if valid:
-                current = {schema_by_key[key]: footer_by_key[key][0] for key in schema_by_key}
-
-        if not current:
-            existing = _numeric_metrics(relationships.get(character_id))
-            existing_by_key = {_metric_key(label): value for label, value in existing.items()}
-            if set(schema_by_key).issubset(existing_by_key):
-                current = {schema_by_key[key]: existing_by_key[key] for key in schema_by_key}
+        schema = list(schema_by_key.values())
+        schemas[character_id] = schema
 
         old_relation = relationships.get(character_id)
+        existing = _numeric_metrics(old_relation)
+        existing_by_key = {_metric_key(label): value for label, value in existing.items()}
+        starting_values = _numeric_metrics(starting_relationships.get(character_id))
+        starting_by_key = {_metric_key(label): value for label, value in starting_values.items()}
+
+        current: Dict[str, int | float] = {}
+        for key, canonical_label in schema_by_key.items():
+            if key in existing_by_key:
+                current[canonical_label] = existing_by_key[key]
+            elif key in starting_by_key:
+                current[canonical_label] = starting_by_key[key]
+
         metadata = {
             str(key): deepcopy(value)
             for key, value in old_relation.items()
