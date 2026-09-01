@@ -31,6 +31,7 @@ def test_runtime_is_complete_and_chunked():
         "pov_contract",
         "npc_agency_contract",
         "relationship_contract",
+        "presence_contract",
         "memory_contract",
         "continuity_contract",
     }
@@ -40,6 +41,8 @@ def test_runtime_is_complete_and_chunked():
     assert "он хотел взять её за руку, но не стал" in payload["documents"]["npc_agency_contract"]
     assert "RELATIONSHIP LENS" in payload["documents"]["relationship_contract"]
     assert "строка в footer ОБЯЗАТЕЛЬНА" in payload["documents"]["relationship_contract"]
+    assert "PRESENCE SWEEP" in payload["documents"]["presence_contract"]
+    assert "СМЕНА ФОКУСА НЕ РАВНА ИСЧЕЗНОВЕНИЮ" in payload["documents"]["presence_contract"]
     assert "NO KNOWLEDGE LAUNDERING" in payload["documents"]["scene_builder"]
     assert "НЕ ЛЕГАЛИЗОВАТЬ УТЕЧКУ" in payload["documents"]["memory_contract"]
     assert manifest["total_chars"] == sum(len(x) for x in chunks)
@@ -95,11 +98,13 @@ def test_turn_packet_contains_full_source_state_cards_memory_and_chronology_with
         assert context["chronology_full"][-1]["event_id"] == "e80"
         assert {x["character_id"] for x in context["all_character_cards"]} == {"pov", "npc", "away"}
         assert {x["character_id"] for x in context["present_character_cards"]} == {"pov", "npc"}
+        assert set(context["present_character_ids_at_turn_start"]) == {"pov", "npc"}
         assert context["runtime_documents"]["rules"]
         assert context["runtime_documents"]["scene_builder"]
         assert context["runtime_documents"]["pov_contract"]
         assert context["runtime_documents"]["npc_agency_contract"]
         assert context["runtime_documents"]["relationship_contract"]
+        assert context["runtime_documents"]["presence_contract"]
         assert context["runtime_documents"]["memory_contract"]
         assert context["runtime_documents"]["continuity_contract"]
         assert context["pov_participation_contract"] == context["runtime_documents"]["pov_contract"]
