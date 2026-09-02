@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Roman AI
-  version: 1.7.8
+  version: 1.8.0
   description: Persistent isolated novel sessions with complete chunked runtime, canon, cards, memory, chronology, recovery and audits.
 servers:
   - url: https://romanai-production-0fdb.up.railway.app
@@ -32,6 +32,19 @@ components:
       required: [user_input]
       properties:
         user_input: {type: string}
+    PresenceUpdate:
+      type: object
+      required: [character_id, action]
+      properties:
+        character_id: {type: string}
+        action:
+          type: string
+          enum: [enter, leave, move]
+        zone: {type: string}
+        position: {type: string}
+        distance_to_pov: {type: string}
+        note: {type: string}
+      additionalProperties: false
     TurnCommit:
       type: object
       required: [user_input, scene_output, extracted]
@@ -55,6 +68,10 @@ components:
             dialogue_memory_add:
               type: array
               items: {type: object, additionalProperties: true}
+            presence_updates:
+              type: array
+              description: Explicit scene transitions. Omission preserves the start roster; only leave removes a present character.
+              items: {$ref: '#/components/schemas/PresenceUpdate'}
             state_patch: {type: object, additionalProperties: true}
             character_upserts:
               type: array
@@ -299,7 +316,7 @@ paths:
     post:
       operationId: commitTurn
       summary: Save one complete turn after every packet chunk was read
-      description: Rejects destructive state_patch.current replacements. Technical current recovery must use recoverSessionCurrent, never a fake gameplay turn.
+      description: Scene membership is structural. Existing characters persist unless presence_updates contains an explicit leave; enter adds and move keeps membership.
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
       requestBody:
@@ -309,7 +326,7 @@ paths:
             schema: {$ref: '#/components/schemas/TurnCommit'}
       responses:
         '200': {description: Turn committed}
-        '409': {description: Audit, packet reading, persistence review, relationship footer, or current-state validation incomplete}
+        '409': {description: Audit, packet reading, persistence review, relationship footer, presence, or current-state validation incomplete}
   /sessions/{session_id}/audit:
     post:
       operationId: commitAudit

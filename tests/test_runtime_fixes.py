@@ -145,6 +145,9 @@ def test_departed_npc_relationship_persists_without_visible_footer_line():
 
 Ход 1 · цикл 1/15""",
                 "extracted": reviewed(
+                    presence_updates=[
+                        {"character_id": "adrian", "action": "leave"}
+                    ],
                     state_patch={
                         "current": {
                             "present_characters": ["rina"],
@@ -193,6 +196,9 @@ def test_absent_npc_in_visible_footer_is_rejected():
 
 Ход 1 · цикл 1/15""",
                     "extracted": reviewed(
+                        presence_updates=[
+                            {"character_id": "adrian", "action": "leave"}
+                        ],
                         state_patch={
                             "current": {
                                 "present_characters": ["rina"],
