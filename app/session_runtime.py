@@ -9,8 +9,8 @@ from .character_registry import build_character_registry, normalize_name, refres
 from .relationship_runtime import (
     overwrite_relationship_snapshots,
     relationship_patch_from_scene,
-    relationship_snapshot_for_present,
     repair_relationship_state,
+    validate_relationship_footer,
 )
 from .turn_context import inject_required_turn_context
 
@@ -365,9 +365,19 @@ def _prepare_extracted_for_commit(
     existing_state_patch = deepcopy(result.get("state_patch")) if isinstance(result.get("state_patch"), dict) else {}
     existing_state_patch.pop("relationships", None)
     existing_state_patch.pop("relationship_schemas", None)
+    existing_state_patch.pop("relationship_documents", None)
     if existing_state_patch:
         state = storage._deep_merge(state, existing_state_patch)
+    state = _canonicalize_state_character_refs(cards, state)
     result["state_patch"] = existing_state_patch
+
+    validate_relationship_footer(
+        payload.get("scene_output", ""),
+        cards=cards,
+        state=state,
+        resolve_character_id=_resolve_character_id,
+        present_character_ids=storage._present_character_ids,
+    )
 
     footer_relationship_patch = relationship_patch_from_scene(
         payload.get("scene_output", ""),
@@ -479,16 +489,14 @@ def _augment_packet(session_id: str, manifest: Dict[str, Any]) -> Dict[str, Any]
     context["relationship_policy"] = {
         "required_review_every_turn": True,
         "direction": "NPC -> POV only",
-        "metric_names_locked": True,
-        "authoritative_start_snapshot": relationship_snapshot_for_present(
-            snapshot["state"], present_character_ids=storage._present_character_ids
-        ),
+        "relationship_lens_is_authoritative": True,
+        "footer_required_for_every_present_npc": True,
         "instruction": (
-            "For each present NPC, use authoritative_start_snapshot as the ONLY relationship starting point. Once that NPC has relationship metric names, those names are sticky across scenes, absences, day changes and later encounters: DO NOT rename, replace, add or swap them. "
-            "Re-evaluate the same indicators after the whole scene. The numbers represent the NPC's current internal attitude and must move when the scene materially changes it. Kissing, repeated embracing, chosen physical closeness, vulnerability, meaningful help, trust, rejection, jealousy, betrayal, fear, conflict or a clear relationship turning point are normally relationship-relevant. "
-            "Ordinary meaningful change is usually 1-3 points; stronger turning points may justify more. Do not increase everything mechanically: change only indicators actually affected, allow negative deltas, and use /0 when nothing genuinely changed. "
-            "For every established metric, footer arithmetic is strict: FINAL VALUE = saved start value + displayed delta. Never invent a fresh baseline on a reunion. The server rejects renamed metrics and broken arithmetic. "
-            "The visible footer is the end-of-turn snapshot and the server persists those validated final values exactly."
+            "Use relationship_lens as the relationship source. Every present NPC must have a visible Relationships footer row. "
+            "If saved dimensions already exist, carry the same labels and current values forward, changing only dimensions actually affected by this scene. "
+            "If a present NPC has an empty new relation, initialize 1-3 natural dimensions from that NPC's character, goals, knowledge and current interaction; the first baseline may omit /delta. "
+            "New dimensions may be added later only when they genuinely emerge, but established dimensions never disappear or get silently renamed. "
+            "Ordinary meaningful change is usually 0-3 points, negative deltas are allowed, and no strict arithmetic/schema-lock system exists beyond preserving established labels and visible persistence."
         ),
     }
     context["persistence_contract"] = {
@@ -496,7 +504,7 @@ def _augment_packet(session_id: str, manifest: Dict[str, Any]) -> Dict[str, Any]
         "instruction": (
             "Before commitTurn review persistence explicitly. extracted MUST contain persistence_reviewed=true and four arrays even when empty: chronology, knowledge_add, experiences_add, dialogue_memory_add. "
             "Do not send extracted={}. If a scene is pure routine and creates no durable fact, chronology may be []. Knowledge/memory arrays may also be empty, but only after checking every present character separately. "
-            "Relationship persistence does not depend on model-authored state_patch: relationship changes come only from the validated required Relationships footer."
+            "Do not author relationship_documents/relationships in state_patch: the server persists NPC->POV relationships from the mandatory visible Relationships footer. If the physical cast changes, keep current.present_characters accurate in state_patch."
         ),
     }
 
@@ -519,7 +527,7 @@ def _augment_packet(session_id: str, manifest: Dict[str, Any]) -> Dict[str, Any]
     result["instruction"] = (
         "Read every chunk before writing. scene_builder is mandatory and its FORMAT must be followed exactly. "
         "The packet contains full cards for every registered character plus personal-memory lenses for scene-relevant characters. "
-        "Check character_registry, long-range chronology and the authoritative relationship snapshot; never rename established relationship metrics or invent a fresh baseline. "
+        "Use relationship_lens for NPC->POV relationships and include a relationship row for every present NPC; initialize a natural first baseline when a present NPC has no saved dimensions yet. "
         "Before commit review persistence and never send extracted={}."
     )
     return result
@@ -550,7 +558,7 @@ def commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     if isinstance(state_patch, dict):
         relationship_patch = {
             key: deepcopy(state_patch[key])
-            for key in ("relationships", "relationship_schemas")
+            for key in ("relationships", "relationship_documents")
             if key in state_patch
         }
     result = storage.commit_turn(session_id, payload)
@@ -631,9 +639,9 @@ def continue_session(session_id: str) -> Dict[str, Any]:
             location=_current_value(state, "location", "place", "area"),
         ),
         "relationships": state.get("relationships", {}),
-        "relationship_schemas": state.get("relationship_schemas", {}),
+        "relationship_documents": state.get("relationship_documents", {}),
         "instruction": (
             "Continue this exact existing session. Nothing was copied, transferred or recreated. "
-            "On the next gameplay input call prepareTurn for this same session_id; it will load the exact scene builder, all full character cards, current state, personal memories, live registry, stable relationship schemas/values, recent turns and compact long-range chronology directly from persistent storage."
+            "On the next gameplay input call prepareTurn for this same session_id; it will load the exact scene builder, all full character cards, current state, personal memories, live registry, directed relationship documents/lens, recent turns and compact long-range chronology directly from persistent storage."
         ),
     }
