@@ -57,6 +57,10 @@ def reviewed(**extra):
     return value
 
 
+def with_kai_relationship(text: str, metrics: str = "настороженность 5") -> str:
+    return f"{text}\n\nСостояние: спокойно\nОтношения:\nКай - {metrics}\n\nХод 1 · цикл 1/15"
+
+
 def test_empty_extracted_is_rejected_instead_of_silently_losing_memory():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
@@ -78,7 +82,7 @@ def test_routine_turn_can_explicitly_save_no_chronology():
             sid,
             {
                 "user_input": "(допить кофе)",
-                "scene_output": "Эмили допила кофе и вернулась к работе.",
+                "scene_output": with_kai_relationship("Эмили допила кофе и вернулась к работе."),
                 "extracted": reviewed(),
             },
         )
@@ -95,7 +99,10 @@ def test_chronology_uses_period_and_drops_unimportant_exact_time():
             sid,
             {
                 "user_input": "Поздно. Эмили.",
-                "scene_output": "Эмили представилась Каю. Они поговорили о мотоциклах.",
+                "scene_output": with_kai_relationship(
+                    "Эмили представилась Каю. Они поговорили о мотоциклах.",
+                    "симпатия 8; настороженность 4",
+                ),
                 "extracted": reviewed(
                     chronology=[
                         {
@@ -133,7 +140,10 @@ def test_exact_time_is_kept_only_when_marked_time_critical():
             sid,
             {
                 "user_input": "В девять восемнадцать.",
-                "scene_output": "Они договорились встретиться ровно в 09:18.",
+                "scene_output": with_kai_relationship(
+                    "Они договорились встретиться ровно в 09:18.",
+                    "доверие 6; настороженность 3",
+                ),
                 "extracted": reviewed(
                     chronology=[
                         {
