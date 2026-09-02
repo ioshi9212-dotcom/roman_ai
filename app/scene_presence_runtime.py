@@ -7,9 +7,8 @@ from typing import Any, Dict, List
 from . import runtime_fixes as base, storage
 
 
-_ORIGINAL_PREPARE_EXTRACTED = base._prepare_extracted_for_commit
-_ORIGINAL_REWRITE_TURN_PACKET = base._rewrite_turn_packet
-
+_ORIGINAL_PREPARE_EXTRACTED = None
+_ORIGINAL_REWRITE_TURN_PACKET = None
 _ALLOWED_ACTIONS = {"enter", "leave", "move"}
 _POSITION_FIELDS = ("zone", "position", "distance_to_pov", "note")
 
@@ -95,14 +94,25 @@ def _apply_presence_contract(payload: Dict[str, Any], *, root) -> Dict[str, Any]
     pov = state_before.get("pov") if isinstance(state_before.get("pov"), dict) else {}
     pov_id = _resolve_character_id(cards, pov.get("character_id")) or str(pov.get("character_id") or "")
 
-    state_patch = deepcopy(extracted.get("state_patch")) if isinstance(extracted.get("state_patch"), dict) else {}
+    raw_state_patch = extracted.get("state_patch")
+    if raw_state_patch is not None and not isinstance(raw_state_patch, dict):
+        return result
+    state_patch = deepcopy(raw_state_patch) if isinstance(raw_state_patch, dict) else {}
+    if "current" in state_patch and not isinstance(state_patch.get("current"), dict):
+        return result
     current_patch = deepcopy(state_patch.get("current")) if isinstance(state_patch.get("current"), dict) else {}
 
-    # Backward compatibility: a directly supplied full roster may add characters, but omission
-    # alone can never remove somebody who was already present. Removal requires explicit leave.
+    direct_supplied = "present_characters" in current_patch
     raw_direct = current_patch.get("present_characters")
+    if direct_supplied and raw_direct in (None, "", [], {}):
+        base._http_error(
+            409,
+            "CURRENT_STATE_PATCH_INVALID",
+            "current.present_characters cannot be cleared. Use presence_updates with explicit leave actions for real exits.",
+        )
+
     direct_ids: List[str] = []
-    if raw_direct not in (None, "", [], {}):
+    if direct_supplied:
         direct_state = {"current": {"present_characters": raw_direct}, "pov": {}}
         direct_ids = _present_ids(cards, direct_state)
 
@@ -112,11 +122,9 @@ def _apply_presence_contract(payload: Dict[str, Any], *, root) -> Dict[str, Any]
     final = list(start_roster)
     final_set = set(final)
 
-    positions_before = {}
     current_before = state_before.get("current") if isinstance(state_before.get("current"), dict) else {}
-    if isinstance(current_before.get("positions"), dict):
-        positions_before = deepcopy(current_before["positions"])
-    positions = positions_before
+    positions_before = deepcopy(current_before.get("positions")) if isinstance(current_before.get("positions"), dict) else {}
+    positions = deepcopy(positions_before)
 
     for character_id in entered:
         if character_id not in final_set:
@@ -142,7 +150,6 @@ def _apply_presence_contract(payload: Dict[str, Any], *, root) -> Dict[str, Any]
                 left.append(character_id)
             positions.pop(character_id, None)
         elif action == "move":
-            # Moving within the current scene never removes the character from the roster.
             if character_id not in final_set:
                 base._http_error(409, "PRESENCE_MOVE_ABSENT", f"Cannot move absent character {_card_name(cards, character_id)} without enter.")
 
@@ -158,12 +165,15 @@ def _apply_presence_contract(payload: Dict[str, Any], *, root) -> Dict[str, Any]
         final_set.add(pov_id)
     final = list(dict.fromkeys(final))
 
-    current_patch["present_characters"] = final
-    current_patch["entered_characters"] = entered
-    current_patch["left_characters"] = left
-    if positions != positions_before or positions:
+    transition_supplied = bool(updates) or direct_supplied
+    if transition_supplied:
+        current_patch["present_characters"] = final
+        current_patch["entered_characters"] = entered
+        current_patch["left_characters"] = left
+    if positions != positions_before:
         current_patch["positions"] = positions
-    state_patch["current"] = current_patch
+    if current_patch:
+        state_patch["current"] = current_patch
     extracted["state_patch"] = state_patch
     extracted["presence_updates"] = updates
     result["extracted"] = extracted
@@ -171,6 +181,8 @@ def _apply_presence_contract(payload: Dict[str, Any], *, root) -> Dict[str, Any]
 
 
 def _prepare_extracted_for_commit(*args, **kwargs):
+    if _ORIGINAL_PREPARE_EXTRACTED is None:
+        raise RuntimeError("PRESENCE_RUNTIME_NOT_INSTALLED")
     if not args:
         return _ORIGINAL_PREPARE_EXTRACTED(*args, **kwargs)
     root = kwargs.get("root")
@@ -181,6 +193,8 @@ def _prepare_extracted_for_commit(*args, **kwargs):
 
 
 def _rewrite_turn_packet(session_id: str, manifest: Dict[str, Any]) -> Dict[str, Any]:
+    if _ORIGINAL_REWRITE_TURN_PACKET is None:
+        raise RuntimeError("PRESENCE_RUNTIME_NOT_INSTALLED")
     result = _ORIGINAL_REWRITE_TURN_PACKET(session_id, manifest)
     root = storage.SESSIONS_DIR / session_id
     packet = storage._read_json(root / "turn_packet.json", {})
@@ -196,17 +210,16 @@ def _rewrite_turn_packet(session_id: str, manifest: Dict[str, Any]) -> Dict[str,
     pov = state.get("pov") if isinstance(state.get("pov"), dict) else {}
     pov_id = _resolve_character_id(cards, pov.get("character_id")) or str(pov.get("character_id") or "")
 
-    roster = []
-    for character_id in start_roster:
-        roster.append(
-            {
-                "character_id": character_id,
-                "name": _card_name(cards, character_id),
-                "full_card_path": f"all_character_cards[{character_id}]",
-                "memory_path": f"memory_full.characters[{character_id}]",
-                "relationship_path": f"relationship_lens owner_character_id={character_id}",
-            }
-        )
+    roster = [
+        {
+            "character_id": character_id,
+            "name": _card_name(cards, character_id),
+            "full_card_path": f"all_character_cards[{character_id}]",
+            "memory_path": f"memory_full.characters[{character_id}]",
+            "relationship_path": f"relationship_lens owner_character_id={character_id}",
+        }
+        for character_id in start_roster
+    ]
 
     context["scene_focus"] = {
         "pov_character_id": pov_id or None,
@@ -254,7 +267,7 @@ def _rewrite_turn_packet(session_id: str, manifest: Dict[str, Any]) -> Dict[str,
     packet["chunks"] = chunks
     packet["chunk_count"] = len(chunks)
     packet["read_chunks"] = []
-    packet["presence_runtime_version"] = 1
+    packet["presence_runtime_version"] = 2
     storage._write_json(root / "turn_packet.json", packet)
 
     result = dict(result)
@@ -267,5 +280,8 @@ def _rewrite_turn_packet(session_id: str, manifest: Dict[str, Any]) -> Dict[str,
 
 
 def install() -> None:
+    global _ORIGINAL_PREPARE_EXTRACTED, _ORIGINAL_REWRITE_TURN_PACKET
+    _ORIGINAL_PREPARE_EXTRACTED = base._prepare_extracted_for_commit
+    _ORIGINAL_REWRITE_TURN_PACKET = base._rewrite_turn_packet
     base._prepare_extracted_for_commit = _prepare_extracted_for_commit
     base._rewrite_turn_packet = _rewrite_turn_packet
