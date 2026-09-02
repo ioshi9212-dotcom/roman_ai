@@ -3,6 +3,7 @@ import tempfile
 from pathlib import Path
 
 import pytest
+from fastapi import HTTPException
 
 from app import session_runtime, storage
 
@@ -72,6 +73,7 @@ def test_fresh_present_npc_is_exposed_for_relationship_initialization_and_persis
         )
         assert relation["dimensions"] == []
         assert first["relationship_policy"]["footer_required_for_every_present_npc"] is True
+        assert first["relationship_policy"]["fresh_baseline_required"] is True
         assert "metric_names_locked" not in first["relationship_policy"]
         assert "strict arithmetic" not in first["relationship_policy"]["instruction"]
 
@@ -131,7 +133,7 @@ def test_commit_rejects_empty_relationship_footer_when_npc_is_present():
 Отношения:
 
 Ход 1 · цикл 1/15"""
-        with pytest.raises(RuntimeError, match="RELATIONSHIP_FOOTER_REQUIRED"):
+        with pytest.raises(HTTPException) as exc:
             session_runtime.commit_turn(
                 sid,
                 {
@@ -140,6 +142,8 @@ def test_commit_rejects_empty_relationship_footer_when_npc_is_present():
                     "extracted": extracted(),
                 },
             )
+        assert exc.value.status_code == 409
+        assert exc.value.detail["code"] == "RELATIONSHIP_FOOTER_REQUIRED"
 
 
 def test_commit_rejects_disappearing_saved_dimensions():
@@ -161,7 +165,7 @@ def test_commit_rejects_disappearing_saved_dimensions():
 Эдриан - симпатия 21/+1
 
 Ход 1 · цикл 1/15"""
-        with pytest.raises(RuntimeError, match="RELATIONSHIP_FOOTER_INCOMPLETE"):
+        with pytest.raises(HTTPException) as exc:
             session_runtime.commit_turn(
                 sid,
                 {
@@ -170,3 +174,5 @@ def test_commit_rejects_disappearing_saved_dimensions():
                     "extracted": extracted(),
                 },
             )
+        assert exc.value.status_code == 409
+        assert exc.value.detail["code"] == "RELATIONSHIP_DIMENSIONS_INCOMPLETE"
