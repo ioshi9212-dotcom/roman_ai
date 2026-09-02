@@ -213,7 +213,7 @@ paths:
     post:
       operationId: recoverSessionCurrent
       summary: Repair only the technical current scene pointer without creating a gameplay turn
-      description: Reconstructs damaged state.current from persistent starting state, committed state patches, audit repairs, runtime presence and the latest committed scene header. Does not increment the turn, rewrite prior turns, or modify source, chronology, or character memory. Use only when resumeSession reports current_recovery_required=true or prepareTurn reports CURRENT_RECOVERY_REQUIRED.
+      description: Repairs damaged state.current from saved session evidence without creating a turn or changing prior turns, chronology, memory, or source. Use when resumeSession reports current_recovery_required=true.
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
       responses:
@@ -247,7 +247,7 @@ paths:
     post:
       operationId: prepareTurn
       summary: Build complete chunked context without truncating persistent canon
-      description: Packet includes full runtime documents, full source, full state, all full character cards, all saved character memory and complete chronology, then splits the serialized JSON into chunks. If the persistent current scene pointer is damaged, this action returns CURRENT_RECOVERY_REQUIRED instead of allowing a new gameplay turn.
+      description: Builds the complete turn context as chunks. If state.current is damaged, returns CURRENT_RECOVERY_REQUIRED so recoverSessionCurrent can repair it before gameplay continues.
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
       requestBody:
