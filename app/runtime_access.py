@@ -8,7 +8,7 @@ from . import storage
 
 
 RUNTIME_DIR = Path(__file__).resolve().parent.parent / "runtime"
-RUNTIME_VERSION = "1.7.10"
+RUNTIME_VERSION = "1.8.1"
 RUNTIME_FILES = (
     "rules.md",
     "scene_builder.md",
@@ -19,6 +19,7 @@ RUNTIME_FILES = (
     "memory_contract.md",
     "continuity_contract.md",
 )
+CINEMATIC_COVERAGE_FILE = "cinematic_coverage.md"
 
 
 def runtime_documents() -> Dict[str, str]:
@@ -28,6 +29,12 @@ def runtime_documents() -> Dict[str, str]:
         if not path.exists():
             raise RuntimeError(f"RUNTIME_FILE_MISSING:{name}")
         result[name.removesuffix(".md")] = path.read_text(encoding="utf-8")
+
+    cinematic_path = RUNTIME_DIR / CINEMATIC_COVERAGE_FILE
+    if not cinematic_path.exists():
+        raise RuntimeError(f"RUNTIME_FILE_MISSING:{CINEMATIC_COVERAGE_FILE}")
+    cinematic = cinematic_path.read_text(encoding="utf-8").strip()
+    result["scene_builder"] = result["scene_builder"].rstrip() + "\n\n" + cinematic + "\n"
     return result
 
 
