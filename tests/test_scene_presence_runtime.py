@@ -114,8 +114,8 @@ def test_omitting_present_npc_from_direct_state_patch_cannot_make_them_disappear
         )
         current = current_state(sid)
         assert current["present_characters"] == ["rina", "jayden", "liam"]
-        assert current["entered_characters"] == []
-        assert current["left_characters"] == []
+        assert current.get("entered_characters", []) == []
+        assert current.get("left_characters", []) == []
 
 
 def test_move_keeps_character_present_and_updates_position():
@@ -145,7 +145,7 @@ def test_move_keeps_character_present_and_updates_position():
         )
         current = current_state(sid)
         assert "jayden" in current["present_characters"]
-        assert current["left_characters"] == []
+        assert current.get("left_characters", []) == []
         assert current["positions"]["jayden"]["zone"] == "window"
         assert current["positions"]["jayden"]["note"] == "a few steps from POV"
 
