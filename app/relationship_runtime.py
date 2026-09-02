@@ -256,6 +256,30 @@ def _pov_relation(doc: Dict[str, Any], pov_id: str) -> Dict[str, Any] | None:
     return None
 
 
+def _state_present_ids(state: Dict[str, Any]) -> List[str]:
+    result: List[str] = []
+    current = state.get("current") if isinstance(state.get("current"), dict) else {}
+    present = current.get("present_characters", [])
+    if isinstance(present, dict):
+        present = list(present.keys())
+    elif isinstance(present, str):
+        present = [present]
+    if isinstance(present, list):
+        for value in present:
+            if isinstance(value, dict):
+                value = value.get("character_id") or value.get("id") or value.get("name")
+            if value:
+                result.append(str(value))
+    runtime = state.get("characters") if isinstance(state.get("characters"), dict) else {}
+    for character_id, info in runtime.items():
+        if isinstance(info, dict) and info.get("present") is True:
+            result.append(str(character_id))
+    pov = state.get("pov") if isinstance(state.get("pov"), dict) else {}
+    if pov.get("character_id"):
+        result.append(str(pov["character_id"]))
+    return list(dict.fromkeys(result))
+
+
 def _sync_state(state: Dict[str, Any], docs: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
     result = deepcopy(state)
     pov = result.get("pov") if isinstance(result.get("pov"), dict) else {}
@@ -305,6 +329,7 @@ def repair_relationship_state(
     latest = _latest_footer(turns, cards=cards, resolve_character_id=resolve_character_id)
 
     owner_ids = set(flat) | set(docs) | set(latest)
+    owner_ids.update(character_id for character_id in _state_present_ids(result) if character_id != pov_id)
     for owner_id in owner_ids:
         if owner_id == pov_id:
             continue
@@ -375,7 +400,10 @@ def build_relationship_lens(
     return {
         "relations_in_current_scene": relations,
         "instruction": (
-            "Relationship dimensions are causal state, not decorative footer numbers. Combine them with personality, goals, knowledge and current state. Absence of a dimension is not zero. Do not use interest as a generic fallback. Preserve established dimensions across absences and later meetings. For every present NPC with saved dimensions, show those dimensions in the visible Relationships footer even when delta is zero."
+            "Relationship dimensions are causal state, not decorative footer numbers. Combine them with personality, goals, knowledge and current state. "
+            "Every present NPC has a directed relation entry, even before its first numeric dimensions are initialized. "
+            "For saved dimensions, preserve the same labels and values across absences and later meetings. For an empty new relation, initialize 1-3 natural dimensions in the first scene where that NPC is present and interacting with POV. "
+            "Every present NPC must have a visible footer row. Do not use interest as a generic fallback."
         ),
     }
 
@@ -400,6 +428,52 @@ def relationship_snapshot_for_present(
     return result
 
 
+def validate_relationship_footer(
+    scene_output: str,
+    *,
+    cards: Iterable[Dict[str, Any]],
+    state: Dict[str, Any],
+    resolve_character_id: Callable[[Iterable[Dict[str, Any]], Any], str | None],
+    present_character_ids: Callable[[Dict[str, Any]], list[str]],
+) -> None:
+    """Reject a committed scene if visible NPC->POV relationship rows vanished.
+
+    This is intentionally a display/persistence guard, not a rigid arithmetic schema. Existing
+    dimensions must remain visible; new relations may establish their first natural dimensions.
+    """
+    footer = _parse_footer(
+        scene_output,
+        cards=cards,
+        resolve_character_id=resolve_character_id,
+    )
+    docs = _canonical_docs(state, cards=cards, resolve_character_id=resolve_character_id)
+    pov = state.get("pov") if isinstance(state.get("pov"), dict) else {}
+    pov_id = str(pov.get("character_id") or "")
+    present = [
+        str(character_id)
+        for character_id in present_character_ids(state)
+        if str(character_id) and str(character_id) != pov_id
+    ]
+
+    if not present:
+        return
+    if not footer:
+        raise RuntimeError("RELATIONSHIP_FOOTER_REQUIRED")
+
+    for owner_id in present:
+        incoming = footer.get(owner_id)
+        if not incoming:
+            raise RuntimeError("RELATIONSHIP_FOOTER_REQUIRED")
+        relation = _pov_relation(docs.get(owner_id, {}), pov_id)
+        saved = _normalise_dimensions(relation.get("dimensions")) if isinstance(relation, dict) else []
+        if not saved:
+            continue
+        saved_labels = {_norm(item.get("label")) for item in saved}
+        incoming_labels = {_norm(item.get("label")) for item in incoming}
+        if not saved_labels.issubset(incoming_labels):
+            raise RuntimeError("RELATIONSHIP_FOOTER_INCOMPLETE")
+
+
 def _merge_footer_dimensions(
     existing: List[Dict[str, Any]], incoming: List[Dict[str, Any]]
 ) -> List[Dict[str, Any]]:
@@ -413,7 +487,6 @@ def _merge_footer_dimensions(
     by_label = {_norm(item["label"]): index for index, item in enumerate(result)}
     incoming_labels = {_norm(item["label"]) for item in incoming}
     if incoming_labels and incoming_labels.isdisjoint(set(by_label)):
-        # A reunion must not silently replace the stored relationship with fresh vocabulary.
         return result
 
     for item in incoming:
@@ -474,7 +547,6 @@ def relationship_patch_from_scene(
 
 
 def overwrite_relationship_snapshots(state: Dict[str, Any], patch: Dict[str, Any]) -> Dict[str, Any]:
-    # Storage already applies the full state_patch. This compatibility step must not delete docs.
     result = deepcopy(state if isinstance(state, dict) else {})
     if isinstance(patch.get("relationships"), dict):
         result["relationships"] = deepcopy(patch["relationships"])
