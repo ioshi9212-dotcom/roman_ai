@@ -147,6 +147,10 @@ def test_named_runtime_npc_is_added_to_live_registry():
                     character_upserts=[
                         {"character_id": "mara", "name": "Мара", "role": "бариста, повторяющийся NPC"}
                     ],
+                    presence_updates=[
+                        {"character_id": "kai", "action": "leave"},
+                        {"character_id": "mara", "action": "enter"},
+                    ],
                     state_patch={"current": {"present_characters": ["elena", "mara"]}},
                     chronology=[{"summary": "Елена познакомилась с Марой.", "importance": "anchor"}],
                     knowledge_add=[
