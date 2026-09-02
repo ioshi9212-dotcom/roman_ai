@@ -24,6 +24,10 @@ def reviewed(**extra):
     return base
 
 
+def with_relationships(text: str, rows: str) -> str:
+    return f"{text}\n\nСостояние: спокойно\nОтношения:\n{rows}\n\nХод 1 · цикл 1/15"
+
+
 def read_packet(session_id: str, user_input: str):
     manifest = session_runtime.prepare_turn_packet(session_id, user_input)
     parts = []
@@ -64,7 +68,10 @@ def test_explicit_introduction_survives_new_chat_continuation():
             session_id,
             {
                 "user_input": "Привет.",
-                "scene_output": "Кай представился Елене. Они познакомились и обменялись именами.",
+                "scene_output": with_relationships(
+                    "Кай представился Елене. Они познакомились и обменялись именами.",
+                    "Кай - настороженность 8; уважение 5",
+                ),
                 "extracted": reviewed(
                     state_patch={"current": {"present_characters": ["elena", "kai"]}},
                     chronology=[
@@ -112,7 +119,10 @@ def test_shared_scene_without_identity_is_only_encountered():
             session_id,
             {
                 "user_input": "(посмотреть на мужчину)",
-                "scene_output": "Мужчина молча прошёл мимо. Имя никто не называл.",
+                "scene_output": with_relationships(
+                    "Мужчина молча прошёл мимо. Имя никто не называл.",
+                    "Кай - настороженность 6",
+                ),
                 "extracted": reviewed(state_patch={"current": {"present_characters": ["elena", "kai"]}}),
             },
         )
@@ -129,7 +139,10 @@ def test_named_runtime_npc_is_added_to_live_registry():
             session_id,
             {
                 "user_input": "(войти в кофейню)",
-                "scene_output": "Бариста представилась как Мара.",
+                "scene_output": with_relationships(
+                    "Бариста представилась как Мара.",
+                    "Мара - симпатия 4; профессиональная доброжелательность 10",
+                ),
                 "extracted": reviewed(
                     character_upserts=[
                         {"character_id": "mara", "name": "Мара", "role": "бариста, повторяющийся NPC"}
@@ -164,7 +177,11 @@ def test_turn_sixty_no_longer_creates_handoff_gate():
         manifest, _ = read_packet(session_id, "ход 60")
         result = session_runtime.commit_turn(
             session_id,
-            {"user_input": "ход 60", "scene_output": "scene 60", "extracted": reviewed()},
+            {
+                "user_input": "ход 60",
+                "scene_output": with_relationships("scene 60", "Кай - настороженность 5"),
+                "extracted": reviewed(),
+            },
         )
         assert manifest["prepared_for_turn"] == 60
         assert result["turn_number"] == 60
