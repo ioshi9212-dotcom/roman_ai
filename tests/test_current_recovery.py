@@ -7,7 +7,7 @@ import pytest
 from fastapi import HTTPException
 
 from app import session_runtime, storage
-from app.session_recovery import recover_session_current
+from app.session_recovery import current_recovery_status, recover_session_current
 
 
 def setup_temp_storage(tmp: str):
@@ -92,36 +92,40 @@ def scene(turn: int = 1):
 Ход {turn} · цикл {turn}/15"""
 
 
+def commit_scene(sid: str):
+    read_packet(sid, "(зайти в мастерскую)")
+    return session_runtime.commit_turn(
+        sid,
+        {
+            "user_input": "(зайти в мастерскую)",
+            "scene_output": scene(),
+            "extracted": reviewed(
+                state_patch={
+                    "current": {
+                        "date": "03.09.2026",
+                        "time": "14:20",
+                        "location": "мастерская",
+                        "scene": "разговор у верстака",
+                        "present_characters": ["rina", "adrian"],
+                    }
+                },
+                chronology=[
+                    {
+                        "event": "Рина и Эдриан вошли в мастерскую.",
+                        "importance": "normal",
+                        "participants_present": ["rina", "adrian"],
+                    }
+                ],
+            ),
+        },
+    )
+
+
 def test_recover_current_repairs_pointer_without_creating_turn_or_touching_canon():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         sid = storage.create_session(novel())["session_id"]
-        read_packet(sid, "(зайти в мастерскую)")
-        session_runtime.commit_turn(
-            sid,
-            {
-                "user_input": "(зайти в мастерскую)",
-                "scene_output": scene(),
-                "extracted": reviewed(
-                    state_patch={
-                        "current": {
-                            "date": "03.09.2026",
-                            "time": "14:20",
-                            "location": "мастерская",
-                            "scene": "разговор у верстака",
-                            "present_characters": ["rina", "adrian"],
-                        }
-                    },
-                    chronology=[
-                        {
-                            "event": "Рина и Эдриан вошли в мастерскую.",
-                            "importance": "normal",
-                            "participants_present": ["rina", "adrian"],
-                        }
-                    ],
-                ),
-            },
-        )
+        commit_scene(sid)
 
         root = storage.SESSIONS_DIR / sid
         meta_before = deepcopy(storage._read_json(root / "meta.json", {}))
@@ -158,6 +162,86 @@ def test_recover_current_repairs_pointer_without_creating_turn_or_touching_canon
         assert checkpoint2["current"]["location"] == "мастерская"
 
 
+def test_empty_present_characters_is_damage_even_when_header_pointer_exists():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(novel())["session_id"]
+        commit_scene(sid)
+        root = storage.SESSIONS_DIR / sid
+
+        state = storage._read_json(root / "state.json", {})
+        state["current"] = {
+            "date": "03.09.2026",
+            "time": "14:20",
+            "location": "мастерская",
+            "scene": "разговор у верстака",
+            "present_characters": [],
+        }
+        storage._write_json(root / "state.json", state)
+
+        status = current_recovery_status(sid)
+        assert status["required"] is True
+        assert "present_characters_empty" in status["reasons"]
+        assert "pov_missing_from_present" in status["reasons"]
+
+        repaired = recover_session_current(sid)
+        assert set(repaired["current"]["present_characters"]) == {"rina", "adrian"}
+        assert repaired["provenance"]["present_source"] == "turn:1:state_patch"
+
+
+def test_missing_pov_from_present_is_damage_and_recovery_reinserts_pov():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(novel())["session_id"]
+        commit_scene(sid)
+        root = storage.SESSIONS_DIR / sid
+
+        state = storage._read_json(root / "state.json", {})
+        state["current"]["present_characters"] = ["adrian"]
+        storage._write_json(root / "state.json", state)
+
+        status = current_recovery_status(sid)
+        assert status["required"] is True
+        assert "pov_missing_from_present" in status["reasons"]
+
+        repaired = recover_session_current(sid)
+        assert repaired["current"]["present_characters"][0] == "rina"
+        assert "adrian" in repaired["current"]["present_characters"]
+
+
+def test_recovery_can_restore_roster_from_latest_footer_when_state_patch_has_no_roster():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(novel())["session_id"]
+        read_packet(sid, "test")
+        session_runtime.commit_turn(
+            sid,
+            {
+                "user_input": "test",
+                "scene_output": scene(),
+                "extracted": reviewed(
+                    state_patch={
+                        "current": {
+                            "date": "03.09.2026",
+                            "time": "14:20",
+                            "location": "мастерская",
+                            "scene": "разговор у верстака",
+                        }
+                    }
+                ),
+            },
+        )
+        root = storage.SESSIONS_DIR / sid
+        state = storage._read_json(root / "state.json", {})
+        state["current"]["present_characters"] = []
+        state["characters"] = {}
+        storage._write_json(root / "state.json", state)
+
+        repaired = recover_session_current(sid)
+        assert set(repaired["current"]["present_characters"]) == {"rina", "adrian"}
+        assert repaired["provenance"]["present_source"] == "turn:1:relationship_footer"
+
+
 def test_prepare_turn_blocks_when_current_pointer_is_empty():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
@@ -165,6 +249,21 @@ def test_prepare_turn_blocks_when_current_pointer_is_empty():
         root = storage.SESSIONS_DIR / sid
         state = storage._read_json(root / "state.json", {})
         state["current"] = {}
+        storage._write_json(root / "state.json", state)
+
+        with pytest.raises(HTTPException) as exc:
+            session_runtime.prepare_turn_packet(sid, "следующий ход")
+        assert exc.value.status_code == 409
+        assert exc.value.detail["code"] == "CURRENT_RECOVERY_REQUIRED"
+
+
+def test_prepare_turn_blocks_when_only_present_roster_is_broken():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(novel())["session_id"]
+        root = storage.SESSIONS_DIR / sid
+        state = storage._read_json(root / "state.json", {})
+        state["current"]["present_characters"] = []
         storage._write_json(root / "state.json", state)
 
         with pytest.raises(HTTPException) as exc:
