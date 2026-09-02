@@ -174,17 +174,28 @@ def _card_initial_familiarity(card: Dict[str, Any]) -> Dict[str, Any] | None:
 
 
 def _relationship_evidence(state: Dict[str, Any], character_id: str) -> bool:
+    """Legacy identity hint only when the relationship explicitly says POV knows identity.
+
+    Numeric NPC->POV dimensions such as sympathy, suspicion or attraction are author-side
+    relationship state and MUST NOT teach POV the NPC's name/identity. This became critical once
+    every present NPC started receiving a relationship baseline from its first scene.
+    """
     relationships = state.get("relationships", {}) if isinstance(state, dict) else {}
     if not isinstance(relationships, dict):
         return False
     value = relationships.get(character_id)
     if value is None:
         value = relationships.get(f"{character_id}->pov")
-    if isinstance(value, dict):
-        return bool(value)
-    if isinstance(value, list):
-        return bool(value)
-    return value not in (None, "", 0, False)
+    if not isinstance(value, dict):
+        return False
+
+    for key in ("known_to_pov", "pov_knows_identity", "identity_known_to_pov", "acquainted"):
+        if value.get(key) is True:
+            return True
+    raw_familiarity = value.get("pov_familiarity")
+    if isinstance(raw_familiarity, dict):
+        raw_familiarity = raw_familiarity.get("status")
+    return str(raw_familiarity or "").casefold() in {"known", "acquainted"}
 
 
 def _prefer(existing: Dict[str, Any] | None, candidate: Dict[str, Any]) -> Dict[str, Any]:
@@ -261,7 +272,7 @@ def refresh_pov_familiarity(
         elif _relationship_evidence(result, cid):
             existing = _prefer(existing, {
                 "status": "known",
-                "source": "legacy_relationship_evidence",
+                "source": "explicit_relationship_identity_evidence",
             })
 
         seen_turn = info.get("last_seen_turn")
@@ -309,6 +320,7 @@ def registry_instruction() -> str:
         "pov_familiarity is persistent continuity, not flavor: not_encountered means POV has never met this person; "
         "encountered means they shared a scene but identity/name may still be unknown; known means POV knows the identity; "
         "acquainted means an introduction/acquaintance is already established. Never stage a first introduction for known or "
-        "acquainted characters. Never silently reuse an existing registered name/character_id for an anonymous newcomer. "
+        "acquainted characters. Never infer identity/name merely from NPC->POV relationship numbers. "
+        "Never silently reuse an existing registered name/character_id for an anonymous newcomer. "
         "If an existing registered character enters from offscreen, load that character's full bundle before writing the entrance."
     )
