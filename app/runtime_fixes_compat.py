@@ -43,15 +43,14 @@ def _relationship_snapshot(state: Dict[str, Any]) -> Dict[str, Any]:
         if owner_id == pov_id:
             continue
         relation = relationships.get(owner_id)
-        if not isinstance(relation, dict):
-            continue
-        metrics = {
-            str(key): value
-            for key, value in relation.items()
-            if isinstance(value, (int, float)) and not isinstance(value, bool)
-        }
-        if metrics:
-            result[owner_id] = {"metrics": metrics}
+        metrics: Dict[str, Any] = {}
+        if isinstance(relation, dict):
+            metrics = {
+                str(key): value
+                for key, value in relation.items()
+                if isinstance(value, (int, float)) and not isinstance(value, bool)
+            }
+        result[owner_id] = {"metrics": metrics, "has_saved_baseline": bool(metrics)}
     return result
 
 
@@ -68,13 +67,25 @@ def _rewrite_turn_packet(session_id: str, manifest: Dict[str, Any]) -> Dict[str,
     if not isinstance(policy, dict):
         policy = {}
     state = context.get("scene_state") if isinstance(context.get("scene_state"), dict) else {}
+    policy["source_of_truth"] = "relationship_lens + relationship_contract"
+    policy["footer_required_for_every_present_npc"] = True
+    policy["fresh_baseline_required"] = True
     policy["authoritative_start_snapshot"] = _relationship_snapshot(state)
     policy["authoritative_start_snapshot_note"] = (
-        "Compatibility diagnostic only. relationship_lens + relationship_contract remain the single relationship model."
+        "Diagnostic start values only. relationship_lens + relationship_contract remain the single relationship model. "
+        "An empty metrics object means this present NPC needs a first natural 1-3 dimension baseline in this scene, not an empty footer row."
     )
     policy["footer_validation"] = (
-        "Server-enforced: only NPCs present at scene end may appear; every established dimension for a present NPC must be shown; "
-        "displayed delta arithmetic must match the saved start value."
+        "Server-enforced: EVERY NPC physically present at scene end must have one NPC->POV row. "
+        "Fresh NPCs without saved metrics must establish 1-3 natural dimensions now. Existing saved dimensions must all remain visible; "
+        "displayed delta arithmetic for saved dimensions must match the saved start value."
+    )
+    policy["instruction"] = (
+        "Use relationship_lens and relationship_contract as the only relationship model. Every present NPC must appear in the visible Relationships footer. "
+        "If the NPC already has saved dimensions, preserve all established labels and values across scenes and absences, changing only what this scene genuinely changes. "
+        "If the NPC has no saved dimensions yet, initialize a first natural baseline of 1-3 specific dimensions from that NPC's character, goals, knowledge and current interaction; do not leave Relationships empty. "
+        "New dimensions may later be added only when they genuinely arise and must not replace old dimensions. Deltas are optional; when shown for an established dimension, final value must equal saved start value plus delta. "
+        "Only NPCs present at scene end are printed. If an NPC's relationship changes during the scene but that NPC leaves before the footer, persist final values through extracted.relationship_updates."
     )
     context["relationship_policy"] = policy
 
@@ -86,11 +97,15 @@ def _rewrite_turn_packet(session_id: str, manifest: Dict[str, Any]) -> Dict[str,
     packet["chunks"] = chunks
     packet["chunk_count"] = len(chunks)
     packet["read_chunks"] = []
-    packet["runtime_fix_version"] = 3
+    packet["runtime_fix_version"] = 4
     storage._write_json(root / "turn_packet.json", packet)
 
     result = dict(result)
     result["chunk_count"] = len(chunks)
+    result["instruction"] = (
+        str(result.get("instruction", "")).rstrip()
+        + " Every present NPC requires a visible NPC->POV relationship row; fresh NPCs initialize a 1-3 dimension baseline."
+    ).strip()
     return result
 
 
@@ -179,17 +194,22 @@ def _validate_visible_footer(
     for owner_id in final_present:
         if not owner_id or owner_id == pov_id:
             continue
-        baseline = base._numeric_relationships(state_before, owner_id)
-        if not baseline:
-            continue
         incoming = footer.get(owner_id)
         if not incoming:
             base._http_error(
                 409,
                 "RELATIONSHIP_FOOTER_REQUIRED",
-                "A present NPC with saved relationship dimensions is missing from the Relationships footer.",
+                "Every NPC physically present at scene end must appear in the Relationships footer. If no saved baseline exists yet, initialize 1-3 natural NPC->POV dimensions now.",
             )
-        _validate_dimensions(incoming, baseline)
+        baseline = base._numeric_relationships(state_before, owner_id)
+        if baseline:
+            _validate_dimensions(incoming, baseline)
+        elif not 1 <= len(incoming) <= 3:
+            base._http_error(
+                409,
+                "RELATIONSHIP_BASELINE_INVALID",
+                "A fresh present NPC must establish 1-3 natural relationship dimensions in the footer.",
+            )
     return footer
 
 
@@ -264,6 +284,12 @@ def _hidden_relationship_scene(
         baseline = base._numeric_relationships(state_before, owner_id)
         if baseline:
             _validate_dimensions(parsed, baseline)
+        elif not 1 <= len(parsed) <= 3:
+            base._http_error(
+                409,
+                "RELATIONSHIP_BASELINE_INVALID",
+                "A fresh relationship update must establish 1-3 natural dimensions.",
+            )
         lines.append(f"{owner_id} - {'; '.join(rendered)}")
 
     return "Отношения:\n" + "\n".join(lines) if lines else ""
