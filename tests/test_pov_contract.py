@@ -12,7 +12,7 @@ def test_runtime_contains_active_pov_contract():
     assert "не требуют остановки сцены" in contract
 
 
-def test_runtime_version_bumped_for_roster_recovery():
+def test_runtime_version_bumped_for_footer_parser_fix():
     manifest = runtime_manifest()
-    assert manifest["runtime_version"] == "1.7.9"
+    assert manifest["runtime_version"] == "1.7.10"
     assert manifest["chunk_count"] >= 1
