@@ -1,13 +1,18 @@
 from __future__ import annotations
 
 import json
+from copy import deepcopy
 from typing import Any, Dict, List
 
 from . import runtime_fixes as base, storage
+from .session_recovery import current_recovery_status
 
 
 _ORIGINAL_REWRITE_TURN_PACKET = base._rewrite_turn_packet
 _ORIGINAL_RELATIONSHIP_PATCH = base.relationship_patch_from_scene
+_ORIGINAL_PREPARE_EXTRACTED = base._prepare_extracted_for_commit
+_ORIGINAL_PREPARE_TURN = base.prepare_turn_packet
+_ORIGINAL_CONTINUE_SESSION = base.continue_session
 
 
 def _current_present_ids(state: Dict[str, Any]) -> List[str]:
@@ -97,7 +102,7 @@ def _rewrite_turn_packet(session_id: str, manifest: Dict[str, Any]) -> Dict[str,
     packet["chunks"] = chunks
     packet["chunk_count"] = len(chunks)
     packet["read_chunks"] = []
-    packet["runtime_fix_version"] = 4
+    packet["runtime_fix_version"] = 5
     storage._write_json(root / "turn_packet.json", packet)
 
     result = dict(result)
@@ -302,10 +307,72 @@ def _relationship_patch_from_scene(*args, **kwargs):
     return _ORIGINAL_RELATIONSHIP_PATCH(*args, **kwargs)
 
 
+def _prepare_extracted_for_commit(*args, **kwargs):
+    if not args:
+        return _ORIGINAL_PREPARE_EXTRACTED(*args, **kwargs)
+    payload = deepcopy(args[0])
+    extracted = payload.get("extracted") if isinstance(payload.get("extracted"), dict) else None
+    if isinstance(extracted, dict):
+        state_patch = extracted.get("state_patch") if isinstance(extracted.get("state_patch"), dict) else None
+        if isinstance(state_patch, dict) and "current" in state_patch:
+            raw_current = state_patch.get("current")
+            if not isinstance(raw_current, dict):
+                base._http_error(
+                    409,
+                    "CURRENT_STATE_PATCH_INVALID",
+                    "state_patch.current must be an object. Never clear the persistent current scene pointer with null, a list, a string or another replacement value.",
+                )
+            clean_current: Dict[str, Any] = {}
+            for key, value in raw_current.items():
+                if key == "present_characters":
+                    if value in (None, "", [], {}):
+                        base._http_error(
+                            409,
+                            "CURRENT_STATE_PATCH_INVALID",
+                            "current.present_characters cannot be cleared. The POV must remain in the persistent current scene pointer.",
+                        )
+                    clean_current[key] = deepcopy(value)
+                    continue
+                if value in (None, "", [], {}):
+                    continue
+                clean_current[key] = deepcopy(value)
+            state_patch["current"] = clean_current
+            extracted["state_patch"] = state_patch
+            payload["extracted"] = extracted
+    return _ORIGINAL_PREPARE_EXTRACTED(payload, *args[1:], **kwargs)
+
+
+def _prepare_turn_packet(session_id: str, user_input: str) -> Dict[str, Any]:
+    status = current_recovery_status(session_id)
+    if status["required"]:
+        base._http_error(
+            409,
+            "CURRENT_RECOVERY_REQUIRED",
+            "Persistent state.current is empty or unusable. Call recoverSessionCurrent for this same session_id before preparing another gameplay turn. Do not use commitTurn to repair it.",
+        )
+    return _ORIGINAL_PREPARE_TURN(session_id, user_input)
+
+
+def _continue_session(session_id: str) -> Dict[str, Any]:
+    result = dict(_ORIGINAL_CONTINUE_SESSION(session_id))
+    status = current_recovery_status(session_id)
+    result["current_recovery_required"] = status["required"]
+    result["current_recovery_reasons"] = status["reasons"]
+    if status["required"]:
+        result["instruction"] = (
+            "This exact session still exists, but its technical state.current scene pointer is empty or unusable. "
+            "Call recoverSessionCurrent(session_id) before prepareTurn. Recovery must not create a gameplay turn or rewrite chronology/memory/canon."
+        )
+    return result
+
+
 def install() -> None:
     base._rewrite_turn_packet = _rewrite_turn_packet
     base._validate_dimensions = _validate_dimensions
     base._validate_visible_footer = _validate_visible_footer
     base._hidden_relationship_scene = _hidden_relationship_scene
     base.relationship_patch_from_scene = _relationship_patch_from_scene
+    base._prepare_extracted_for_commit = _prepare_extracted_for_commit
+    base.prepare_turn_packet = _prepare_turn_packet
+    base.continue_session = _continue_session
     base.install()
