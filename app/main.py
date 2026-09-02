@@ -22,6 +22,7 @@ from .novel_drafts import (
 )
 from .runtime_access import runtime_chunk, runtime_manifest
 from .session_preview import get_session_preview
+from .session_recovery import recover_session_current
 from .session_runtime import commit_audit, commit_turn, continue_session, prepare_turn_packet
 from .storage import (
     create_session,
@@ -37,8 +38,8 @@ from .storage import (
 
 app = FastAPI(
     title="Roman AI",
-    version="1.7.7",
-    description="Persistent isolated novel sessions with complete chunked canon, runtime rules, character cards, memory, chronology, relationships and audits.",
+    version="1.7.8",
+    description="Persistent isolated novel sessions with complete chunked canon, runtime rules, character cards, memory, chronology, relationships, recovery and audits.",
 )
 
 
@@ -207,6 +208,24 @@ def sessions_get(session_id: str):
         return load_session(session_id)
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Session not found")
+
+
+@app.post("/sessions/{session_id}/recover-current", operation_id="recoverSessionCurrent")
+def session_current_recover(session_id: str):
+    try:
+        return recover_session_current(session_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Session not found")
+    except RuntimeError as exc:
+        if str(exc) == "CURRENT_RECOVERY_NO_EVIDENCE":
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Current scene pointer is damaged, but the server could not recover enough evidence from starting state, committed turn patches, audit repairs, runtime presence or the latest saved scene header. "
+                    "Do not create a gameplay turn to guess the missing scene."
+                ),
+            )
+        raise
 
 
 @app.get("/sessions/{session_id}/audit-snapshot", operation_id="getAuditSnapshot")
