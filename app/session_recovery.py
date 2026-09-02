@@ -14,6 +14,9 @@ _SCENE_HEADER_RE = re.compile(
 )
 _SCENE_NAME_RE = re.compile(r"^⚙️\s*Сцена:\s*(?P<scene>.+?)\s*$", re.MULTILINE)
 _RELATIONSHIP_LINE_RE = re.compile(r"^(.+?)\s+-\s+.+$", re.MULTILINE)
+_SPEAKER_RE = re.compile(r"^\s*\*\*(?P<name>[^*\n]+)\*\*\s+[—-]\s+", re.MULTILINE)
+_MAIN_SCENE_SPLIT = "--------------------------------------------------------"
+_OPTIONS_MARKER = "Что я могу сделать:"
 
 
 def _norm(value: Any) -> str:
@@ -61,12 +64,7 @@ def _normalise_present(cards: Iterable[Dict[str, Any]], value: Any) -> List[str]
     return list(dict.fromkeys(result))
 
 
-def _merge_current(
-    current: Dict[str, Any],
-    patch: Any,
-    *,
-    cards: Iterable[Dict[str, Any]],
-) -> Dict[str, Any]:
+def _merge_current(current: Dict[str, Any], patch: Any, *, cards: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
     result = deepcopy(current if isinstance(current, dict) else {})
     if not isinstance(patch, dict):
         return result
@@ -96,11 +94,18 @@ def _parse_scene_header(scene_output: Any) -> Dict[str, Any]:
     return result
 
 
-def _footer_present_ids(
-    scene_output: Any,
-    *,
-    cards: Iterable[Dict[str, Any]],
-) -> List[str]:
+def _main_scene_text(scene_output: Any) -> str:
+    if not isinstance(scene_output, str):
+        return ""
+    text = scene_output
+    if _MAIN_SCENE_SPLIT in text:
+        text = text.split(_MAIN_SCENE_SPLIT, 1)[1]
+    if _OPTIONS_MARKER in text:
+        text = text.split(_OPTIONS_MARKER, 1)[0]
+    return text
+
+
+def _footer_present_ids(scene_output: Any, *, cards: Iterable[Dict[str, Any]]) -> List[str]:
     if not isinstance(scene_output, str):
         return []
     lines = scene_output.splitlines()
@@ -124,6 +129,43 @@ def _footer_present_ids(
     return list(dict.fromkeys(result))
 
 
+def _speaker_present_ids(scene_output: Any, *, cards: Iterable[Dict[str, Any]]) -> List[str]:
+    text = _main_scene_text(scene_output)
+    result: List[str] = []
+    for match in _SPEAKER_RE.finditer(text):
+        resolved = _resolve_character_id(cards, match.group("name").strip())
+        if resolved:
+            result.append(resolved)
+    return list(dict.fromkeys(result))
+
+
+def _named_actor_present_ids(scene_output: Any, *, cards: Iterable[Dict[str, Any]]) -> List[str]:
+    """Conservative fallback: registered name starts a prose paragraph in the main scene."""
+    text = _main_scene_text(scene_output)
+    result: List[str] = []
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    aliases: List[Tuple[str, str]] = []
+    for card in cards:
+        cid = storage._card_id(card)
+        if not cid:
+            continue
+        for alias in storage._card_names(card):
+            alias_text = str(alias).strip()
+            if len(alias_text) >= 2:
+                aliases.append((cid, alias_text))
+    aliases.sort(key=lambda item: len(item[1]), reverse=True)
+    for line in lines:
+        if line.startswith("**"):
+            continue
+        normalized_line = _norm(line)
+        for cid, alias in aliases:
+            normalized_alias = _norm(alias)
+            if normalized_line == normalized_alias or normalized_line.startswith(normalized_alias + " "):
+                result.append(cid)
+                break
+    return list(dict.fromkeys(result))
+
+
 def _event_participants(events: Any, *, cards: Iterable[Dict[str, Any]]) -> List[str]:
     if not isinstance(events, list):
         return []
@@ -137,8 +179,7 @@ def _event_participants(events: Any, *, cards: Iterable[Dict[str, Any]]) -> List
 
 
 def _timestamp(value: Any, fallback: int) -> Tuple[str, int]:
-    text = str(value or "").strip()
-    return (text, fallback)
+    return (str(value or "").strip(), fallback)
 
 
 def _pov_id(state: Dict[str, Any], source: Dict[str, Any], cards: List[Dict[str, Any]]) -> str:
@@ -150,14 +191,12 @@ def current_recovery_status(session_id: str) -> Dict[str, Any]:
     root = storage.SESSIONS_DIR / session_id
     if not root.exists():
         raise FileNotFoundError(session_id)
-
     state = storage._read_json(root / "state.json", {})
     source = storage._read_json(root / "source.json", {})
     cards = storage._load_cards(root, source)
     current = state.get("current") if isinstance(state.get("current"), dict) else None
     pov_id = _pov_id(state, source, cards)
     reasons: List[str] = []
-
     if current is None:
         reasons.append("current_not_object")
         present: List[str] = []
@@ -173,14 +212,10 @@ def current_recovery_status(session_id: str) -> Dict[str, Any]:
         if not any(_nonempty(value) for value in pointer_values):
             reasons.append("current_scene_pointer_missing")
         present = _normalise_present(cards, current.get("present_characters"))
-
-    # A scene pointer with date/location but no cast is still broken. This was the hole that
-    # let recovery declare damaged sessions healthy after only the header had been rebuilt.
     if not present:
         reasons.append("present_characters_empty")
     if pov_id and pov_id not in present:
         reasons.append("pov_missing_from_present")
-
     return {
         "required": bool(reasons),
         "reasons": list(dict.fromkeys(reasons)),
@@ -190,12 +225,41 @@ def current_recovery_status(session_id: str) -> Dict[str, Any]:
     }
 
 
+def _previous_same_location_roster(
+    turns: List[Dict[str, Any]],
+    *,
+    cards: List[Dict[str, Any]],
+    location: Any,
+) -> tuple[List[str], str | None]:
+    needle = _norm(location)
+    if not needle:
+        return [], None
+    for turn in reversed(turns[:-1]):
+        if not isinstance(turn, dict):
+            continue
+        header = _parse_scene_header(turn.get("scene_output"))
+        if _norm(header.get("location")) != needle:
+            continue
+        extracted = turn.get("extracted") if isinstance(turn.get("extracted"), dict) else {}
+        patch = extracted.get("state_patch") if isinstance(extracted.get("state_patch"), dict) else {}
+        current_patch = patch.get("current") if isinstance(patch.get("current"), dict) else {}
+        candidates = (
+            (_normalise_present(cards, current_patch.get("present_characters")), "state_patch"),
+            (_footer_present_ids(turn.get("scene_output"), cards=cards), "relationship_footer"),
+            (_speaker_present_ids(turn.get("scene_output"), cards=cards), "dialogue_speakers"),
+            (_named_actor_present_ids(turn.get("scene_output"), cards=cards), "named_actors"),
+        )
+        for roster, kind in candidates:
+            if roster:
+                return roster, f"turn:{turn.get('turn_number')}:{kind}:same_location"
+    return [], None
+
+
 def _reconstruct_current(root, source: Dict[str, Any], cards: List[Dict[str, Any]]) -> tuple[Dict[str, Any], Dict[str, Any]]:
     starting_state = source.get("starting_state") if isinstance(source.get("starting_state"), dict) else {}
     starting_current = starting_state.get("current") if isinstance(starting_state.get("current"), dict) else {}
     recovered = _merge_current({}, starting_current, cards=cards)
     provenance: Dict[str, Any] = {"starting_state": bool(recovered), "replayed_events": 0}
-
     events: List[Tuple[Tuple[str, int], Dict[str, Any], str]] = []
     turns = storage._read_turns(root)
     for index, turn in enumerate(turns):
@@ -206,7 +270,6 @@ def _reconstruct_current(root, source: Dict[str, Any], cards: List[Dict[str, Any
         current_patch = state_patch.get("current")
         if isinstance(current_patch, dict):
             events.append((_timestamp(turn.get("saved_at"), index), current_patch, f"turn:{turn.get('turn_number')}"))
-
     audits = storage._read_json(root / "audits.json", [])
     for index, audit in enumerate(audits if isinstance(audits, list) else []):
         if not isinstance(audit, dict):
@@ -216,7 +279,6 @@ def _reconstruct_current(root, source: Dict[str, Any], cards: List[Dict[str, Any
         current_patch = state_patch.get("current")
         if isinstance(current_patch, dict):
             events.append((_timestamp(audit.get("saved_at"), 100000 + index), current_patch, f"audit:{audit.get('end_turn')}"))
-
     for _, patch, source_name in sorted(events, key=lambda item: item[0]):
         before = recovered
         recovered = _merge_current(recovered, patch, cards=cards)
@@ -232,6 +294,8 @@ def _reconstruct_current(root, source: Dict[str, Any], cards: List[Dict[str, Any
     latest_turn_number = int(latest_turn.get("turn_number", 0) or 0) if isinstance(latest_turn, dict) else 0
     explicit_present: List[str] = []
     footer_present: List[str] = []
+    speaker_present: List[str] = []
+    actor_present: List[str] = []
     extracted_present: List[str] = []
     persisted_chronology_present: List[str] = []
 
@@ -240,21 +304,20 @@ def _reconstruct_current(root, source: Dict[str, Any], cards: List[Dict[str, Any
         if header:
             recovered = _merge_current(recovered, header, cards=cards)
             provenance["scene_header_turn"] = latest_turn_number
-
         latest_extracted = latest_turn.get("extracted") if isinstance(latest_turn.get("extracted"), dict) else {}
         latest_patch = latest_extracted.get("state_patch") if isinstance(latest_extracted.get("state_patch"), dict) else {}
         if isinstance(latest_patch.get("current"), dict):
             explicit_present = _normalise_present(cards, latest_patch["current"].get("present_characters"))
-        extracted_present = _event_participants(latest_extracted.get("chronology"), cards=cards)
         footer_present = _footer_present_ids(latest_turn.get("scene_output"), cards=cards)
+        speaker_present = _speaker_present_ids(latest_turn.get("scene_output"), cards=cards)
+        actor_present = _named_actor_present_ids(latest_turn.get("scene_output"), cards=cards)
+        extracted_present = _event_participants(latest_extracted.get("chronology"), cards=cards)
 
     chronology = storage._read_json(root / "chronology.json", [])
     if isinstance(chronology, list) and latest_turn_number:
         latest_events = [
-            event
-            for event in chronology
-            if isinstance(event, dict)
-            and int(event.get("turn_number") or event.get("turn") or 0) == latest_turn_number
+            event for event in chronology
+            if isinstance(event, dict) and int(event.get("turn_number") or event.get("turn") or 0) == latest_turn_number
         ]
         persisted_chronology_present = _event_participants(latest_events, cards=cards)
 
@@ -262,20 +325,28 @@ def _reconstruct_current(root, source: Dict[str, Any], cards: List[Dict[str, Any
     meta = storage._read_json(root / "meta.json", {})
     runtime = state.get("characters") if isinstance(state.get("characters"), dict) else {}
     runtime_present = [
-        str(cid)
-        for cid, info in runtime.items()
+        str(cid) for cid, info in runtime.items()
         if isinstance(info, dict)
         and (info.get("present") is True or int(info.get("last_seen_turn", -1) or -1) == int(meta.get("turn_number", 0)))
     ]
 
-    # Presence evidence is ordered from strongest end-of-scene evidence to weaker fallbacks.
-    # We do not merge all sources because chronology can mention someone who left before scene end.
+    prior_roster, prior_source = _previous_same_location_roster(
+        turns,
+        cards=cards,
+        location=recovered.get("location") or recovered.get("place") or recovered.get("area"),
+    )
+
+    # Prefer exact end-of-scene state, then exact T44 scene evidence, then weaker persisted fallbacks.
+    # Dialogue speakers and paragraph-leading named actors are strong evidence because they physically act in the saved scene.
+    latest_scene_evidence = list(dict.fromkeys(speaker_present + actor_present))
     presence_sources = (
         (explicit_present, f"turn:{latest_turn_number}:state_patch"),
         (footer_present, f"turn:{latest_turn_number}:relationship_footer"),
+        (latest_scene_evidence, f"turn:{latest_turn_number}:scene_evidence"),
         (runtime_present, "runtime_character_presence"),
         (persisted_chronology_present, f"turn:{latest_turn_number}:persisted_chronology"),
         (extracted_present, f"turn:{latest_turn_number}:extracted_chronology"),
+        (prior_roster, prior_source or "prior_same_location"),
         (_normalise_present(cards, recovered.get("present_characters")), "replayed_current_history"),
     )
     for candidate, source_name in presence_sources:
@@ -292,7 +363,8 @@ def _reconstruct_current(root, source: Dict[str, Any], cards: List[Dict[str, Any
         provenance["pov_reinserted"] = True
     if present:
         recovered["present_characters"] = list(dict.fromkeys(present))
-
+    provenance["latest_scene_speakers"] = speaker_present
+    provenance["latest_scene_named_actors"] = actor_present
     return recovered, provenance
 
 
@@ -300,7 +372,6 @@ def recover_session_current(session_id: str) -> Dict[str, Any]:
     root = storage.SESSIONS_DIR / session_id
     if not root.exists():
         raise FileNotFoundError(session_id)
-
     before_status = current_recovery_status(session_id)
     state = storage._read_json(root / "state.json", {})
     meta = storage._read_json(root / "meta.json", {})
@@ -313,7 +384,6 @@ def recover_session_current(session_id: str) -> Dict[str, Any]:
             "current": deepcopy(before_status["current"]),
             "instruction": "Current scene pointer is already usable; no repair was performed.",
         }
-
     source = storage._read_json(root / "source.json", {})
     cards = storage._load_cards(root, source)
     recovered, provenance = _reconstruct_current(root, source, cards)
@@ -329,17 +399,14 @@ def recover_session_current(session_id: str) -> Dict[str, Any]:
     )
     if not meaningful_pointer or not recovered_present or (pov_id and pov_id not in recovered_present):
         raise RuntimeError("CURRENT_RECOVERY_NO_EVIDENCE")
-
     state = deepcopy(state if isinstance(state, dict) else {})
     state["current"] = recovered
     state = storage._refresh_runtime_presence(state, cards, int(meta.get("turn_number", 0)))
     storage._write_json(root / "state.json", state)
-
     for name in ("turn_packet.json", "audit_packet.json"):
         path = root / name
         if path.exists():
             path.unlink()
-
     meta["last_current_recovery"] = {
         "recovered_at": datetime.now(timezone.utc).isoformat(),
         "turn_number": int(meta.get("turn_number", 0)),
@@ -347,7 +414,6 @@ def recover_session_current(session_id: str) -> Dict[str, Any]:
         "provenance": provenance,
     }
     storage._write_json(root / "meta.json", meta)
-
     return {
         "ok": True,
         "session_id": session_id,
