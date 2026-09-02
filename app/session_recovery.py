@@ -124,35 +124,69 @@ def _footer_present_ids(
     return list(dict.fromkeys(result))
 
 
+def _event_participants(events: Any, *, cards: Iterable[Dict[str, Any]]) -> List[str]:
+    if not isinstance(events, list):
+        return []
+    result: List[str] = []
+    for event in events:
+        if not isinstance(event, dict):
+            continue
+        raw = event.get("participants_present") or event.get("participants") or event.get("character_ids") or []
+        result.extend(_normalise_present(cards, raw))
+    return list(dict.fromkeys(result))
+
+
 def _timestamp(value: Any, fallback: int) -> Tuple[str, int]:
     text = str(value or "").strip()
     return (text, fallback)
+
+
+def _pov_id(state: Dict[str, Any], source: Dict[str, Any], cards: List[Dict[str, Any]]) -> str:
+    pov = state.get("pov") if isinstance(state.get("pov"), dict) else {}
+    return str(pov.get("character_id") or storage._find_pov_id(source, cards) or "")
 
 
 def current_recovery_status(session_id: str) -> Dict[str, Any]:
     root = storage.SESSIONS_DIR / session_id
     if not root.exists():
         raise FileNotFoundError(session_id)
+
     state = storage._read_json(root / "state.json", {})
+    source = storage._read_json(root / "source.json", {})
+    cards = storage._load_cards(root, source)
     current = state.get("current") if isinstance(state.get("current"), dict) else None
+    pov_id = _pov_id(state, source, cards)
     reasons: List[str] = []
+
     if current is None:
         reasons.append("current_not_object")
+        present: List[str] = []
     elif not current:
         reasons.append("current_empty")
+        present = []
     else:
         pointer_values = (
             current.get("date") or current.get("game_date") or current.get("calendar_date"),
             current.get("time") or current.get("game_time"),
             current.get("location") or current.get("place") or current.get("area"),
-            current.get("present_characters"),
         )
         if not any(_nonempty(value) for value in pointer_values):
             reasons.append("current_scene_pointer_missing")
+        present = _normalise_present(cards, current.get("present_characters"))
+
+    # A scene pointer with date/location but no cast is still broken. This was the hole that
+    # let recovery declare damaged sessions healthy after only the header had been rebuilt.
+    if not present:
+        reasons.append("present_characters_empty")
+    if pov_id and pov_id not in present:
+        reasons.append("pov_missing_from_present")
+
     return {
         "required": bool(reasons),
-        "reasons": reasons,
+        "reasons": list(dict.fromkeys(reasons)),
         "current": deepcopy(current) if isinstance(current, dict) else {},
+        "present_character_ids": present,
+        "pov_character_id": pov_id or None,
     }
 
 
@@ -195,25 +229,34 @@ def _reconstruct_current(root, source: Dict[str, Any], cards: List[Dict[str, Any
     recovered = _merge_current(recovered, existing_current, cards=cards)
 
     latest_turn = turns[-1] if turns else None
+    latest_turn_number = int(latest_turn.get("turn_number", 0) or 0) if isinstance(latest_turn, dict) else 0
+    explicit_present: List[str] = []
+    footer_present: List[str] = []
+    extracted_present: List[str] = []
+    persisted_chronology_present: List[str] = []
+
     if isinstance(latest_turn, dict):
         header = _parse_scene_header(latest_turn.get("scene_output"))
         if header:
             recovered = _merge_current(recovered, header, cards=cards)
-            provenance["scene_header_turn"] = latest_turn.get("turn_number")
+            provenance["scene_header_turn"] = latest_turn_number
 
         latest_extracted = latest_turn.get("extracted") if isinstance(latest_turn.get("extracted"), dict) else {}
         latest_patch = latest_extracted.get("state_patch") if isinstance(latest_extracted.get("state_patch"), dict) else {}
-        explicit_present = []
         if isinstance(latest_patch.get("current"), dict):
             explicit_present = _normalise_present(cards, latest_patch["current"].get("present_characters"))
-        if explicit_present:
-            recovered["present_characters"] = explicit_present
-            provenance["present_source"] = f"turn:{latest_turn.get('turn_number')}:state_patch"
-        else:
-            footer_present = _footer_present_ids(latest_turn.get("scene_output"), cards=cards)
-            if footer_present:
-                recovered["present_characters"] = footer_present
-                provenance["present_source"] = f"turn:{latest_turn.get('turn_number')}:relationship_footer"
+        extracted_present = _event_participants(latest_extracted.get("chronology"), cards=cards)
+        footer_present = _footer_present_ids(latest_turn.get("scene_output"), cards=cards)
+
+    chronology = storage._read_json(root / "chronology.json", [])
+    if isinstance(chronology, list) and latest_turn_number:
+        latest_events = [
+            event
+            for event in chronology
+            if isinstance(event, dict)
+            and int(event.get("turn_number") or event.get("turn") or 0) == latest_turn_number
+        ]
+        persisted_chronology_present = _event_participants(latest_events, cards=cards)
 
     state = storage._read_json(root / "state.json", {})
     meta = storage._read_json(root / "meta.json", {})
@@ -224,15 +267,29 @@ def _reconstruct_current(root, source: Dict[str, Any], cards: List[Dict[str, Any
         if isinstance(info, dict)
         and (info.get("present") is True or int(info.get("last_seen_turn", -1) or -1) == int(meta.get("turn_number", 0)))
     ]
-    if not _normalise_present(cards, recovered.get("present_characters")) and runtime_present:
-        recovered["present_characters"] = runtime_present
-        provenance["present_source"] = "runtime_character_presence"
 
-    pov = state.get("pov") if isinstance(state.get("pov"), dict) else {}
-    pov_id = str(pov.get("character_id") or storage._find_pov_id(source, cards) or "")
+    # Presence evidence is ordered from strongest end-of-scene evidence to weaker fallbacks.
+    # We do not merge all sources because chronology can mention someone who left before scene end.
+    presence_sources = (
+        (explicit_present, f"turn:{latest_turn_number}:state_patch"),
+        (footer_present, f"turn:{latest_turn_number}:relationship_footer"),
+        (runtime_present, "runtime_character_presence"),
+        (persisted_chronology_present, f"turn:{latest_turn_number}:persisted_chronology"),
+        (extracted_present, f"turn:{latest_turn_number}:extracted_chronology"),
+        (_normalise_present(cards, recovered.get("present_characters")), "replayed_current_history"),
+    )
+    for candidate, source_name in presence_sources:
+        candidate = _normalise_present(cards, candidate)
+        if candidate:
+            recovered["present_characters"] = candidate
+            provenance["present_source"] = source_name
+            break
+
+    pov_id = _pov_id(state, source, cards)
     present = _normalise_present(cards, recovered.get("present_characters"))
     if pov_id and pov_id not in present:
         present.insert(0, pov_id)
+        provenance["pov_reinserted"] = True
     if present:
         recovered["present_characters"] = list(dict.fromkeys(present))
 
@@ -260,13 +317,17 @@ def recover_session_current(session_id: str) -> Dict[str, Any]:
     source = storage._read_json(root / "source.json", {})
     cards = storage._load_cards(root, source)
     recovered, provenance = _reconstruct_current(root, source, cards)
-    meaningful = [
-        recovered.get("date") or recovered.get("game_date") or recovered.get("calendar_date"),
-        recovered.get("time") or recovered.get("game_time"),
-        recovered.get("location") or recovered.get("place") or recovered.get("area"),
-        recovered.get("present_characters"),
-    ]
-    if not any(_nonempty(value) for value in meaningful):
+    recovered_present = _normalise_present(cards, recovered.get("present_characters"))
+    pov_id = _pov_id(state, source, cards)
+    meaningful_pointer = any(
+        _nonempty(value)
+        for value in (
+            recovered.get("date") or recovered.get("game_date") or recovered.get("calendar_date"),
+            recovered.get("time") or recovered.get("game_time"),
+            recovered.get("location") or recovered.get("place") or recovered.get("area"),
+        )
+    )
+    if not meaningful_pointer or not recovered_present or (pov_id and pov_id not in recovered_present):
         raise RuntimeError("CURRENT_RECOVERY_NO_EVIDENCE")
 
     state = deepcopy(state if isinstance(state, dict) else {})
