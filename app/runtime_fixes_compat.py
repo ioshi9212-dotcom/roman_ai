@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import json
+import re
 from copy import deepcopy
 from typing import Any, Dict, List
 
-from . import runtime_fixes as base, storage
+from . import relationship_runtime, runtime_fixes as base, storage
 from .session_recovery import current_recovery_status
 
 
@@ -13,6 +14,108 @@ _ORIGINAL_RELATIONSHIP_PATCH = base.relationship_patch_from_scene
 _ORIGINAL_PREPARE_EXTRACTED = base._prepare_extracted_for_commit
 _ORIGINAL_PREPARE_TURN = base.prepare_turn_packet
 _ORIGINAL_CONTINUE_SESSION = base.continue_session
+
+_COMPAT_METRIC_RE = re.compile(
+    r"^(.+?)\s+(-?\d+(?:\.\d+)?)(?:\s*/\s*([+-]?\d+(?:\.\d+)?))?$"
+)
+_FOOTER_SEPARATOR_RE = re.compile(r"\s+(?:-|–|—)\s+")
+
+
+def _strip_markdown(value: Any) -> str:
+    text = str(value or "").strip()
+    while len(text) >= 2 and (
+        (text.startswith("**") and text.endswith("**"))
+        or (text.startswith("__") and text.endswith("__"))
+    ):
+        text = text[2:-2].strip()
+    if len(text) >= 2 and (
+        (text.startswith("*") and text.endswith("*"))
+        or (text.startswith("_") and text.endswith("_"))
+    ):
+        text = text[1:-1].strip()
+    return text
+
+
+def _parse_footer_compat(
+    scene_output: str,
+    *,
+    cards,
+    resolve_character_id,
+) -> Dict[str, List[Dict[str, Any]]]:
+    """Parse the visible relationship footer without depending on cosmetic markdown.
+
+    Scene generation naturally sometimes emits bold NPC names or an en/em dash even though the
+    canonical example uses plain text and a hyphen. Those are display-only differences and must
+    not make a valid relationship row disappear from persistence.
+    """
+    if not isinstance(scene_output, str):
+        return {}
+    lines = scene_output.splitlines()
+    start = None
+    for index, raw in enumerate(lines):
+        heading = _strip_markdown(raw.strip())
+        if heading == "Отношения:":
+            start = index + 1
+            break
+    if start is None:
+        return {}
+
+    result: Dict[str, List[Dict[str, Any]]] = {}
+    for raw_line in lines[start:]:
+        line = raw_line.strip()
+        if not line:
+            continue
+        stop_line = _strip_markdown(line)
+        if stop_line.startswith("Ход "):
+            break
+
+        line = re.sub(r"^(?:[-•·]\s+)", "", line).strip()
+        separator = _FOOTER_SEPARATOR_RE.search(line)
+        if not separator:
+            continue
+        raw_name = line[: separator.start()].strip()
+        raw_metrics = line[separator.end() :].strip()
+        clean_name = _strip_markdown(raw_name)
+        owner_id = resolve_character_id(cards, clean_name)
+        if not owner_id:
+            continue
+
+        metrics: List[Dict[str, Any]] = []
+        for raw_metric in raw_metrics.split(";"):
+            metric_text = raw_metric.strip().replace("−", "-").replace("＋", "+")
+            match = _COMPAT_METRIC_RE.match(metric_text)
+            if not match:
+                continue
+            label = _strip_markdown(match.group(1).strip())
+            if not label:
+                continue
+            value = float(match.group(2))
+            value = int(value) if value.is_integer() else value
+            delta = None
+            if match.group(3) is not None:
+                delta_value = float(match.group(3))
+                delta = int(delta_value) if delta_value.is_integer() else delta_value
+            metrics.append(
+                {
+                    "key": base._relationship_norm(label).replace(" ", "_"),
+                    "label": label,
+                    "value": value,
+                    "delta": delta,
+                }
+            )
+        if metrics:
+            result[str(owner_id)] = metrics[: relationship_runtime.MAX_DIMENSIONS]
+    return result
+
+
+def _card_display_name(cards, character_id: str) -> str:
+    for card in cards:
+        cid = str(card.get("character_id") or card.get("id") or card.get("name") or "")
+        if cid != character_id:
+            continue
+        identity = card.get("identity") if isinstance(card.get("identity"), dict) else {}
+        return str(card.get("name") or card.get("full_name") or identity.get("name") or character_id)
+    return character_id
 
 
 def _current_present_ids(state: Dict[str, Any]) -> List[str]:
@@ -83,7 +186,7 @@ def _rewrite_turn_packet(session_id: str, manifest: Dict[str, Any]) -> Dict[str,
     policy["footer_validation"] = (
         "Server-enforced: EVERY NPC physically present at scene end must have one NPC->POV row. "
         "Fresh NPCs without saved metrics must establish 1-3 natural dimensions now. Existing saved dimensions must all remain visible; "
-        "displayed delta arithmetic for saved dimensions must match the saved start value."
+        "displayed delta arithmetic for saved dimensions must match the saved start value. Cosmetic markdown around names and hyphen/en-dash/em-dash separators are accepted."
     )
     policy["instruction"] = (
         "Use relationship_lens and relationship_contract as the only relationship model. Every present NPC must appear in the visible Relationships footer. "
@@ -102,7 +205,7 @@ def _rewrite_turn_packet(session_id: str, manifest: Dict[str, Any]) -> Dict[str,
     packet["chunks"] = chunks
     packet["chunk_count"] = len(chunks)
     packet["read_chunks"] = []
-    packet["runtime_fix_version"] = 5
+    packet["runtime_fix_version"] = 6
     storage._write_json(root / "turn_packet.json", packet)
 
     result = dict(result)
@@ -117,16 +220,18 @@ def _rewrite_turn_packet(session_id: str, manifest: Dict[str, Any]) -> Dict[str,
 def _validate_dimensions(
     incoming: List[Dict[str, Any]],
     baseline: Dict[str, int | float],
+    *,
+    owner_name: str = "NPC",
 ) -> None:
     if not incoming:
         base._http_error(
             409,
             "RELATIONSHIP_FOOTER_REQUIRED",
-            "A present NPC with a saved relationship must appear in the Relationships footer.",
+            f"{owner_name}: relationship row was not parsed from the footer.",
         )
 
     baseline_by_norm = {
-        base._relationship_norm(label): value for label, value in baseline.items()
+        base._relationship_norm(label): (label, value) for label, value in baseline.items()
     }
     incoming_by_norm: Dict[str, Dict[str, Any]] = {}
     for item in incoming:
@@ -138,19 +243,20 @@ def _validate_dimensions(
             base._http_error(
                 409,
                 "RELATIONSHIP_DIMENSION_DUPLICATE",
-                f"Relationship dimension {label!r} is duplicated in the footer.",
+                f"{owner_name}: relationship dimension {label!r} is duplicated in the footer.",
             )
         incoming_by_norm[normalized] = item
 
     missing = set(baseline_by_norm) - set(incoming_by_norm)
     if missing:
+        labels = ", ".join(baseline_by_norm[key][0] for key in sorted(missing))
         base._http_error(
             409,
             "RELATIONSHIP_DIMENSIONS_INCOMPLETE",
-            "The footer must show every established relationship dimension for a present NPC.",
+            f"{owner_name}: footer omitted saved dimensions: {labels}. Keep every established label visible.",
         )
 
-    for normalized, old_value in baseline_by_norm.items():
+    for normalized, (saved_label, old_value) in baseline_by_norm.items():
         item = incoming_by_norm.get(normalized)
         if not item:
             continue
@@ -158,11 +264,12 @@ def _validate_dimensions(
         if delta is None:
             continue
         expected = old_value + delta
-        if abs(float(item.get("value")) - float(expected)) > 1e-9:
+        final_value = item.get("value")
+        if abs(float(final_value) - float(expected)) > 1e-9:
             base._http_error(
                 409,
                 "RELATIONSHIP_ARITHMETIC_MISMATCH",
-                "Relationship final value does not equal saved value plus displayed delta.",
+                f"{owner_name}: {saved_label} started at {old_value}, displayed delta is {delta:+g}, so final value must be {expected}, not {final_value}.",
             )
 
 
@@ -173,7 +280,7 @@ def _validate_visible_footer(
     state_before: Dict[str, Any],
     state_after: Dict[str, Any],
 ) -> Dict[str, List[Dict[str, Any]]]:
-    footer = base._parse_footer(
+    footer = _parse_footer_compat(
         scene_output,
         cards=cards,
         resolve_character_id=base._resolve_character_id,
@@ -183,37 +290,43 @@ def _validate_visible_footer(
     final_present = set(_current_present_ids(state_after))
 
     for owner_id in footer:
+        owner_name = _card_display_name(cards, owner_id)
         if owner_id == pov_id:
             base._http_error(
                 409,
                 "RELATIONSHIP_DIRECTION_INVALID",
-                "Relationships footer may contain NPC -> POV only, never POV -> NPC.",
+                f"{owner_name}: Relationships footer may contain NPC -> POV only, never POV -> NPC.",
             )
         if owner_id not in final_present:
             base._http_error(
                 409,
                 "RELATIONSHIP_FOOTER_ABSENT_NPC",
-                "An NPC absent at scene end must not be printed in the visible Relationships footer.",
+                f"{owner_name}: row is present in the footer, but this NPC is absent from state.current.present_characters at scene end. Fix scene presence or remove the row.",
             )
 
     for owner_id in final_present:
         if not owner_id or owner_id == pov_id:
             continue
+        owner_name = _card_display_name(cards, owner_id)
         incoming = footer.get(owner_id)
         if not incoming:
+            parsed_names = ", ".join(_card_display_name(cards, cid) for cid in footer) or "none"
+            present_names = ", ".join(
+                _card_display_name(cards, cid) for cid in final_present if cid != pov_id
+            ) or "none"
             base._http_error(
                 409,
                 "RELATIONSHIP_FOOTER_REQUIRED",
-                "Every NPC physically present at scene end must appear in the Relationships footer. If no saved baseline exists yet, initialize 1-3 natural NPC->POV dimensions now.",
+                f"{owner_name}: present NPC has no parsed relationship row. Present NPCs: {present_names}. Parsed footer rows: {parsed_names}. Plain, bold, hyphen, en-dash and em-dash row formatting are accepted.",
             )
         baseline = base._numeric_relationships(state_before, owner_id)
         if baseline:
-            _validate_dimensions(incoming, baseline)
+            _validate_dimensions(incoming, baseline, owner_name=owner_name)
         elif not 1 <= len(incoming) <= 3:
             base._http_error(
                 409,
                 "RELATIONSHIP_BASELINE_INVALID",
-                "A fresh present NPC must establish 1-3 natural relationship dimensions in the footer.",
+                f"{owner_name}: first relationship baseline must contain 1-3 natural dimensions; received {len(incoming)}.",
             )
     return footer
 
@@ -243,17 +356,18 @@ def _hidden_relationship_scene(
         if not owner_id:
             base._http_error(409, "RELATIONSHIP_UPDATES_INVALID", "Unknown character_id in relationship_updates.")
         owner_id = str(owner_id)
+        owner_name = _card_display_name(cards, owner_id)
         if owner_id in final_present:
             base._http_error(
                 409,
                 "RELATIONSHIP_UPDATE_FOR_PRESENT_NPC",
-                "NPCs still present at scene end must be persisted through the visible footer.",
+                f"{owner_name}: NPC is still present at scene end and must be persisted through the visible footer, not relationship_updates.",
             )
         if owner_id not in allowed:
             base._http_error(
                 409,
                 "RELATIONSHIP_UPDATE_FOR_UNSEEN_NPC",
-                "Hidden relationship update is allowed only for an NPC who participated in this turn.",
+                f"{owner_name}: hidden relationship update is allowed only for an NPC who participated in this turn.",
             )
 
         dimensions = raw.get("dimensions")
@@ -261,7 +375,7 @@ def _hidden_relationship_scene(
             base._http_error(
                 409,
                 "RELATIONSHIP_UPDATES_INVALID",
-                "Each relationship update must include non-empty dimensions.",
+                f"{owner_name}: relationship update must include non-empty dimensions.",
             )
 
         parsed: List[Dict[str, Any]] = []
@@ -276,24 +390,24 @@ def _hidden_relationship_scene(
                 base._http_error(
                     409,
                     "RELATIONSHIP_UPDATES_INVALID",
-                    "Relationship dimension requires label and numeric value.",
+                    f"{owner_name}: relationship dimension requires label and numeric value.",
                 )
             if delta is not None and (
                 not isinstance(delta, (int, float)) or isinstance(delta, bool)
             ):
-                base._http_error(409, "RELATIONSHIP_UPDATES_INVALID", "Relationship delta must be numeric.")
+                base._http_error(409, "RELATIONSHIP_UPDATES_INVALID", f"{owner_name}: relationship delta must be numeric.")
             parsed.append({"label": label, "value": value, "delta": delta})
             suffix = f"/{delta:+g}" if delta is not None else ""
             rendered.append(f"{label} {value:g}{suffix}")
 
         baseline = base._numeric_relationships(state_before, owner_id)
         if baseline:
-            _validate_dimensions(parsed, baseline)
+            _validate_dimensions(parsed, baseline, owner_name=owner_name)
         elif not 1 <= len(parsed) <= 3:
             base._http_error(
                 409,
                 "RELATIONSHIP_BASELINE_INVALID",
-                "A fresh relationship update must establish 1-3 natural dimensions.",
+                f"{owner_name}: fresh relationship update must establish 1-3 natural dimensions.",
             )
         lines.append(f"{owner_id} - {'; '.join(rendered)}")
 
@@ -367,6 +481,8 @@ def _continue_session(session_id: str) -> Dict[str, Any]:
 
 
 def install() -> None:
+    relationship_runtime._parse_footer = _parse_footer_compat
+    base._parse_footer = _parse_footer_compat
     base._rewrite_turn_packet = _rewrite_turn_packet
     base._validate_dimensions = _validate_dimensions
     base._validate_visible_footer = _validate_visible_footer
