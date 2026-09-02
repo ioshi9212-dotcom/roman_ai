@@ -1,8 +1,8 @@
 openapi: 3.1.0
 info:
   title: Roman AI
-  version: 1.7.5
-  description: Persistent isolated novel sessions with complete chunked runtime, canon, cards, memory, chronology and audits.
+  version: 1.7.8
+  description: Persistent isolated novel sessions with complete chunked runtime, canon, cards, memory, chronology, recovery and audits.
 servers:
   - url: https://romanai-production-0fdb.up.railway.app
 components:
@@ -203,11 +203,23 @@ paths:
     post:
       operationId: resumeSession
       summary: Reconnect to the exact existing session
+      description: If current_recovery_required=true, call recoverSessionCurrent before any prepareTurn. Never repair state.current through a fake gameplay turn.
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
       responses:
-        '200': {description: Same-session checkpoint}
+        '200': {description: Same-session checkpoint, including current recovery status}
         '404': {description: Session not found}
+  /sessions/{session_id}/recover-current:
+    post:
+      operationId: recoverSessionCurrent
+      summary: Repair only the technical current scene pointer without creating a gameplay turn
+      description: Reconstructs damaged state.current from persistent starting state, committed state patches, audit repairs, runtime presence and the latest committed scene header. Does not increment the turn, rewrite prior turns, or modify source, chronology, or character memory. Use only when resumeSession reports current_recovery_required=true or prepareTurn reports CURRENT_RECOVERY_REQUIRED.
+      parameters:
+        - {in: path, name: session_id, required: true, schema: {type: string}}
+      responses:
+        '200': {description: Technical current pointer repaired or already usable}
+        '404': {description: Session not found}
+        '409': {description: Not enough persistent evidence to repair safely}
   /sessions/{session_id}/audit-snapshot:
     get:
       operationId: getAuditSnapshot
@@ -235,7 +247,7 @@ paths:
     post:
       operationId: prepareTurn
       summary: Build complete chunked context without truncating persistent canon
-      description: Packet includes full runtime documents, full source, full state, all full character cards, all saved character memory and complete chronology, then splits the serialized JSON into chunks.
+      description: Packet includes full runtime documents, full source, full state, all full character cards, all saved character memory and complete chronology, then splits the serialized JSON into chunks. If the persistent current scene pointer is damaged, this action returns CURRENT_RECOVERY_REQUIRED instead of allowing a new gameplay turn.
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
       requestBody:
@@ -245,6 +257,7 @@ paths:
             schema: {$ref: '#/components/schemas/TurnPrepare'}
       responses:
         '200': {description: Packet manifest}
+        '409': {description: Audit required or current scene pointer requires technical recovery}
   /sessions/{session_id}/turn-packet/{packet_id}/{chunk_index}:
     get:
       operationId: getTurnPacketChunk
@@ -286,6 +299,7 @@ paths:
     post:
       operationId: commitTurn
       summary: Save one complete turn after every packet chunk was read
+      description: Rejects destructive state_patch.current replacements. Technical current recovery must use recoverSessionCurrent, never a fake gameplay turn.
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
       requestBody:
@@ -295,7 +309,7 @@ paths:
             schema: {$ref: '#/components/schemas/TurnCommit'}
       responses:
         '200': {description: Turn committed}
-        '409': {description: Audit, packet reading or persistence review incomplete}
+        '409': {description: Audit, packet reading, persistence review, relationship footer, or current-state validation incomplete}
   /sessions/{session_id}/audit:
     post:
       operationId: commitAudit
