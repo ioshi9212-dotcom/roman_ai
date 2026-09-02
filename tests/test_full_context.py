@@ -40,7 +40,7 @@ def test_runtime_is_complete_and_chunked():
     assert "не обязаны выбирать психологически правильное" in payload["documents"]["npc_agency_contract"]
     assert "он хотел взять её за руку, но не стал" in payload["documents"]["npc_agency_contract"]
     assert "RELATIONSHIP LENS" in payload["documents"]["relationship_contract"]
-    assert "строка в footer ОБЯЗАТЕЛЬНА" in payload["documents"]["relationship_contract"]
+    assert "Для КАЖДОГО присутствующего NPC отдельная строка ОБЯЗАТЕЛЬНА" in payload["documents"]["relationship_contract"]
     assert "PRESENCE SWEEP" in payload["documents"]["presence_contract"]
     assert "СМЕНА ФОКУСА НЕ РАВНА ИСЧЕЗНОВЕНИЮ" in payload["documents"]["presence_contract"]
     assert "NO KNOWLEDGE LAUNDERING" in payload["documents"]["scene_builder"]
