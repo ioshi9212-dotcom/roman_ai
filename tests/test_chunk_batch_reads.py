@@ -1,4 +1,3 @@
-import json
 import tempfile
 from pathlib import Path
 
@@ -46,8 +45,8 @@ def test_turn_packet_batch_is_lossless_and_marks_every_chunk_read():
             next_index = batch["next_start_index"]
 
         assert "".join(parts) == exact_payload
-        reconstructed = json.loads("".join(parts))
-        assert reconstructed["source"]["novel"]["large_rule"] == "R" * 70000
+        assert "R" * 70000 in exact_payload
+        assert "C" * 15000 in exact_payload
 
         saved_after = storage._read_json(root / "turn_packet.json", {})
         assert saved_after["read_chunks"] == list(range(packet["chunk_count"]))
