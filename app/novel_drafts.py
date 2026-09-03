@@ -6,6 +6,7 @@ from typing import Any, Dict
 
 from . import storage
 from .novel_access import prepare_template_read, verify_template
+from .session_start_guard import normalise_session_start
 
 
 REQUIRED_SECTIONS = ("novel", "characters", "lore")
@@ -98,60 +99,13 @@ def _resolve_character_ref(cards: list[Dict[str, Any]], value: Any) -> str | Non
 
 
 def _normalise_starting_state_for_session(template: Dict[str, Any]) -> Dict[str, Any]:
-    """Make permissive GPT-authored starting_state safe for the runtime state shape.
+    """Normalize permissive GPT-authored start data for the isolated runtime snapshot.
 
-    The finalized canon itself is not changed on disk. Only the isolated session snapshot
-    receives this normalized runtime representation.
+    Keep the finalized draft untouched on disk. This function deliberately delegates to the
+    same tolerant intake used by every guarded session start so flat/nested GPT shapes cannot
+    create an unrecoverable turn-zero current pointer.
     """
-    result = deepcopy(template)
-    cards = storage._normalise_cards(result.get("characters", []))
-    raw = result.get("starting_state")
-    state = deepcopy(raw) if isinstance(raw, dict) else {}
-
-    current = state.get("current")
-    if not isinstance(current, dict):
-        current = {}
-    present = current.get("present_characters", [])
-    if isinstance(present, dict):
-        present = list(present.keys())
-    elif present is None:
-        present = []
-    elif not isinstance(present, list):
-        present = [present]
-    canonical_present = []
-    for value in present:
-        resolved = _resolve_character_ref(cards, value)
-        if resolved:
-            canonical_present.append(resolved)
-    current["present_characters"] = list(dict.fromkeys(canonical_present))
-    state["current"] = current
-
-    pov_raw = state.get("pov")
-    if isinstance(pov_raw, dict):
-        pov = deepcopy(pov_raw)
-        resolved = _resolve_character_ref(cards, pov.get("character_id") or pov.get("id") or pov.get("name"))
-        if resolved:
-            pov["character_id"] = resolved
-    else:
-        resolved = _resolve_character_ref(cards, pov_raw)
-        pov = {"character_id": resolved} if resolved else {}
-    state["pov"] = pov
-
-    characters = state.get("characters")
-    if not isinstance(characters, dict):
-        state["characters"] = {}
-    relationships = state.get("relationships")
-    if not isinstance(relationships, dict):
-        state["relationships"] = {}
-    threads = state.get("threads")
-    if not isinstance(threads, (dict, list)):
-        state["threads"] = {}
-    world = state.get("world")
-    if not isinstance(world, dict):
-        state["world"] = {}
-
-    result["starting_state"] = state
-    return result
+    return normalise_session_start(template)
 
 
 def create_draft(novel_id: str, title: str, version: int = 1) -> Dict[str, Any]:
