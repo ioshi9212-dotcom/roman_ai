@@ -52,14 +52,18 @@ def test_starting_state_is_required_before_finalize():
             finalize_draft(draft_id)
 
 
-def test_finalize_rejects_start_without_location_or_roster():
+def test_finalize_rejects_start_without_scene_pointer():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         draft_id = create_draft("empty_start", "Empty Start")["draft_id"]
         save_base(draft_id)
-        save_section(draft_id, "starting_state", json.dumps({"pov": "Рина"}, ensure_ascii=False))
+        save_section(
+            draft_id,
+            "starting_state",
+            json.dumps({"pov": "Рина", "present_characters": ["Рина"]}, ensure_ascii=False),
+        )
 
-        with pytest.raises(ValueError, match="STARTING_STATE_LOCATION_REQUIRED"):
+        with pytest.raises(ValueError, match="STARTING_STATE_SCENE_POINTER_REQUIRED"):
             finalize_draft(draft_id)
 
 
@@ -95,6 +99,55 @@ def test_flat_gpt_starting_state_is_normalized_into_usable_current():
         assert current_recovery_status(sid)["required"] is False
 
 
+def test_common_gpt_aliases_are_normalized_before_finalize():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        draft_id = create_draft("alias_start", "Alias Start")["draft_id"]
+        save_base(draft_id)
+        save_section(
+            draft_id,
+            "starting_state",
+            json.dumps(
+                {
+                    "protagonist": "Рина",
+                    "start": {
+                        "current_location": "дом",
+                        "current_time": "09:00",
+                        "participants": ["Рина", "Эдриан"],
+                    },
+                },
+                ensure_ascii=False,
+            ),
+        )
+
+        assert finalize_draft(draft_id)["ok"] is True
+        sid = create_session_from_draft(draft_id)["session_id"]
+        state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
+        assert state["current"]["location"] == "дом"
+        assert state["current"]["time"] == "09:00"
+        assert state["current"]["present_characters"] == ["rina", "adrian"]
+        assert current_recovery_status(sid)["required"] is False
+
+
+def test_time_only_pointer_matches_recovery_contract():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        draft_id = create_draft("time_start", "Time Start")["draft_id"]
+        save_base(draft_id)
+        save_section(
+            draft_id,
+            "starting_state",
+            json.dumps(
+                {"pov": "Рина", "time": "09:00", "present_characters": ["Рина"]},
+                ensure_ascii=False,
+            ),
+        )
+
+        assert finalize_draft(draft_id)["ok"] is True
+        sid = create_session_from_draft(draft_id)["session_id"]
+        assert current_recovery_status(sid)["required"] is False
+
+
 def test_create_session_revalidates_old_finalized_broken_draft():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
@@ -112,5 +165,5 @@ def test_create_session_revalidates_old_finalized_broken_draft():
         raw["finalized_template"]["starting_state"] = {"current": {}}
         path.write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
 
-        with pytest.raises(ValueError, match="STARTING_STATE_LOCATION_REQUIRED"):
+        with pytest.raises(ValueError, match="STARTING_STATE_SCENE_POINTER_REQUIRED"):
             create_session_from_draft(draft_id)
