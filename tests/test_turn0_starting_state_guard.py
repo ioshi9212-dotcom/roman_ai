@@ -62,7 +62,6 @@ def test_status_exposes_starting_state_blocker_before_finalize():
             "starting_state",
             json.dumps({"pov": "Рина", "location": "дом"}, ensure_ascii=False),
         )
-
         status = draft_status(draft_id)
         assert status["missing_required_sections"] == []
         assert status["ready_to_finalize"] is False
@@ -133,6 +132,29 @@ def test_common_gpt_aliases_are_normalized_before_finalize():
         state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
         assert state["current"]["location"] == "дом"
         assert state["current"]["time"] == "09:00"
+        assert state["current"]["present_characters"] == ["rina", "adrian"]
+        assert current_recovery_status(sid)["required"] is False
+
+
+def test_present_character_ids_alias_is_normalized():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        draft_id = create_draft("ids_alias_start", "IDs Alias Start")["draft_id"]
+        save_base(draft_id)
+        save_section(
+            draft_id,
+            "starting_state",
+            json.dumps(
+                {"pov": "rina", "location": "дом", "present_character_ids": ["rina", "adrian"]},
+                ensure_ascii=False,
+            ),
+        )
+        status = draft_status(draft_id)
+        assert status["ready_to_finalize"] is True
+        assert status["finalize_blocker"] is None
+        assert finalize_draft(draft_id)["ok"] is True
+        sid = create_session_from_draft(draft_id)["session_id"]
+        state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
         assert state["current"]["present_characters"] == ["rina", "adrian"]
         assert current_recovery_status(sid)["required"] is False
 
