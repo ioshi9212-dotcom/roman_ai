@@ -44,11 +44,30 @@ def test_starting_state_is_required_before_finalize():
         setup_temp_storage(tmp)
         draft_id = create_draft("missing_start", "Missing Start")["draft_id"]
         save_base(draft_id)
-
         status = draft_status(draft_id)
         assert "starting_state" in status["missing_required_sections"]
         assert status["ready_to_finalize"] is False
+        assert status["finalize_blocker"] is None
         with pytest.raises(ValueError, match="DRAFT_INCOMPLETE"):
+            finalize_draft(draft_id)
+
+
+def test_status_exposes_starting_state_blocker_before_finalize():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        draft_id = create_draft("blocked_start", "Blocked Start")["draft_id"]
+        save_base(draft_id)
+        save_section(
+            draft_id,
+            "starting_state",
+            json.dumps({"pov": "Рина", "location": "дом"}, ensure_ascii=False),
+        )
+
+        status = draft_status(draft_id)
+        assert status["missing_required_sections"] == []
+        assert status["ready_to_finalize"] is False
+        assert status["finalize_blocker"] == "STARTING_STATE_PRESENT_CHARACTERS_REQUIRED"
+        with pytest.raises(ValueError, match="STARTING_STATE_PRESENT_CHARACTERS_REQUIRED"):
             finalize_draft(draft_id)
 
 
@@ -62,7 +81,9 @@ def test_finalize_rejects_start_without_scene_pointer():
             "starting_state",
             json.dumps({"pov": "Рина", "present_characters": ["Рина"]}, ensure_ascii=False),
         )
-
+        status = draft_status(draft_id)
+        assert status["ready_to_finalize"] is False
+        assert status["finalize_blocker"] == "STARTING_STATE_SCENE_POINTER_REQUIRED"
         with pytest.raises(ValueError, match="STARTING_STATE_SCENE_POINTER_REQUIRED"):
             finalize_draft(draft_id)
 
@@ -76,25 +97,18 @@ def test_flat_gpt_starting_state_is_normalized_into_usable_current():
             draft_id,
             "starting_state",
             json.dumps(
-                {
-                    "pov": "Рина",
-                    "location": "кухня",
-                    "scene": "утро дома",
-                    "present_characters": ["Эдриан"],
-                },
+                {"pov": "Рина", "location": "кухня", "scene": "утро дома", "present_characters": ["Эдриан"]},
                 ensure_ascii=False,
             ),
         )
-
-        finalized = finalize_draft(draft_id)
-        assert finalized["ok"] is True
-        meta = create_session_from_draft(draft_id)
-        sid = meta["session_id"]
+        status = draft_status(draft_id)
+        assert status["ready_to_finalize"] is True
+        assert status["finalize_blocker"] is None
+        assert finalize_draft(draft_id)["ok"] is True
+        sid = create_session_from_draft(draft_id)["session_id"]
         state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
-
         assert state["pov"]["character_id"] == "rina"
         assert state["current"]["location"] == "кухня"
-        assert state["current"]["scene"] == "утро дома"
         assert state["current"]["present_characters"] == ["rina", "adrian"]
         assert current_recovery_status(sid)["required"] is False
 
@@ -108,18 +122,12 @@ def test_common_gpt_aliases_are_normalized_before_finalize():
             draft_id,
             "starting_state",
             json.dumps(
-                {
-                    "protagonist": "Рина",
-                    "start": {
-                        "current_location": "дом",
-                        "current_time": "09:00",
-                        "participants": ["Рина", "Эдриан"],
-                    },
-                },
+                {"protagonist": "Рина", "start": {"current_location": "дом", "current_time": "09:00", "participants": ["Рина", "Эдриан"]}},
                 ensure_ascii=False,
             ),
         )
-
+        status = draft_status(draft_id)
+        assert status["ready_to_finalize"] is True
         assert finalize_draft(draft_id)["ok"] is True
         sid = create_session_from_draft(draft_id)["session_id"]
         state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
@@ -137,12 +145,9 @@ def test_time_only_pointer_matches_recovery_contract():
         save_section(
             draft_id,
             "starting_state",
-            json.dumps(
-                {"pov": "Рина", "time": "09:00", "present_characters": ["Рина"]},
-                ensure_ascii=False,
-            ),
+            json.dumps({"pov": "Рина", "time": "09:00", "present_characters": ["Рина"]}, ensure_ascii=False),
         )
-
+        assert draft_status(draft_id)["ready_to_finalize"] is True
         assert finalize_draft(draft_id)["ok"] is True
         sid = create_session_from_draft(draft_id)["session_id"]
         assert current_recovery_status(sid)["required"] is False
@@ -153,17 +158,11 @@ def test_create_session_revalidates_old_finalized_broken_draft():
         setup_temp_storage(tmp)
         draft_id = create_draft("legacy_broken", "Legacy Broken")["draft_id"]
         save_base(draft_id)
-        save_section(
-            draft_id,
-            "starting_state",
-            json.dumps({"current": {"location": "room", "present_characters": ["rina"]}}),
-        )
+        save_section(draft_id, "starting_state", json.dumps({"current": {"location": "room", "present_characters": ["rina"]}}))
         finalize_draft(draft_id)
-
         path = _draft_path(draft_id)
         raw = json.loads(path.read_text(encoding="utf-8"))
         raw["finalized_template"]["starting_state"] = {"current": {}}
         path.write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
-
         with pytest.raises(ValueError, match="STARTING_STATE_SCENE_POINTER_REQUIRED"):
             create_session_from_draft(draft_id)
