@@ -9,10 +9,11 @@ When the user says `начнем`, do not create a session immediately. First co
 Only after the user explicitly says `подтверждаю`:
 1. Read the complete runtime with `getRuntime` + every `getRuntimeChunk`.
 2. Create a staged novel draft and save its sections.
-3. Finalize it.
-4. Read the finalized draft completely through its chunks and verify it against the user's setup.
-5. Create the session from that finalized draft.
-6. Read `getSessionPreview` and wait for the user to launch the first scene.
+3. Save `starting_state` as a JSON object with a resolvable POV and a usable turn-zero scene pointer. Preferred shape: `{"pov":{"character_id":"<POV id>"},"current":{"location":"<start place>","date":"<optional>","time":"<optional>","scene":"<optional>","present_characters":["<POV id>","<other present ids>"]}}`. `present_characters` must be non-empty and include the POV. Never leave `current` empty.
+4. Check draft status, then finalize it. If finalize fails, do not retry the same payload blindly: correct `starting_state` or the missing section reported by the server, save that section again, re-check status, then finalize again.
+5. Read the finalized draft completely through its chunks and verify it against the user's setup.
+6. Create the session from that finalized draft.
+7. Read `getSessionPreview` and wait for the user to launch the first scene.
 
 Do not publish a new draft to the reusable Library unless the user explicitly asks.
 
