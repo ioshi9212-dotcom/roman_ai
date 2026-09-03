@@ -35,8 +35,9 @@ There is no 60-turn transfer package and no copied session.
 When a new chat continues with `CONTINUE SESSION: <session_id>` or otherwise supplies an existing session id:
 1. Do not create or clone a session.
 2. Call `resumeSession` for that exact id.
-3. Treat the returned checkpoint as a reconnect to the same persistent Railway session.
-4. On the next gameplay input call `prepareTurn` with the same session id. It reloads the current persistent state directly.
+3. If `current_recovery_required=true`, call `recoverSessionCurrent` immediately, then call `resumeSession` again and do not prepare a gameplay turn until recovery is no longer required.
+4. Treat the returned checkpoint as a reconnect to the same persistent Railway session.
+5. On the next gameplay input call `prepareTurn` with the same session id. It reloads the current persistent state directly.
 
 Turns 60/120/180 do not block play. Only the 15-turn audit gate is mandatory.
 
