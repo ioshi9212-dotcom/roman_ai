@@ -46,6 +46,7 @@ _CURRENT_ALIASES = {
     "present": "present_characters",
     "participants": "present_characters",
     "characters_present": "present_characters",
+    "present_character_ids": "present_characters",
 }
 
 
