@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Roman AI
-  version: 1.8.0
+  version: 1.8.1
   description: Persistent isolated novel sessions with complete chunked runtime, canon, cards, memory, chronology, recovery and audits.
 servers:
   - url: https://romanai-production-0fdb.up.railway.app
@@ -45,6 +45,24 @@ components:
         distance_to_pov: {type: string}
         note: {type: string}
       additionalProperties: false
+    RelationshipDimensionUpdate:
+      type: object
+      required: [label, value]
+      properties:
+        label: {type: string}
+        value: {type: number}
+        delta: {type: number}
+      additionalProperties: false
+    RelationshipUpdate:
+      type: object
+      required: [character_id, dimensions]
+      properties:
+        character_id: {type: string}
+        dimensions:
+          type: array
+          minItems: 1
+          items: {$ref: '#/components/schemas/RelationshipDimensionUpdate'}
+      additionalProperties: false
     TurnCommit:
       type: object
       required: [user_input, scene_output, extracted]
@@ -72,6 +90,10 @@ components:
               type: array
               description: Explicit scene transitions. Omission preserves the start roster; only leave removes a present character.
               items: {$ref: '#/components/schemas/PresenceUpdate'}
+            relationship_updates:
+              type: array
+              description: Hidden NPC-to-POV persistence for a participating NPC that changed this turn but is absent at scene end.
+              items: {$ref: '#/components/schemas/RelationshipUpdate'}
             state_patch: {type: object, additionalProperties: true}
             character_upserts:
               type: array
