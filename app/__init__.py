@@ -1,7 +1,10 @@
 from .runtime_fixes_compat import install as _install_runtime_fixes
+from .relationship_resilience_guard import install as _install_relationship_resilience
 from .scene_presence_runtime import install as _install_scene_presence
 
 _install_runtime_fixes()
+_install_relationship_resilience()
 _install_scene_presence()
 del _install_runtime_fixes
+del _install_relationship_resilience
 del _install_scene_presence
