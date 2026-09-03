@@ -135,7 +135,6 @@ def _merge_current_shape(current: Dict[str, Any], candidate: Any) -> None:
 
 
 def _normalise_starting_state_for_session(template: Dict[str, Any]) -> Dict[str, Any]:
-    """Normalize GPT-authored starting_state into the runtime state shape without inventing scene facts."""
     result = deepcopy(template)
     cards = storage._normalise_cards(result.get("characters", []))
     raw = result.get("starting_state")
@@ -150,8 +149,6 @@ def _normalise_starting_state_for_session(template: Dict[str, Any]) -> Dict[str,
     for container_key in ("current_scene", "scene_state", "start", "initial_scene"):
         _merge_current_shape(current, state.get(container_key))
     _merge_current_shape(current, state)
-    if "present_characters" not in current and isinstance(current.get("characters"), (list, dict, str)):
-        current["present_characters"] = deepcopy(current["characters"])
 
     present_supplied = "present_characters" in current
     present = current.get("present_characters", [])
@@ -190,17 +187,13 @@ def _normalise_starting_state_for_session(template: Dict[str, Any]) -> Dict[str,
         current["present_characters"] = list(dict.fromkeys(canonical_present))
     state["current"] = current
 
-    characters = state.get("characters")
-    if not isinstance(characters, dict):
+    if not isinstance(state.get("characters"), dict):
         state["characters"] = {}
-    relationships = state.get("relationships")
-    if not isinstance(relationships, dict):
+    if not isinstance(state.get("relationships"), dict):
         state["relationships"] = {}
-    threads = state.get("threads")
-    if not isinstance(threads, (dict, list)):
+    if not isinstance(state.get("threads"), (dict, list)):
         state["threads"] = {}
-    world = state.get("world")
-    if not isinstance(world, dict):
+    if not isinstance(state.get("world"), dict):
         state["world"] = {}
 
     result["starting_state"] = state
@@ -272,6 +265,15 @@ def draft_status(draft_id: str) -> Dict[str, Any]:
     sections = draft.get("sections", {})
     characters = sections.get("characters", [])
     missing = [name for name in REQUIRED_SECTIONS if name not in sections]
+    blocker = None
+
+    base_ready = not missing and isinstance(characters, list) and len(characters) > 0
+    if base_ready:
+        try:
+            _validate_starting_state(_build_template(draft))
+        except ValueError as exc:
+            blocker = str(exc)
+
     return {
         "draft_id": draft_id,
         "novel_id": draft["novel_id"],
@@ -280,7 +282,8 @@ def draft_status(draft_id: str) -> Dict[str, Any]:
         "saved_sections": sorted(sections.keys()),
         "missing_required_sections": missing,
         "character_count": len(characters) if isinstance(characters, list) else 0,
-        "ready_to_finalize": not missing and isinstance(characters, list) and len(characters) > 0,
+        "ready_to_finalize": base_ready and blocker is None,
+        "finalize_blocker": blocker,
         "finalized": bool(draft.get("finalized")),
         "published_to_library": bool(draft.get("published_to_library")),
     }
@@ -290,7 +293,7 @@ def finalize_draft(draft_id: str) -> Dict[str, Any]:
     draft = _read(draft_id)
     status = draft_status(draft_id)
     if not status["ready_to_finalize"]:
-        raise ValueError("DRAFT_INCOMPLETE")
+        raise ValueError(status.get("finalize_blocker") or "DRAFT_INCOMPLETE")
     template = _validate_starting_state(_build_template(draft))
     verification = verify_template(template)
     if not verification["ok"]:
