@@ -8,7 +8,7 @@ from . import storage
 from .novel_access import prepare_template_read, verify_template
 
 
-REQUIRED_SECTIONS = ("novel", "characters", "lore")
+REQUIRED_SECTIONS = ("novel", "characters", "lore", "starting_state")
 ALLOWED_SECTIONS = {
     "novel",
     "characters",
@@ -19,6 +19,20 @@ ALLOWED_SECTIONS = {
     "starting_state",
     "story_direction",
 }
+_CURRENT_FIELDS = (
+    "date",
+    "game_date",
+    "calendar_date",
+    "time",
+    "game_time",
+    "location",
+    "place",
+    "area",
+    "scene",
+    "scene_name",
+    "situation",
+    "present_characters",
+)
 
 
 def _drafts_dir() -> Path:
@@ -94,15 +108,11 @@ def _resolve_character_ref(cards: list[Dict[str, Any]], value: Any) -> str | Non
         for alias in storage._card_names(card):
             if str(alias).casefold().replace("ё", "е").strip() == needle:
                 return cid
-    return str(ref)
+    return None
 
 
 def _normalise_starting_state_for_session(template: Dict[str, Any]) -> Dict[str, Any]:
-    """Make permissive GPT-authored starting_state safe for the runtime state shape.
-
-    The finalized canon itself is not changed on disk. Only the isolated session snapshot
-    receives this normalized runtime representation.
-    """
+    """Normalize GPT-authored starting_state into the runtime state shape without inventing scene facts."""
     result = deepcopy(template)
     cards = storage._normalise_cards(result.get("characters", []))
     raw = result.get("starting_state")
@@ -111,6 +121,17 @@ def _normalise_starting_state_for_session(template: Dict[str, Any]) -> Dict[str,
     current = state.get("current")
     if not isinstance(current, dict):
         current = {}
+    for container_key in ("current_scene", "scene_state"):
+        candidate = state.get(container_key)
+        if isinstance(candidate, dict):
+            for key, value in candidate.items():
+                if key not in current and value not in (None, "", [], {}):
+                    current[key] = deepcopy(value)
+    for key in _CURRENT_FIELDS:
+        if key not in current and state.get(key) not in (None, "", [], {}):
+            current[key] = deepcopy(state[key])
+
+    present_supplied = "present_characters" in current
     present = current.get("present_characters", [])
     if isinstance(present, dict):
         present = list(present.keys())
@@ -123,10 +144,10 @@ def _normalise_starting_state_for_session(template: Dict[str, Any]) -> Dict[str,
         resolved = _resolve_character_ref(cards, value)
         if resolved:
             canonical_present.append(resolved)
-    current["present_characters"] = list(dict.fromkeys(canonical_present))
-    state["current"] = current
+    if present_supplied:
+        current["present_characters"] = list(dict.fromkeys(canonical_present))
 
-    pov_raw = state.get("pov")
+    pov_raw = state.get("pov") or state.get("pov_character_id") or state.get("pov_character")
     if isinstance(pov_raw, dict):
         pov = deepcopy(pov_raw)
         resolved = _resolve_character_ref(cards, pov.get("character_id") or pov.get("id") or pov.get("name"))
@@ -135,7 +156,17 @@ def _normalise_starting_state_for_session(template: Dict[str, Any]) -> Dict[str,
     else:
         resolved = _resolve_character_ref(cards, pov_raw)
         pov = {"character_id": resolved} if resolved else {}
+    if not pov.get("character_id"):
+        inferred = storage._find_pov_id(result, cards)
+        if inferred:
+            pov["character_id"] = inferred
     state["pov"] = pov
+
+    pov_id = str(pov.get("character_id") or "")
+    if present_supplied and canonical_present and pov_id and pov_id not in canonical_present:
+        canonical_present.insert(0, pov_id)
+        current["present_characters"] = list(dict.fromkeys(canonical_present))
+    state["current"] = current
 
     characters = state.get("characters")
     if not isinstance(characters, dict):
@@ -152,6 +183,32 @@ def _normalise_starting_state_for_session(template: Dict[str, Any]) -> Dict[str,
 
     result["starting_state"] = state
     return result
+
+
+def _validate_starting_state(template: Dict[str, Any]) -> Dict[str, Any]:
+    normalized = _normalise_starting_state_for_session(template)
+    state = normalized.get("starting_state") if isinstance(normalized.get("starting_state"), dict) else {}
+    current = state.get("current") if isinstance(state.get("current"), dict) else {}
+    cards = storage._normalise_cards(normalized.get("characters", []))
+    pov = state.get("pov") if isinstance(state.get("pov"), dict) else {}
+    pov_id = str(pov.get("character_id") or "")
+
+    location = current.get("location") or current.get("place") or current.get("area")
+    present = current.get("present_characters") if isinstance(current.get("present_characters"), list) else []
+    present = [str(value) for value in present if value]
+    valid_ids = {storage._card_id(card) for card in cards}
+
+    if not location:
+        raise ValueError("STARTING_STATE_LOCATION_REQUIRED")
+    if not pov_id or pov_id not in valid_ids:
+        raise ValueError("STARTING_STATE_POV_REQUIRED")
+    if not present:
+        raise ValueError("STARTING_STATE_PRESENT_CHARACTERS_REQUIRED")
+    if pov_id not in present:
+        raise ValueError("STARTING_STATE_POV_MUST_BE_PRESENT")
+    if any(character_id not in valid_ids for character_id in present):
+        raise ValueError("STARTING_STATE_UNKNOWN_PRESENT_CHARACTER")
+    return normalized
 
 
 def create_draft(novel_id: str, title: str, version: int = 1) -> Dict[str, Any]:
@@ -177,6 +234,8 @@ def save_section(draft_id: str, section_name: str, section_json: str) -> Dict[st
     parsed = _parse_one_json(section_json)
     if section_name == "characters" and not isinstance(parsed, list):
         raise TypeError("characters must be a JSON array")
+    if section_name == "starting_state" and not isinstance(parsed, dict):
+        raise TypeError("starting_state must be a JSON object")
     draft["sections"][section_name] = parsed
     draft["finalized"] = False
     draft.pop("finalized_template", None)
@@ -208,7 +267,7 @@ def finalize_draft(draft_id: str) -> Dict[str, Any]:
     status = draft_status(draft_id)
     if not status["ready_to_finalize"]:
         raise ValueError("DRAFT_INCOMPLETE")
-    template = _build_template(draft)
+    template = _validate_starting_state(_build_template(draft))
     verification = verify_template(template)
     if not verification["ok"]:
         raise RuntimeError("FINAL_VERIFICATION_FAILED")
@@ -237,7 +296,7 @@ def prepare_draft_read(draft_id: str) -> Dict[str, Any]:
 
 
 def create_session_from_draft(draft_id: str) -> Dict[str, Any]:
-    template = _normalise_starting_state_for_session(_finalized_template(draft_id))
+    template = _validate_starting_state(_finalized_template(draft_id))
     meta = storage.create_session(template)
     meta["source_type"] = "session_draft"
     return meta

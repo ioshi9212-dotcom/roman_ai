@@ -1,0 +1,116 @@
+import json
+import tempfile
+from pathlib import Path
+
+import pytest
+
+from app import storage
+from app.novel_drafts import (
+    _draft_path,
+    create_draft,
+    create_session_from_draft,
+    draft_status,
+    finalize_draft,
+    save_section,
+)
+from app.session_recovery import current_recovery_status
+
+
+def setup_temp_storage(tmp: str):
+    storage.DATA_DIR = Path(tmp)
+    storage.LIBRARY_DIR = storage.DATA_DIR / "library"
+    storage.SESSIONS_DIR = storage.DATA_DIR / "sessions"
+    storage.ensure_dirs()
+
+
+def save_base(draft_id: str):
+    save_section(draft_id, "novel", json.dumps({"pov_character": "rina"}))
+    save_section(
+        draft_id,
+        "characters",
+        json.dumps(
+            [
+                {"character_id": "rina", "name": "Рина", "is_pov": True},
+                {"character_id": "adrian", "name": "Эдриан"},
+            ],
+            ensure_ascii=False,
+        ),
+    )
+    save_section(draft_id, "lore", json.dumps({"world": "canon"}))
+
+
+def test_starting_state_is_required_before_finalize():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        draft_id = create_draft("missing_start", "Missing Start")["draft_id"]
+        save_base(draft_id)
+
+        status = draft_status(draft_id)
+        assert "starting_state" in status["missing_required_sections"]
+        assert status["ready_to_finalize"] is False
+        with pytest.raises(ValueError, match="DRAFT_INCOMPLETE"):
+            finalize_draft(draft_id)
+
+
+def test_finalize_rejects_start_without_location_or_roster():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        draft_id = create_draft("empty_start", "Empty Start")["draft_id"]
+        save_base(draft_id)
+        save_section(draft_id, "starting_state", json.dumps({"pov": "Рина"}, ensure_ascii=False))
+
+        with pytest.raises(ValueError, match="STARTING_STATE_LOCATION_REQUIRED"):
+            finalize_draft(draft_id)
+
+
+def test_flat_gpt_starting_state_is_normalized_into_usable_current():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        draft_id = create_draft("flat_start", "Flat Start")["draft_id"]
+        save_base(draft_id)
+        save_section(
+            draft_id,
+            "starting_state",
+            json.dumps(
+                {
+                    "pov": "Рина",
+                    "location": "кухня",
+                    "scene": "утро дома",
+                    "present_characters": ["Эдриан"],
+                },
+                ensure_ascii=False,
+            ),
+        )
+
+        finalized = finalize_draft(draft_id)
+        assert finalized["ok"] is True
+        meta = create_session_from_draft(draft_id)
+        sid = meta["session_id"]
+        state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
+
+        assert state["pov"]["character_id"] == "rina"
+        assert state["current"]["location"] == "кухня"
+        assert state["current"]["scene"] == "утро дома"
+        assert state["current"]["present_characters"] == ["rina", "adrian"]
+        assert current_recovery_status(sid)["required"] is False
+
+
+def test_create_session_revalidates_old_finalized_broken_draft():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        draft_id = create_draft("legacy_broken", "Legacy Broken")["draft_id"]
+        save_base(draft_id)
+        save_section(
+            draft_id,
+            "starting_state",
+            json.dumps({"current": {"location": "room", "present_characters": ["rina"]}}),
+        )
+        finalize_draft(draft_id)
+
+        path = _draft_path(draft_id)
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        raw["finalized_template"]["starting_state"] = {"current": {}}
+        path.write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
+
+        with pytest.raises(ValueError, match="STARTING_STATE_LOCATION_REQUIRED"):
+            create_session_from_draft(draft_id)

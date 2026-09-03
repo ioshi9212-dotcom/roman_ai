@@ -59,6 +59,11 @@ def test_finalize_keeps_large_draft_out_of_library_and_allows_chunked_verificati
         save_section(draft_id, "novel", json.dumps({"pov_character": "rina"}))
         save_section(draft_id, "characters", json.dumps([{"character_id": "rina", "name": "Rina", "is_pov": True}]))
         save_section(draft_id, "lore", json.dumps({"big": "y" * 30000}))
+        save_section(
+            draft_id,
+            "starting_state",
+            json.dumps({"current": {"location": "room", "present_characters": ["rina"]}}),
+        )
         result = finalize_draft(draft_id)
         assert result["ok"] is True
         assert result["verification"]["ok"] is True
