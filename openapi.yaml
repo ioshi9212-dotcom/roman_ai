@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Roman AI
-  version: 1.8.1
+  version: 1.8.2
   description: Persistent isolated novel sessions with complete chunked runtime, canon, cards, memory, chronology, recovery and audits.
 servers:
   - url: https://romanai-production-0fdb.up.railway.app
@@ -263,17 +263,31 @@ paths:
     get:
       operationId: getAuditSnapshot
       summary: Prepare a complete lossless 15-turn audit as chunks
-      description: Returns only an audit manifest. Nothing is compressed or truncated. Read every getAuditSnapshotChunk from 0 to chunk_count-1 before commitAudit.
+      description: Returns only an audit manifest. Nothing is shortened. Prefer getAuditSnapshotChunkBatch until next_start_index is null; single-chunk reads remain a fallback.
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
       responses:
         '200': {description: Audit manifest with audit_id and chunk_count}
         '409': {description: Audit is not currently required}
+  /sessions/{session_id}/audit-snapshot-batch/{audit_id}:
+    get:
+      operationId: getAuditSnapshotChunkBatch
+      summary: Read up to four consecutive lossless audit chunks in one action
+      description: Returns the exact concatenation of existing audit chunks and marks each included chunk as read. Follow next_start_index until null before commitAudit.
+      parameters:
+        - {in: path, name: session_id, required: true, schema: {type: string}}
+        - {in: path, name: audit_id, required: true, schema: {type: string}}
+        - {in: query, name: start_index, required: true, schema: {type: integer, minimum: 0}}
+        - {in: query, name: count, required: false, schema: {type: integer, minimum: 1, maximum: 4, default: 4}}
+      responses:
+        '200': {description: Concatenated audit content and next_start_index}
+        '403': {description: Invalid or stale audit_id}
+        '404': {description: Start index out of range}
   /sessions/{session_id}/audit-snapshot/{audit_id}/{chunk_index}:
     get:
       operationId: getAuditSnapshotChunk
       summary: Read one chunk of the complete lossless audit context
-      description: Chunks reconstruct the exact full audit payload including current runtime documents, source, all cards, full state, full memory, full chronology and exact saved turns for the 15-turn audit range.
+      description: Fallback single-chunk reader. Chunks reconstruct the exact full audit payload; every underlying chunk must be read before commitAudit.
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
         - {in: path, name: audit_id, required: true, schema: {type: string}}
@@ -297,10 +311,25 @@ paths:
       responses:
         '200': {description: Packet manifest}
         '409': {description: Audit required or current scene pointer requires technical recovery}
+  /sessions/{session_id}/turn-packet-batch/{packet_id}:
+    get:
+      operationId: getTurnPacketChunkBatch
+      summary: Read up to four consecutive lossless turn-packet chunks in one action
+      description: Returns the exact concatenation of existing packet chunks and marks each included chunk as read. Follow next_start_index until null before writing or committing the scene.
+      parameters:
+        - {in: path, name: session_id, required: true, schema: {type: string}}
+        - {in: path, name: packet_id, required: true, schema: {type: string}}
+        - {in: query, name: start_index, required: true, schema: {type: integer, minimum: 0}}
+        - {in: query, name: count, required: false, schema: {type: integer, minimum: 1, maximum: 4, default: 4}}
+      responses:
+        '200': {description: Concatenated packet content and next_start_index}
+        '403': {description: Invalid or stale packet_id}
+        '404': {description: Start index out of range}
   /sessions/{session_id}/turn-packet/{packet_id}/{chunk_index}:
     get:
       operationId: getTurnPacketChunk
       summary: Read one required context chunk
+      description: Fallback single-chunk reader. Every underlying packet chunk must be read before commitTurn.
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
         - {in: path, name: packet_id, required: true, schema: {type: string}}

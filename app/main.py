@@ -43,6 +43,45 @@ app = FastAPI(
 )
 
 
+_BATCH_MAX = 4
+
+
+def _read_chunk_batch(getter, session_id: str, read_id: str, start_index: int, count: int):
+    if start_index < 0:
+        raise ValueError("start_index must be >= 0")
+    if count < 1 or count > _BATCH_MAX:
+        raise ValueError(f"count must be between 1 and {_BATCH_MAX}")
+
+    parts = []
+    first = None
+    for chunk_index in range(start_index, start_index + count):
+        try:
+            item = getter(session_id, read_id, chunk_index)
+        except IndexError:
+            if not parts:
+                raise
+            break
+        if first is None:
+            first = item
+        parts.append(item)
+        if chunk_index + 1 >= int(item.get("chunk_count", 0)):
+            break
+
+    if not parts or first is None:
+        raise IndexError(start_index)
+    chunk_count = int(first.get("chunk_count", 0))
+    end_index = int(parts[-1]["chunk_index"])
+    return {
+        "start_index": start_index,
+        "end_index": end_index,
+        "chunk_count": chunk_count,
+        "chunks_read": [int(item["chunk_index"]) for item in parts],
+        "content": "".join(str(item.get("content", "")) for item in parts),
+        "all_chunks_read": bool(parts[-1].get("all_chunks_read")),
+        "next_start_index": None if end_index + 1 >= chunk_count else end_index + 1,
+    }
+
+
 @app.get("/health", operation_id="health")
 def health():
     return {"ok": True}
@@ -241,6 +280,23 @@ def audit_snapshot_get(session_id: str):
 
 
 @app.get(
+    "/sessions/{session_id}/audit-snapshot-batch/{audit_id}",
+    operation_id="getAuditSnapshotChunkBatch",
+)
+def audit_snapshot_chunk_batch_get(session_id: str, audit_id: str, start_index: int, count: int = _BATCH_MAX):
+    try:
+        return _read_chunk_batch(get_audit_snapshot_chunk, session_id, audit_id, start_index, count)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Session not found")
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="Invalid or stale audit_id")
+    except IndexError:
+        raise HTTPException(status_code=404, detail="Audit chunk index out of range")
+
+
+@app.get(
     "/sessions/{session_id}/audit-snapshot/{audit_id}/{chunk_index}",
     operation_id="getAuditSnapshotChunk",
 )
@@ -265,6 +321,23 @@ def turn_packet_prepare(session_id: str, body: TurnPrepare):
         if str(exc) == "AUDIT_REQUIRED":
             raise HTTPException(status_code=409, detail="Audit is required before preparing the next turn")
         raise
+
+
+@app.get(
+    "/sessions/{session_id}/turn-packet-batch/{packet_id}",
+    operation_id="getTurnPacketChunkBatch",
+)
+def turn_packet_chunk_batch_get(session_id: str, packet_id: str, start_index: int, count: int = _BATCH_MAX):
+    try:
+        return _read_chunk_batch(get_turn_packet_chunk, session_id, packet_id, start_index, count)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Session not found")
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="Invalid or stale packet_id")
+    except IndexError:
+        raise HTTPException(status_code=404, detail="Chunk index out of range")
 
 
 @app.get("/sessions/{session_id}/turn-packet/{packet_id}/{chunk_index}", operation_id="getTurnPacketChunk")
@@ -337,7 +410,7 @@ def audit_commit(session_id: str, body: AuditCommit):
     except RuntimeError as exc:
         errors = {
             "AUDIT_NOT_REQUIRED": "Audit is not currently required",
-            "AUDIT_PACKET_REQUIRED": "Call getAuditSnapshot first, then read every getAuditSnapshotChunk before commitAudit",
+            "AUDIT_PACKET_REQUIRED": "Call getAuditSnapshot first, then read every audit snapshot chunk before commitAudit",
             "AUDIT_PACKET_INCOMPLETE": "Every audit snapshot chunk must be read before commitAudit",
         }
         if str(exc) in errors:
