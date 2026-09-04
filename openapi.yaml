@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Roman AI
-  version: 1.9.0
+  version: 1.9.1
   description: Persistent isolated novel sessions with scene-scoped working context, transactional persistence, recovery and 15-turn audits.
 servers:
   - url: https://romanai-production-0fdb.up.railway.app
@@ -263,7 +263,7 @@ paths:
     get:
       operationId: getAuditSnapshot
       summary: Prepare the exact 15-turn audit working context as chunks
-      description: Exact audited turns plus current state/source and relevant full character memory. Read fixed-size batches until next_start_index is null.
+      description: Exact audited turns plus current state/source and relevant full character memory. Read response-safe batches until next_start_index is null.
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
       responses:
@@ -272,12 +272,13 @@ paths:
   /sessions/{session_id}/audit-snapshot-batch/{audit_id}:
     get:
       operationId: getAuditSnapshotChunkBatch
-      summary: Read the next four consecutive audit chunks from start_index
-      description: Server uses the fixed batch size. Follow returned next_start_index until null; all included underlying chunks are marked read.
+      summary: Read two consecutive response-safe audit chunks from start_index
+      description: Use count=2 only. Follow next_start_index until null; each included underlying chunk is marked read and content is lossless.
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
         - {in: path, name: audit_id, required: true, schema: {type: string}}
         - {in: query, name: start_index, required: true, schema: {type: integer, minimum: 0}}
+        - {in: query, name: count, required: true, schema: {type: integer, enum: [2]}}
       responses:
         '200': {description: Concatenated audit content and next_start_index}
         '403': {description: Invalid or stale audit_id}
@@ -300,12 +301,13 @@ paths:
   /sessions/{session_id}/turn-packet-batch/{packet_id}:
     get:
       operationId: getTurnPacketChunkBatch
-      summary: Read the next four consecutive turn-packet chunks from start_index
-      description: Server uses the fixed batch size. Follow returned next_start_index until null; every included underlying chunk is marked read.
+      summary: Read two consecutive response-safe turn chunks from start_index
+      description: Use count=2 only. Follow next_start_index until null; each included underlying chunk is marked read and content is lossless.
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
         - {in: path, name: packet_id, required: true, schema: {type: string}}
         - {in: query, name: start_index, required: true, schema: {type: integer, minimum: 0}}
+        - {in: query, name: count, required: true, schema: {type: integer, enum: [2]}}
       responses:
         '200': {description: Concatenated packet content and next_start_index}
         '403': {description: Invalid or stale packet_id}
