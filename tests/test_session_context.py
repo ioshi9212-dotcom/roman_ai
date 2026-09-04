@@ -26,9 +26,7 @@ def test_starting_state_full_canon_and_scene_relevant_cards_are_available():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         novel = {
-            "novel_id": "context_test",
-            "title": "Context Test",
-            "version": 1,
+            "novel_id": "context_test", "title": "Context Test", "version": 1,
             "novel": {"pov_character": "elena", "genre": "romance"},
             "rules": {"tone": "cinematic"},
             "lore": {"public": "east and west are divided"},
@@ -45,8 +43,7 @@ def test_starting_state_full_canon_and_scene_relevant_cards_are_available():
                 "relationships": {"aiden": {"trust": 10}},
             },
         }
-        meta = storage.create_session(novel)
-        sid = meta["session_id"]
+        sid = storage.create_session(novel)["session_id"]
         session = storage.load_session(sid)
         assert session["state"]["pov"]["character_id"] == "elena"
         assert session["state"]["current"]["location"] == "training hall"
@@ -60,18 +57,19 @@ def test_starting_state_full_canon_and_scene_relevant_cards_are_available():
 
         scene_ids = {x["character_id"] for x in context["character_cards"]}
         assert scene_ids == {"elena", "aiden"}
-        assert {x["character_id"] for x in context["scene_character_cards"]} == scene_ids
-        assert {x["character_id"] for x in context["character_registry_index"]} == {"elena", "aiden", "liam"}
+        assert set(context["character_memory"]) == scene_ids
+        assert {x["character_id"] for x in context["character_registry"]} == {"elena", "aiden", "liam"}
+        assert "scene_character_cards" not in context
+        assert "character_registry_index" not in context
 
         liam_bundle = get_character_bundle(sid, "liam")
         assert liam_bundle["card"]["past"] == "academy graduate"
-
         assert {x["character_id"] for x in context["cast_index"]} == {"elena", "aiden", "liam"}
-        assert {x["character_id"] for x in context["character_registry"]} == {"elena", "aiden", "liam"}
         assert context["novel_rules"]["tone"] == "cinematic"
         assert context["hidden_lore"]["secret"].startswith("Aiden")
         assert context["story_direction"]["focus"] == "relationships first"
         assert context["world_canon"]["city"] == "Eastern Sector"
+        assert context["starting_state"] == novel["starting_state"]
 
         builder = context["scene_builder"]
         assert "Формат обязателен" in builder
@@ -87,8 +85,7 @@ def test_new_recurring_npc_becomes_live_card_and_returns_later():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         novel = {
-            "novel_id": "npc_test",
-            "title": "NPC Test",
+            "novel_id": "npc_test", "title": "NPC Test",
             "novel": {"pov_character": "rina"},
             "characters": [{"character_id": "rina", "name": "Rina", "is_pov": True}],
             "lore": {},
@@ -97,20 +94,13 @@ def test_new_recurring_npc_becomes_live_card_and_returns_later():
         sid = storage.create_session(novel)["session_id"]
 
         commit_with_packet(
-            sid,
-            "A stranger introduces himself as Knox.",
-            "Knox enters the story.",
+            sid, "A stranger introduces himself as Knox.", "Knox enters the story.",
             {
-                "character_upserts": [
-                    {"character_id": "knox", "name": "Knox", "role": "recurring ally", "past": "former scout"}
-                ],
+                "character_upserts": [{"character_id": "knox", "name": "Knox", "role": "recurring ally", "past": "former scout"}],
                 "state_patch": {"current": {"present_characters": ["rina", "knox"]}},
-                "experiences_add": [
-                    {"character_id": "knox", "event_id": "met_rina", "summary": "Knox met Rina"}
-                ],
+                "experiences_add": [{"character_id": "knox", "event_id": "met_rina", "summary": "Knox met Rina"}],
             },
         )
-
         session = storage.load_session(sid)
         assert any(x["character_id"] == "knox" for x in session["characters"])
         assert session["memory"]["characters"]["knox"]["experiences"][0]["event_id"] == "met_rina"
