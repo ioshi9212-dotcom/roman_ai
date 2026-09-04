@@ -25,9 +25,7 @@ def novel_fixture():
         "starting_state": {
             "pov": {"character_id": "pov"},
             "current": {
-                "date": "02.09.2026",
-                "time": "23:50",
-                "location": "дом",
+                "date": "02.09.2026", "time": "23:50", "location": "дом",
                 "present_characters": ["pov", "present"],
             },
         },
@@ -51,15 +49,15 @@ def test_turn_packet_keeps_dormant_character_persisted_but_out_of_working_contex
         setup_temp_storage(tmp)
         sid = storage.create_session(novel_fixture())["session_id"]
         root = storage.SESSIONS_DIR / sid
-
         manifest = session_runtime.prepare_turn_packet(sid, "Посмотреть на Эдриана.")
         _packet, context = read_packet(root)
 
         assert manifest["working_context"] is True
-        ids = {row["character_id"] for row in context["scene_character_cards"]}
+        ids = {row["character_id"] for row in context["character_cards"]}
         assert {"pov", "present"}.issubset(ids)
         assert "dormant" not in ids
-        assert "dormant" in {row["character_id"] for row in context["character_registry_index"]}
+        assert "dormant" in {row["character_id"] for row in context["character_registry"]}
+        assert set(context["character_memory"]) == {"pov", "present"}
 
         persisted = storage._read_json(root / "characters.json", [])
         dormant = next(row for row in persisted if row["character_id"] == "dormant")
@@ -93,17 +91,15 @@ def test_commit_updates_story_clock_from_scene_header_and_persists_all_files():
                 "extracted": {
                     "persistence_reviewed": True,
                     "chronology": [{"event": "Наступили следующие сутки."}],
-                    "knowledge_add": [],
-                    "experiences_add": [],
-                    "dialogue_memory_add": [],
-                    "state_patch": {
-                        "current": {"present_characters": ["pov", "present"]}
-                    },
+                    "knowledge_add": [], "experiences_add": [], "dialogue_memory_add": [],
+                    "state_patch": {"current": {"present_characters": ["pov", "present"]}},
                 },
             },
         )
 
         assert result["turn_number"] == 1
+        assert result["transactional_commit"] is True
+        assert result["relationship_snapshots_atomic"] is True
         state = storage._read_json(root / "state.json", {})
         assert state["current"]["date"] == "03.09.2026"
         assert state["current"]["time"] == "00:05"
