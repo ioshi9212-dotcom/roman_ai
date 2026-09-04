@@ -46,13 +46,10 @@ def test_turn_packet_uses_single_builder_compatible_working_set_and_preserves_st
         marker_away_card = "DORMANT_CARD_UNIQUE_afe8"
         marker_away_memory = "DORMANT_MEMORY_UNIQUE_b019"
         novel = {
-            "novel_id": "working_context",
-            "title": "Working Context",
+            "novel_id": "working_context", "title": "Working Context",
             "novel": {"pov_character": "pov", "questionnaire": marker_novel},
-            "rules": {"custom": "rule"},
-            "lore": {"public": marker_lore},
-            "hidden_lore": {"secret": "secret"},
-            "world": {"world": "world"},
+            "rules": {"custom": "rule"}, "lore": {"public": marker_lore},
+            "hidden_lore": {"secret": "secret"}, "world": {"world": "world"},
             "story_direction": {"direction": "direction"},
             "characters": [
                 {"character_id": "pov", "name": "POV", "is_pov": True, "bio": "pov bio"},
@@ -77,6 +74,7 @@ def test_turn_packet_uses_single_builder_compatible_working_set_and_preserves_st
         manifest, context, raw = read_packet(sid)
         assert manifest["working_context"] is True
         assert context["working_context_contract"]["single_copy_transport"] is True
+        assert context["working_context_contract"]["single_runtime_document_copy"] is True
         assert context["working_context_contract"]["scene_builder_paths_are_canonical"] is True
         assert context["transport_context_paths"] == {
             "state": "scene_state", "cards": "character_cards", "memory": "character_memory",
@@ -91,6 +89,20 @@ def test_turn_packet_uses_single_builder_compatible_working_set_and_preserves_st
         assert context["novel"] == novel["novel"]
         assert context["novel_lore"] == novel["lore"]
         assert context["starting_state"] == novel["starting_state"]
+
+        assert "runtime_documents" not in context
+        assert context["runtime_rules"]
+        assert context["scene_builder"]
+        assert context["pov_participation_contract"]
+        assert context["npc_agency_contract"]
+        assert context["relationship_contract"]
+        assert context["presence_contract"]
+        assert context["memory_contract"]
+        assert context["continuity_contract"]
+        assert set(context["runtime_document_paths"]) == {
+            "rules", "scene_builder", "pov_contract", "npc_agency_contract", "relationship_contract",
+            "presence_contract", "memory_contract", "continuity_contract",
+        }
 
         for removed in ("source_full", "state_full", "scene_character_cards", "scene_character_memory", "character_registry_index"):
             assert removed not in context
