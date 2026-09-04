@@ -102,6 +102,8 @@ def test_turn_packet_preserves_full_storage_but_transmits_only_scene_relevant_do
         assert set(context["scene_character_memory"]["characters"]) == {"pov", "npc"}
         assert "away" not in context["scene_character_memory"]["characters"]
         assert "away" in {x["character_id"] for x in context["character_registry_index"]}
+        assert "personal_memory" not in context["scene_characters"]["pov"]
+        assert context["scene_characters"]["pov"]["personal_memory_path"] == "scene_character_memory.characters[pov]"
 
         persisted_source = storage._read_json(root / "source.json", {})
         assert persisted_source == novel
@@ -123,4 +125,6 @@ def test_turn_packet_preserves_full_storage_but_transmits_only_scene_relevant_do
         assert "NOT from universal therapy" in context["npc_agency_instruction"]
         assert context["knowledge_guard"]["mandatory"] is True
         assert context["knowledge_guard"]["personal_memory_path"] == "scene_character_memory.characters[character_id]"
-        assert "Private POV thoughts" in context["knowledge_guard"]["instruction"]
+        assert "POV thoughts" in context["knowledge_guard"]["instruction"]
+        assert "Mere proximity" in context["knowledge_guard"]["instruction"]
+        assert "NEVER keep the leak" in context["knowledge_guard"]["instruction"]
