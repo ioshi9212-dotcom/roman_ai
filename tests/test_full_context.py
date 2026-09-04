@@ -91,7 +91,10 @@ def test_turn_packet_preserves_full_storage_but_transmits_only_scene_relevant_do
         assert manifest["working_context"] is True
         assert context["working_context_contract"]["persistent_storage_is_complete"] is True
         assert context["working_context_contract"]["turn_packet_is_scene_scoped"] is True
-        assert context["source_full"] == novel
+        assert context["source_character_cards_omitted_from_transport"] is True
+        assert "characters" not in context["source_full"]
+        assert context["source_full"]["novel"] == novel["novel"]
+        assert context["source_full"]["lore"] == novel["lore"]
         assert context["state_full"] == storage._read_json(root / "state.json", {})
 
         packet_ids = {x["character_id"] for x in context["scene_character_cards"]}
@@ -100,6 +103,8 @@ def test_turn_packet_preserves_full_storage_but_transmits_only_scene_relevant_do
         assert "away" not in context["scene_character_memory"]["characters"]
         assert "away" in {x["character_id"] for x in context["character_registry_index"]}
 
+        persisted_source = storage._read_json(root / "source.json", {})
+        assert persisted_source == novel
         persisted_cards = storage._read_json(root / "characters.json", [])
         assert {x["character_id"] for x in persisted_cards} == {"pov", "npc", "away"}
         persisted_memory = storage._read_json(root / "memory.json", {})
