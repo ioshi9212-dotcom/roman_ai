@@ -9,7 +9,7 @@ from . import storage
 from .runtime_access import runtime_documents
 
 
-AUDIT_PACKET_VERSION = 3
+AUDIT_PACKET_VERSION = 4
 AUDIT_PACKET_FILE = "audit_packet.json"
 
 
@@ -31,6 +31,12 @@ def _memory_record_turn(item: Dict[str, Any]) -> int:
         return int(item.get("learned_turn") or item.get("turn_number") or item.get("turn") or 0)
     except (TypeError, ValueError):
         return 0
+
+
+def _source_canon_without_cards(source: Dict[str, Any]) -> Dict[str, Any]:
+    result = deepcopy(source if isinstance(source, dict) else {})
+    result.pop("characters", None)
+    return result
 
 
 def _audit_character_ids(
@@ -155,6 +161,7 @@ def _build_audit_payload(session_id: str) -> Dict[str, Any]:
 
     start_turn, end_turn = _audit_range(meta)
     source = storage._read_json(root / "source.json", {})
+    source_canon = _source_canon_without_cards(source)
     cards = storage._load_cards(root, source)
     state = storage._read_json(root / "state.json", {})
     memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
@@ -168,7 +175,8 @@ def _build_audit_payload(session_id: str) -> Dict[str, Any]:
         "session_id": session_id,
         "audit_range": [start_turn, end_turn],
         "runtime_documents_full": runtime_documents(),
-        "source_full": source,
+        "source_full": source_canon,
+        "source_character_cards_omitted_from_transport": True,
         "state_full": state,
         "audit_character_ids": character_ids,
         "character_cards_audit": [deepcopy(card_map[cid]) for cid in character_ids if cid in card_map],
@@ -183,10 +191,11 @@ def _build_audit_payload(session_id: str) -> Dict[str, Any]:
         "storage_contract": {
             "persistent_storage_is_complete": True,
             "audit_payload_is_range_scoped": True,
+            "source_character_cards_stay_persistent": True,
             "instruction": (
-                "Railway still stores every card, every personal-memory record and the complete chronology. The audit payload carries "
-                "the exact 15 audited turns, full current state/source/runtime, full dossiers and full personal memory for characters "
-                "involved in the range, plus chronology from the range, anchors and relevant prior continuity. Nothing is deleted from storage."
+                "Railway still stores the complete source, every live card, every personal-memory record and the complete chronology. "
+                "source_full omits only the duplicated source.characters transport copy because character_registry_index and character_cards_audit "
+                "carry the authoritative live character data needed by this audit. Nothing is deleted from storage."
             ),
         },
         "instruction": (
