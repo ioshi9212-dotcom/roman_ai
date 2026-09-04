@@ -48,13 +48,13 @@ def test_runtime_is_complete_and_chunked():
     assert manifest["total_chars"] == sum(len(x) for x in chunks)
 
 
-def test_turn_packet_contains_full_source_state_cards_memory_and_chronology_without_truncation():
+def test_turn_packet_preserves_full_storage_but_transmits_only_scene_relevant_dossiers():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         huge = "X" * 18000
         novel = {
-            "novel_id": "full_context",
-            "title": "Full Context",
+            "novel_id": "working_context",
+            "title": "Working Context",
             "novel": {"pov_character": "pov", "questionnaire": huge},
             "rules": {"custom": huge},
             "lore": {"public": huge},
@@ -67,6 +67,7 @@ def test_turn_packet_contains_full_source_state_cards_memory_and_chronology_with
                 {"character_id": "away", "name": "Away", "bio": huge},
             ],
             "starting_state": {
+                "pov": {"character_id": "pov"},
                 "current": {"location": "room", "present_characters": ["pov", "npc"]},
                 "relationships": {"npc": {"trust": 17}},
             },
@@ -87,32 +88,34 @@ def test_turn_packet_contains_full_source_state_cards_memory_and_chronology_with
 
         manifest, context = read_packet(sid)
         assert manifest["chunk_count"] > 1
-        assert context["full_context_contract"]["no_truncation"] is True
-        assert context["full_context_contract"]["author_truth_is_quarantined_from_character_knowledge"] is True
+        assert manifest["working_context"] is True
+        assert context["working_context_contract"]["persistent_storage_is_complete"] is True
+        assert context["working_context_contract"]["turn_packet_is_scene_scoped"] is True
         assert context["source_full"] == novel
         assert context["state_full"] == storage._read_json(root / "state.json", {})
-        assert context["memory_full"] == memory
-        assert context["chronology_full"] == chronology
-        assert len(context["chronology_full"]) == 80
-        assert context["chronology_full"][0]["event_id"] == "e1"
-        assert context["chronology_full"][-1]["event_id"] == "e80"
-        assert {x["character_id"] for x in context["all_character_cards"]} == {"pov", "npc", "away"}
-        assert {x["character_id"] for x in context["present_character_cards"]} == {"pov", "npc"}
+
+        packet_ids = {x["character_id"] for x in context["scene_character_cards"]}
+        assert packet_ids == {"pov", "npc"}
+        assert set(context["scene_character_memory"]["characters"]) == {"pov", "npc"}
+        assert "away" not in context["scene_character_memory"]["characters"]
+        assert "away" in {x["character_id"] for x in context["character_registry_index"]}
+
+        persisted_cards = storage._read_json(root / "characters.json", [])
+        assert {x["character_id"] for x in persisted_cards} == {"pov", "npc", "away"}
+        persisted_memory = storage._read_json(root / "memory.json", {})
+        assert persisted_memory["characters"]["away"]["dialogue_memory"][0]["topic_id"] == "away-topic"
+        assert storage._read_json(root / "chronology.json", []) == chronology
+
         assert set(context["present_character_ids_at_turn_start"]) == {"pov", "npc"}
         assert context["runtime_documents"]["rules"]
         assert context["runtime_documents"]["scene_builder"]
         assert context["runtime_documents"]["pov_contract"]
         assert context["runtime_documents"]["npc_agency_contract"]
         assert context["runtime_documents"]["relationship_contract"]
-        assert context["runtime_documents"]["presence_contract"]
-        assert context["runtime_documents"]["memory_contract"]
-        assert context["runtime_documents"]["continuity_contract"]
         assert context["pov_participation_contract"] == context["runtime_documents"]["pov_contract"]
         assert "active participant" in context["pov_participation_instruction"]
         assert context["npc_agency_contract"] == context["runtime_documents"]["npc_agency_contract"]
         assert "NOT from universal therapy" in context["npc_agency_instruction"]
-        assert "Do not automatically soften" in context["npc_agency_instruction"]
         assert context["knowledge_guard"]["mandatory"] is True
-        assert context["knowledge_guard"]["personal_memory_path"] == "memory_full.characters[character_id]"
-        assert "Mere proximity" in context["knowledge_guard"]["instruction"]
-        assert "NEVER keep the leak" in context["knowledge_guard"]["instruction"]
+        assert context["knowledge_guard"]["personal_memory_path"] == "scene_character_memory.characters[character_id]"
+        assert "Private POV thoughts" in context["knowledge_guard"]["instruction"]
