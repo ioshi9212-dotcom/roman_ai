@@ -21,13 +21,13 @@ Do not publish a new draft to the reusable Library unless the user explicitly as
 
 For every gameplay input:
 1. Call `prepareTurn` with the exact user input.
-2. Read the entire returned turn packet before writing. Prefer `getTurnPacketChunkBatch` with consecutive `start_index` values and `count=4`; follow `next_start_index` until it is null. The batch content is the exact concatenation of the same underlying chunks and does not omit or summarize anything. Use `getTurnPacketChunk` only as fallback.
+2. RESPONSE-SIZE HOTFIX: do not use `getTurnPacketChunkBatch`. Read every packet chunk individually with `getTurnPacketChunk`, from index 0 through `chunk_count-1`, with no gaps or repeats. This preserves the exact full packet while keeping every Action response below the size that triggered `ResponseTooLargeError`.
 3. Follow the current `scene_builder`, runtime contracts, full source/state/cards/memory/chronology and relationship lens from that packet.
 4. Perform the required persistence review.
 5. Call `commitTurn` with the exact same user input.
 6. Show the scene only after commit succeeds.
 
-If `commitTurn` reports that an audit is due, call `getAuditSnapshot`, then read the entire audit payload. Prefer `getAuditSnapshotChunkBatch` with consecutive `start_index` values and `count=4`; follow `next_start_index` until null, then call `commitAudit`. Batch reading must still cover every underlying audit chunk before commit.
+If `commitTurn` reports that an audit is due, call `getAuditSnapshot`, then read the entire audit payload individually with `getAuditSnapshotChunk`, from index 0 through `chunk_count-1`. Do not use the audit batch endpoint during this hotfix. Only then call `commitAudit`.
 
 ## Same session across chats
 
