@@ -45,3 +45,28 @@ def sync_game_day(state: Dict[str, Any], source: Dict[str, Any]) -> Dict[str, An
         current["game_day"] = 1
 
     return result
+
+
+def _sync_session_game_day(session_id: str) -> None:
+    from . import storage
+
+    root = storage.SESSIONS_DIR / session_id
+    if not root.exists():
+        raise FileNotFoundError(session_id)
+    source = storage._read_json(root / "source.json", {})
+    state = storage._read_json(root / "state.json", {})
+    updated = sync_game_day(state, source)
+    if updated != state:
+        storage._write_json(root / "state.json", updated)
+
+
+def install() -> None:
+    from . import session_runtime
+
+    original_prepare_turn = session_runtime.prepare_turn_packet
+
+    def prepare_turn_packet(session_id: str, user_input: str):
+        _sync_session_game_day(session_id)
+        return original_prepare_turn(session_id, user_input)
+
+    session_runtime.prepare_turn_packet = prepare_turn_packet
