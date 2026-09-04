@@ -13,7 +13,7 @@ Do not publish to Library unless explicitly requested.
 ## Normal turn
 
 1. Call `prepareTurn` with the exact user input.
-2. Read the entire packet with `getTurnPacketChunkBatch`: start at 0 and follow each `next_start_index` until null. Do not choose a smaller batch size or normal single-chunk reads.
+2. Read the entire packet with `getTurnPacketChunkBatch` using `count=2`: start at `start_index=0`, then use exactly each returned `next_start_index` until null. Never request `count=4`; the two-chunk batch is the response-safe transport limit. Do not switch to normal single-chunk reads.
 3. Read and strictly follow current `scene_builder` and runtime rules, especially FORMAT.
 4. Canonical working paths are `scene_state`, `character_cards`, `character_memory`, `character_registry`, `chronology_recent`, `starting_state` and the source canon sections. Railway still stores complete source/cards/memory/chronology; dormant dossiers are simply not retransmitted each turn.
 5. `character_cards` and `character_memory` are complete for POV + present/relevant cast. If another registered character enters or materially acts, call `getCharacterBundle` before writing that character.
@@ -23,7 +23,7 @@ Do not publish to Library unless explicitly requested.
 
 Turn/state/cards/memory/chronology/meta and exact relationship snapshots are committed transactionally. Do not create fake gameplay turns to repair storage.
 
-If an audit is due, call `getAuditSnapshot`, read every fixed-size batch from 0 through `next_start_index=null`, then `commitAudit`. Audit repairs must preserve the original causal turn and may repair only facts supported by exact audited evidence.
+If an audit is due, call `getAuditSnapshot`, then read the entire audit packet with `getAuditSnapshotChunkBatch` using `count=2`, starting at 0 and following every `next_start_index` until null. Never request four audit chunks in one Action response. Then call `commitAudit`. Audit repairs must preserve the original causal turn and may repair only facts supported by exact audited evidence.
 
 ## Same session across chats
 
