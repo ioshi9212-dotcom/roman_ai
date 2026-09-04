@@ -43,6 +43,28 @@ def _turns_text(turns: list[dict[str, Any]]) -> str:
     return "".join(json.dumps(turn, ensure_ascii=False) + "\n" for turn in turns)
 
 
+def _clean_scene_pointer(state: Dict[str, Any], extracted: Dict[str, Any]) -> Dict[str, Any]:
+    current = state.get("current") if isinstance(state.get("current"), dict) else {}
+    state["current"] = current
+    state_patch = extracted.get("state_patch") if isinstance(extracted.get("state_patch"), dict) else {}
+    current_patch = state_patch.get("current") if isinstance(state_patch.get("current"), dict) else {}
+
+    if "entered_characters" not in current_patch:
+        current.pop("entered_characters", None)
+    if "left_characters" not in current_patch:
+        current.pop("left_characters", None)
+
+    present = set(str(value) for value in storage._present_character_ids(state) if value)
+    positions = current.get("positions") if isinstance(current.get("positions"), dict) else None
+    if positions is not None:
+        current["positions"] = {
+            str(character_id): deepcopy(position)
+            for character_id, position in positions.items()
+            if str(character_id) in present
+        }
+    return state
+
+
 def _atomic_commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     root = storage.SESSIONS_DIR / session_id
     if not root.exists():
@@ -82,6 +104,7 @@ def _atomic_commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, A
         if header_current:
             current = state.get("current") if isinstance(state.get("current"), dict) else {}
             state["current"] = storage._deep_merge(current, header_current)
+        state = _clean_scene_pointer(state, extracted)
         state = sync_game_day(state, source)
         state = storage._refresh_runtime_presence(state, cards, turn_number)
 
@@ -147,6 +170,7 @@ def _atomic_commit_audit(session_id: str, payload: Dict[str, Any]) -> Dict[str, 
         if isinstance(repairs.get("state_patch"), dict):
             state = storage._deep_merge(state, repairs["state_patch"])
         source = storage._read_json(root / "source.json", {})
+        state = _clean_scene_pointer(state, repairs)
         state = sync_game_day(state, source)
 
         memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
@@ -211,6 +235,14 @@ def _prepare_turn(session_id: str, user_input: str) -> Dict[str, Any]:
                 instruction.rstrip()
                 + " For every present NPC, do not output an empty relationship block merely because no numeric baseline existed before this scene."
             ).strip()
+        scene_presence = context.get("scene_presence") if isinstance(context.get("scene_presence"), dict) else {}
+        roster = scene_presence.get("roster") if isinstance(scene_presence.get("roster"), list) else []
+        for row in roster:
+            if not isinstance(row, dict) or not row.get("character_id"):
+                continue
+            character_id = str(row["character_id"])
+            row["full_card_path"] = f"scene_character_cards[character_id={character_id}]"
+            row["memory_path"] = f"scene_character_memory.characters[{character_id}]"
         text = json.dumps(context, ensure_ascii=False, separators=(",", ":"))
         chunks = [text[i:i + storage.MAX_PACKET_CHARS] for i in range(0, len(text), storage.MAX_PACKET_CHARS)] or ["{}"]
         packet["chunks"] = chunks
