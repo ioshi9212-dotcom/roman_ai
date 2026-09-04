@@ -104,7 +104,10 @@ def test_audit_snapshot_keeps_exact_15_turns_without_replaying_unrelated_storage
         audit_runtime.require_complete_audit_read(sid, 31, 45)
 
         assert payload["audit_range"] == [31, 45]
-        assert payload["source_full"] == novel
+        assert payload["source_character_cards_omitted_from_transport"] is True
+        assert "characters" not in payload["source_full"]
+        assert payload["source_full"]["novel"] == novel["novel"]
+        assert payload["source_full"]["rules"] == novel["rules"]
         assert payload["state_full"] == storage._read_json(root / "state.json", {})
         assert len(payload["audit_turns_full"]) == 15
         assert payload["audit_turns_full"][0]["turn_number"] == 31
@@ -121,6 +124,7 @@ def test_audit_snapshot_keeps_exact_15_turns_without_replaying_unrelated_storage
         assert max(chronology_turns) == 45
 
         # Complete data is still untouched in Railway.
+        assert storage._read_json(root / "source.json", {}) == novel
         assert storage._read_json(root / "memory.json", {})["characters"]["away"]["knowledge"][0]["fact_id"] == "old-away"
         assert len(storage._read_json(root / "chronology.json", [])) == 45
         assert huge_x in payload["source_full"]["novel"]["questionnaire"]
