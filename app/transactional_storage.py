@@ -82,6 +82,7 @@ def _rollback(root: Path, transaction_dir: Path, manifest: Dict[str, Any]) -> No
             target.unlink(missing_ok=True)
             _fsync_dir(target.parent)
     shutil.rmtree(transaction_dir, ignore_errors=True)
+    _fsync_dir(transaction_dir.parent)
 
 
 def recover(root: Path) -> None:
@@ -92,14 +93,17 @@ def recover(root: Path) -> None:
         manifest_path = transaction_dir / "manifest.json"
         if not manifest_path.exists():
             shutil.rmtree(transaction_dir, ignore_errors=True)
+            _fsync_dir(transactions)
             continue
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         if manifest.get("state") == "committed":
             shutil.rmtree(transaction_dir, ignore_errors=True)
+            _fsync_dir(transactions)
         else:
             _rollback(root, transaction_dir, manifest)
     try:
         transactions.rmdir()
+        _fsync_dir(root)
     except OSError:
         pass
 
@@ -145,6 +149,8 @@ def write_batch(root: Path, values: Dict[str, str]) -> None:
         backup_dir = tx / "backup"
         staged_dir.mkdir(parents=True, exist_ok=False)
         backup_dir.mkdir(parents=True, exist_ok=True)
+        _fsync_dir(transactions)
+        _fsync_dir(tx)
         manifest: Dict[str, Any] = {"version": 1, "state": "prepared", "entries": []}
         manifest_path = tx / "manifest.json"
         try:
@@ -170,6 +176,8 @@ def write_batch(root: Path, values: Dict[str, str]) -> None:
                         "backup_exists": backup_exists,
                     }
                 )
+            _fsync_dir(staged_dir)
+            _fsync_dir(backup_dir)
             _write_text_atomic(manifest_path, json.dumps(manifest, ensure_ascii=False, indent=2) + "\n")
             _fsync_dir(tx)
             for entry in manifest["entries"]:
@@ -180,8 +188,10 @@ def write_batch(root: Path, values: Dict[str, str]) -> None:
             manifest["state"] = "committed"
             _write_text_atomic(manifest_path, json.dumps(manifest, ensure_ascii=False, indent=2) + "\n")
             shutil.rmtree(tx, ignore_errors=True)
+            _fsync_dir(transactions)
             try:
                 transactions.rmdir()
+                _fsync_dir(root)
             except OSError:
                 pass
         except Exception:
@@ -191,6 +201,7 @@ def write_batch(root: Path, values: Dict[str, str]) -> None:
                     _rollback(root, tx, current)
                 else:
                     shutil.rmtree(tx, ignore_errors=True)
+                    _fsync_dir(transactions)
             finally:
                 raise
 
