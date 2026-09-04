@@ -14,7 +14,7 @@ def setup_temp_storage(tmp: str):
     storage.ensure_dirs()
 
 
-def test_audit_snapshot_is_lossless_and_chunked_with_large_context():
+def test_audit_snapshot_keeps_exact_15_turns_without_replaying_unrelated_storage():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         huge_x = "X" * 80_000
@@ -28,17 +28,12 @@ def test_audit_snapshot_is_lossless_and_chunked_with_large_context():
             "characters": [
                 {"character_id": "pov", "name": "POV", "is_pov": True, "bio": huge_x},
                 {"character_id": "npc", "name": "NPC", "bio": huge_y},
+                {"character_id": "away", "name": "Away", "bio": huge_z},
             ],
             "starting_state": {
                 "pov": {"character_id": "pov", "condition": {"note": huge_x}},
-                "current": {
-                    "location": "room",
-                    "scene": huge_y,
-                    "present_characters": ["pov", "npc"],
-                },
-                "characters": {
-                    "npc": {"present": True, "location": "room", "huge": huge_z}
-                },
+                "current": {"location": "room", "scene": huge_y, "present_characters": ["pov", "npc"]},
+                "characters": {"npc": {"present": True, "location": "room", "huge": huge_z}},
                 "relationships": {"npc": {"trust": 17}},
             },
         }
@@ -62,6 +57,9 @@ def test_audit_snapshot_is_lossless_and_chunked_with_large_context():
             storage._memory_bucket(memory, "npc")["dialogue_memory"].append(
                 {"topic_id": f"d{turn}", "turn": turn, "summary": "D" * 5_000}
             )
+        storage._memory_bucket(memory, "away")["knowledge"].append(
+            {"fact_id": "old-away", "learned_turn": 2, "fact": huge_z}
+        )
         storage._write_json(root / "memory.json", memory)
 
         chronology = [
@@ -82,7 +80,7 @@ def test_audit_snapshot_is_lossless_and_chunked_with_large_context():
                         {
                             "turn_number": turn,
                             "user_input": f"input-{turn}-" + huge_x,
-                            "scene_output": f"scene-{turn}-" + huge_y,
+                            "scene_output": f"scene-{turn}-NPC-" + huge_y,
                             "extracted": {"marker": huge_z},
                         },
                         ensure_ascii=False,
@@ -103,19 +101,25 @@ def test_audit_snapshot_is_lossless_and_chunked_with_large_context():
             for index in range(manifest["chunk_count"])
         ]
         payload = json.loads("".join(chunks))
-
         audit_runtime.require_complete_audit_read(sid, 31, 45)
+
         assert payload["audit_range"] == [31, 45]
         assert payload["source_full"] == novel
         assert payload["state_full"] == storage._read_json(root / "state.json", {})
-        assert payload["memory_full"] == memory
-        assert payload["chronology_full"] == chronology
-        assert payload["character_cards_full"] == storage._load_cards(root, novel)
         assert len(payload["audit_turns_full"]) == 15
         assert payload["audit_turns_full"][0]["turn_number"] == 31
         assert payload["audit_turns_full"][-1]["turn_number"] == 45
+        assert set(payload["audit_character_ids"]) == {"pov", "npc"}
+        assert set(payload["memory_audit"]["characters"]) == {"pov", "npc"}
+        assert "away" not in payload["memory_audit"]["characters"]
+        assert {item["character_id"] for item in payload["character_registry_index"]} == {"pov", "npc", "away"}
+        assert {item["character_id"] for item in payload["character_cards_audit"]} == {"pov", "npc"}
+        assert {item["turn_number"] for item in payload["chronology_audit"]} == set(range(31, 46))
+
+        # Complete data is still untouched in Railway.
+        assert storage._read_json(root / "memory.json", {})["characters"]["away"]["knowledge"][0]["fact_id"] == "old-away"
+        assert len(storage._read_json(root / "chronology.json", [])) == 45
         assert huge_x in payload["source_full"]["novel"]["questionnaire"]
         assert huge_y in payload["state_full"]["current"]["scene"]
-        assert huge_z in payload["state_full"]["characters"]["npc"]["huge"]
         assert payload["runtime_documents_full"]["scene_builder"]
         assert manifest["total_chars"] == sum(len(chunk) for chunk in chunks)
