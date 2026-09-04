@@ -115,27 +115,43 @@ def _deduplicate_scene_character_memory(context: Dict[str, Any]) -> None:
 
 
 def inject_required_turn_context(context: Dict[str, Any], cards: List[Dict[str, Any]], state: Dict[str, Any]) -> Dict[str, Any]:
-    """Inject one lossless copy of the scene-relevant working set using scene_builder's stable paths."""
+    """Inject each required runtime/canon/memory block once, using stable scene_builder paths."""
     memory = _session_memory(context)
     documents = runtime_documents()
     scene_ids = _scene_character_ids(context, state)
     scene_cards = _selected_cards(cards, scene_ids)
     scene_memory = _selected_memory(memory, scene_ids)
 
-    context["runtime_documents"] = documents
+    # Runtime documents are flattened so scene_builder/contracts are not serialized twice.
+    context.pop("runtime_documents", None)
+    context["runtime_rules"] = documents["rules"]
     context["scene_builder"] = documents["scene_builder"]
+    context["pov_participation_contract"] = documents["pov_contract"]
+    context["npc_agency_contract"] = documents["npc_agency_contract"]
+    context["relationship_contract"] = documents["relationship_contract"]
+    context["presence_contract"] = documents["presence_contract"]
+    context["memory_contract"] = documents["memory_contract"]
+    context["continuity_contract"] = documents["continuity_contract"]
+    context["runtime_document_paths"] = {
+        "rules": "runtime_rules",
+        "scene_builder": "scene_builder",
+        "pov_contract": "pov_participation_contract",
+        "npc_agency_contract": "npc_agency_contract",
+        "relationship_contract": "relationship_contract",
+        "presence_contract": "presence_contract",
+        "memory_contract": "memory_contract",
+        "continuity_contract": "continuity_contract",
+    }
     context["scene_builder_instruction"] = (
         "MANDATORY. Read scene_builder completely before writing and follow its FORMAT exactly. "
         "Do not shorten, reorder, omit or replace its blocks."
     )
-    context["pov_participation_contract"] = documents["pov_contract"]
     context["pov_participation_instruction"] = (
         "MANDATORY GLOBAL POV RULE. POV must remain an active participant throughout the scene. "
         "Write ordinary in-character POV dialogue, reactions, thoughts and small actions without asking permission; "
         "do not reduce POV to silence, one-word replies or body-only reactions merely to preserve player agency. "
         "Stop only before genuinely consequential POV choices defined by the contract."
     )
-    context["npc_agency_contract"] = documents["npc_agency_contract"]
     context["npc_agency_instruction"] = (
         "MANDATORY GLOBAL NPC AGENCY RULE. NPC behavior comes from that NPC's character, desires, goals, advantage, fears, "
         "relationships, knowledge, duties and current situation, NOT from universal therapy, boundary etiquette or author-approved "
@@ -144,7 +160,6 @@ def inject_required_turn_context(context: Dict[str, Any], cards: List[Dict[str, 
         "without a preliminary permission question when consistent with the character and scene. Do not praise restraint as 'better' or "
         "narrate 'wanted to but did not' merely to model healthy boundaries. Consequential POV reactions and choices remain with the player."
     )
-    context["relationship_contract"] = documents["relationship_contract"]
 
     relationship_lens = build_relationship_lens(
         state,
@@ -182,15 +197,8 @@ def inject_required_turn_context(context: Dict[str, Any], cards: List[Dict[str, 
         "personal_memory_path": "character_memory[character_id]",
         "present_at_turn_start_path": "present_character_ids_at_turn_start",
         "author_only_paths": [
-            "character_cards",
-            "novel",
-            "novel_rules",
-            "novel_lore",
-            "hidden_lore",
-            "world_canon",
-            "story_direction",
-            "chronology_recent",
-            "character_memory[OTHER_CHARACTER_ID]",
+            "character_cards", "novel", "novel_rules", "novel_lore", "hidden_lore", "world_canon",
+            "story_direction", "chronology_recent", "character_memory[OTHER_CHARACTER_ID]",
         ],
         "instruction": (
             "Before EVERY NPC line, inference, recognition or deliberate action, identify that NPC and verify the exact fact source. "
@@ -210,11 +218,11 @@ def inject_required_turn_context(context: Dict[str, Any], cards: List[Dict[str, 
         "turn_packet_is_scene_scoped": True,
         "no_persistent_data_deleted": True,
         "single_scene_memory_copy": True,
+        "single_runtime_document_copy": True,
         "stable_scene_builder_paths": True,
         "instruction": (
-            "Railway stores the complete source, all live cards, all personal memories and full chronology. This packet carries one complete working copy "
-            "for the current scene instead of retransmitting dormant dossiers or duplicating active memory. Read every packet chunk. "
-            "Full visibility to the AUTHOR does not grant visibility to any character; enforce knowledge_guard per character."
+            "Railway stores complete source, live cards, personal memories and chronology. This packet carries one complete working copy "
+            "of each required runtime/canon/memory block without retransmitting dormant dossiers or duplicate runtime documents. Read every chunk."
         ),
     }
 
