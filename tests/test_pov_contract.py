@@ -23,9 +23,11 @@ def test_scene_builder_contains_selective_cinematic_coverage_contract():
     assert "Не делай ранний монтажный обрыв" in builder
     assert "НЕ ПЕРЕОПИСЫВАЙ РУТИНУ" in builder
     assert "ВАЖНЫЙ МОМЕНТ НУЖНО НЕ ТОЛЬКО ПОНЯТЬ, НО И УВИДЕТЬ" in builder
+    assert "`character_memory[character_id]`" in builder
+    assert "memory_full.characters[character_id]" not in builder
 
 
-def test_runtime_version_bumped_for_cinematic_coverage():
+def test_runtime_version_bumped_for_working_context_contract():
     manifest = runtime_manifest()
-    assert manifest["runtime_version"] == "1.8.1"
+    assert manifest["runtime_version"] == "1.9.0"
     assert manifest["chunk_count"] >= 1
