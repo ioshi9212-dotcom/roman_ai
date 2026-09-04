@@ -93,6 +93,12 @@ def _session_persistent_data(context: Dict[str, Any]) -> tuple[Dict[str, Any], D
     )
 
 
+def _source_canon_without_cards(source: Dict[str, Any]) -> Dict[str, Any]:
+    result = deepcopy(source if isinstance(source, dict) else {})
+    result.pop("characters", None)
+    return result
+
+
 def _scene_character_ids(context: Dict[str, Any], state: Dict[str, Any]) -> List[str]:
     values: List[str] = []
     pov = state.get("pov") if isinstance(state.get("pov"), dict) else {}
@@ -123,8 +129,9 @@ def _selected_memory(memory: Dict[str, Any], character_ids: List[str]) -> Dict[s
 
 
 def inject_required_turn_context(context: Dict[str, Any], cards: List[Dict[str, Any]], state: Dict[str, Any]) -> Dict[str, Any]:
-    """Inject the complete working context needed for this scene without replaying the whole database."""
+    """Inject complete scene working context while keeping dormant data only in persistent storage."""
     source, memory = _session_persistent_data(context)
+    source_canon = _source_canon_without_cards(source)
     documents = runtime_documents()
     scene_ids = _scene_character_ids(context, state)
     scene_cards = _selected_cards(cards, scene_ids)
@@ -166,7 +173,8 @@ def inject_required_turn_context(context: Dict[str, Any], cards: List[Dict[str, 
         "initialize 1-3 natural dimensions only when a real attitude is established."
     )
 
-    context["source_full"] = deepcopy(source)
+    context["source_full"] = source_canon
+    context["source_character_cards_omitted_from_transport"] = True
     context["state_full"] = deepcopy(state)
     context["scene_character_ids"] = scene_ids
     context["scene_character_cards"] = scene_cards
@@ -177,9 +185,10 @@ def inject_required_turn_context(context: Dict[str, Any], cards: List[Dict[str, 
         if storage._card_id(card)
     ]
     context["character_context_instruction"] = (
-        "scene_character_cards and scene_character_memory are COMPLETE for every character relevant at turn start: POV, present cast, "
-        "and characters explicitly resolved from the current input. Other registered characters remain fully stored in Railway. "
-        "If an offscreen registered character must enter or materially act during this turn, call getCharacterBundle for that character before writing them."
+        "source_full contains the complete non-character source canon; source.characters is intentionally not duplicated in transport. "
+        "The live character registry and cards are authoritative for characters. scene_character_cards and scene_character_memory are COMPLETE "
+        "for POV, present cast and characters resolved from current input. Other registered characters remain fully stored in Railway. "
+        "If an offscreen registered character must enter or materially act, call getCharacterBundle before writing that character."
     )
     context["knowledge_guard"] = {
         "mandatory": True,
@@ -202,9 +211,10 @@ def inject_required_turn_context(context: Dict[str, Any], cards: List[Dict[str, 
         "persistent_storage_is_complete": True,
         "turn_packet_is_scene_scoped": True,
         "no_persistent_data_deleted": True,
+        "source_characters_stay_persistent": True,
         "instruction": (
-            "Railway stores the complete canon, all cards, all personal memories and full chronology. This packet intentionally carries the "
-            "complete material needed for the current scene instead of retransmitting unrelated dormant dossiers every turn. Read every packet chunk."
+            "Railway stores the complete source, all live cards, all personal memories and full chronology. This packet intentionally carries "
+            "the complete material needed for the current scene without retransmitting dormant character dossiers. Read every packet chunk."
         ),
     }
 
