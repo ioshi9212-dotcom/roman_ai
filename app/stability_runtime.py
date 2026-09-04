@@ -6,7 +6,7 @@ from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Any, Dict
 
-from . import audit_runtime, session_recovery, session_runtime, storage
+from . import session_recovery, session_runtime, storage
 from .game_day import sync_game_day
 from .transactional_storage import json_text, recover, session_transaction, write_batch
 
@@ -40,8 +40,6 @@ def _scene_header_current(scene_output: str) -> Dict[str, Any]:
 
 
 def _turns_text(turns: list[dict[str, Any]]) -> str:
-    if not turns:
-        return ""
     return "".join(json.dumps(turn, ensure_ascii=False) + "\n" for turn in turns)
 
 
@@ -54,6 +52,8 @@ def _atomic_commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, A
         meta = storage._read_json(root / "meta.json", {})
         if meta.get("audit_required"):
             raise RuntimeError("AUDIT_REQUIRED")
+        if meta.get("handoff_required"):
+            raise RuntimeError("HANDOFF_REQUIRED")
         turn_number = int(meta.get("turn_number", 0)) + 1
         packet = storage._read_json(root / "turn_packet.json", {})
         if not packet or packet.get("prepared_for_turn") != turn_number or packet.get("user_input") != payload.get("user_input"):
@@ -75,15 +75,13 @@ def _atomic_commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, A
 
         source = storage._read_json(root / "source.json", {})
         cards = storage._apply_character_upserts(storage._load_cards(root, source), extracted)
-
         state = storage._read_json(root / "state.json", {})
         if isinstance(extracted.get("state_patch"), dict):
             state = storage._deep_merge(state, extracted["state_patch"])
         header_current = _scene_header_current(payload.get("scene_output", ""))
         if header_current:
             current = state.get("current") if isinstance(state.get("current"), dict) else {}
-            current = storage._deep_merge(current, header_current)
-            state["current"] = current
+            state["current"] = storage._deep_merge(current, header_current)
         state = sync_game_day(state, source)
         state = storage._refresh_runtime_presence(state, cards, turn_number)
 
@@ -103,29 +101,30 @@ def _atomic_commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, A
 
         meta["turn_number"] = turn_number
         audit_due = turn_number % 15 == 0
+        handoff_due = turn_number % 60 == 0
         meta["audit_required"] = bool(audit_due)
-        meta["handoff_required"] = False
+        if handoff_due:
+            meta["handoff_required"] = True
 
-        write_batch(
-            root,
-            {
-                "turns.jsonl": _turns_text(turns),
-                "characters.json": json_text(cards),
-                "state.json": json_text(state),
-                "memory.json": json_text(memory),
-                "chronology.json": json_text(chronology),
-                "meta.json": json_text(meta),
-            },
-        )
-        packet_path = root / "turn_packet.json"
-        packet_path.unlink(missing_ok=True)
+        values = {
+            "turns.jsonl": _turns_text(turns),
+            "characters.json": json_text(cards),
+            "state.json": json_text(state),
+            "memory.json": json_text(memory),
+            "chronology.json": json_text(chronology),
+            "meta.json": json_text(meta),
+        }
+        if handoff_due:
+            values["handoff_tail.json"] = json_text(turns[-6:])
+        write_batch(root, values)
+        (root / "turn_packet.json").unlink(missing_ok=True)
 
         return {
             "ok": True,
             "turn_number": turn_number,
             "audit_due": audit_due,
             "audit_range": [max(1, turn_number - 14), turn_number] if audit_due else None,
-            "handoff_required": False,
+            "handoff_required": handoff_due,
             "transactional_commit": True,
         }
 
@@ -152,7 +151,6 @@ def _atomic_commit_audit(session_id: str, payload: Dict[str, Any]) -> Dict[str, 
 
         memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
         memory = storage._apply_memory_events(memory, repairs, expected_end)
-
         chronology = storage._read_json(root / "chronology.json", [])
         if not isinstance(chronology, list):
             chronology = []
@@ -173,7 +171,6 @@ def _atomic_commit_audit(session_id: str, payload: Dict[str, Any]) -> Dict[str, 
         )
         meta["last_audit_turn"] = payload["end_turn"]
         meta["audit_required"] = False
-        meta["handoff_required"] = False
 
         write_batch(
             root,
@@ -188,7 +185,7 @@ def _atomic_commit_audit(session_id: str, payload: Dict[str, Any]) -> Dict[str, 
         return {
             "ok": True,
             "audited_through": payload["end_turn"],
-            "handoff_required": False,
+            "handoff_required": bool(meta.get("handoff_required")),
             "transactional_commit": True,
         }
 
@@ -208,6 +205,19 @@ def _prepare_turn(session_id: str, user_input: str) -> Dict[str, Any]:
     packet = storage._read_json(root / "turn_packet.json", {})
     try:
         context = json.loads("".join(packet.get("chunks", [])))
+        instruction = str(context.get("relationship_lens_instruction", ""))
+        if "do not output an empty relationship block" not in instruction:
+            context["relationship_lens_instruction"] = (
+                instruction.rstrip()
+                + " For every present NPC, do not output an empty relationship block merely because no numeric baseline existed before this scene."
+            ).strip()
+        text = json.dumps(context, ensure_ascii=False, separators=(",", ":"))
+        chunks = [text[i:i + storage.MAX_PACKET_CHARS] for i in range(0, len(text), storage.MAX_PACKET_CHARS)] or ["{}"]
+        packet["chunks"] = chunks
+        packet["chunk_count"] = len(chunks)
+        packet["read_chunks"] = []
+        storage._write_json(root / "turn_packet.json", packet)
+        result["chunk_count"] = len(chunks)
         result["scene_character_card_count"] = len(context.get("scene_character_cards", []))
         result["working_context"] = True
     except (TypeError, ValueError, json.JSONDecodeError):
