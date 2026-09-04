@@ -6,7 +6,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_custom_gpt_schema_exposes_only_fixed_batch_context_reads():
+def test_custom_gpt_schema_exposes_only_response_safe_batch_context_reads():
     schema = yaml.safe_load((ROOT / "openapi.yaml").read_text(encoding="utf-8"))
     paths = schema["paths"]
 
@@ -15,8 +15,15 @@ def test_custom_gpt_schema_exposes_only_fixed_batch_context_reads():
 
     assert turn_batch["operationId"] == "getTurnPacketChunkBatch"
     assert audit_batch["operationId"] == "getAuditSnapshotChunkBatch"
-    assert {item["name"] for item in turn_batch["parameters"]} == {"session_id", "packet_id", "start_index"}
-    assert {item["name"] for item in audit_batch["parameters"]} == {"session_id", "audit_id", "start_index"}
+    assert {item["name"] for item in turn_batch["parameters"]} == {"session_id", "packet_id", "start_index", "count"}
+    assert {item["name"] for item in audit_batch["parameters"]} == {"session_id", "audit_id", "start_index", "count"}
+
+    turn_count = next(item for item in turn_batch["parameters"] if item["name"] == "count")
+    audit_count = next(item for item in audit_batch["parameters"] if item["name"] == "count")
+    assert turn_count["required"] is True
+    assert audit_count["required"] is True
+    assert turn_count["schema"]["enum"] == [2]
+    assert audit_count["schema"]["enum"] == [2]
 
     assert "/sessions/{session_id}/turn-packet/{packet_id}/{chunk_index}" not in paths
     assert "/sessions/{session_id}/audit-snapshot/{audit_id}/{chunk_index}" not in paths
