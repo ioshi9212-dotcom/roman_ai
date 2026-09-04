@@ -123,12 +123,7 @@ def _selected_memory(memory: Dict[str, Any], character_ids: List[str]) -> Dict[s
 
 
 def inject_required_turn_context(context: Dict[str, Any], cards: List[Dict[str, Any]], state: Dict[str, Any]) -> Dict[str, Any]:
-    """Inject the complete working context needed for this scene without replaying the whole database.
-
-    Railway remains the complete persistent source of truth. A turn packet carries full runtime/source/current state,
-    full cards and personal memory for scene-relevant characters, plus the chronology slice already selected by
-    session_runtime. Offscreen character data remains persisted and is fetched through getCharacterBundle when needed.
-    """
+    """Inject the complete working context needed for this scene without replaying the whole database."""
     source, memory = _session_persistent_data(context)
     documents = runtime_documents()
     scene_ids = _scene_character_ids(context, state)
@@ -142,7 +137,19 @@ def inject_required_turn_context(context: Dict[str, Any], cards: List[Dict[str, 
         "Do not shorten, reorder, omit or replace its blocks."
     )
     context["pov_participation_contract"] = documents["pov_contract"]
+    context["pov_participation_instruction"] = (
+        "MANDATORY GLOBAL POV RULE. POV must remain an active participant throughout the scene. "
+        "Write ordinary in-character POV dialogue, reactions, thoughts and small actions without asking permission; "
+        "do not reduce POV to silence, one-word replies or body-only reactions merely to preserve player agency. "
+        "Stop only before genuinely consequential POV choices defined by the contract."
+    )
     context["npc_agency_contract"] = documents["npc_agency_contract"]
+    context["npc_agency_instruction"] = (
+        "MANDATORY GLOBAL NPC AGENCY RULE. NPC behavior comes from that NPC's character, desires, goals, advantage, fears, "
+        "relationships, knowledge, duties and current situation, NOT from universal therapy, boundary etiquette or author-approved "
+        "psychological correctness. Do not automatically soften, restrain or make NPCs ask permission. If the specific NPC would act, "
+        "let them act consistently with character and scene. Consequential POV reactions and choices remain with the player."
+    )
     context["relationship_contract"] = documents["relationship_contract"]
 
     relationship_lens = build_relationship_lens(
@@ -165,10 +172,7 @@ def inject_required_turn_context(context: Dict[str, Any], cards: List[Dict[str, 
     context["scene_character_cards"] = scene_cards
     context["scene_character_memory"] = scene_memory
     context["character_registry_index"] = [
-        {
-            "character_id": storage._card_id(card),
-            "name": _card_name(card, storage._card_id(card)),
-        }
+        {"character_id": storage._card_id(card), "name": _card_name(card, storage._card_id(card))}
         for card in cards
         if storage._card_id(card)
     ]
@@ -206,7 +210,6 @@ def inject_required_turn_context(context: Dict[str, Any], cards: List[Dict[str, 
 
     author_context = context.get("author_context") if isinstance(context.get("author_context"), dict) else {}
     author_context["character_cards"] = scene_cards
-    author_context["source_full"] = deepcopy(source)
     author_context["knowledge_quarantine"] = (
         "Everything in author_context is objective author/engine truth only. Never use it as character knowledge without that character's own memory or current perception."
     )
