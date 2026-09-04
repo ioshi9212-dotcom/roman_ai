@@ -8,6 +8,7 @@ from typing import Any, Dict
 
 from . import session_recovery, session_runtime, storage
 from .game_day import sync_game_day
+from .relationship_runtime import overwrite_relationship_snapshots
 from .transactional_storage import json_text, recover, session_transaction, write_batch
 
 
@@ -19,6 +20,20 @@ _HEADER_RE = re.compile(
     r"🕒\s*День\s+(?P<day>\d+)\s*·[^\n]*?(?P<date>\d{2}\.\d{2}\.\d{4})\s*,\s*(?P<time>\d{1,2}:\d{2})\s*·\s*📍\s*(?P<location>[^\n]+)",
     re.IGNORECASE,
 )
+
+_SOURCE_STANDARD_KEYS = {
+    "novel_id",
+    "title",
+    "version",
+    "novel",
+    "characters",
+    "lore",
+    "rules",
+    "hidden_lore",
+    "world",
+    "starting_state",
+    "story_direction",
+}
 
 
 def _scene_header_current(scene_output: str) -> Dict[str, Any]:
@@ -65,6 +80,90 @@ def _clean_scene_pointer(state: Dict[str, Any], extracted: Dict[str, Any]) -> Di
     return state
 
 
+def _merge_state_patch_exact_relationships(state: Dict[str, Any], patch: Any) -> Dict[str, Any]:
+    if not isinstance(patch, dict):
+        return state
+    result = storage._deep_merge(state, patch)
+    relationship_patch = {
+        key: deepcopy(patch[key])
+        for key in ("relationships", "relationship_documents")
+        if isinstance(patch.get(key), dict)
+    }
+    if relationship_patch:
+        result = overwrite_relationship_snapshots(result, relationship_patch)
+    return result
+
+
+def _compact_turn_context(context: Dict[str, Any], source: Dict[str, Any]) -> Dict[str, Any]:
+    """Keep one canonical copy of each working-context block after all compatibility wrappers ran."""
+    for obsolete in (
+        "source_full",
+        "state_full",
+        "scene_character_ids",
+        "scene_character_cards",
+        "scene_character_memory",
+        "character_registry_index",
+        "source_character_cards_omitted_from_transport",
+    ):
+        context.pop(obsolete, None)
+
+    context["starting_state"] = deepcopy(source.get("starting_state", {}))
+    context["source_meta"] = {
+        key: deepcopy(source[key])
+        for key in ("novel_id", "title", "version")
+        if key in source
+    }
+    extras = {
+        key: deepcopy(value)
+        for key, value in source.items()
+        if key not in _SOURCE_STANDARD_KEYS
+    }
+    if extras:
+        context["source_extra"] = extras
+    else:
+        context.pop("source_extra", None)
+
+    author = context.get("author_context") if isinstance(context.get("author_context"), dict) else {}
+    for duplicate in (
+        "novel",
+        "novel_rules",
+        "novel_lore",
+        "hidden_lore",
+        "story_direction",
+        "world_canon",
+        "character_cards",
+        "relationships",
+        "chronology_recent",
+        "recent_turns",
+        "registered_character_names",
+    ):
+        author.pop(duplicate, None)
+    author["instruction"] = (
+        "Auxiliary author-only metadata. Canonical working data lives at the top-level scene_builder paths: "
+        "scene_state, character_cards, character_memory, character_registry, novel/novel_rules/novel_lore/hidden_lore/world_canon/story_direction, chronology_recent and recent_turns."
+    )
+    context["author_context"] = author
+    context["transport_context_paths"] = {
+        "state": "scene_state",
+        "cards": "character_cards",
+        "memory": "character_memory",
+        "registry": "character_registry",
+        "chronology": "chronology_recent",
+        "starting_state": "starting_state",
+    }
+    contract = context.get("working_context_contract") if isinstance(context.get("working_context_contract"), dict) else {}
+    contract.update(
+        {
+            "persistent_storage_is_complete": True,
+            "turn_packet_is_scene_scoped": True,
+            "single_copy_transport": True,
+            "scene_builder_paths_are_canonical": True,
+        }
+    )
+    context["working_context_contract"] = contract
+    return context
+
+
 def _atomic_commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     root = storage.SESSIONS_DIR / session_id
     if not root.exists():
@@ -98,8 +197,7 @@ def _atomic_commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, A
         source = storage._read_json(root / "source.json", {})
         cards = storage._apply_character_upserts(storage._load_cards(root, source), extracted)
         state = storage._read_json(root / "state.json", {})
-        if isinstance(extracted.get("state_patch"), dict):
-            state = storage._deep_merge(state, extracted["state_patch"])
+        state = _merge_state_patch_exact_relationships(state, extracted.get("state_patch"))
         header_current = _scene_header_current(payload.get("scene_output", ""))
         if header_current:
             current = state.get("current") if isinstance(state.get("current"), dict) else {}
@@ -149,6 +247,7 @@ def _atomic_commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, A
             "audit_range": [max(1, turn_number - 14), turn_number] if audit_due else None,
             "handoff_required": handoff_due,
             "transactional_commit": True,
+            "relationship_snapshots_atomic": True,
         }
 
 
@@ -167,8 +266,7 @@ def _atomic_commit_audit(session_id: str, payload: Dict[str, Any]) -> Dict[str, 
 
         repairs = payload.get("repairs", {}) if isinstance(payload.get("repairs"), dict) else {}
         state = storage._read_json(root / "state.json", {})
-        if isinstance(repairs.get("state_patch"), dict):
-            state = storage._deep_merge(state, repairs["state_patch"])
+        state = _merge_state_patch_exact_relationships(state, repairs.get("state_patch"))
         source = storage._read_json(root / "source.json", {})
         state = _clean_scene_pointer(state, repairs)
         state = sync_game_day(state, source)
@@ -211,6 +309,7 @@ def _atomic_commit_audit(session_id: str, payload: Dict[str, Any]) -> Dict[str, 
             "audited_through": payload["end_turn"],
             "handoff_required": bool(meta.get("handoff_required")),
             "transactional_commit": True,
+            "relationship_snapshots_atomic": True,
         }
 
 
@@ -241,23 +340,29 @@ def _prepare_turn(session_id: str, user_input: str) -> Dict[str, Any]:
             if not isinstance(row, dict) or not row.get("character_id"):
                 continue
             character_id = str(row["character_id"])
-            row["full_card_path"] = f"scene_character_cards[character_id={character_id}]"
-            row["memory_path"] = f"scene_character_memory.characters[{character_id}]"
+            row["full_card_path"] = f"character_cards[character_id={character_id}]"
+            row["memory_path"] = f"character_memory[{character_id}]"
+
+        source = storage._read_json(root / "source.json", {})
+        context = _compact_turn_context(context, source)
         text = json.dumps(context, ensure_ascii=False, separators=(",", ":"))
         chunks = [text[i:i + storage.MAX_PACKET_CHARS] for i in range(0, len(text), storage.MAX_PACKET_CHARS)] or ["{}"]
         packet["chunks"] = chunks
         packet["chunk_count"] = len(chunks)
         packet["read_chunks"] = []
+        packet["stability_context_version"] = 2
         storage._write_json(root / "turn_packet.json", packet)
         result["chunk_count"] = len(chunks)
-        result["scene_character_card_count"] = len(context.get("scene_character_cards", []))
+        result["scene_character_card_count"] = len(context.get("character_cards", []))
         result["working_context"] = True
+        result["total_chars"] = len(text)
     except (TypeError, ValueError, json.JSONDecodeError):
         pass
     result["instruction"] = (
         "Read every packet chunk before writing. scene_builder and runtime rules are mandatory. "
-        "The packet contains full source/current state plus complete cards and personal memory for the scene-relevant cast. "
-        "If another registered character enters, load getCharacterBundle before writing that character. Persist every durable new fact before commit."
+        "Use the stable scene_builder paths scene_state, character_cards and character_memory. Full persistent storage remains in Railway; "
+        "the packet contains the complete current-scene working set without duplicate dormant dossiers. If another registered character enters, "
+        "load getCharacterBundle before writing that character. Persist every durable new fact before commit."
     )
     return result
 
