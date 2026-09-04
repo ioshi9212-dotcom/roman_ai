@@ -8,23 +8,6 @@ from .relationship_runtime import build_relationship_lens
 from .runtime_access import runtime_documents
 
 
-def full_character_cards(cards: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    return [
-        {"character_id": storage._card_id(card), "card": deepcopy(card)}
-        for card in cards
-        if storage._card_id(card)
-    ]
-
-
-def present_character_cards(cards: List[Dict[str, Any]], state: Dict[str, Any]) -> List[Dict[str, Any]]:
-    present = set(storage._present_character_ids(state))
-    return [
-        {"character_id": storage._card_id(card), "card": deepcopy(card)}
-        for card in cards
-        if storage._card_id(card) in present
-    ]
-
-
 def _normalise_name(value: Any) -> str:
     return " ".join(str(value or "").casefold().replace("ё", "е").split())
 
@@ -82,22 +65,13 @@ def _present_npc_candidates(cards: List[Dict[str, Any]], state: Dict[str, Any], 
     return result
 
 
-def _session_persistent_data(context: Dict[str, Any]) -> tuple[Dict[str, Any], Dict[str, Any]]:
+def _session_memory(context: Dict[str, Any]) -> Dict[str, Any]:
     session = context.get("session") if isinstance(context.get("session"), dict) else {}
     session_id = session.get("session_id")
     if not session_id:
-        return {}, {"characters": {}}
+        return {"characters": {}}
     root = storage.SESSIONS_DIR / str(session_id)
-    return (
-        storage._read_json(root / "source.json", {}),
-        storage._normalise_memory(storage._read_json(root / "memory.json", {})),
-    )
-
-
-def _source_canon_without_cards(source: Dict[str, Any]) -> Dict[str, Any]:
-    result = deepcopy(source if isinstance(source, dict) else {})
-    result.pop("characters", None)
-    return result
+    return storage._normalise_memory(storage._read_json(root / "memory.json", {}))
 
 
 def _scene_character_ids(context: Dict[str, Any], state: Dict[str, Any]) -> List[str]:
@@ -122,10 +96,10 @@ def _selected_cards(cards: List[Dict[str, Any]], character_ids: List[str]) -> Li
 def _selected_memory(memory: Dict[str, Any], character_ids: List[str]) -> Dict[str, Any]:
     buckets = memory.get("characters", {}) if isinstance(memory.get("characters"), dict) else {}
     return {
-        "characters": {
-            character_id: deepcopy(buckets.get(character_id, {"knowledge": [], "experiences": [], "dialogue_memory": []}))
-            for character_id in character_ids
-        }
+        character_id: deepcopy(
+            buckets.get(character_id, {"knowledge": [], "experiences": [], "dialogue_memory": []})
+        )
+        for character_id in character_ids
     }
 
 
@@ -137,13 +111,12 @@ def _deduplicate_scene_character_memory(context: Dict[str, Any]) -> None:
         if not isinstance(lens, dict):
             continue
         lens.pop("personal_memory", None)
-        lens["personal_memory_path"] = f"scene_character_memory.characters[{character_id}]"
+        lens["personal_memory_path"] = f"character_memory[{character_id}]"
 
 
 def inject_required_turn_context(context: Dict[str, Any], cards: List[Dict[str, Any]], state: Dict[str, Any]) -> Dict[str, Any]:
-    """Inject complete scene working context while keeping dormant data only in persistent storage."""
-    source, memory = _session_persistent_data(context)
-    source_canon = _source_canon_without_cards(source)
+    """Inject one lossless copy of the scene-relevant working set using scene_builder's stable paths."""
+    memory = _session_memory(context)
     documents = runtime_documents()
     scene_ids = _scene_character_ids(context, state)
     scene_cards = _selected_cards(cards, scene_ids)
@@ -195,39 +168,33 @@ def inject_required_turn_context(context: Dict[str, Any], cards: List[Dict[str, 
         "do not output an empty relationship block simply because this is a new chat or fresh relationship. Carry saved dimensions across absences and later meetings."
     )
 
-    context["source_full"] = source_canon
-    context["source_character_cards_omitted_from_transport"] = True
-    context["state_full"] = deepcopy(state)
-    context["scene_character_ids"] = scene_ids
-    context["scene_character_cards"] = scene_cards
-    context["scene_character_memory"] = scene_memory
+    context["character_cards"] = scene_cards
+    context["character_memory"] = scene_memory
     _deduplicate_scene_character_memory(context)
-    context["character_registry_index"] = [
-        {"character_id": storage._card_id(card), "name": _card_name(card, storage._card_id(card))}
-        for card in cards
-        if storage._card_id(card)
-    ]
     context["character_context_instruction"] = (
-        "source_full contains the complete non-character source canon; source.characters is intentionally not duplicated in transport. "
-        "The live character registry and cards are authoritative for characters. scene_character_cards and scene_character_memory are COMPLETE "
-        "for POV, present cast and characters resolved from current input. scene_characters is a compact state/relationship lens and points to that single memory copy. "
-        "Other registered characters remain fully stored in Railway. If an offscreen registered character must enter or materially act, "
+        "character_cards and character_memory are COMPLETE for POV, present cast and characters resolved from current input. "
+        "These are the stable paths used by scene_builder. character_registry/cast_index remain the compact registry for every registered character. "
+        "Other character dossiers and all older persistent data remain fully stored in Railway. If an offscreen registered character must enter or materially act, "
         "call getCharacterBundle before writing that character."
     )
     context["knowledge_guard"] = {
         "mandatory": True,
-        "personal_memory_path": "scene_character_memory.characters[character_id]",
+        "personal_memory_path": "character_memory[character_id]",
         "present_at_turn_start_path": "present_character_ids_at_turn_start",
         "author_only_paths": [
-            "source_full",
-            "author_context",
-            "runtime_documents",
-            "character_registry_index",
-            "scene_character_memory.characters[OTHER_CHARACTER_ID]",
+            "character_cards",
+            "novel",
+            "novel_rules",
+            "novel_lore",
+            "hidden_lore",
+            "world_canon",
+            "story_direction",
+            "chronology_recent",
+            "character_memory[OTHER_CHARACTER_ID]",
         ],
         "instruction": (
             "Before EVERY NPC line, inference, recognition or deliberate action, identify that NPC and verify the exact fact source. "
-            "Past knowledge must come from that NPC's own scene_character_memory.characters[character_id]. Current-turn knowledge must come "
+            "Past knowledge must come from that NPC's own character_memory[character_id]. Current-turn knowledge must come "
             "from an explicit perception channel established in the scene after turn start. POV thoughts, phone notifications, message "
             "text, screens, headphones, letters/photos held privately and other private POV content stay private unless POV explicitly "
             "shows/reads aloud/forwards/hands them over or the scene already establishes direct visual/auditory access. Mere proximity, "
@@ -242,12 +209,12 @@ def inject_required_turn_context(context: Dict[str, Any], cards: List[Dict[str, 
         "persistent_storage_is_complete": True,
         "turn_packet_is_scene_scoped": True,
         "no_persistent_data_deleted": True,
-        "source_characters_stay_persistent": True,
         "single_scene_memory_copy": True,
+        "stable_scene_builder_paths": True,
         "instruction": (
-            "Railway stores the complete source, all live cards, all personal memories and full chronology. This packet intentionally carries "
-            "the complete material needed for the current scene without retransmitting dormant character dossiers or duplicating active personal memory. "
-            "Read every packet chunk. Full visibility to the AUTHOR does not grant visibility to any character; enforce knowledge_guard per character."
+            "Railway stores the complete source, all live cards, all personal memories and full chronology. This packet carries one complete working copy "
+            "for the current scene instead of retransmitting dormant dossiers or duplicating active memory. Read every packet chunk. "
+            "Full visibility to the AUTHOR does not grant visibility to any character; enforce knowledge_guard per character."
         ),
     }
 
@@ -258,5 +225,4 @@ def inject_required_turn_context(context: Dict[str, Any], cards: List[Dict[str, 
         "that character's own personal memory or an explicit current-scene perception channel."
     )
     context["author_context"] = author_context
-    context["character_cards"] = scene_cards
     return context
