@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Roman AI
-  version: 1.8.2
+  version: 1.8.3
   description: Persistent isolated novel sessions with complete chunked runtime, canon, cards, memory, chronology, recovery and audits.
 servers:
   - url: https://romanai-production-0fdb.up.railway.app
@@ -336,24 +336,6 @@ paths:
         - {in: path, name: chunk_index, required: true, schema: {type: integer}}
       responses:
         '200': {description: One packet chunk}
-  /sessions/{session_id}/characters/{character_id}:
-    get:
-      operationId: getCharacterBundle
-      summary: Load one complete character bundle
-      parameters:
-        - {in: path, name: session_id, required: true, schema: {type: string}}
-        - {in: path, name: character_id, required: true, schema: {type: string}}
-      responses:
-        '200': {description: Character bundle}
-  /sessions/{session_id}/characters/{character_id}/memory:
-    get:
-      operationId: getCharacterMemory
-      summary: Load one character memory directly
-      parameters:
-        - {in: path, name: session_id, required: true, schema: {type: string}}
-        - {in: path, name: character_id, required: true, schema: {type: string}}
-      responses:
-        '200': {description: Character memory}
   /sessions/{session_id}/turns:
     get:
       operationId: getTurnRange
