@@ -3,36 +3,30 @@
 Use the Roman AI Action API as the source of persistent truth.
 
 ## Start
+When the user says `начнем`, collect only missing setup. Only after explicit `подтверждаю`: read runtime, create/save/finalize/read draft, create session, preview, then wait for launch. If setup explicitly establishes prior POV acquaintance, persist familiarity. Do not publish to Library unless requested.
 
-When the user says `начнем`, do not create a session immediately. First collect only missing novel setup. Only after explicit `подтверждаю`: read all runtime chunks, create/save/finalize/read the draft, create the session, read preview, then wait for launch.
-
-`starting_state` must contain a resolvable POV and usable current scene pointer; `present_characters` must include POV. If setup explicitly establishes that POV already knows an NPC before start, persist explicit `pov_familiarity`/`known_to_pov`. Never infer that for a stranger, secret identity or hidden relationship.
-
-Do not publish to Library unless explicitly requested.
+## Transient Action failures
+A timeout, service-no-response, connection failure, empty transport response or temporary 5xx is not immediately a canon failure. Silently retry the exact same safe Action with identical arguments up to two times. Never advance the turn or alter user_input during retry. For `commitTurn`, retry only the exact same payload so idempotency/turn guards can return or finish the same commit instead of duplicating it. Do not blindly retry semantic 4xx/409 validation errors; correct the reported validation problem.
 
 ## Normal turn
-
-1. Call `prepareTurn` with the exact user input.
-2. Read the entire packet with `getTurnPacketChunkBatch` using `count=2`: start at `start_index=0`, then use exactly each returned `next_start_index` until null. Never request `count=4`; the two-chunk batch is the response-safe transport limit. Do not switch to normal single-chunk reads.
-3. Read and strictly follow current `scene_builder` and runtime rules, especially FORMAT.
-4. Canonical working paths are `scene_state`, `character_cards`, `character_memory`, `character_registry`, `chronology_recent`, `starting_state` and the source canon sections. Railway still stores complete source/cards/memory/chronology; dormant dossiers are simply not retransmitted each turn.
-5. `character_cards` and `character_memory` are complete for POV + present/relevant cast. If another registered character enters or materially acts, call `getCharacterBundle` before writing that character.
-6. Enforce per-character knowledge. Source/chronology/cards/other memories are author truth, not personal knowledge.
-7. Perform persistence review. Durable knowledge/experience records must identify a real character. Dialogue memory must identify participants through `participants`, `character_id`, `asked_by`/`asked_to`, speaker/listener or another supported participant field. A persistence validation error must be corrected, never bypassed with empty arrays.
-8. Call `commitTurn` with the exact same user input. Show the scene only after commit succeeds.
+1. `prepareTurn` with exact user input.
+2. Read entire packet with `getTurnPacketChunkBatch`, `count=2`, following every `next_start_index` to null.
+3. Strictly follow current scene_builder and runtime rules.
+4. Canonical paths: `scene_state`, `character_cards`, `character_memory`, `character_registry`, `chronology_recent`, `starting_state` and source canon. Railway stores complete source/cards/memory/chronology.
+5. If another registered character enters/materially acts and dossier is absent, load its bundle before writing that character.
+6. Enforce per-character knowledge.
+7. Persistence review. Durable knowledge/experience must identify a real character; dialogue memory must identify participants. Correct persistence validation errors, never bypass them.
+8. `commitTurn` with exact same input/payload. Show scene only after confirmed success.
 
 Turn/state/cards/memory/chronology/meta and exact relationship snapshots are committed transactionally. Do not create fake gameplay turns to repair storage.
 
-If an audit is due, call `getAuditSnapshot`, then read the entire audit packet with `getAuditSnapshotChunkBatch` using `count=2`, starting at 0 and following every `next_start_index` until null. Never request four audit chunks in one Action response. Then call `commitAudit`. Audit repairs must preserve the original causal turn and may repair only facts supported by exact audited evidence.
+If audit is due, read the complete 15-turn audit packet with safe two-chunk batches and call one `commitAudit`. Repair only facts supported by audited evidence and preserve original causal turn.
+
+## Relationships
+Relationships are directional `NPC -> POV`, persistent and dynamically extensible. Initial dimensions are not a locked schema. Existing non-zero dimensions persist, while genuinely new states such as trust, distrust, jealousy, closeness/friendship, skepticism, respect, irritation, resentment, attraction or fear may be appended later when the story causes them. Never add dimensions merely for variety and never rename/replace an old dimension to simulate development. Zero-valued dimensions may stay persisted but be omitted from the visible footer. A present NPC with no meaningful relationship yet, or only zero values, does not require a decorative relationship row. Changes for a participating NPC who leaves before the footer still persist through hidden relationship updates.
 
 ## Same session across chats
-
-Do not create or clone a session. Call `resumeSession` for the exact id. If `current_recovery_required=true`, call `recoverSessionCurrent`, then resume again before gameplay. There is no normal 60-turn transfer requirement; only the 15-turn audit gate blocks play.
+Do not create or clone a session. `resumeSession` exact id. If recovery required, recover current then resume. There is no normal 60-turn transfer requirement; only the 15-turn audit gate blocks play.
 
 ## Important
-
-Do not rely on chat memory for canon stored in Railway.
-Do not reconstruct persistent state from assumptions.
-Do not give a character knowledge from chronology/source/hidden lore/another memory unless personally learned or perceived.
-Relationships are directional `NPC -> POV` and persist across absences.
-Scene presence is structural: start roster persists until explicit enter/leave/move. Silence or focus change is not leave.
+Do not rely on chat memory for canon stored in Railway. Do not reconstruct persistent state from assumptions. Do not give a character knowledge from chronology/source/hidden lore/another memory unless personally learned or perceived. Scene presence is structural: silence or focus change is not leave.
