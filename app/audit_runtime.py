@@ -9,7 +9,7 @@ from . import storage
 from .runtime_access import runtime_documents
 
 
-AUDIT_PACKET_VERSION = 4
+AUDIT_PACKET_VERSION = 5
 AUDIT_PACKET_FILE = "audit_packet.json"
 
 
@@ -40,13 +40,8 @@ def _source_canon_without_cards(source: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _audit_character_ids(
-    cards: List[Dict[str, Any]],
-    state: Dict[str, Any],
-    memory: Dict[str, Any],
-    chronology: Any,
-    audit_turns: List[Dict[str, Any]],
-    start_turn: int,
-    end_turn: int,
+    cards: List[Dict[str, Any]], state: Dict[str, Any], memory: Dict[str, Any], chronology: Any,
+    audit_turns: List[Dict[str, Any]], start_turn: int, end_turn: int,
 ) -> List[str]:
     selected: List[str] = []
     pov = state.get("pov") if isinstance(state.get("pov"), dict) else {}
@@ -113,8 +108,10 @@ def _audit_chronology(
         return []
     relevant = set(character_ids)
     in_range: List[Dict[str, Any]] = []
-    anchors: List[Dict[str, Any]] = []
+    durable_anchors: List[Dict[str, Any]] = []
+    recent_major: List[Dict[str, Any]] = []
     prior_related: List[Dict[str, Any]] = []
+
     for raw in chronology:
         if not isinstance(raw, dict):
             continue
@@ -124,8 +121,11 @@ def _audit_chronology(
             in_range.append(event)
             continue
         importance = str(event.get("importance") or "").casefold()
-        if importance in {"anchor", "critical", "major"} or event.get("anchor") is True:
-            anchors.append(event)
+        if importance in {"anchor", "critical"} or event.get("anchor") is True:
+            durable_anchors.append(event)
+            continue
+        if importance == "major":
+            recent_major.append(event)
             continue
         if turn >= start_turn:
             continue
@@ -141,7 +141,8 @@ def _audit_chronology(
                     ids.add(str(value))
         if relevant & ids:
             prior_related.append(event)
-    combined = [*anchors[-30:], *prior_related[-30:], *in_range]
+
+    combined = [*durable_anchors, *recent_major[-30:], *prior_related[-30:], *in_range]
     seen = set()
     result: List[Dict[str, Any]] = []
     for event in combined:
@@ -150,7 +151,7 @@ def _audit_chronology(
             continue
         seen.add(key)
         result.append(event)
-    return result
+    return sorted(result, key=lambda event: (_event_turn(event), str(event.get("event_id") or "")))
 
 
 def _build_audit_payload(session_id: str) -> Dict[str, Any]:
@@ -182,8 +183,7 @@ def _build_audit_payload(session_id: str) -> Dict[str, Any]:
         "character_cards_audit": [deepcopy(card_map[cid]) for cid in character_ids if cid in card_map],
         "character_registry_index": [
             {"character_id": storage._card_id(card), "name": storage._card_name(card), "role": storage._card_role(card)}
-            for card in cards
-            if storage._card_id(card)
+            for card in cards if storage._card_id(card)
         ],
         "memory_audit": _audit_memory(memory, character_ids),
         "chronology_audit": _audit_chronology(chronology, character_ids, start_turn, end_turn),
@@ -192,17 +192,16 @@ def _build_audit_payload(session_id: str) -> Dict[str, Any]:
             "persistent_storage_is_complete": True,
             "audit_payload_is_range_scoped": True,
             "source_character_cards_stay_persistent": True,
+            "durable_anchors_do_not_age_out": True,
             "instruction": (
-                "Railway still stores the complete source, every live card, every personal-memory record and the complete chronology. "
-                "source_full omits only the duplicated source.characters transport copy because character_registry_index and character_cards_audit "
-                "carry the authoritative live character data needed by this audit. Nothing is deleted from storage."
+                "Railway stores complete source, live cards, personal memory and chronology. The audit contains exact audited turns, involved dossiers/memory, "
+                "all true anchor/critical milestones, bounded major/prior continuity and current state/runtime. Nothing is deleted from storage."
             ),
         },
         "instruction": (
             "15-TURN AUDIT. Read EVERY audit chunk before commitAudit. audit_turns_full contains the exact saved turns in the audit range. "
             "Compare those turns against state_full, memory_audit and chronology_audit. Repair only genuine missing or inconsistent durable records. "
-            "Do not rewrite correct history, do not bloat chronology, and never copy objective chronology/source/card knowledge into a character's memory "
-            "unless an exact audited turn proves that character personally saw, heard, read, received or was told it."
+            "Never copy objective chronology/source/card knowledge into personal memory unless an exact audited turn proves perception or disclosure."
         ),
     }
 
