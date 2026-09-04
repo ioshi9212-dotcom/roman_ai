@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import json
 import secrets
-from typing import Any, Dict
+from copy import deepcopy
+from typing import Any, Dict, List
 
 from . import storage
 from .runtime_access import runtime_documents
 
 
-AUDIT_PACKET_VERSION = 2
+AUDIT_PACKET_VERSION = 3
 AUDIT_PACKET_FILE = "audit_packet.json"
 
 
@@ -18,7 +19,135 @@ def _audit_range(meta: Dict[str, Any]) -> tuple[int, int]:
     return start_turn, end_turn
 
 
-def _build_full_audit_payload(session_id: str) -> Dict[str, Any]:
+def _event_turn(item: Dict[str, Any]) -> int:
+    try:
+        return int(item.get("turn_number") or item.get("turn") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _memory_record_turn(item: Dict[str, Any]) -> int:
+    try:
+        return int(item.get("learned_turn") or item.get("turn_number") or item.get("turn") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _audit_character_ids(
+    cards: List[Dict[str, Any]],
+    state: Dict[str, Any],
+    memory: Dict[str, Any],
+    chronology: Any,
+    audit_turns: List[Dict[str, Any]],
+    start_turn: int,
+    end_turn: int,
+) -> List[str]:
+    selected: List[str] = []
+    pov = state.get("pov") if isinstance(state.get("pov"), dict) else {}
+    if pov.get("character_id"):
+        selected.append(str(pov["character_id"]))
+    selected.extend(str(value) for value in storage._present_character_ids(state) if value)
+
+    turn_text = json.dumps(audit_turns, ensure_ascii=False).casefold()
+    for card in cards:
+        cid = storage._card_id(card)
+        if not cid:
+            continue
+        names = [cid, *storage._card_names(card)]
+        if any(str(name).casefold() in turn_text for name in names if len(str(name).strip()) >= 2):
+            selected.append(cid)
+
+    buckets = memory.get("characters", {}) if isinstance(memory.get("characters"), dict) else {}
+    for cid, bucket in buckets.items():
+        if not isinstance(bucket, dict):
+            continue
+        records = [
+            *(bucket.get("knowledge", []) if isinstance(bucket.get("knowledge"), list) else []),
+            *(bucket.get("experiences", []) if isinstance(bucket.get("experiences"), list) else []),
+            *(bucket.get("dialogue_memory", []) if isinstance(bucket.get("dialogue_memory"), list) else []),
+        ]
+        if any(start_turn <= _memory_record_turn(item) <= end_turn for item in records if isinstance(item, dict)):
+            selected.append(str(cid))
+
+    if isinstance(chronology, list):
+        for event in chronology:
+            if not isinstance(event, dict) or not start_turn <= _event_turn(event) <= end_turn:
+                continue
+            participants = event.get("participants_present") or event.get("participants") or event.get("character_ids") or []
+            if isinstance(participants, str):
+                participants = [participants]
+            if isinstance(participants, list):
+                for value in participants:
+                    if isinstance(value, dict):
+                        value = value.get("character_id") or value.get("id") or value.get("name")
+                    if value:
+                        selected.append(str(value))
+
+    valid = {storage._card_id(card) for card in cards}
+    return [cid for cid in dict.fromkeys(selected) if cid in valid]
+
+
+def _audit_memory(memory: Dict[str, Any], character_ids: List[str]) -> Dict[str, Any]:
+    buckets = memory.get("characters", {}) if isinstance(memory.get("characters"), dict) else {}
+    return {
+        "characters": {
+            cid: deepcopy(buckets.get(cid, {"knowledge": [], "experiences": [], "dialogue_memory": []}))
+            for cid in character_ids
+        }
+    }
+
+
+def _audit_chronology(
+    chronology: Any,
+    character_ids: List[str],
+    start_turn: int,
+    end_turn: int,
+) -> List[Dict[str, Any]]:
+    if not isinstance(chronology, list):
+        return []
+    relevant = set(character_ids)
+    in_range: List[Dict[str, Any]] = []
+    anchors: List[Dict[str, Any]] = []
+    prior_related: List[Dict[str, Any]] = []
+    for raw in chronology:
+        if not isinstance(raw, dict):
+            continue
+        event = deepcopy(raw)
+        turn = _event_turn(event)
+        if start_turn <= turn <= end_turn:
+            in_range.append(event)
+            continue
+        importance = str(event.get("importance") or "").casefold()
+        if importance in {"anchor", "critical", "major"} or event.get("anchor") is True:
+            anchors.append(event)
+            continue
+        if turn >= start_turn:
+            continue
+        participants = event.get("participants_present") or event.get("participants") or event.get("character_ids") or []
+        if isinstance(participants, str):
+            participants = [participants]
+        ids = set()
+        if isinstance(participants, list):
+            for value in participants:
+                if isinstance(value, dict):
+                    value = value.get("character_id") or value.get("id") or value.get("name")
+                if value:
+                    ids.add(str(value))
+        if relevant & ids:
+            prior_related.append(event)
+    combined = [*anchors[-30:], *prior_related[-30:], *in_range]
+    seen = set()
+    result: List[Dict[str, Any]] = []
+    for event in combined:
+        key = str(event.get("event_id") or json.dumps(event, ensure_ascii=False, sort_keys=True))
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(event)
+    return result
+
+
+def _build_audit_payload(session_id: str) -> Dict[str, Any]:
     root = storage.SESSIONS_DIR / session_id
     meta = storage._read_json(root / "meta.json", {})
     if not meta.get("audit_required"):
@@ -31,6 +160,8 @@ def _build_full_audit_payload(session_id: str) -> Dict[str, Any]:
     memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
     chronology = storage._read_json(root / "chronology.json", [])
     audit_turns = storage.get_turn_range(session_id, start_turn, end_turn)
+    character_ids = _audit_character_ids(cards, state, memory, chronology, audit_turns, start_turn, end_turn)
+    card_map = {storage._card_id(card): card for card in cards}
 
     return {
         "audit_packet_version": AUDIT_PACKET_VERSION,
@@ -38,19 +169,31 @@ def _build_full_audit_payload(session_id: str) -> Dict[str, Any]:
         "audit_range": [start_turn, end_turn],
         "runtime_documents_full": runtime_documents(),
         "source_full": source,
-        "character_cards_full": cards,
         "state_full": state,
-        "memory_full": memory,
-        "chronology_full": chronology,
+        "audit_character_ids": character_ids,
+        "character_cards_audit": [deepcopy(card_map[cid]) for cid in character_ids if cid in card_map],
+        "character_registry_index": [
+            {"character_id": storage._card_id(card), "name": storage._card_name(card), "role": storage._card_role(card)}
+            for card in cards
+            if storage._card_id(card)
+        ],
+        "memory_audit": _audit_memory(memory, character_ids),
+        "chronology_audit": _audit_chronology(chronology, character_ids, start_turn, end_turn),
         "audit_turns_full": audit_turns,
+        "storage_contract": {
+            "persistent_storage_is_complete": True,
+            "audit_payload_is_range_scoped": True,
+            "instruction": (
+                "Railway still stores every card, every personal-memory record and the complete chronology. The audit payload carries "
+                "the exact 15 audited turns, full current state/source/runtime, full dossiers and full personal memory for characters "
+                "involved in the range, plus chronology from the range, anchors and relevant prior continuity. Nothing is deleted from storage."
+            ),
+        },
         "instruction": (
-            "FULL 15-TURN AUDIT. Nothing in this audit payload is summarized, clipped, sampled or omitted. "
-            "Read EVERY audit chunk before commitAudit. audit_turns_full contains the exact saved turns in the audit range; "
-            "state_full, memory_full and chronology_full are the complete persistent stores at audit time; source_full and "
-            "character_cards_full are complete canon/card references; runtime_documents_full contains the complete current rules. "
-            "Repair only genuine inconsistencies or missing durable records caused during this audit range. Do not rewrite correct "
-            "history, do not bloat chronology, and never copy objective chronology/source/card knowledge into a character's memory "
-            "unless an exact turn proves that character personally saw, heard, read, received or was told it."
+            "15-TURN AUDIT. Read EVERY audit chunk before commitAudit. audit_turns_full contains the exact saved turns in the audit range. "
+            "Compare those turns against state_full, memory_audit and chronology_audit. Repair only genuine missing or inconsistent durable records. "
+            "Do not rewrite correct history, do not bloat chronology, and never copy objective chronology/source/card knowledge into a character's memory "
+            "unless an exact audited turn proves that character personally saw, heard, read, received or was told it."
         ),
     }
 
@@ -60,7 +203,6 @@ def _packet_path(root) -> Any:
 
 
 def get_audit_snapshot(session_id: str) -> Dict[str, Any]:
-    """Prepare or resume a lossless chunked audit read and return only its manifest."""
     root = storage.SESSIONS_DIR / session_id
     if not root.exists():
         raise FileNotFoundError(session_id)
@@ -74,6 +216,7 @@ def get_audit_snapshot(session_id: str) -> Dict[str, Any]:
     if (
         isinstance(packet, dict)
         and packet.get("audit_range") == [start_turn, end_turn]
+        and packet.get("audit_packet_version") == AUDIT_PACKET_VERSION
         and isinstance(packet.get("chunks"), list)
         and packet.get("chunks")
     ):
@@ -85,15 +228,16 @@ def get_audit_snapshot(session_id: str) -> Dict[str, Any]:
             "chunk_count": len(chunks),
             "total_chars": sum(len(chunk) for chunk in chunks),
             "already_read_chunks": packet.get("read_chunks", []),
-            "instruction": "Call getAuditSnapshotChunk for EVERY chunk index from 0 to chunk_count-1 before commitAudit. Audit data is full and untruncated.",
+            "instruction": "Read every audit batch in order until next_start_index is null, then commitAudit once.",
         }
 
-    payload = _build_full_audit_payload(session_id)
+    payload = _build_audit_payload(session_id)
     text = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
     chunks = [text[i:i + storage.MAX_PACKET_CHARS] for i in range(0, len(text), storage.MAX_PACKET_CHARS)] or ["{}"]
     packet = {
         "audit_id": secrets.token_urlsafe(12),
         "audit_range": [start_turn, end_turn],
+        "audit_packet_version": AUDIT_PACKET_VERSION,
         "chunk_count": len(chunks),
         "read_chunks": [],
         "chunks": chunks,
@@ -106,7 +250,7 @@ def get_audit_snapshot(session_id: str) -> Dict[str, Any]:
         "chunk_count": len(chunks),
         "total_chars": len(text),
         "already_read_chunks": [],
-        "instruction": "Call getAuditSnapshotChunk for EVERY chunk index from 0 to chunk_count-1 before commitAudit. Audit data is full and untruncated.",
+        "instruction": "Read every audit batch in order until next_start_index is null, then commitAudit once.",
     }
 
 
