@@ -7,14 +7,6 @@ from .context_stats import session_context_stats
 from .main import app
 
 
-@app.get("/sessions/{session_id}/context-stats", operation_id="getSessionContextStats")
-def session_context_stats_get(session_id: str):
-    try:
-        return session_context_stats(session_id)
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail="Session not found")
-
-
 def _log_stats(session_id: str) -> None:
     stats = session_context_stats(session_id)
     summary = {
@@ -34,6 +26,16 @@ def _log_stats(session_id: str) -> None:
             + json.dumps({"character_id": character_id, **row}, ensure_ascii=False),
             flush=True,
         )
+
+
+@app.get("/sessions/{session_id}/context-stats", operation_id="getSessionContextStats")
+def session_context_stats_get(session_id: str):
+    try:
+        stats = session_context_stats(session_id)
+        _log_stats(session_id)
+        return stats
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Session not found")
 
 
 _target_session = os.getenv("DIAGNOSTIC_SESSION_ID", "").strip()
