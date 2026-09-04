@@ -3,6 +3,7 @@ import tempfile
 from pathlib import Path
 
 from app import session_runtime, storage
+from app.character_access import get_character_bundle
 from tests.helpers import commit_with_packet
 
 
@@ -21,7 +22,7 @@ def read_packet_context(session_id: str, user_input: str):
     return packet, json.loads(text)
 
 
-def test_starting_state_full_canon_cast_scene_builder_and_all_cards_are_available():
+def test_starting_state_full_canon_and_scene_relevant_cards_are_available():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         novel = {
@@ -54,14 +55,16 @@ def test_starting_state_full_canon_cast_scene_builder_and_all_cards_are_availabl
         packet, context = read_packet_context(sid, "Начать стартовую сцену")
         assert "elena" in packet["relevant_character_ids"]
         assert "aiden" in packet["relevant_character_ids"]
-        assert packet["full_character_card_count"] == 3
+        assert packet["scene_character_card_count"] == 2
+        assert packet["working_context"] is True
 
-        all_ids = {x["character_id"] for x in context["character_cards"]}
-        assert all_ids == {"elena", "aiden", "liam"}
-        assert {x["character_id"] for x in context["all_character_cards"]} == all_ids
-        assert {x["character_id"] for x in context["present_character_cards"]} == {"elena", "aiden"}
-        liam = next(x for x in context["all_character_cards"] if x["character_id"] == "liam")
-        assert liam["card"]["past"] == "academy graduate"
+        scene_ids = {x["character_id"] for x in context["character_cards"]}
+        assert scene_ids == {"elena", "aiden"}
+        assert {x["character_id"] for x in context["scene_character_cards"]} == scene_ids
+        assert {x["character_id"] for x in context["character_registry_index"]} == {"elena", "aiden", "liam"}
+
+        liam_bundle = get_character_bundle(sid, "liam")
+        assert liam_bundle["card"]["past"] == "academy graduate"
 
         assert {x["character_id"] for x in context["cast_index"]} == {"elena", "aiden", "liam"}
         assert {x["character_id"] for x in context["character_registry"]} == {"elena", "aiden", "liam"}
