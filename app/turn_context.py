@@ -129,6 +129,17 @@ def _selected_memory(memory: Dict[str, Any], character_ids: List[str]) -> Dict[s
     }
 
 
+def _deduplicate_scene_character_memory(context: Dict[str, Any]) -> None:
+    lenses = context.get("scene_characters")
+    if not isinstance(lenses, dict):
+        return
+    for character_id, lens in lenses.items():
+        if not isinstance(lens, dict):
+            continue
+        lens.pop("personal_memory", None)
+        lens["personal_memory_path"] = f"scene_character_memory.characters[{character_id}]"
+
+
 def inject_required_turn_context(context: Dict[str, Any], cards: List[Dict[str, Any]], state: Dict[str, Any]) -> Dict[str, Any]:
     """Inject complete scene working context while keeping dormant data only in persistent storage."""
     source, memory = _session_persistent_data(context)
@@ -190,6 +201,7 @@ def inject_required_turn_context(context: Dict[str, Any], cards: List[Dict[str, 
     context["scene_character_ids"] = scene_ids
     context["scene_character_cards"] = scene_cards
     context["scene_character_memory"] = scene_memory
+    _deduplicate_scene_character_memory(context)
     context["character_registry_index"] = [
         {"character_id": storage._card_id(card), "name": _card_name(card, storage._card_id(card))}
         for card in cards
@@ -198,8 +210,9 @@ def inject_required_turn_context(context: Dict[str, Any], cards: List[Dict[str, 
     context["character_context_instruction"] = (
         "source_full contains the complete non-character source canon; source.characters is intentionally not duplicated in transport. "
         "The live character registry and cards are authoritative for characters. scene_character_cards and scene_character_memory are COMPLETE "
-        "for POV, present cast and characters resolved from current input. Other registered characters remain fully stored in Railway. "
-        "If an offscreen registered character must enter or materially act, call getCharacterBundle before writing that character."
+        "for POV, present cast and characters resolved from current input. scene_characters is a compact state/relationship lens and points to that single memory copy. "
+        "Other registered characters remain fully stored in Railway. If an offscreen registered character must enter or materially act, "
+        "call getCharacterBundle before writing that character."
     )
     context["knowledge_guard"] = {
         "mandatory": True,
@@ -230,10 +243,11 @@ def inject_required_turn_context(context: Dict[str, Any], cards: List[Dict[str, 
         "turn_packet_is_scene_scoped": True,
         "no_persistent_data_deleted": True,
         "source_characters_stay_persistent": True,
+        "single_scene_memory_copy": True,
         "instruction": (
             "Railway stores the complete source, all live cards, all personal memories and full chronology. This packet intentionally carries "
-            "the complete material needed for the current scene without retransmitting dormant character dossiers. Read every packet chunk. "
-            "Full visibility to the AUTHOR does not grant visibility to any character; enforce knowledge_guard per character."
+            "the complete material needed for the current scene without retransmitting dormant character dossiers or duplicating active personal memory. "
+            "Read every packet chunk. Full visibility to the AUTHOR does not grant visibility to any character; enforce knowledge_guard per character."
         ),
     }
 
