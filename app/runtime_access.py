@@ -8,7 +8,7 @@ from . import storage
 
 
 RUNTIME_DIR = Path(__file__).resolve().parent.parent / "runtime"
-RUNTIME_VERSION = "1.8.1"
+RUNTIME_VERSION = "1.9.0"
 RUNTIME_FILES = (
     "rules.md",
     "scene_builder.md",
@@ -22,13 +22,23 @@ RUNTIME_FILES = (
 CINEMATIC_COVERAGE_FILE = "cinematic_coverage.md"
 
 
+def _runtime_compat(name: str, text: str) -> str:
+    """Keep stored runtime prose intact while replacing stale transport-only field paths."""
+    if name == "scene_builder.md":
+        text = text.replace(
+            "`personal_memory` / `memory_full.characters[character_id]`",
+            "`character_memory[character_id]`",
+        )
+    return text
+
+
 def runtime_documents() -> Dict[str, str]:
     result: Dict[str, str] = {}
     for name in RUNTIME_FILES:
         path = RUNTIME_DIR / name
         if not path.exists():
             raise RuntimeError(f"RUNTIME_FILE_MISSING:{name}")
-        result[name.removesuffix(".md")] = path.read_text(encoding="utf-8")
+        result[name.removesuffix(".md")] = _runtime_compat(name, path.read_text(encoding="utf-8"))
 
     cinematic_path = RUNTIME_DIR / CINEMATIC_COVERAGE_FILE
     if not cinematic_path.exists():
