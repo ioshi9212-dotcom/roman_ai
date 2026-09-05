@@ -8,7 +8,7 @@ from . import storage
 
 
 RUNTIME_DIR = Path(__file__).resolve().parent.parent / "runtime"
-RUNTIME_VERSION = "1.9.0"
+RUNTIME_VERSION = "1.9.2"
 RUNTIME_FILES = (
     "rules.md",
     "scene_builder.md",
@@ -23,11 +23,20 @@ CINEMATIC_COVERAGE_FILE = "cinematic_coverage.md"
 
 
 def _runtime_compat(name: str, text: str) -> str:
-    """Keep stored runtime prose intact while replacing stale transport-only field paths."""
+    """Replace only stale transport paths while keeping story/runtime semantics intact."""
     if name == "scene_builder.md":
         text = text.replace(
             "`personal_memory` / `memory_full.characters[character_id]`",
             "`character_memory[character_id]`",
+        )
+    if name == "rules.md":
+        text = text.replace(
+            "Полные карточки всех зарегистрированных персонажей брать из `all_character_cards`, а их personal memory из `memory_full.characters[character_id]` уже прочитанного turn packet. Отдельный character bundle/memory Action для входа персонажа не требуется и не должен блокировать сцену.",
+            "Полные dossiers в обычном packet есть для POV, присутствующих и реально затронутых вводом персонажей. Если зарегистрированный offscreen NPC должен войти/существенно действовать и dossier отсутствует, сначала `prepareCharacterBundleRead`, затем прочитать ВСЕ `getCharacterBundleChunk` по одному. Direct character bundle/memory Action не использовать.",
+        )
+        text = text.replace(
+            "5. Для каждого присутствующего/входящего NPC проверить `all_character_cards[character_id]`, `memory_full.characters[character_id]`, pov_familiarity и relationship_to_pov из turn packet.\n6. Не вызывать отдельный character bundle/memory Action: пакет уже содержит полный dossier зарегистрированных персонажей.",
+            "5. Для каждого присутствующего NPC проверить `character_cards`, `character_memory[character_id]`, pov_familiarity и relationship_to_pov.\n6. Для входящего offscreen NPC без dossier выполнить `prepareCharacterBundleRead`, затем прочитать все `getCharacterBundleChunk` по одному до его действий.",
         )
     return text
 
