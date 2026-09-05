@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Roman AI
-  version: 1.9.1
+  version: 1.9.2
   description: Persistent isolated novel sessions with scene-scoped working context, transactional persistence, recovery and 15-turn audits.
 servers:
   - url: https://romanai-production-0fdb.up.railway.app
@@ -120,7 +120,7 @@ paths:
     get:
       operationId: getRuntime
       summary: Prepare the complete runtime documents as safe chunks
-      description: Returns only a manifest. The runtime itself is not shortened; read every getRuntimeChunk from 0 to chunk_count-1.
+      description: Returns only a manifest. Read every getRuntimeChunk from 0 through chunk_count-1.
       responses:
         '200': {description: Runtime chunk manifest}
   /runtime/{chunk_index}:
@@ -252,7 +252,7 @@ paths:
     post:
       operationId: recoverSessionCurrent
       summary: Repair only the technical current scene pointer without creating a gameplay turn
-      description: Repairs damaged state.current from saved session evidence without creating a turn or changing prior turns, chronology, memory, or source.
+      description: Repairs damaged state.current from saved evidence without creating a turn or changing prior turns, chronology, memory, or source.
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
       responses:
@@ -263,31 +263,30 @@ paths:
     get:
       operationId: getAuditSnapshot
       summary: Prepare the exact 15-turn audit working context as chunks
-      description: Exact audited turns plus current state/source and relevant full character memory. Read response-safe batches until next_start_index is null.
+      description: Exact audited turns plus current state/source and relevant full character memory. Read every audit chunk individually.
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
       responses:
         '200': {description: Audit manifest with audit_id and chunk_count}
         '409': {description: Audit is not currently required}
-  /sessions/{session_id}/audit-snapshot-batch/{audit_id}:
+  /sessions/{session_id}/audit-snapshot/{audit_id}/{chunk_index}:
     get:
-      operationId: getAuditSnapshotChunkBatch
-      summary: Read two consecutive response-safe audit chunks from start_index
-      description: Use count=2 only. Follow next_start_index until null; each included underlying chunk is marked read and content is lossless.
+      operationId: getAuditSnapshotChunk
+      summary: Read one response-safe audit chunk
+      description: Read indices 0 through chunk_count-1 in order. Do not batch Action responses.
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
         - {in: path, name: audit_id, required: true, schema: {type: string}}
-        - {in: query, name: start_index, required: true, schema: {type: integer, minimum: 0}}
-        - {in: query, name: count, required: true, schema: {type: integer, enum: [2]}}
+        - {in: path, name: chunk_index, required: true, schema: {type: integer, minimum: 0}}
       responses:
-        '200': {description: Concatenated audit content and next_start_index}
+        '200': {description: One lossless audit chunk}
         '403': {description: Invalid or stale audit_id}
-        '404': {description: Start index out of range}
+        '404': {description: Chunk index out of range}
   /sessions/{session_id}/turn-packet:
     post:
       operationId: prepareTurn
       summary: Build scene-scoped working context from complete persistent canon
-      description: Persistent storage remains complete. Packet carries full source/state and full dossiers for the scene-relevant cast, plus selected chronology.
+      description: Storage remains complete. Packet carries required source/state, scene-relevant dossiers, selected chronology and runtime documents once.
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
       requestBody:
@@ -298,38 +297,44 @@ paths:
       responses:
         '200': {description: Packet manifest}
         '409': {description: Audit required or current scene pointer requires technical recovery}
-  /sessions/{session_id}/turn-packet-batch/{packet_id}:
+  /sessions/{session_id}/turn-packet/{packet_id}/{chunk_index}:
     get:
-      operationId: getTurnPacketChunkBatch
-      summary: Read two consecutive response-safe turn chunks from start_index
-      description: Use count=2 only. Follow next_start_index until null; each included underlying chunk is marked read and content is lossless.
+      operationId: getTurnPacketChunk
+      summary: Read one response-safe turn packet chunk
+      description: Read indices 0 through chunk_count-1 in order. Do not batch Action responses.
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
         - {in: path, name: packet_id, required: true, schema: {type: string}}
-        - {in: query, name: start_index, required: true, schema: {type: integer, minimum: 0}}
-        - {in: query, name: count, required: true, schema: {type: integer, enum: [2]}}
+        - {in: path, name: chunk_index, required: true, schema: {type: integer, minimum: 0}}
       responses:
-        '200': {description: Concatenated packet content and next_start_index}
+        '200': {description: One lossless packet chunk}
         '403': {description: Invalid or stale packet_id}
-        '404': {description: Start index out of range}
-  /sessions/{session_id}/characters/{character_id}:
-    get:
-      operationId: getCharacterBundle
-      summary: Load one complete character bundle
+        '404': {description: Chunk index out of range}
+  /sessions/{session_id}/characters/{character_id}/read:
+    post:
+      operationId: prepareCharacterBundleRead
+      summary: Prepare a response-safe full dossier read for one dormant registered character
+      description: Returns a snapshot read_id and chunk_count. Use only when the full dossier is absent from the current packet and the character must enter or materially act.
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
         - {in: path, name: character_id, required: true, schema: {type: string}}
       responses:
-        '200': {description: Character bundle}
-  /sessions/{session_id}/characters/{character_id}/memory:
+        '200': {description: Character dossier read manifest}
+        '404': {description: Session or character not found}
+  /sessions/{session_id}/characters/{character_id}/read/{read_id}/{chunk_index}:
     get:
-      operationId: getCharacterMemory
-      summary: Load one character memory directly
+      operationId: getCharacterBundleChunk
+      summary: Read one response-safe chunk of the complete character dossier
+      description: Read every index from 0 through chunk_count-1. If the dossier changes during reading, restart from prepareCharacterBundleRead.
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
         - {in: path, name: character_id, required: true, schema: {type: string}}
+        - {in: path, name: read_id, required: true, schema: {type: string}}
+        - {in: path, name: chunk_index, required: true, schema: {type: integer, minimum: 0}}
       responses:
-        '200': {description: Character memory}
+        '200': {description: One lossless character dossier chunk}
+        '404': {description: Session, character or chunk not found}
+        '409': {description: Character dossier changed during reading}
   /sessions/{session_id}/turns:
     get:
       operationId: getTurnRange
