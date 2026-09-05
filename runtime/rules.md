@@ -28,7 +28,7 @@ Action-вызовы, chunks, проверки и сохранение выпол
 
 Перед вводом, именованием, узнаванием или представлением персонажа сначала сверить registry.
 
-Если существующий зарегистрированный персонаж входит из-за кадра и его полного dossier нет в packet, сначала `getCharacterBundle(character_id)`, потом писать вход.
+Полные карточки всех зарегистрированных персонажей брать из `all_character_cards`, а их personal memory из `memory_full.characters[character_id]` уже прочитанного turn packet. Отдельный character bundle/memory Action для входа персонажа не требуется и не должен блокировать сцену.
 
 Нельзя использовать имя/ID существующей карточки для случайного нового человека и позже без основания объявлять, что это был он.
 
@@ -127,8 +127,8 @@ Footer показывает только присутствующих NPC -> POV
 2. `prepareTurn`.
 3. Прочитать все chunks.
 4. Сверить character_registry и long-range chronology slice.
-5. Для каждого присутствующего/входящего NPC проверить personal_memory, pov_familiarity и relationship_to_pov.
-6. При входе известного offscreen персонажа без полной карточки вызвать `getCharacterBundle`.
+5. Для каждого присутствующего/входящего NPC проверить `all_character_cards[character_id]`, `memory_full.characters[character_id]`, pov_familiarity и relationship_to_pov из turn packet.
+6. Не вызывать отдельный character bundle/memory Action: пакет уже содержит полный dossier зарегистрированных персонажей.
 7. Написать сцену по `scene_builder`.
 8. Проверить знания, знакомства, временную причинность и footer отношений.
 9. Отдельно выполнить persistence review: chronology + персональная память каждого реально присутствовавшего/получившего информацию персонажа.
