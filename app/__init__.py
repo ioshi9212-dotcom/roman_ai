@@ -1,10 +1,31 @@
+from .storage_compat_runtime import install as _install_storage_compat
 from .runtime_fixes_compat import install as _install_runtime_fixes
+from .relationship_growth_runtime import install as _install_relationship_growth_runtime
 from .scene_presence_runtime import install as _install_scene_presence
 from .game_day import install as _install_game_day
+from .chronology_integrity_runtime import install as _install_chronology_integrity_runtime
+from .stability_runtime import install as _install_stability_runtime
+from .memory_integrity_runtime import install as _install_memory_integrity_runtime
+from .character_chunk_read import install as _install_character_chunk_read
+from .transport_scope_runtime import install as _install_transport_scope_runtime
 
+_install_storage_compat()
 _install_runtime_fixes()
+_install_relationship_growth_runtime()
 _install_scene_presence()
 _install_game_day()
+_install_chronology_integrity_runtime()
+_install_stability_runtime()
+_install_memory_integrity_runtime()
+_install_character_chunk_read()
+_install_transport_scope_runtime()
+del _install_storage_compat
 del _install_runtime_fixes
+del _install_relationship_growth_runtime
 del _install_scene_presence
 del _install_game_day
+del _install_chronology_integrity_runtime
+del _install_stability_runtime
+del _install_memory_integrity_runtime
+del _install_character_chunk_read
+del _install_transport_scope_runtime

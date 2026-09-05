@@ -9,6 +9,8 @@ from .audit_runtime import (
     require_complete_audit_read,
 )
 from .character_access import get_character_bundle
+from .character_chunk_read import get_character_bundle_chunk, prepare_character_bundle_read
+from .context_stats import session_context_stats
 from .models import AuditCommit, NovelDraftCreate, NovelDraftSection, NovelRawSave, NovelTemplate, SessionCreate, TurnCommit, TurnPrepare
 from .novel_access import get_novel_read_chunk, prepare_novel_read, verify_novel
 from .novel_drafts import (
@@ -35,13 +37,11 @@ from .storage import (
     save_novel,
 )
 
-
 app = FastAPI(
     title="Roman AI",
-    version="1.7.8",
-    description="Persistent isolated novel sessions with complete chunked canon, runtime rules, character cards, memory, chronology, relationships, recovery and audits.",
+    version="1.9.2",
+    description="Persistent isolated novel sessions with response-safe scene-scoped context, runtime rules, character cards, memory, chronology, relationships, recovery and audits.",
 )
-
 
 _BATCH_MAX = 4
 
@@ -51,7 +51,6 @@ def _read_chunk_batch(getter, session_id: str, read_id: str, start_index: int, c
         raise ValueError("start_index must be >= 0")
     if count < 1 or count > _BATCH_MAX:
         raise ValueError(f"count must be between 1 and {_BATCH_MAX}")
-
     parts = []
     first = None
     for chunk_index in range(start_index, start_index + count):
@@ -66,7 +65,6 @@ def _read_chunk_batch(getter, session_id: str, read_id: str, start_index: int, c
         parts.append(item)
         if chunk_index + 1 >= int(item.get("chunk_count", 0)):
             break
-
     if not parts or first is None:
         raise IndexError(start_index)
     chunk_count = int(first.get("chunk_count", 0))
@@ -85,6 +83,14 @@ def _read_chunk_batch(getter, session_id: str, read_id: str, start_index: int, c
 @app.get("/health", operation_id="health")
 def health():
     return {"ok": True}
+
+
+@app.get("/sessions/{session_id}/context-stats", operation_id="getSessionContextStats")
+def session_context_stats_get(session_id: str):
+    try:
+        return session_context_stats(session_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Session not found")
 
 
 @app.get("/runtime", operation_id="getRuntime")
@@ -257,13 +263,7 @@ def session_current_recover(session_id: str):
         raise HTTPException(status_code=404, detail="Session not found")
     except RuntimeError as exc:
         if str(exc) == "CURRENT_RECOVERY_NO_EVIDENCE":
-            raise HTTPException(
-                status_code=409,
-                detail=(
-                    "Current scene pointer is damaged, but the server could not recover enough evidence from starting state, committed turn patches, audit repairs, runtime presence or the latest saved scene header. "
-                    "Do not create a gameplay turn to guess the missing scene."
-                ),
-            )
+            raise HTTPException(status_code=409, detail=("Current scene pointer is damaged, but the server could not recover enough evidence from starting state, committed turn patches, audit repairs, runtime presence or the latest saved scene header. Do not create a gameplay turn to guess the missing scene."))
         raise
 
 
@@ -279,10 +279,7 @@ def audit_snapshot_get(session_id: str):
         raise
 
 
-@app.get(
-    "/sessions/{session_id}/audit-snapshot-batch/{audit_id}",
-    operation_id="getAuditSnapshotChunkBatch",
-)
+@app.get("/sessions/{session_id}/audit-snapshot-batch/{audit_id}", operation_id="getAuditSnapshotChunkBatch")
 def audit_snapshot_chunk_batch_get(session_id: str, audit_id: str, start_index: int, count: int = _BATCH_MAX):
     try:
         return _read_chunk_batch(get_audit_snapshot_chunk, session_id, audit_id, start_index, count)
@@ -296,10 +293,7 @@ def audit_snapshot_chunk_batch_get(session_id: str, audit_id: str, start_index: 
         raise HTTPException(status_code=404, detail="Audit chunk index out of range")
 
 
-@app.get(
-    "/sessions/{session_id}/audit-snapshot/{audit_id}/{chunk_index}",
-    operation_id="getAuditSnapshotChunk",
-)
+@app.get("/sessions/{session_id}/audit-snapshot/{audit_id}/{chunk_index}", operation_id="getAuditSnapshotChunk")
 def audit_snapshot_chunk_get(session_id: str, audit_id: str, chunk_index: int):
     try:
         return get_audit_snapshot_chunk(session_id, audit_id, chunk_index)
@@ -323,10 +317,7 @@ def turn_packet_prepare(session_id: str, body: TurnPrepare):
         raise
 
 
-@app.get(
-    "/sessions/{session_id}/turn-packet-batch/{packet_id}",
-    operation_id="getTurnPacketChunkBatch",
-)
+@app.get("/sessions/{session_id}/turn-packet-batch/{packet_id}", operation_id="getTurnPacketChunkBatch")
 def turn_packet_chunk_batch_get(session_id: str, packet_id: str, start_index: int, count: int = _BATCH_MAX):
     try:
         return _read_chunk_batch(get_turn_packet_chunk, session_id, packet_id, start_index, count)
@@ -350,6 +341,30 @@ def turn_packet_chunk_get(session_id: str, packet_id: str, chunk_index: int):
         raise HTTPException(status_code=403, detail="Invalid or stale packet_id")
     except IndexError:
         raise HTTPException(status_code=404, detail="Chunk index out of range")
+
+
+@app.post("/sessions/{session_id}/characters/{character_id}/read", operation_id="prepareCharacterBundleRead")
+def character_bundle_read_prepare(session_id: str, character_id: str):
+    try:
+        return prepare_character_bundle_read(session_id, character_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Session not found")
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Character not found")
+
+
+@app.get("/sessions/{session_id}/characters/{character_id}/read/{read_id}/{chunk_index}", operation_id="getCharacterBundleChunk")
+def character_bundle_chunk_get(session_id: str, character_id: str, read_id: str, chunk_index: int):
+    try:
+        return get_character_bundle_chunk(session_id, character_id, read_id, chunk_index)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Session not found")
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Character not found")
+    except PermissionError:
+        raise HTTPException(status_code=409, detail="Character dossier changed; restart the character read")
+    except IndexError:
+        raise HTTPException(status_code=404, detail="Character chunk index out of range")
 
 
 @app.get("/sessions/{session_id}/characters/{character_id}", operation_id="getCharacterBundle")
