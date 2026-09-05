@@ -9,6 +9,7 @@ from .audit_runtime import (
     require_complete_audit_read,
 )
 from .character_access import get_character_bundle
+from .character_chunk_read import get_character_bundle_chunk, prepare_character_bundle_read
 from .context_stats import session_context_stats
 from .models import AuditCommit, NovelDraftCreate, NovelDraftSection, NovelRawSave, NovelTemplate, SessionCreate, TurnCommit, TurnPrepare
 from .novel_access import get_novel_read_chunk, prepare_novel_read, verify_novel
@@ -38,8 +39,8 @@ from .storage import (
 
 app = FastAPI(
     title="Roman AI",
-    version="1.7.8",
-    description="Persistent isolated novel sessions with complete chunked canon, runtime rules, character cards, memory, chronology, relationships, recovery and audits.",
+    version="1.9.2",
+    description="Persistent isolated novel sessions with response-safe scene-scoped context, runtime rules, character cards, memory, chronology, relationships, recovery and audits.",
 )
 
 _BATCH_MAX = 4
@@ -340,6 +341,30 @@ def turn_packet_chunk_get(session_id: str, packet_id: str, chunk_index: int):
         raise HTTPException(status_code=403, detail="Invalid or stale packet_id")
     except IndexError:
         raise HTTPException(status_code=404, detail="Chunk index out of range")
+
+
+@app.post("/sessions/{session_id}/characters/{character_id}/read", operation_id="prepareCharacterBundleRead")
+def character_bundle_read_prepare(session_id: str, character_id: str):
+    try:
+        return prepare_character_bundle_read(session_id, character_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Session not found")
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Character not found")
+
+
+@app.get("/sessions/{session_id}/characters/{character_id}/read/{read_id}/{chunk_index}", operation_id="getCharacterBundleChunk")
+def character_bundle_chunk_get(session_id: str, character_id: str, read_id: str, chunk_index: int):
+    try:
+        return get_character_bundle_chunk(session_id, character_id, read_id, chunk_index)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Session not found")
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Character not found")
+    except PermissionError:
+        raise HTTPException(status_code=409, detail="Character dossier changed; restart the character read")
+    except IndexError:
+        raise HTTPException(status_code=404, detail="Character chunk index out of range")
 
 
 @app.get("/sessions/{session_id}/characters/{character_id}", operation_id="getCharacterBundle")
