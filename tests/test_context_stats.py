@@ -1,3 +1,4 @@
+import json
 import tempfile
 from pathlib import Path
 
@@ -12,7 +13,7 @@ def setup_temp_storage(tmp: str):
     storage.ensure_dirs()
 
 
-def test_context_stats_is_read_only_and_reports_memory_and_chronology():
+def test_context_stats_is_read_only_and_reports_memory_chronology_and_packet_blocks():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         novel = {
@@ -45,6 +46,18 @@ def test_context_stats_is_read_only_and_reports_memory_and_chronology():
             {"event_id": "c1", "turn_number": 1, "event": "event one", "importance": "major"},
             {"event_id": "c2", "turn_number": 2, "event": "event two", "importance": "normal"},
         ])
+        repeated = {"blob": "x" * 800}
+        payload = {
+            "author_context": {"memory_full": repeated, "memory_copy": repeated},
+            "scene_state": {"location": "room"},
+            "runtime_rules": "rules",
+        }
+        raw = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+        storage._write_json(root / "turn_packet.json", {
+            "packet_id": "diag-packet",
+            "chunks": [raw[:500], raw[500:]],
+            "read_chunks": [],
+        })
 
         before = {p.name: p.read_bytes() for p in root.iterdir() if p.is_file()}
         stats = session_context_stats(sid)
@@ -56,4 +69,11 @@ def test_context_stats_is_read_only_and_reports_memory_and_chronology():
         assert stats["memory"]["by_character"]["npc"]["knowledge"] == 1
         assert stats["memory"]["by_character"]["npc"]["experiences"] == 1
         assert stats["memory"]["by_character"]["npc"]["dialogue_memory"] == 1
+        packet = stats["turn_packet"]
+        assert packet["present"] is True
+        assert packet["chunk_count"] == 2
+        assert packet["top_level_chars"]["author_context"] > packet["top_level_chars"]["scene_state"]
+        assert packet["nested_dict_chars"]["author_context"]["memory_full"] > 500
+        duplicate_paths = [row["paths"] for row in packet["exact_duplicate_blocks"]]
+        assert ["author_context.memory_full", "author_context.memory_copy"] in duplicate_paths
         assert before == after

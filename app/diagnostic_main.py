@@ -18,12 +18,23 @@ def _log_stats(session_id: str) -> None:
         "chronology": stats["chronology"],
         "memory_chars": stats["memory"]["chars"],
         "memory_characters": stats["memory"]["characters"],
+        "turn_packet": {
+            key: value
+            for key, value in stats["turn_packet"].items()
+            if key not in {"nested_dict_chars"}
+        },
     }
     print("CONTEXT_STATS_SUMMARY " + json.dumps(summary, ensure_ascii=False), flush=True)
     for character_id, row in stats["memory"]["by_character"].items():
         print(
             "CONTEXT_STATS_MEMORY "
             + json.dumps({"character_id": character_id, **row}, ensure_ascii=False),
+            flush=True,
+        )
+    for parent, rows in stats["turn_packet"].get("nested_dict_chars", {}).items():
+        print(
+            "CONTEXT_STATS_PACKET_NESTED "
+            + json.dumps({"parent": parent, "children": rows}, ensure_ascii=False),
             flush=True,
         )
 
