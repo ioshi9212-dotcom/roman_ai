@@ -5,6 +5,7 @@ from fastapi import HTTPException
 
 from .context_stats import session_context_stats
 from .main import app
+from .rollback_diagnostics import rollback_diagnostics
 
 
 def _log_stats(session_id: str) -> None:
@@ -39,12 +40,26 @@ def _log_stats(session_id: str) -> None:
         )
 
 
+def _log_rollback(session_id: str) -> dict:
+    result = rollback_diagnostics(session_id)
+    print("ROLLBACK_DIAGNOSTICS " + json.dumps(result, ensure_ascii=False), flush=True)
+    return result
+
+
 @app.get("/sessions/{session_id}/context-stats", operation_id="getSessionContextStats")
 def session_context_stats_get(session_id: str):
     try:
         stats = session_context_stats(session_id)
         _log_stats(session_id)
         return stats
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+
+@app.get("/sessions/{session_id}/rollback-diagnostics", include_in_schema=False)
+def rollback_diagnostics_get(session_id: str):
+    try:
+        return _log_rollback(session_id)
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Session not found")
 
@@ -56,7 +71,8 @@ def context_stats_probe():
         raise HTTPException(status_code=503, detail="Diagnostic session is not configured")
     try:
         _log_stats(target)
-        return {"ok": True, "read_only": True}
+        rollback = _log_rollback(target)
+        return {"ok": True, "read_only": True, "current_turn": rollback["current_turn"]}
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Session not found")
 
@@ -65,5 +81,6 @@ _target_session = os.getenv("DIAGNOSTIC_SESSION_ID", "").strip()
 if _target_session:
     try:
         _log_stats(_target_session)
+        _log_rollback(_target_session)
     except FileNotFoundError:
         print("CONTEXT_STATS_ERROR session_not_found " + _target_session, flush=True)
