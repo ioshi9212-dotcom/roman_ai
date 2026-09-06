@@ -35,8 +35,8 @@ def test_source_genres_cast_and_pov_biography_are_active_material():
     assert "скрытые истины" in text
 
 
-def test_new_runtime_rules_do_not_embed_phrase_examples():
-    text = (ROOT / "runtime" / "scene_builder.md").read_text(encoding="utf-8")
-    assert "Пример:" not in text
-    assert "Например" not in text
-    assert "например" not in text
+def test_prompt_facing_rules_do_not_embed_examples():
+    paths = [*sorted((ROOT / "runtime").glob("*.md")), ROOT / "gpt" / "custom_gpt_instructions.md"]
+    for path in paths:
+        text = path.read_text(encoding="utf-8").casefold()
+        assert "пример" not in text, path
