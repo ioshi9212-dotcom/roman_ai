@@ -239,17 +239,12 @@ def _rewrite_turn_packet(session_id: str, manifest: Dict[str, Any]) -> Dict[str,
         "presence_updates": {
             "field": "extracted.presence_updates",
             "actions": ["enter", "leave", "move"],
-            "examples": [
-                {"character_id": "npc_id", "action": "enter", "zone": "doorway"},
-                {"character_id": "npc_id", "action": "move", "zone": "window", "note": "a few steps from POV"},
-                {"character_id": "npc_id", "action": "leave"},
-            ],
         },
         "instruction": (
             "STRUCTURAL PRESENCE CONTRACT. Do not rewrite current.present_characters as a free-form snapshot. "
-            "If nobody physically enters/leaves/moves, presence_updates may be empty and the start roster persists automatically. "
-            "Use enter only for a real arrival, leave only for a real physical exit from the accessible scene, and move for stepping aside, sitting farther away, going to a window or another position inside the same scene. "
-            "A silent NPC, a change of dialogue focus or a POV step to the side is NOT leave."
+            "If nobody physically enters, leaves or moves, presence_updates may be empty and the start roster persists automatically. "
+            "Use enter only for a real arrival, leave only for a real physical exit from the accessible scene, and move only for a position change inside the same scene. "
+            "Silence and focus changes do not alter scene membership."
         ),
     }
 
