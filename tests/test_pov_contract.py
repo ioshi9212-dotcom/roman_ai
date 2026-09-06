@@ -27,7 +27,7 @@ def test_scene_builder_contains_selective_cinematic_coverage_contract():
     assert "memory_full.characters[character_id]" not in builder
 
 
-def test_runtime_version_bumped_for_working_context_contract():
+def test_runtime_version_matches_reconciled_working_context_contract():
     manifest = runtime_manifest()
-    assert manifest["runtime_version"] == "1.9.0"
+    assert manifest["runtime_version"] == "1.9.2"
     assert manifest["chunk_count"] >= 1
