@@ -57,8 +57,8 @@ def _present_npc_candidates(cards: List[Dict[str, Any]], state: Dict[str, Any], 
                 "saved_dimensions": deepcopy(dimensions),
                 "initialization_rule": (
                     "If saved_dimensions exist, continue exactly this relationship. If they are empty, this NPC still must be evaluated during the scene. "
-                    "As soon as the NPC meaningfully perceives/interacts with POV and a real attitude exists, initialize 1-3 natural relationship dimensions "
-                    "from character + goals + knowledge + current interaction and show them in the footer. Do not leave the relationship block empty merely because this is a new chat/session or there was no previous numeric baseline."
+                    "As soon as the NPC meaningfully perceives or interacts with POV and a real attitude exists, initialize 1-3 natural relationship dimensions "
+                    "from character, goals, knowledge and current interaction and show them in the footer. Do not leave the relationship block empty merely because this is a new chat, session or baseline."
                 ),
             }
         )
@@ -122,7 +122,6 @@ def inject_required_turn_context(context: Dict[str, Any], cards: List[Dict[str, 
     scene_cards = _selected_cards(cards, scene_ids)
     scene_memory = _selected_memory(memory, scene_ids)
 
-    # Runtime documents are flattened so scene_builder/contracts are not serialized twice.
     context.pop("runtime_documents", None)
     context["runtime_rules"] = documents["rules"]
     context["scene_builder"] = documents["scene_builder"]
@@ -148,17 +147,15 @@ def inject_required_turn_context(context: Dict[str, Any], cards: List[Dict[str, 
     )
     context["pov_participation_instruction"] = (
         "MANDATORY GLOBAL POV RULE. POV must remain an active participant throughout the scene. "
-        "Write ordinary in-character POV dialogue, reactions, thoughts and small actions without asking permission; "
-        "do not reduce POV to silence, one-word replies or body-only reactions merely to preserve player agency. "
+        "Write ordinary in-character POV dialogue, reactions, thoughts and small actions without asking permission. "
+        "Do not reduce POV to silence, one-word replies or body-only reactions merely to preserve player agency. "
         "Stop only before genuinely consequential POV choices defined by the contract."
     )
     context["npc_agency_instruction"] = (
-        "MANDATORY GLOBAL NPC AGENCY RULE. NPC behavior comes from that NPC's character, desires, goals, advantage, fears, "
-        "relationships, knowledge, duties and current situation, NOT from universal therapy, boundary etiquette or author-approved "
-        "psychological correctness. Do not automatically soften, restrain or make NPCs ask permission. If the specific NPC would act, "
-        "let them act: intervene, grab a hand/wrist, block a path, take an item, raise their voice, order, pressure, hug or initiate a kiss "
-        "without a preliminary permission question when consistent with the character and scene. Do not praise restraint as 'better' or "
-        "narrate 'wanted to but did not' merely to model healthy boundaries. Consequential POV reactions and choices remain with the player."
+        "MANDATORY GLOBAL NPC AGENCY RULE. NPC behavior comes from that NPC's character, desires, goals, advantage, fears, relationships, knowledge, duties and current situation. "
+        "Do not replace character logic with universal therapy, etiquette or author-approved psychological correctness. "
+        "If the specific NPC would act, let them act without forcing a preliminary permission question. "
+        "Do not praise restraint or narrate omitted action merely to model healthy behavior. Consequential POV reactions and choices remain with the player."
     )
 
     relationship_lens = build_relationship_lens(
@@ -172,15 +169,15 @@ def inject_required_turn_context(context: Dict[str, Any], cards: List[Dict[str, 
     relationship_lens["initialization_instruction"] = (
         "A missing saved relation is NOT a reason to omit relationships forever. Evaluate every present NPC candidate. "
         "For an NPC with saved dimensions, preserve them. For an NPC without saved dimensions, once this scene establishes a real directional attitude toward POV, "
-        "create 1-3 specific dimensions natural to that NPC (for example sympathy, suspicion, attraction, respect, irritation, jealousy, trust, resentment, closeness) "
-        "and print them in the visible footer. Never use a generic 'interest' placeholder. The first appearance may omit /delta because there is no prior numeric baseline."
+        "create 1-3 specific dimensions natural to that NPC and print them in the visible footer. Do not use a generic placeholder. "
+        "The first appearance may omit /delta because there is no prior numeric baseline."
     )
     context["relationship_lens"] = relationship_lens
     context["relationship_lens_instruction"] = (
-        "MANDATORY. relationship_lens is the old-generator causal relationship layer and is authoritative for current NPC->POV relations. "
+        "MANDATORY. relationship_lens is the causal relationship layer and is authoritative for current NPC->POV relations. "
         "Every present NPC is listed in present_npc_candidates even when no relationship has been saved yet. "
-        "Existing dimensions MUST appear in the visible Relationships footer. Missing dimensions must be initialized when the current interaction actually establishes an attitude; "
-        "do not output an empty relationship block simply because this is a new chat or fresh relationship. Carry saved dimensions across absences and later meetings."
+        "Existing dimensions MUST appear in the visible Relationships footer. Missing dimensions must be initialized when the current interaction establishes an attitude. "
+        "Carry saved dimensions across absences and later meetings."
     )
 
     context["character_cards"] = scene_cards
@@ -189,8 +186,8 @@ def inject_required_turn_context(context: Dict[str, Any], cards: List[Dict[str, 
     context["character_context_instruction"] = (
         "character_cards and character_memory are COMPLETE for POV, present cast and characters resolved from current input. "
         "These are the stable paths used by scene_builder. character_registry/cast_index remain the compact registry for every registered character. "
-        "Other character dossiers and all older persistent data remain fully stored in Railway. If an offscreen registered character must enter or materially act, "
-        "call getCharacterBundle before writing that character."
+        "Other character dossiers and older persistent data remain stored in Railway. If an offscreen registered character must enter or materially act, "
+        "load that character's full bundle before writing the character."
     )
     context["knowledge_guard"] = {
         "mandatory": True,
@@ -201,16 +198,11 @@ def inject_required_turn_context(context: Dict[str, Any], cards: List[Dict[str, 
             "story_direction", "chronology_recent", "character_memory[OTHER_CHARACTER_ID]",
         ],
         "instruction": (
-            "Before EVERY NPC line, inference, recognition or deliberate action, identify that NPC and verify the exact fact source. "
-            "Past knowledge must come from that NPC's own character_memory[character_id]. Current-turn knowledge must come "
-            "from an explicit perception channel established in the scene after turn start. POV thoughts, phone notifications, message "
-            "text, screens, headphones, letters/photos held privately and other private POV content stay private unless POV explicitly "
-            "shows/reads aloud/forwards/hands them over or the scene already establishes direct visual/auditory access. Mere proximity, "
-            "a glance at the phone, an outstretched hand or asking 'show me' does NOT reveal content. A character elsewhere, arriving later "
-            "or leaving earlier gets no retroactive knowledge. Inference may use only premises that NPC already knows and may not reproduce "
-            "an unknown exact detail. If a drafted NPC line leaks an unsupported fact, rewrite/delete the line. NEVER keep the leak and add "
-            "narrator justification such as 'he could infer it' or 'he understood from her reaction'. An invalid generated leak is not canon, "
-            "must not be persisted to that NPC's memory, and must not survive into the next turn."
+            "Before every NPC line, inference, recognition or deliberate action, identify that NPC and verify the exact fact source. "
+            "Past knowledge must come from that NPC's own character_memory. Current-turn knowledge must come from an explicit perception or communication channel established in the scene. "
+            "Private POV content stays private without established access. Characters outside the relevant time or place get no retroactive knowledge. "
+            "Inference may use only premises the NPC already knows. If drafted content leaks an unsupported fact, rewrite or delete it before output. "
+            "An invalid leak is not canon, must not be persisted, and must not survive into the next turn."
         ),
     }
     context["working_context_contract"] = {
