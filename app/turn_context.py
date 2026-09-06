@@ -8,23 +8,6 @@ from .relationship_runtime import build_relationship_lens
 from .runtime_access import runtime_documents
 
 
-def full_character_cards(cards: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    return [
-        {"character_id": storage._card_id(card), "card": deepcopy(card)}
-        for card in cards
-        if storage._card_id(card)
-    ]
-
-
-def present_character_cards(cards: List[Dict[str, Any]], state: Dict[str, Any]) -> List[Dict[str, Any]]:
-    present = set(storage._present_character_ids(state))
-    return [
-        {"character_id": storage._card_id(card), "card": deepcopy(card)}
-        for card in cards
-        if storage._card_id(card) in present
-    ]
-
-
 def _normalise_name(value: Any) -> str:
     return " ".join(str(value or "").casefold().replace("ё", "е").split())
 
@@ -46,12 +29,7 @@ def _resolve_character_id(cards: List[Dict[str, Any]], value: Any) -> str | None
 
 def _card_name(card: Dict[str, Any], fallback: str) -> str:
     identity = card.get("identity") if isinstance(card.get("identity"), dict) else {}
-    return str(
-        card.get("name")
-        or card.get("full_name")
-        or identity.get("name")
-        or fallback
-    )
+    return str(card.get("name") or card.get("full_name") or identity.get("name") or fallback)
 
 
 def _present_npc_candidates(cards: List[Dict[str, Any]], state: Dict[str, Any], lens: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -87,44 +65,93 @@ def _present_npc_candidates(cards: List[Dict[str, Any]], state: Dict[str, Any], 
     return result
 
 
-def _session_persistent_data(context: Dict[str, Any]) -> tuple[Dict[str, Any], Dict[str, Any], Any]:
+def _session_memory(context: Dict[str, Any]) -> Dict[str, Any]:
     session = context.get("session") if isinstance(context.get("session"), dict) else {}
     session_id = session.get("session_id")
     if not session_id:
-        return {}, {"characters": {}}, []
+        return {"characters": {}}
     root = storage.SESSIONS_DIR / str(session_id)
-    return (
-        storage._read_json(root / "source.json", {}),
-        storage._normalise_memory(storage._read_json(root / "memory.json", {})),
-        storage._read_json(root / "chronology.json", []),
-    )
+    return storage._normalise_memory(storage._read_json(root / "memory.json", {}))
+
+
+def _scene_character_ids(context: Dict[str, Any], state: Dict[str, Any]) -> List[str]:
+    values: List[str] = []
+    pov = state.get("pov") if isinstance(state.get("pov"), dict) else {}
+    if pov.get("character_id"):
+        values.append(str(pov["character_id"]))
+    values.extend(str(value) for value in storage._present_character_ids(state) if value)
+    values.extend(str(value) for value in context.get("relevant_character_ids", []) if value)
+    return list(dict.fromkeys(values))
+
+
+def _selected_cards(cards: List[Dict[str, Any]], character_ids: List[str]) -> List[Dict[str, Any]]:
+    wanted = set(character_ids)
+    return [
+        {"character_id": storage._card_id(card), "card": deepcopy(card)}
+        for card in cards
+        if storage._card_id(card) in wanted
+    ]
+
+
+def _selected_memory(memory: Dict[str, Any], character_ids: List[str]) -> Dict[str, Any]:
+    buckets = memory.get("characters", {}) if isinstance(memory.get("characters"), dict) else {}
+    return {
+        character_id: deepcopy(
+            buckets.get(character_id, {"knowledge": [], "experiences": [], "dialogue_memory": []})
+        )
+        for character_id in character_ids
+    }
+
+
+def _deduplicate_scene_character_memory(context: Dict[str, Any]) -> None:
+    lenses = context.get("scene_characters")
+    if not isinstance(lenses, dict):
+        return
+    for character_id, lens in lenses.items():
+        if not isinstance(lens, dict):
+            continue
+        lens.pop("personal_memory", None)
+        lens["personal_memory_path"] = f"character_memory[{character_id}]"
 
 
 def inject_required_turn_context(context: Dict[str, Any], cards: List[Dict[str, Any]], state: Dict[str, Any]) -> Dict[str, Any]:
-    """Inject complete durable context before the JSON is split into chunks.
-
-    Full rules, source, cards, state, memories and chronology are preserved. Chunking
-    happens only after serialization, so nothing here is shortened or summarized.
-    """
-    source, memory, chronology = _session_persistent_data(context)
+    """Inject each required runtime/canon/memory block once, using stable scene_builder paths."""
+    memory = _session_memory(context)
     documents = runtime_documents()
-    all_cards = full_character_cards(cards)
-    present_cards = present_character_cards(cards, state)
+    scene_ids = _scene_character_ids(context, state)
+    scene_cards = _selected_cards(cards, scene_ids)
+    scene_memory = _selected_memory(memory, scene_ids)
 
-    context["runtime_documents"] = documents
+    # Runtime documents are flattened so scene_builder/contracts are not serialized twice.
+    context.pop("runtime_documents", None)
+    context["runtime_rules"] = documents["rules"]
     context["scene_builder"] = documents["scene_builder"]
+    context["pov_participation_contract"] = documents["pov_contract"]
+    context["npc_agency_contract"] = documents["npc_agency_contract"]
+    context["relationship_contract"] = documents["relationship_contract"]
+    context["presence_contract"] = documents["presence_contract"]
+    context["memory_contract"] = documents["memory_contract"]
+    context["continuity_contract"] = documents["continuity_contract"]
+    context["runtime_document_paths"] = {
+        "rules": "runtime_rules",
+        "scene_builder": "scene_builder",
+        "pov_contract": "pov_participation_contract",
+        "npc_agency_contract": "npc_agency_contract",
+        "relationship_contract": "relationship_contract",
+        "presence_contract": "presence_contract",
+        "memory_contract": "memory_contract",
+        "continuity_contract": "continuity_contract",
+    }
     context["scene_builder_instruction"] = (
         "MANDATORY. Read scene_builder completely before writing and follow its FORMAT exactly. "
         "Do not shorten, reorder, omit or replace its blocks."
     )
-    context["pov_participation_contract"] = documents["pov_contract"]
     context["pov_participation_instruction"] = (
         "MANDATORY GLOBAL POV RULE. POV must remain an active participant throughout the scene. "
         "Write ordinary in-character POV dialogue, reactions, thoughts and small actions without asking permission; "
         "do not reduce POV to silence, one-word replies or body-only reactions merely to preserve player agency. "
         "Stop only before genuinely consequential POV choices defined by the contract."
     )
-    context["npc_agency_contract"] = documents["npc_agency_contract"]
     context["npc_agency_instruction"] = (
         "MANDATORY GLOBAL NPC AGENCY RULE. NPC behavior comes from that NPC's character, desires, goals, advantage, fears, "
         "relationships, knowledge, duties and current situation, NOT from universal therapy, boundary etiquette or author-approved "
@@ -133,7 +160,7 @@ def inject_required_turn_context(context: Dict[str, Any], cards: List[Dict[str, 
         "without a preliminary permission question when consistent with the character and scene. Do not praise restraint as 'better' or "
         "narrate 'wanted to but did not' merely to model healthy boundaries. Consequential POV reactions and choices remain with the player."
     )
-    context["relationship_contract"] = documents["relationship_contract"]
+
     relationship_lens = build_relationship_lens(
         state,
         cards=cards,
@@ -156,33 +183,26 @@ def inject_required_turn_context(context: Dict[str, Any], cards: List[Dict[str, 
         "do not output an empty relationship block simply because this is a new chat or fresh relationship. Carry saved dimensions across absences and later meetings."
     )
 
-    context["source_full"] = deepcopy(source)
-    context["state_full"] = deepcopy(state)
-    context["memory_full"] = deepcopy(memory)
-    context["chronology_full"] = deepcopy(chronology)
-    context["all_character_cards"] = all_cards
-    context["present_character_cards"] = present_cards
-    context["character_card_instruction"] = (
-        "all_character_cards contains the complete live card of EVERY registered character. "
-        "present_character_cards is the complete-card subset physically present at turn start. "
-        "memory_full contains the complete saved personal memory of every character. "
-        "Card/chronology/source/hidden lore are AUTHOR TRUTH ONLY and never automatic personal knowledge."
+    context["character_cards"] = scene_cards
+    context["character_memory"] = scene_memory
+    _deduplicate_scene_character_memory(context)
+    context["character_context_instruction"] = (
+        "character_cards and character_memory are COMPLETE for POV, present cast and characters resolved from current input. "
+        "These are the stable paths used by scene_builder. character_registry/cast_index remain the compact registry for every registered character. "
+        "Other character dossiers and all older persistent data remain fully stored in Railway. If an offscreen registered character must enter or materially act, "
+        "call getCharacterBundle before writing that character."
     )
     context["knowledge_guard"] = {
         "mandatory": True,
-        "personal_memory_path": "memory_full.characters[character_id]",
+        "personal_memory_path": "character_memory[character_id]",
         "present_at_turn_start_path": "present_character_ids_at_turn_start",
         "author_only_paths": [
-            "source_full",
-            "chronology_full",
-            "all_character_cards",
-            "author_context",
-            "runtime_documents",
-            "memory_full.characters[OTHER_CHARACTER_ID]",
+            "character_cards", "novel", "novel_rules", "novel_lore", "hidden_lore", "world_canon",
+            "story_direction", "chronology_recent", "character_memory[OTHER_CHARACTER_ID]",
         ],
         "instruction": (
             "Before EVERY NPC line, inference, recognition or deliberate action, identify that NPC and verify the exact fact source. "
-            "Past knowledge must come from that NPC's own memory_full.characters[character_id]. Current-turn knowledge must come "
+            "Past knowledge must come from that NPC's own character_memory[character_id]. Current-turn knowledge must come "
             "from an explicit perception channel established in the scene after turn start. POV thoughts, phone notifications, message "
             "text, screens, headphones, letters/photos held privately and other private POV content stay private unless POV explicitly "
             "shows/reads aloud/forwards/hands them over or the scene already establishes direct visual/auditory access. Mere proximity, "
@@ -193,24 +213,24 @@ def inject_required_turn_context(context: Dict[str, Any], cards: List[Dict[str, 
             "must not be persisted to that NPC's memory, and must not survive into the next turn."
         ),
     }
-    context["full_context_contract"] = {
-        "no_truncation": True,
-        "author_truth_is_quarantined_from_character_knowledge": True,
+    context["working_context_contract"] = {
+        "persistent_storage_is_complete": True,
+        "turn_packet_is_scene_scoped": True,
+        "no_persistent_data_deleted": True,
+        "single_scene_memory_copy": True,
+        "single_runtime_document_copy": True,
+        "stable_scene_builder_paths": True,
         "instruction": (
-            "The packet contains full runtime documents, full source/questionnaire/canon, full current state, "
-            "all full character cards, all saved character memories and the complete chronology. Read every chunk before writing. "
-            "Full visibility to the AUTHOR does not grant visibility to any character; enforce knowledge_guard per character."
+            "Railway stores complete source, live cards, personal memories and chronology. This packet carries one complete working copy "
+            "of each required runtime/canon/memory block without retransmitting dormant dossiers or duplicate runtime documents. Read every chunk."
         ),
     }
 
     author_context = context.get("author_context") if isinstance(context.get("author_context"), dict) else {}
-    author_context["character_cards"] = all_cards
-    author_context["source_full"] = deepcopy(source)
-    author_context["chronology_full"] = deepcopy(chronology)
+    author_context["character_cards"] = scene_cards
     author_context["knowledge_quarantine"] = (
         "Everything in author_context is objective author/engine truth only. Never use it as a character knowledge source without "
         "that character's own personal memory or an explicit current-scene perception channel."
     )
     context["author_context"] = author_context
-    context["character_cards"] = all_cards
     return context

@@ -5,6 +5,10 @@ from app import storage
 from app.main import _read_chunk_batch
 
 
+SAFE_ACTION_BATCH_COUNT = 1
+SAFE_ACTION_CONTENT_CHARS = storage.MAX_PACKET_CHARS
+
+
 def setup_temp_storage(tmp: str):
     storage.DATA_DIR = Path(tmp)
     storage.LIBRARY_DIR = storage.DATA_DIR / "library"
@@ -12,7 +16,7 @@ def setup_temp_storage(tmp: str):
     storage.ensure_dirs()
 
 
-def test_turn_packet_batch_is_lossless_and_marks_every_chunk_read():
+def test_turn_packet_single_chunk_transport_is_lossless_and_marks_every_chunk_read():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         novel = {
@@ -36,11 +40,19 @@ def test_turn_packet_batch_is_lossless_and_marks_every_chunk_read():
         saved = storage._read_json(root / "turn_packet.json", {})
         exact_payload = "".join(saved["chunks"])
         assert packet["chunk_count"] > 4
+        assert max(len(chunk) for chunk in saved["chunks"]) <= storage.MAX_PACKET_CHARS
 
         parts = []
         next_index = 0
         while next_index is not None:
-            batch = _read_chunk_batch(storage.get_turn_packet_chunk, sid, packet["packet_id"], next_index, 4)
+            batch = _read_chunk_batch(
+                storage.get_turn_packet_chunk,
+                sid,
+                packet["packet_id"],
+                next_index,
+                SAFE_ACTION_BATCH_COUNT,
+            )
+            assert len(batch["content"]) <= SAFE_ACTION_CONTENT_CHARS
             parts.append(batch["content"])
             next_index = batch["next_start_index"]
 
@@ -53,7 +65,7 @@ def test_turn_packet_batch_is_lossless_and_marks_every_chunk_read():
         assert batch["all_chunks_read"] is True
 
 
-def test_batch_never_silently_skips_or_accepts_too_many_chunks():
+def test_internal_two_chunk_batch_utility_is_lossless_and_stops_at_end():
     calls = []
 
     def getter(session_id, read_id, chunk_index):
@@ -68,14 +80,13 @@ def test_batch_never_silently_skips_or_accepts_too_many_chunks():
             "all_chunks_read": chunk_index == len(chunks) - 1,
         }
 
-    result = _read_chunk_batch(getter, "s", "p", 0, 4)
-    assert result["content"] == "ABC"
-    assert result["chunks_read"] == [0, 1, 2]
-    assert result["next_start_index"] is None
-    assert calls == [0, 1, 2]
+    first = _read_chunk_batch(getter, "s", "p", 0, 2)
+    assert first["content"] == "AB"
+    assert first["chunks_read"] == [0, 1]
+    assert first["next_start_index"] == 2
 
-    try:
-        _read_chunk_batch(getter, "s", "p", 0, 5)
-        assert False, "batch size above safety limit must fail"
-    except ValueError as exc:
-        assert "between 1 and 4" in str(exc)
+    second = _read_chunk_batch(getter, "s", "p", 2, 2)
+    assert second["content"] == "C"
+    assert second["chunks_read"] == [2]
+    assert second["next_start_index"] is None
+    assert calls == [0, 1, 2]

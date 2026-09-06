@@ -83,7 +83,8 @@ def test_flat_relationships_migrate_to_old_generator_documents():
             ("близость", 5),
         }
         assert "relationship_schemas" not in state
-        assert context["runtime_documents"]["relationship_contract"]
+        assert context["relationship_contract"]
+        assert "runtime_documents" not in context
         assert context["relationship_policy"]["authoritative_start_snapshot"]["adrian"]["metrics"] == {
             "симпатия": 10,
             "близость": 5,
@@ -134,13 +135,8 @@ def test_reunion_with_completely_new_metric_words_is_rejected():
             )
         assert exc.value.status_code == 409
         assert exc.value.detail["code"] == "RELATIONSHIP_DIMENSIONS_INCOMPLETE"
-
         state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
-        assert state["relationships"]["adrian"] == {
-            "симпатия": 35,
-            "доверие": 18,
-            "влечение": 42,
-        }
+        assert state["relationships"]["adrian"] == {"симпатия": 35, "доверие": 18, "влечение": 42}
 
 
 def test_partial_footer_is_rejected_when_established_dimensions_are_missing():
@@ -161,13 +157,8 @@ def test_partial_footer_is_rejected_when_established_dimensions_are_missing():
             )
         assert exc.value.status_code == 409
         assert exc.value.detail["code"] == "RELATIONSHIP_DIMENSIONS_INCOMPLETE"
-
         state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
-        assert state["relationships"]["adrian"] == {
-            "симпатия": 35,
-            "доверие": 18,
-            "влечение": 42,
-        }
+        assert state["relationships"]["adrian"] == {"симпатия": 35, "доверие": 18, "влечение": 42}
 
 
 def test_missing_relation_recovers_from_last_visible_footer():
@@ -176,13 +167,7 @@ def test_missing_relation_recovers_from_last_visible_footer():
         sid = storage.create_session(novel())["session_id"]
         root = storage.SESSIONS_DIR / sid
         with (root / "turns.jsonl").open("w", encoding="utf-8") as fh:
-            fh.write(
-                json.dumps(
-                    {"turn_number": 4, "scene_output": scene("симпатия 22; доверие 11", turn=4)},
-                    ensure_ascii=False,
-                )
-                + "\n"
-            )
+            fh.write(json.dumps({"turn_number": 4, "scene_output": scene("симпатия 22; доверие 11", turn=4)}, ensure_ascii=False) + "\n")
         state = storage._read_json(root / "state.json", {})
         state["relationships"] = {}
         state.pop("relationship_documents", None)
@@ -191,22 +176,15 @@ def test_missing_relation_recovers_from_last_visible_footer():
         context = read_all_packet_chunks(sid, "reunion")
         repaired = storage._read_json(root / "state.json", {})
         assert repaired["relationships"]["adrian"] == {"симпатия": 22, "доверие": 11}
-        assert context["relationship_policy"]["authoritative_start_snapshot"]["adrian"]["metrics"] == {
-            "симпатия": 22,
-            "доверие": 11,
-        }
+        assert context["relationship_policy"]["authoritative_start_snapshot"]["adrian"]["metrics"] == {"симпатия": 22, "доверие": 11}
 
 
 def test_relationship_key_by_character_name_is_canonicalized_to_id():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
-        sid = storage.create_session(
-            novel(starting_relationships={"Эдриан": {"симпатия": 10}})
-        )["session_id"]
+        sid = storage.create_session(novel(starting_relationships={"Эдриан": {"симпатия": 10}}))["session_id"]
         context = read_all_packet_chunks(sid, "test")
-        assert context["relationship_policy"]["authoritative_start_snapshot"]["adrian"]["metrics"] == {
-            "симпатия": 10
-        }
+        assert context["relationship_policy"]["authoritative_start_snapshot"]["adrian"]["metrics"] == {"симпатия": 10}
         state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
         assert "Эдриан" not in state["relationships"]
         assert state["relationships"]["adrian"]["симпатия"] == 10
@@ -230,6 +208,5 @@ def test_absent_npc_footer_is_rejected_and_cannot_overwrite_relationship():
             )
         assert exc.value.status_code == 409
         assert exc.value.detail["code"] == "RELATIONSHIP_FOOTER_ABSENT_NPC"
-
         state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
         assert state["relationships"]["adrian"]["симпатия"] == 10
