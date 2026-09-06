@@ -5,8 +5,8 @@ from app import storage
 from app.main import _read_chunk_batch
 
 
-SAFE_ACTION_BATCH_COUNT = 2
-SAFE_ACTION_CONTENT_CHARS = 12_000
+SAFE_ACTION_BATCH_COUNT = 1
+SAFE_ACTION_CONTENT_CHARS = storage.MAX_PACKET_CHARS
 
 
 def setup_temp_storage(tmp: str):
@@ -16,7 +16,7 @@ def setup_temp_storage(tmp: str):
     storage.ensure_dirs()
 
 
-def test_turn_packet_batch_is_lossless_and_marks_every_chunk_read():
+def test_turn_packet_single_chunk_transport_is_lossless_and_marks_every_chunk_read():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         novel = {
@@ -40,7 +40,7 @@ def test_turn_packet_batch_is_lossless_and_marks_every_chunk_read():
         saved = storage._read_json(root / "turn_packet.json", {})
         exact_payload = "".join(saved["chunks"])
         assert packet["chunk_count"] > 4
-        assert max(len(chunk) for chunk in saved["chunks"]) <= 6000
+        assert max(len(chunk) for chunk in saved["chunks"]) <= storage.MAX_PACKET_CHARS
 
         parts = []
         next_index = 0
@@ -65,7 +65,7 @@ def test_turn_packet_batch_is_lossless_and_marks_every_chunk_read():
         assert batch["all_chunks_read"] is True
 
 
-def test_two_chunk_batch_is_lossless_and_stops_at_end():
+def test_internal_two_chunk_batch_utility_is_lossless_and_stops_at_end():
     calls = []
 
     def getter(session_id, read_id, chunk_index):
