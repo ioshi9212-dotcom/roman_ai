@@ -36,7 +36,14 @@ def test_source_genres_cast_and_pov_biography_are_active_material():
 
 
 def test_prompt_facing_rules_do_not_embed_examples():
-    paths = [*sorted((ROOT / "runtime").glob("*.md")), ROOT / "gpt" / "custom_gpt_instructions.md"]
+    paths = [
+        *sorted((ROOT / "runtime").glob("*.md")),
+        ROOT / "gpt" / "custom_gpt_instructions.md",
+        ROOT / "app" / "turn_context.py",
+        ROOT / "app" / "scene_presence_runtime.py",
+    ]
     for path in paths:
         text = path.read_text(encoding="utf-8").casefold()
         assert "пример" not in text, path
+        assert "for example" not in text, path
+        assert '"examples"' not in text, path
