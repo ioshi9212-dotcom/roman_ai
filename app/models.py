@@ -34,6 +34,11 @@ class TurnPrepare(BaseModel):
     user_input: str
 
 
+class RollbackLastTurn(BaseModel):
+    expected_turn_number: int = Field(ge=1)
+    confirm: bool
+
+
 class SessionMeta(BaseModel):
     session_id: str
     source_novel_id: str
