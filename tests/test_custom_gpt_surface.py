@@ -6,7 +6,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_custom_gpt_schema_exposes_response_safe_single_context_and_character_reads():
+def test_custom_gpt_schema_exposes_response_safe_single_context_character_and_rollback_actions():
     schema = yaml.safe_load((ROOT / "openapi.yaml").read_text(encoding="utf-8"))
     paths = schema["paths"]
 
@@ -14,11 +14,16 @@ def test_custom_gpt_schema_exposes_response_safe_single_context_and_character_re
     audit_path = "/sessions/{session_id}/audit-snapshot/{audit_id}/{chunk_index}"
     character_prepare = "/sessions/{session_id}/characters/{character_id}/read"
     character_chunk = "/sessions/{session_id}/characters/{character_id}/read/{read_id}/{chunk_index}"
+    rollback_path = "/sessions/{session_id}/rollback-last-turn"
 
     assert paths[turn_path]["get"]["operationId"] == "getTurnPacketChunk"
     assert paths[audit_path]["get"]["operationId"] == "getAuditSnapshotChunk"
     assert paths[character_prepare]["post"]["operationId"] == "prepareCharacterBundleRead"
     assert paths[character_chunk]["get"]["operationId"] == "getCharacterBundleChunk"
+    assert paths[rollback_path]["post"]["operationId"] == "rollbackLastTurn"
+    rollback_schema = schema["components"]["schemas"]["RollbackLastTurn"]
+    assert set(rollback_schema["required"]) == {"expected_turn_number", "confirm"}
+    assert rollback_schema["properties"]["confirm"]["const"] is True
 
     assert "/sessions/{session_id}/turn-packet-batch/{packet_id}" not in paths
     assert "/sessions/{session_id}/audit-snapshot-batch/{audit_id}" not in paths
@@ -45,4 +50,6 @@ def test_custom_gpt_instruction_stays_under_8000_characters_and_matches_transpor
     assert "getAuditSnapshotChunk" in text
     assert "prepareCharacterBundleRead" in text
     assert "getCharacterBundleChunk" in text
+    assert "rollbackLastTurn" in text
+    assert "reused_pending_packet" in text
     assert "орфограф" in text
