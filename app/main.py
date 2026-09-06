@@ -11,7 +11,7 @@ from .audit_runtime import (
 from .character_access import get_character_bundle
 from .character_chunk_read import get_character_bundle_chunk, prepare_character_bundle_read
 from .context_stats import session_context_stats
-from .models import AuditCommit, NovelDraftCreate, NovelDraftSection, NovelRawSave, NovelTemplate, SessionCreate, TurnCommit, TurnPrepare
+from .models import AuditCommit, NovelDraftCreate, NovelDraftSection, NovelRawSave, NovelTemplate, RollbackLastTurn, SessionCreate, TurnCommit, TurnPrepare
 from .novel_access import get_novel_read_chunk, prepare_novel_read, verify_novel
 from .novel_drafts import (
     create_draft,
@@ -36,11 +36,12 @@ from .storage import (
     load_session,
     save_novel,
 )
+from .turn_rollback import RollbackError, rollback_last_turn
 
 app = FastAPI(
     title="Roman AI",
-    version="1.9.2",
-    description="Persistent isolated novel sessions with response-safe scene-scoped context, runtime rules, character cards, memory, chronology, relationships, recovery and audits.",
+    version="1.9.3",
+    description="Persistent isolated novel sessions with response-safe scene-scoped context, runtime rules, character cards, memory, chronology, relationships, recovery, rollback and audits.",
 )
 
 _BATCH_MAX = 4
@@ -265,6 +266,27 @@ def session_current_recover(session_id: str):
         if str(exc) == "CURRENT_RECOVERY_NO_EVIDENCE":
             raise HTTPException(status_code=409, detail=("Current scene pointer is damaged, but the server could not recover enough evidence from starting state, committed turn patches, audit repairs, runtime presence or the latest saved scene header. Do not create a gameplay turn to guess the missing scene."))
         raise
+
+
+@app.post("/sessions/{session_id}/rollback-last-turn", operation_id="rollbackLastTurn")
+def session_last_turn_rollback(session_id: str, body: RollbackLastTurn):
+    try:
+        return rollback_last_turn(session_id, body.expected_turn_number, body.confirm)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Session not found")
+    except RollbackError as exc:
+        code = str(exc)
+        if code == "ROLLBACK_CONFIRMATION_REQUIRED":
+            detail = "Explicit confirmation is required. Rollback is destructive and is allowed only for the latest saved turn."
+        elif code == "ROLLBACK_EXPECTED_TURN_MISMATCH":
+            detail = "The session turn_number changed. Do not roll back blindly; resume the session and use its exact current turn number."
+        elif code == "ROLLBACK_LAST_TURN_NOT_FOUND":
+            detail = "The expected last turn was not found in persistent turns. No mutation was performed."
+        elif code.startswith("ROLLBACK_REPLAY_MISMATCH:"):
+            detail = "Historical replay did not exactly reproduce the live canon, so rollback was refused and nothing was changed."
+        else:
+            detail = code
+        raise HTTPException(status_code=409, detail=detail)
 
 
 @app.get("/sessions/{session_id}/audit-snapshot", operation_id="getAuditSnapshot")
