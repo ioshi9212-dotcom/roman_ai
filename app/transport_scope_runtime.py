@@ -15,6 +15,9 @@ def _strip_legacy_full_payloads(context: Dict[str, Any]) -> Dict[str, Any]:
     # These legacy fields duplicate complete persistent files and are the main
     # source of long-session packet growth. Persistent files remain untouched.
     for key in (
+        "state",
+        "memory",
+        "chronology",
         "characters",
         "all_character_cards",
         "memory_full",
@@ -26,9 +29,8 @@ def _strip_legacy_full_payloads(context: Dict[str, Any]) -> Dict[str, Any]:
     ):
         result.pop(key, None)
 
-    # Some older packet builders carried source as one full nested object.
-    # Keep all source canon except the full cast, which is represented by the
-    # scoped character_cards plus compact character_registry.
+    # Older packet builders carried source as one full nested object. Preserve
+    # non-character source canon, but do not retransmit the entire cast there.
     source = result.get("source")
     if isinstance(source, dict):
         source = deepcopy(source)
@@ -45,6 +47,9 @@ def _strip_legacy_full_payloads(context: Dict[str, Any]) -> Dict[str, Any]:
     if isinstance(author, dict):
         author = deepcopy(author)
         for key in (
+            "state",
+            "memory",
+            "chronology",
             "characters",
             "all_character_cards",
             "memory_full",
@@ -67,6 +72,7 @@ def _strip_legacy_full_payloads(context: Dict[str, Any]) -> Dict[str, Any]:
     contract.update(
         {
             "turn_packet_is_scene_scoped": True,
+            "legacy_full_state_memory_chronology_in_packet": False,
             "dormant_full_dossiers_in_packet": False,
             "dormant_character_retrieval": "chunked_on_demand",
             "persistent_storage_is_complete": True,
@@ -89,7 +95,7 @@ def _prepare_turn(session_id: str, user_input: str) -> Dict[str, Any]:
     packet["chunks"] = chunks
     packet["chunk_count"] = len(chunks)
     packet["read_chunks"] = []
-    packet["transport_scope_version"] = 1
+    packet["transport_scope_version"] = 2
     storage._write_json(root / "turn_packet.json", packet)
     manifest["chunk_count"] = len(chunks)
     manifest["total_chars"] = len(text)
