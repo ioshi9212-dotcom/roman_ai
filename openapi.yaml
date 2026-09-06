@@ -1,8 +1,8 @@
 openapi: 3.1.0
 info:
   title: Roman AI
-  version: 1.9.2
-  description: Persistent isolated novel sessions with scene-scoped working context, transactional persistence, recovery and 15-turn audits.
+  version: 1.9.3
+  description: Persistent isolated novel sessions with scene-scoped working context, transactional persistence, recovery, safe last-turn rollback and 15-turn audits.
 servers:
   - url: https://romanai-production-0fdb.up.railway.app
 components:
@@ -32,6 +32,13 @@ components:
       required: [user_input]
       properties:
         user_input: {type: string}
+    RollbackLastTurn:
+      type: object
+      required: [expected_turn_number, confirm]
+      properties:
+        expected_turn_number: {type: integer, minimum: 1}
+        confirm: {type: boolean, const: true}
+      additionalProperties: false
     PresenceUpdate:
       type: object
       required: [character_id, action]
@@ -259,6 +266,22 @@ paths:
         '200': {description: Technical current pointer repaired or already usable}
         '404': {description: Session not found}
         '409': {description: Not enough persistent evidence to repair safely}
+  /sessions/{session_id}/rollback-last-turn:
+    post:
+      operationId: rollbackLastTurn
+      summary: Roll back only the latest saved canonical turn after explicit user request
+      description: Requires the exact current turn number and confirm=true. Restores turns, state, cards, memory, chronology, audits and meta transactionally or refuses without mutation.
+      parameters:
+        - {in: path, name: session_id, required: true, schema: {type: string}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/RollbackLastTurn'}
+      responses:
+        '200': {description: Latest turn rolled back and same turn number is ready to retry}
+        '404': {description: Session not found}
+        '409': {description: Confirmation, expected turn or exact reconstruction check failed; no mutation performed}
   /sessions/{session_id}/audit-snapshot:
     get:
       operationId: getAuditSnapshot
@@ -285,8 +308,8 @@ paths:
   /sessions/{session_id}/turn-packet:
     post:
       operationId: prepareTurn
-      summary: Build scene-scoped working context from complete persistent canon
-      description: Storage remains complete. Packet carries required source/state, scene-relevant dossiers, selected chronology and runtime documents once.
+      summary: Build or reuse scene-scoped working context from complete persistent canon
+      description: Repeated prepareTurn with the same pending turn and exact user_input reuses the existing packet_id instead of invalidating in-progress reads.
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
       requestBody:
