@@ -1,5 +1,4 @@
 import tempfile
-from copy import deepcopy
 from pathlib import Path
 
 import pytest
@@ -128,6 +127,48 @@ def test_historical_replay_rolls_back_pre_snapshot_turn_across_completed_audit()
 
         retry = session_runtime.prepare_turn_packet(sid, "Исправленный ход 17.")
         assert retry["prepared_for_turn"] == 17
+
+
+def test_legacy_replay_preserves_unrelated_offscreen_location_drift():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        novel = {
+            "novel_id": "legacy_drift",
+            "title": "Legacy Drift",
+            "novel": {"pov_character": "pov"},
+            "characters": [
+                {"character_id": "pov", "name": "POV", "is_pov": True},
+                {"character_id": "liam", "name": "Liam"},
+            ],
+            "starting_state": {
+                "pov": {"character_id": "pov"},
+                "current": {
+                    "date": "01.09.2026",
+                    "time": "10:00",
+                    "location": "room",
+                    "present_characters": ["pov"],
+                },
+                "characters": {"liam": {"location": "old_offscreen_location"}},
+            },
+        }
+        sid = storage.create_session(novel)["session_id"]
+        root = storage.SESSIONS_DIR / sid
+        commit_simple_turn(sid, 1)
+        (root / SNAPSHOT_FILE).unlink(missing_ok=True)
+
+        state = storage._read_json(root / "state.json", {})
+        state.setdefault("characters", {}).setdefault("liam", {})["location"] = "new_offscreen_location"
+        storage._write_json(root / "state.json", state)
+
+        result = rollback_last_turn(sid, 1, True)
+        assert result["method"] == "verified_historical_replay_preserving_unrelated_state_drift"
+        assert result["preserved_state_paths"] == ["characters.liam.location"]
+        assert result["turn_number"] == 0
+        restored = storage._read_json(root / "state.json", {})
+        assert restored["characters"]["liam"]["location"] == "new_offscreen_location"
+        assert storage._read_turns(root) == []
+        retry = session_runtime.prepare_turn_packet(sid, "Исправленный ход 1.")
+        assert retry["prepared_for_turn"] == 1
 
 
 def test_historical_replay_mismatch_refuses_without_mutation():
