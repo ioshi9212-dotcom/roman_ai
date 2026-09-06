@@ -3,18 +3,26 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any, Dict
 
-from . import storage
-from .transactional_storage import session_transaction
+from . import stability_runtime, storage
+from .transactional_storage import json_text
 
 
 SNAPSHOT_FILE = "last_turn_snapshot.json"
-SNAPSHOT_VERSION = 1
-_ORIGINAL_COMMIT_TURN = None
+SNAPSHOT_VERSION = 2
+_ORIGINAL_STABILITY_WRITE_BATCH = None
+
+
+def _read_optional_json(root, name: str) -> Dict[str, Any]:
+    path = root / name
+    if not path.exists():
+        return {"exists": False, "value": None}
+    return {"exists": True, "value": deepcopy(storage._read_json(path, None))}
 
 
 def build_pre_turn_snapshot(root, committed_turn: int) -> Dict[str, Any]:
     return {
         "version": SNAPSHOT_VERSION,
+        "snapshot_kind": "exact_pre_turn_files",
         "committed_turn": int(committed_turn),
         "previous_turn": int(committed_turn) - 1,
         "meta": deepcopy(storage._read_json(root / "meta.json", {})),
@@ -23,46 +31,47 @@ def build_pre_turn_snapshot(root, committed_turn: int) -> Dict[str, Any]:
         "memory": deepcopy(storage._read_json(root / "memory.json", {})),
         "chronology": deepcopy(storage._read_json(root / "chronology.json", [])),
         "audits": deepcopy(storage._read_json(root / "audits.json", [])),
+        "auxiliary": {
+            "handoff_tail.json": _read_optional_json(root, "handoff_tail.json"),
+            "resume_token.json": _read_optional_json(root, "resume_token.json"),
+        },
     }
 
 
-def _commit_turn_with_snapshot(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
-    root = storage.SESSIONS_DIR / session_id
-    if not root.exists():
-        raise FileNotFoundError(session_id)
+def _is_turn_commit(root, values: Dict[str, str]) -> tuple[bool, int]:
+    required = {
+        "turns.jsonl",
+        "characters.json",
+        "state.json",
+        "memory.json",
+        "chronology.json",
+        "meta.json",
+    }
+    if not required.issubset(values):
+        return False, 0
+    old_meta = storage._read_json(root / "meta.json", {})
+    try:
+        import json
 
-    # Serialize the preflight and snapshot with the real transactional commit.
-    # Nested session_transaction calls are intentionally re-entrant.
-    with session_transaction(root):
-        meta = storage._read_json(root / "meta.json", {})
-        if meta.get("audit_required"):
-            raise RuntimeError("AUDIT_REQUIRED")
-        if meta.get("handoff_required"):
-            raise RuntimeError("HANDOFF_REQUIRED")
+        new_meta = json.loads(values["meta.json"])
+        old_turn = int(old_meta.get("turn_number", 0) or 0)
+        new_turn = int(new_meta.get("turn_number", 0) or 0)
+    except (TypeError, ValueError, KeyError):
+        return False, 0
+    return new_turn == old_turn + 1, new_turn
 
-        committed_turn = int(meta.get("turn_number", 0)) + 1
-        packet = storage._read_json(root / "turn_packet.json", {})
-        if (
-            not packet
-            or int(packet.get("prepared_for_turn", 0) or 0) != committed_turn
-            or packet.get("user_input") != payload.get("user_input")
-        ):
-            raise RuntimeError("TURN_PACKET_REQUIRED")
-        if len(set(packet.get("read_chunks", []))) < int(packet.get("chunk_count", 0) or 0):
-            raise RuntimeError("TURN_PACKET_INCOMPLETE")
 
-        # The snapshot is written only after the exact commit preconditions pass.
-        # If the following commit fails, meta.turn_number does not advance, so this
-        # snapshot cannot be mistaken for a committed turn during rollback.
-        storage._write_json(root / SNAPSHOT_FILE, build_pre_turn_snapshot(root, committed_turn))
-        result = dict(_ORIGINAL_COMMIT_TURN(session_id, payload))
-        result["rollback_snapshot_saved"] = True
-        return result
+def _write_batch_with_snapshot(root, values: Dict[str, str]) -> None:
+    payload = dict(values)
+    is_turn_commit, committed_turn = _is_turn_commit(root, payload)
+    if is_turn_commit:
+        payload[SNAPSHOT_FILE] = json_text(build_pre_turn_snapshot(root, committed_turn))
+    _ORIGINAL_STABILITY_WRITE_BATCH(root, payload)
 
 
 def install() -> None:
-    global _ORIGINAL_COMMIT_TURN
-    if _ORIGINAL_COMMIT_TURN is not None:
+    global _ORIGINAL_STABILITY_WRITE_BATCH
+    if _ORIGINAL_STABILITY_WRITE_BATCH is not None:
         return
-    _ORIGINAL_COMMIT_TURN = storage.commit_turn
-    storage.commit_turn = _commit_turn_with_snapshot
+    _ORIGINAL_STABILITY_WRITE_BATCH = stability_runtime.write_batch
+    stability_runtime.write_batch = _write_batch_with_snapshot
