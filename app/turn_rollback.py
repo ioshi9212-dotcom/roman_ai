@@ -188,6 +188,127 @@ def _mismatch_blocks(root, replayed: Dict[str, Any]) -> List[str]:
     return result
 
 
+def _state_diff_paths(left: Any, right: Any, prefix: Tuple[str, ...] = ()) -> List[Tuple[str, ...]]:
+    if type(left) is not type(right):
+        return [prefix]
+    if isinstance(left, dict):
+        result: List[Tuple[str, ...]] = []
+        for key in sorted(set(left) | set(right), key=str):
+            path = (*prefix, str(key))
+            if key not in left or key not in right:
+                result.append(path)
+            else:
+                result.extend(_state_diff_paths(left[key], right[key], path))
+        return result
+    if isinstance(left, list):
+        return [] if left == right else [prefix]
+    return [] if left == right else [prefix]
+
+
+def _read_path(value: Dict[str, Any], path: Tuple[str, ...]) -> Tuple[bool, Any]:
+    current: Any = value
+    for part in path:
+        if not isinstance(current, dict) or part not in current:
+            return False, None
+        current = current[part]
+    return True, deepcopy(current)
+
+
+def _write_path(value: Dict[str, Any], path: Tuple[str, ...], exists: bool, item: Any) -> None:
+    if not path:
+        return
+    current: Dict[str, Any] = value
+    for part in path[:-1]:
+        child = current.get(part)
+        if not isinstance(child, dict):
+            child = {}
+            current[part] = child
+        current = child
+    if exists:
+        current[path[-1]] = deepcopy(item)
+    else:
+        current.pop(path[-1], None)
+
+
+def _presence_character_ids(turn: Dict[str, Any]) -> set[str]:
+    extracted = turn.get("extracted") if isinstance(turn.get("extracted"), dict) else {}
+    updates = extracted.get("presence_updates") if isinstance(extracted.get("presence_updates"), list) else []
+    return {
+        str(row.get("character_id"))
+        for row in updates
+        if isinstance(row, dict) and row.get("character_id")
+    }
+
+
+def _legacy_previous_candidate(
+    root,
+    source: Dict[str, Any],
+    turns: List[Dict[str, Any]],
+    audits: List[Dict[str, Any]],
+    replay_current: Dict[str, Any],
+    target_turn: int,
+) -> Tuple[Dict[str, Any] | None, List[str]]:
+    """Preserve only proven unrelated offscreen location drift, then re-apply the
+    last turn and require an exact match with live canon before permitting rollback.
+    """
+    live_state = storage._read_json(root / "state.json", {})
+    replay_state = replay_current.get("state", {}) if isinstance(replay_current.get("state"), dict) else {}
+    paths = _state_diff_paths(live_state, replay_state)
+    if not paths:
+        return _replay_through(source, turns[:-1], audits, target_turn), []
+
+    last_turn = turns[-1]
+    extracted = last_turn.get("extracted") if isinstance(last_turn.get("extracted"), dict) else {}
+    state_patch = extracted.get("state_patch") if isinstance(extracted.get("state_patch"), dict) else {}
+    if "characters" in state_patch:
+        return None, []
+    touched_presence = _presence_character_ids(last_turn)
+
+    preservable: List[Tuple[str, ...]] = []
+    for path in paths:
+        # This is intentionally narrow. A stale/offscreen character location was
+        # historically maintained outside turn patches. It can be carried backward
+        # only when the erroneous last turn did not touch that character's presence.
+        if (
+            len(path) == 3
+            and path[0] == "characters"
+            and path[2] == "location"
+            and path[1] not in touched_presence
+        ):
+            preservable.append(path)
+            continue
+        return None, []
+
+    previous = _replay_through(source, turns[:-1], audits, target_turn)
+    candidate_state = deepcopy(previous.get("state", {}))
+    for path in preservable:
+        exists, item = _read_path(live_state, path)
+        _write_path(candidate_state, path, exists, item)
+    previous["state"] = candidate_state
+
+    sim_cards, sim_state, sim_memory, sim_chronology = _apply_saved_turn(
+        source,
+        deepcopy(previous["characters"]),
+        deepcopy(previous["state"]),
+        deepcopy(previous["memory"]),
+        deepcopy(previous["chronology"]),
+        deepcopy(previous["turns"]),
+        last_turn,
+    )
+    live_cards = storage._read_json(root / "characters.json", [])
+    live_memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
+    live_chronology = storage._read_json(root / "chronology.json", [])
+    if (
+        sim_cards != live_cards
+        or sim_state != live_state
+        or storage._normalise_memory(sim_memory) != live_memory
+        or sim_chronology != live_chronology
+    ):
+        return None, []
+
+    return previous, [".".join(path) for path in preservable]
+
+
 def _restored_meta(live_meta: Dict[str, Any], target_turn: int, audits: List[Dict[str, Any]]) -> Dict[str, Any]:
     meta = deepcopy(live_meta)
     last_audit = max(
@@ -287,18 +408,26 @@ def rollback_last_turn(session_id: str, expected_turn_number: int, confirm: bool
                 "ready_to_retry_turn": expected_turn_number,
             }
 
-        # Sessions committed before rollback snapshots existed can still be repaired,
-        # but only if deterministic replay reproduces the current canonical files.
         source = storage._read_json(root / "source.json", {})
         audits = storage._read_json(root / "audits.json", [])
         if not isinstance(audits, list):
             audits = []
         replay_current = _replay_through(source, turns, audits, expected_turn_number)
         mismatches = _mismatch_blocks(root, replay_current)
+        preserved_state_paths: List[str] = []
+        method = "verified_historical_replay"
         if mismatches:
-            raise RollbackError("ROLLBACK_REPLAY_MISMATCH:" + ",".join(mismatches))
+            if mismatches != ["state"]:
+                raise RollbackError("ROLLBACK_REPLAY_MISMATCH:" + ",".join(mismatches))
+            replay_previous, preserved_state_paths = _legacy_previous_candidate(
+                root, source, turns, audits, replay_current, target_turn
+            )
+            if replay_previous is None:
+                raise RollbackError("ROLLBACK_REPLAY_MISMATCH:" + ",".join(mismatches))
+            method = "verified_historical_replay_preserving_unrelated_state_drift"
+        else:
+            replay_previous = _replay_through(source, remaining_turns, audits, target_turn)
 
-        replay_previous = _replay_through(source, remaining_turns, audits, target_turn)
         target_audits = replay_previous["audits"]
         restored_meta = _restored_meta(meta, target_turn, target_audits)
         _write_restored_state(
@@ -317,6 +446,7 @@ def rollback_last_turn(session_id: str, expected_turn_number: int, confirm: bool
             "ok": True,
             "rolled_back_turn": expected_turn_number,
             "turn_number": target_turn,
-            "method": "verified_historical_replay",
+            "method": method,
+            "preserved_state_paths": preserved_state_paths,
             "ready_to_retry_turn": expected_turn_number,
         }
