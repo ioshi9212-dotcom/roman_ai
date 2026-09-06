@@ -259,10 +259,11 @@ def rollback_last_turn(session_id: str, expected_turn_number: int, confirm: bool
         remaining_turns = turns[:-1]
 
         snapshot = storage._read_json(root / SNAPSHOT_FILE, {})
+        snapshot_previous_turn = snapshot.get("previous_turn", -1) if isinstance(snapshot, dict) else -1
         if (
             isinstance(snapshot, dict)
             and int(snapshot.get("committed_turn", 0) or 0) == expected_turn_number
-            and int(snapshot.get("previous_turn", -1) or -1) == target_turn
+            and int(snapshot_previous_turn) == target_turn
         ):
             previous_meta = deepcopy(snapshot.get("meta") if isinstance(snapshot.get("meta"), dict) else {})
             previous_meta["last_rollback_at"] = datetime.now(timezone.utc).isoformat()
