@@ -14,10 +14,11 @@ def setup_temp_storage(tmp: str):
 
 def read_packet(session_id: str):
     manifest = session_runtime.prepare_turn_packet(session_id, "test")
-    text = "".join(
-        storage.get_turn_packet_chunk(session_id, manifest["packet_id"], i)["content"]
-        for i in range(manifest["chunk_count"])
-    )
+    parts = [manifest["content"]] if manifest.get("first_chunk_included") else []
+    start = 1 if parts else 0
+    for index in range(start, manifest["chunk_count"]):
+        parts.append(storage.get_turn_packet_chunk(session_id, manifest["packet_id"], index)["content"])
+    text = "".join(parts)
     return manifest, json.loads(text), text
 
 
@@ -74,11 +75,12 @@ def test_turn_packet_uses_bounded_builder_working_set_and_preserves_storage():
 
         manifest, context, raw = read_packet(sid)
         assert manifest["working_context"] is True
+        assert manifest["writer_first"] is True
         assert context["working_context_contract"]["single_copy_transport"] is True
-        assert context["working_context_contract"]["single_runtime_document_copy"] is True
         assert context["working_context_contract"]["scene_builder_paths_are_canonical"] is True
         assert context["working_context_contract"]["full_relationship_documents_in_packet"] is False
         assert context["working_context_contract"]["full_starting_state_in_packet"] is False
+        assert context["working_context_contract"]["npc_intents_are_persistent"] is True
         assert context["transport_context_paths"] == {
             "state": "scene_state", "cards": "character_cards", "memory": "character_memory",
             "registry": "character_registry", "chronology": "chronology_recent", "starting_state": "starting_state",
@@ -107,15 +109,16 @@ def test_turn_packet_uses_bounded_builder_working_set_and_preserves_storage():
         assert "runtime_documents" not in context
         assert context["runtime_rules"]
         assert context["scene_builder"]
-        assert context["pov_participation_contract"]
-        assert context["npc_agency_contract"]
-        assert context["relationship_contract"]
-        assert context["presence_contract"]
-        assert context["memory_contract"]
-        assert context["continuity_contract"]
-        assert set(context["runtime_document_paths"]) == {
-            "rules", "scene_builder", "pov_contract", "npc_agency_contract", "relationship_contract",
+        assert context["writer_contract"]
+        for removed_contract in (
+            "pov_participation_contract", "npc_agency_contract", "relationship_contract",
             "presence_contract", "memory_contract", "continuity_contract",
+        ):
+            assert removed_contract not in context
+        assert context["runtime_document_paths"] == {
+            "rules": "runtime_rules",
+            "scene_builder": "scene_builder",
+            "writer_contract": "writer_contract",
         }
 
         for removed in ("source_full", "state_full", "scene_character_cards", "scene_character_memory", "character_registry_index"):
