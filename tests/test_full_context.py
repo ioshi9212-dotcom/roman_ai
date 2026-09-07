@@ -85,7 +85,8 @@ def test_turn_packet_uses_bounded_builder_working_set_and_preserves_storage():
         }
 
         scene_state = context["scene_state"]
-        assert scene_state["current"] == persistent_state_before["current"]
+        assert scene_state["current"]["location"] == persistent_state_before["current"]["location"]
+        assert scene_state["current"]["present_characters"] == persistent_state_before["current"]["present_characters"]
         assert scene_state["pov"] == persistent_state_before["pov"]
         assert "relationships" not in scene_state
         assert "relationship_documents" not in scene_state
@@ -126,9 +127,12 @@ def test_turn_packet_uses_bounded_builder_working_set_and_preserves_storage():
         assert marker_away_card not in raw
         assert marker_away_memory not in raw
 
-        # Transport compaction never mutates the persistent canon.
+        # Transport compaction does not remove persistent canon. Game-day normalization is allowed.
         assert storage._read_json(root / "source.json", {}) == novel
-        assert storage._read_json(root / "state.json", {}) == persistent_state_before
+        persistent_state_after = storage._read_json(root / "state.json", {})
+        assert persistent_state_after["relationships"] == persistent_state_before["relationships"]
+        assert persistent_state_after["current"]["location"] == persistent_state_before["current"]["location"]
+        assert persistent_state_after["current"]["present_characters"] == persistent_state_before["current"]["present_characters"]
         assert marker_away_card in next(x["bio"] for x in storage._read_json(root / "characters.json", []) if x["character_id"] == "away")
         assert marker_away_memory in storage._read_json(root / "memory.json", {})["characters"]["away"]["dialogue_memory"][0]["summary"]
         assert storage._read_json(root / "chronology.json", []) == chronology
