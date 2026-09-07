@@ -41,15 +41,16 @@ def test_action_descriptions_stay_under_custom_gpt_limit():
             assert len(description) <= 300, f"{method.upper()} {path} description is {len(description)} chars"
 
 
-def test_custom_gpt_instruction_stays_under_8000_characters_and_matches_transport():
+def test_custom_gpt_instruction_stays_small_and_matches_writer_first_transport():
     text = (ROOT / "gpt" / "custom_gpt_instructions.md").read_text(encoding="utf-8")
     assert len(text) <= 8000
+    assert "runtime_rules" in text
     assert "scene_builder" in text
-    assert "runtime rules" in text
     assert "getTurnPacketChunk" in text
     assert "getAuditSnapshotChunk" in text
     assert "prepareCharacterBundleRead" in text
     assert "getCharacterBundleChunk" in text
     assert "rollbackLastTurn" in text
-    assert "reused_pending_packet" in text
-    assert "орфограф" in text
+    assert "тот же pending packet" in text
+    assert "опечат" in text
+    assert "future_guidance" in text

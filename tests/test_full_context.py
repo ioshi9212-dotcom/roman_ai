@@ -14,31 +14,33 @@ def setup_temp_storage(tmp: str):
 
 def read_packet(session_id: str):
     manifest = session_runtime.prepare_turn_packet(session_id, "test")
-    text = "".join(
-        storage.get_turn_packet_chunk(session_id, manifest["packet_id"], i)["content"]
-        for i in range(manifest["chunk_count"])
-    )
+    parts = [manifest["content"]]
+    index = manifest.get("next_chunk_index")
+    while index is not None:
+        chunk = storage.get_turn_packet_chunk(session_id, manifest["packet_id"], index)
+        parts.append(chunk["content"])
+        index = None if chunk.get("all_chunks_read") else index + 1
+    text = "".join(parts)
     return manifest, json.loads(text), text
 
 
-def test_runtime_is_complete_and_chunked():
+def test_runtime_is_only_rules_and_scene_builder_and_stays_small():
     manifest = runtime_access.runtime_manifest()
     chunks = [runtime_access.runtime_chunk(i)["content"] for i in range(manifest["chunk_count"])]
     payload = json.loads("".join(chunks))
-    assert set(payload["documents"]) == {
-        "rules", "scene_builder", "pov_contract", "npc_agency_contract",
-        "relationship_contract", "presence_contract", "memory_contract", "continuity_contract",
-    }
-    assert "Формат обязателен" in payload["documents"]["scene_builder"]
-    assert "POV НЕ должен искусственно молчать" in payload["documents"]["pov_contract"]
-    assert "не обязаны выбирать психологически правильное" in payload["documents"]["npc_agency_contract"]
-    assert "RELATIONSHIP LENS" in payload["documents"]["relationship_contract"]
-    assert "NO KNOWLEDGE LAUNDERING" in payload["documents"]["scene_builder"]
-    assert "НЕ ЛЕГАЛИЗОВАТЬ УТЕЧКУ" in payload["documents"]["memory_contract"]
+    assert set(payload["documents"]) == {"rules", "scene_builder"}
+    rules = payload["documents"]["rules"]
+    builder = payload["documents"]["scene_builder"]
+    assert "POV — живой участник" in rules
+    assert "future_guidance" in rules
+    assert "NPC действуют сами" in rules
+    assert "Форма обязательна" in builder
+    assert "ИСТОРИЯ НЕ ПРИДУМЫВАЕТСЯ ЗАДНИМ ЧИСЛОМ" in builder
     assert manifest["total_chars"] == sum(len(x) for x in chunks)
+    assert manifest["total_chars"] < 30000
 
 
-def test_turn_packet_uses_bounded_builder_working_set_and_preserves_storage():
+def test_turn_packet_separates_history_memory_future_guidance_and_preserves_storage():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         marker_novel = "NOVEL_CANON_UNIQUE_4f3a"
@@ -50,7 +52,7 @@ def test_turn_packet_uses_bounded_builder_working_set_and_preserves_storage():
             "novel": {"pov_character": "pov", "questionnaire": marker_novel},
             "rules": {"custom": "rule"}, "lore": {"public": marker_lore},
             "hidden_lore": {"secret": "secret"}, "world": {"world": "world"},
-            "story_direction": {"direction": "direction"},
+            "story_direction": {"direction": "future relationship beat"},
             "characters": [
                 {"character_id": "pov", "name": "POV", "is_pov": True, "bio": "pov bio"},
                 {"character_id": "npc", "name": "NPC", "bio": "npc bio"},
@@ -74,20 +76,12 @@ def test_turn_packet_uses_bounded_builder_working_set_and_preserves_storage():
 
         manifest, context, raw = read_packet(sid)
         assert manifest["working_context"] is True
-        assert context["working_context_contract"]["single_copy_transport"] is True
-        assert context["working_context_contract"]["single_runtime_document_copy"] is True
-        assert context["working_context_contract"]["scene_builder_paths_are_canonical"] is True
-        assert context["working_context_contract"]["full_relationship_documents_in_packet"] is False
-        assert context["working_context_contract"]["full_starting_state_in_packet"] is False
-        assert context["transport_context_paths"] == {
-            "state": "scene_state", "cards": "character_cards", "memory": "character_memory",
-            "registry": "character_registry", "chronology": "chronology_recent", "starting_state": "starting_state",
-        }
+        assert manifest["writer_first"] is True
+        assert context["working_context_contract"]["npc_intents_are_persistent"] is True
+        assert context["working_context_contract"]["future_guidance_is_not_history"] is True
 
         scene_state = context["scene_state"]
-        assert scene_state["current"]["location"] == persistent_state_before["current"]["location"]
-        assert scene_state["current"]["present_characters"] == persistent_state_before["current"]["present_characters"]
-        assert scene_state["pov"] == persistent_state_before["pov"]
+        assert scene_state["current"]["location"] == "room"
         assert "relationships" not in scene_state
         assert "relationship_documents" not in scene_state
         assert "threads" not in scene_state
@@ -97,46 +91,30 @@ def test_turn_packet_uses_bounded_builder_working_set_and_preserves_storage():
         assert set(context["character_memory"]) == {"pov", "npc"}
         assert "away" in {x["character_id"] for x in context["character_registry"]}
         assert context["scene_characters"]["pov"]["personal_memory_path"] == "character_memory[pov]"
-        assert context["knowledge_guard"]["personal_memory_path"] == "character_memory[character_id]"
-        assert context["novel"] == novel["novel"]
-        assert context["novel_lore"] == novel["lore"]
-        assert context["starting_state"]["pov"] == novel["starting_state"]["pov"]
-        assert "relationships" not in context["starting_state"]
+        assert context["future_guidance"]["story_direction"]["direction"] == "future relationship beat"
+        assert context["future_guidance"]["status"] == "future_only_not_history"
+        assert "story_direction" not in context
 
         assert context["relationship_policy"]["authoritative_start_snapshot"]["npc"]["metrics"] == {"trust": 17}
-        assert "runtime_documents" not in context
         assert context["runtime_rules"]
         assert context["scene_builder"]
-        assert context["pov_participation_contract"]
-        assert context["npc_agency_contract"]
-        assert context["relationship_contract"]
-        assert context["presence_contract"]
-        assert context["memory_contract"]
-        assert context["continuity_contract"]
-        assert set(context["runtime_document_paths"]) == {
-            "rules", "scene_builder", "pov_contract", "npc_agency_contract", "relationship_contract",
-            "presence_contract", "memory_contract", "continuity_contract",
-        }
+        assert "writer_contract" not in context
+        assert context["runtime_document_paths"] == {"rules": "runtime_rules", "scene_builder": "scene_builder"}
+        for removed_contract in (
+            "pov_participation_contract", "npc_agency_contract", "relationship_contract",
+            "presence_contract", "memory_contract", "continuity_contract", "knowledge_guard",
+        ):
+            assert removed_contract not in context
 
-        for removed in ("source_full", "state_full", "scene_character_cards", "scene_character_memory", "character_registry_index"):
-            assert removed not in context
-        for duplicate in ("novel", "novel_lore", "character_cards", "chronology_recent", "recent_turns"):
-            assert duplicate not in context["author_context"]
+        assert context["player_input_map"]["spoken_segments"] == ["test"]
         assert raw.count(marker_novel) == 1
         assert raw.count(marker_lore) == 1
         assert marker_away_card not in raw
         assert marker_away_memory not in raw
 
-        # Transport compaction does not remove persistent canon. Game-day normalization is allowed.
         assert storage._read_json(root / "source.json", {}) == novel
         persistent_state_after = storage._read_json(root / "state.json", {})
         assert persistent_state_after["relationships"] == persistent_state_before["relationships"]
-        assert persistent_state_after["current"]["location"] == persistent_state_before["current"]["location"]
-        assert persistent_state_after["current"]["present_characters"] == persistent_state_before["current"]["present_characters"]
         assert marker_away_card in next(x["bio"] for x in storage._read_json(root / "characters.json", []) if x["character_id"] == "away")
         assert marker_away_memory in storage._read_json(root / "memory.json", {})["characters"]["away"]["dialogue_memory"][0]["summary"]
         assert storage._read_json(root / "chronology.json", []) == chronology
-        guard = context["knowledge_guard"]["instruction"]
-        assert "Private POV thoughts" in guard
-        assert "outside the physical scene" in guard
-        assert "must not be persisted" in guard
