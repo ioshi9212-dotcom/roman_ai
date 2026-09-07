@@ -11,7 +11,7 @@ from .transactional_storage import session_transaction
 
 
 _ORIGINAL_PREPARE = None
-WRITER_FIRST_VERSION = 2
+WRITER_FIRST_VERSION = 3
 WRITER_PACKET_CHARS = 16000
 RECENT_FULL_TURNS = 2
 CONTINUITY_WINDOW = 15
@@ -129,6 +129,20 @@ def _compact_memory(context: Dict[str, Any]) -> None:
             bucket["older_history_available"] = older
 
 
+def _compact_scene_state(value: Any) -> Dict[str, Any]:
+    state = deepcopy(value) if isinstance(value, dict) else {}
+    # The complete intent store is persistent engine state. The writer receives
+    # only ranked current-character intents through npc_active_intents.
+    state.pop("npc_intents", None)
+    return state
+
+
+def _compact_starting_state(value: Any) -> Dict[str, Any]:
+    state = deepcopy(value) if isinstance(value, dict) else {}
+    state.pop("npc_intents", None)
+    return state
+
+
 def _compact_full_turn(turn: Dict[str, Any]) -> Dict[str, Any]:
     return {
         key: deepcopy(turn[key])
@@ -192,6 +206,8 @@ def _rewrite_context(session_id: str, context: Dict[str, Any]) -> Dict[str, Any]
         "writer_contract": "writer_contract",
     }
 
+    result["scene_state"] = _compact_scene_state(result.get("scene_state"))
+    result["starting_state"] = _compact_starting_state(result.get("starting_state"))
     recent, continuity = _rolling_turn_context(root)
     result["recent_turns"] = recent
     result["continuity_turns"] = continuity
@@ -226,6 +242,7 @@ def _rewrite_context(session_id: str, context: Dict[str, Any]) -> Dict[str, Any]
             "active_thread_cap": MAX_ACTIVE_THREADS,
             "runtime_documents_per_turn": ["runtime_rules", "scene_builder", "writer_contract"],
             "npc_intents_are_persistent": True,
+            "full_npc_intent_store_in_packet": False,
             "first_packet_chunk_in_prepare_response": True,
         }
     )
