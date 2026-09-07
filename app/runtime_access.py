@@ -9,23 +9,40 @@ from . import storage
 
 RUNTIME_DIR = Path(__file__).resolve().parent.parent / "runtime"
 RUNTIME_VERSION = "2.0.0-writer-first"
-RUNTIME_FILES = ("rules.md", "scene_builder.md")
+PUBLIC_RUNTIME_FILES = ("rules.md", "scene_builder.md")
+_INTERNAL_COMPAT_KEYS = (
+    "pov_contract",
+    "npc_agency_contract",
+    "relationship_contract",
+    "presence_contract",
+    "memory_contract",
+    "continuity_contract",
+)
 
 
 def runtime_documents() -> Dict[str, str]:
     result: Dict[str, str] = {}
-    for name in RUNTIME_FILES:
+    for name in PUBLIC_RUNTIME_FILES:
         path = RUNTIME_DIR / name
         if not path.exists():
             raise RuntimeError(f"RUNTIME_FILE_MISSING:{name}")
         result[name.removesuffix(".md")] = path.read_text(encoding="utf-8")
+    # Older internal context builders still reference these names before the
+    # writer-first transport layer strips them. Keep empty slots so mechanics
+    # stay compatible without sending duplicate contracts to the model.
+    for key in _INTERNAL_COMPAT_KEYS:
+        result[key] = ""
     return result
 
 
 def runtime_payload() -> Dict[str, Any]:
+    documents = runtime_documents()
     return {
         "runtime_version": RUNTIME_VERSION,
-        "documents": runtime_documents(),
+        "documents": {
+            "rules": documents["rules"],
+            "scene_builder": documents["scene_builder"],
+        },
         "instruction": "Read both documents. Rules define behavior; scene_builder defines the answer format and scene writing.",
     }
 
