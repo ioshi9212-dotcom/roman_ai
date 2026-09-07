@@ -53,33 +53,23 @@ def test_writer_first_packet_has_small_runtime_surface_and_first_chunk_inline():
 
         turns = []
         for turn in range(1, 31):
-            turns.append(
-                {
-                    "turn_number": turn,
-                    "user_input": f"input {turn}",
-                    "scene_output": (f"scene {turn} " + "S" * 2400),
-                    "extracted": {
-                        "chronology": [{"event_id": f"c{turn}", "event": f"event {turn}"}],
-                        "knowledge_add": [],
-                        "experiences_add": [],
-                        "dialogue_memory_add": [],
-                    },
-                }
-            )
+            turns.append({
+                "turn_number": turn,
+                "user_input": f"input {turn}",
+                "scene_output": f"scene {turn} " + "S" * 2400,
+                "extracted": {
+                    "chronology": [{"event_id": f"c{turn}", "event": f"event {turn}"}],
+                    "knowledge_add": [], "experiences_add": [], "dialogue_memory_add": [],
+                },
+            })
         (root / "turns.jsonl").write_text("\n".join(json.dumps(turn, ensure_ascii=False) for turn in turns) + "\n", encoding="utf-8")
         meta = storage._read_json(root / "meta.json", {})
-        meta["turn_number"] = 30
-        meta["last_audit_turn"] = 30
-        meta["audit_required"] = False
+        meta.update({"turn_number": 30, "last_audit_turn": 30, "audit_required": False})
         storage._write_json(root / "meta.json", meta)
 
         state = storage._read_json(root / "state.json", {})
         state["threads"] = {
-            f"thread-{index}": {
-                "status": "closed" if index < 8 else "active",
-                "priority": index,
-                "notes": "T" * 5000,
-            }
+            f"thread-{index}": {"status": "closed" if index < 8 else "active", "priority": index, "notes": "T" * 5000}
             for index in range(30)
         }
         storage._write_json(root / "state.json", state)
@@ -91,13 +81,12 @@ def test_writer_first_packet_has_small_runtime_surface_and_first_chunk_inline():
         storage._write_json(root / "memory.json", memory)
 
         manifest, context = read_context(sid, "(посмотреть на NPC)")
-
         assert manifest["chunk_count"] <= 8
         packet = storage._read_json(root / "turn_packet.json", {})
         assert packet["read_chunks"] == list(range(manifest["chunk_count"]))
-        assert "writer_contract" in context
-        assert "runtime_rules" in context
-        assert "scene_builder" in context
+        assert "writer_contract" not in context
+        assert context["runtime_rules"]
+        assert context["scene_builder"]
         for removed in (
             "pov_participation_contract", "npc_agency_contract", "relationship_contract",
             "presence_contract", "memory_contract", "continuity_contract",
@@ -108,10 +97,11 @@ def test_writer_first_packet_has_small_runtime_surface_and_first_chunk_inline():
         assert len(context["active_threads"]) <= MAX_ACTIVE_THREADS
         assert all(item.get("status") != "closed" for item in context["active_threads"].values())
         assert len(context["character_memory"]["npc"]["historical_knowledge_catalog"]) <= MAX_HISTORICAL_KNOWLEDGE_CATALOG
-        assert set(context["runtime_document_paths"]) == {"rules", "scene_builder", "writer_contract"}
+        assert set(context["runtime_document_paths"]) == {"rules", "scene_builder"}
+        assert context["player_input_map"]["stage_directions"] == ["посмотреть на NPC"]
 
 
-def test_repeated_prepare_reuses_same_writer_packet_without_reinlining_chunk_zero():
+def test_repeated_prepare_reuses_same_packet_and_replays_chunk_zero_for_lost_response_recovery():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         sid = storage.create_session(novel())["session_id"]
@@ -119,4 +109,5 @@ def test_repeated_prepare_reuses_same_writer_packet_without_reinlining_chunk_zer
         second = session_runtime.prepare_turn_packet(sid, "same")
         assert first["packet_id"] == second["packet_id"]
         assert first["first_chunk_included"] is True
-        assert second["first_chunk_included"] is False
+        assert second["first_chunk_included"] is True
+        assert second["content"] == first["content"]
