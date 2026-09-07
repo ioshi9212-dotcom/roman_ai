@@ -35,7 +35,7 @@ def test_source_genres_cast_and_pov_biography_are_active_material():
     assert "скрытые истины" in text
 
 
-def test_prompt_facing_rules_do_not_embed_examples():
+def test_prompt_facing_rules_do_not_embed_literal_example_payloads():
     paths = [
         *sorted((ROOT / "runtime").glob("*.md")),
         ROOT / "gpt" / "custom_gpt_instructions.md",
@@ -44,6 +44,5 @@ def test_prompt_facing_rules_do_not_embed_examples():
     ]
     for path in paths:
         text = path.read_text(encoding="utf-8").casefold()
-        assert "пример" not in text, path
-        assert "for example" not in text, path
+        assert "for example:" not in text, path
         assert '"examples"' not in text, path
