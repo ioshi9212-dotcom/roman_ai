@@ -34,7 +34,7 @@ def novel():
     }
 
 
-def test_resume_does_not_return_heavy_stores_or_delete_them():
+def test_resume_does_not_return_heavy_stores_or_drop_persistent_data():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         sid = storage.create_session(novel())["session_id"]
@@ -50,7 +50,8 @@ def test_resume_does_not_return_heavy_stores_or_delete_them():
             for index in range(80)
         }
         storage._write_json(root / "state.json", state)
-        stored_before = storage._read_json(root / "state.json", {})
+        synthetic_relationships = dict(state["relationships"])
+        synthetic_documents = dict(state["relationship_documents"])
 
         resumed = session_runtime.continue_session(sid)
 
@@ -58,13 +59,17 @@ def test_resume_does_not_return_heavy_stores_or_delete_them():
         assert "relationships" not in resumed
         assert "relationship_documents" not in resumed
         assert "chronology_context" not in resumed
-        assert resumed["resume_payload_counts"]["relationships"] == 80
-        assert resumed["resume_payload_counts"]["relationship_documents"] == 80
+        assert resumed["resume_payload_counts"]["relationships"] >= 80
+        assert resumed["resume_payload_counts"]["relationship_documents"] >= 80
         assert len(json.dumps(resumed, ensure_ascii=False)) < 20000
 
         stored_after = storage._read_json(root / "state.json", {})
-        assert stored_after["relationships"] == stored_before["relationships"]
-        assert stored_after["relationship_documents"] == stored_before["relationship_documents"]
+        # Compatibility repair may add a canonical document for a real present NPC,
+        # but every pre-existing persistent record must survive unchanged.
+        for key, value in synthetic_relationships.items():
+            assert stored_after["relationships"][key] == value
+        for key, value in synthetic_documents.items():
+            assert stored_after["relationship_documents"][key] == value
 
         manifest = session_runtime.prepare_turn_packet(sid, "(продолжить)")
         assert manifest["chunk_count"] >= 1
