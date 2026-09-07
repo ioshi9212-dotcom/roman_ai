@@ -194,13 +194,14 @@ def inject_required_turn_context(context: Dict[str, Any], cards: List[Dict[str, 
         "personal_memory_path": "character_memory[character_id]",
         "present_at_turn_start_path": "present_character_ids_at_turn_start",
         "author_only_paths": [
-            "character_cards", "novel", "novel_rules", "novel_lore", "hidden_lore", "world_canon",
-            "story_direction", "chronology_recent", "character_memory[OTHER_CHARACTER_ID]",
+            "character_cards", "character_registry", "cast_index", "scene_state", "relationships",
+            "novel", "novel_rules", "novel_lore", "hidden_lore", "world_canon", "story_direction",
+            "chronology_recent", "recent_turns", "character_memory[OTHER_CHARACTER_ID]",
         ],
         "instruction": (
             "MANDATORY KNOWLEDGE FIREWALL. Before every NPC line, message, call, inference, recognition or deliberate action, identify that NPC and verify the exact source for every referenced fact. "
             "Past knowledge may come only from that NPC's own character_memory. A fact created during the current turn may be used only after that NPC personally perceived it or received it through an explicit communication channel established in the scene. "
-            "Author context, chronology, cards, registry, another character's memory, relationship values and narrative plausibility are never character knowledge sources. "
+            "Author context, recent turns, chronology, cards, registry, scene state, another character's memory, relationship values and narrative plausibility are never character knowledge sources. "
             "Private POV thoughts, phone screens, typed or received messages, calls not heard by the NPC, letters, photos, headphones and other private content remain unknown without established access. "
             "An NPC outside the physical scene does not know what is happening there merely because the author knows it. Before an offscreen NPC sends a message, calls or reacts to a current event, verify how that NPC learned the specific event first. "
             "Arrival after an event and departure before an event do not grant retroactive knowledge. Inference may use only premises already available to that NPC and may not reproduce an unavailable exact detail. "
