@@ -8,9 +8,63 @@ from . import session_runtime, storage
 from .transactional_storage import session_transaction
 
 _ORIGINAL_PREPARE = None
+_MAX_THREAD_TEXT = 1200
 
 
-def _strip_legacy_full_payloads(context: Dict[str, Any]) -> Dict[str, Any]:
+def _bounded_transport_value(value: Any) -> Any:
+    if isinstance(value, str):
+        if len(value) <= _MAX_THREAD_TEXT:
+            return value
+        return value[:_MAX_THREAD_TEXT] + "…[full value remains in persistent storage]"
+    if isinstance(value, dict):
+        return {str(key): _bounded_transport_value(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_bounded_transport_value(item) for item in value]
+    return deepcopy(value)
+
+
+def _compact_starting_state(value: Any) -> Dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    result = deepcopy(value)
+    for key in ("relationships", "relationship_documents", "relationship_schemas", "threads", "characters"):
+        result.pop(key, None)
+    return _bounded_transport_value(result)
+
+
+def _relationship_snapshot_from_persistent_state(state: Dict[str, Any]) -> Dict[str, Any]:
+    current = state.get("current") if isinstance(state.get("current"), dict) else {}
+    present = current.get("present_characters", [])
+    if isinstance(present, dict):
+        present = list(present.keys())
+    elif isinstance(present, str):
+        present = [present]
+    elif not isinstance(present, list):
+        present = []
+    ids = []
+    for value in present:
+        if isinstance(value, dict):
+            value = value.get("character_id") or value.get("id") or value.get("name")
+        if value:
+            ids.append(str(value))
+    pov = state.get("pov") if isinstance(state.get("pov"), dict) else {}
+    pov_id = str(pov.get("character_id") or "")
+    relationships = state.get("relationships") if isinstance(state.get("relationships"), dict) else {}
+    result: Dict[str, Any] = {}
+    for owner_id in dict.fromkeys(ids):
+        if not owner_id or owner_id == pov_id:
+            continue
+        relation = relationships.get(owner_id)
+        metrics = {
+            str(key): number
+            for key, number in relation.items()
+            if isinstance(relation, dict) and isinstance(number, (int, float)) and not isinstance(number, bool)
+        } if isinstance(relation, dict) else {}
+        result[owner_id] = {"metrics": metrics, "has_saved_baseline": bool(metrics)}
+    return result
+
+
+def _strip_legacy_full_payloads(context: Dict[str, Any], *, persistent_state: Dict[str, Any]) -> Dict[str, Any]:
     result = deepcopy(context)
 
     for key in (
@@ -59,6 +113,18 @@ def _strip_legacy_full_payloads(context: Dict[str, Any]) -> Dict[str, Any]:
             author.pop(key, None)
         result["author_context"] = author
 
+    result["starting_state"] = _compact_starting_state(result.get("starting_state"))
+    if "active_threads" in result:
+        result["active_threads"] = _bounded_transport_value(result.get("active_threads"))
+
+    policy = result.get("relationship_policy") if isinstance(result.get("relationship_policy"), dict) else {}
+    policy["authoritative_start_snapshot"] = _relationship_snapshot_from_persistent_state(persistent_state)
+    policy["authoritative_start_snapshot_note"] = (
+        "Compact diagnostic start values for physically present NPCs, rebuilt from persistent state before transport compaction. "
+        "relationship_lens + relationship_contract remain authoritative."
+    )
+    result["relationship_policy"] = policy
+
     result["character_context_instruction"] = (
         "Full character_cards are transported only for POV, physically present characters and registered characters explicitly participating in the current input or communication. "
         "character_memory is a bounded working copy; complete lifetime memory remains persisted. character_registry stays available for every registered character. "
@@ -73,6 +139,8 @@ def _strip_legacy_full_payloads(context: Dict[str, Any]) -> Dict[str, Any]:
             "dormant_full_dossiers_in_packet": False,
             "lifetime_memory_in_packet": False,
             "full_relationship_documents_in_packet": False,
+            "full_starting_state_in_packet": False,
+            "active_threads_text_is_bounded": True,
             "dormant_character_retrieval": "chunked_on_demand",
             "remote_communication_requires_loaded_dossier": True,
             "persistent_storage_is_complete": True,
@@ -125,13 +193,14 @@ def _prepare_turn(session_id: str, user_input: str) -> Dict[str, Any]:
         raw = "".join(packet.get("chunks", []))
         if not raw:
             return manifest
-        context = _strip_legacy_full_payloads(json.loads(raw))
+        persistent_state = storage._read_json(root / "state.json", {})
+        context = _strip_legacy_full_payloads(json.loads(raw), persistent_state=persistent_state)
         text = json.dumps(context, ensure_ascii=False, separators=(",", ":"))
         chunks = [text[i : i + storage.MAX_PACKET_CHARS] for i in range(0, len(text), storage.MAX_PACKET_CHARS)] or ["{}"]
         packet["chunks"] = chunks
         packet["chunk_count"] = len(chunks)
         packet["read_chunks"] = []
-        packet["transport_scope_version"] = 4
+        packet["transport_scope_version"] = 5
         storage._write_json(root / "turn_packet.json", packet)
         manifest["chunk_count"] = len(chunks)
         manifest["total_chars"] = len(text)
