@@ -6,7 +6,7 @@ def test_runtime_keeps_pov_agency_without_separate_contract_document():
     rules = docs["rules"]
     builder = docs["scene_builder"]
     assert "POV — живой участник, не камера" in rules
-    assert "не превращай его в мебель" in builder
+    assert "Не превращай его в мебель" in builder
     assert "Значимые решения оставляй игроку" in builder
     assert "pov_contract" not in runtime_payload()["documents"]
 
