@@ -2,7 +2,7 @@ openapi: 3.1.0
 info:
   title: Roman AI
   version: 1.9.3
-  description: Persistent isolated novel sessions with scene-scoped working context, transactional persistence, recovery, safe last-turn rollback and 15-turn audits.
+  description: Persistent isolated novel sessions with bounded writer-first context, transactional memory and NPC intents, recovery, rollback and fast 15-turn audits.
 servers:
   - url: https://romanai-production-0fdb.up.railway.app
 components:
@@ -70,6 +70,30 @@ components:
           minItems: 1
           items: {$ref: '#/components/schemas/RelationshipDimensionUpdate'}
       additionalProperties: false
+    NPCIntentUpdate:
+      type: object
+      required: [character_id, intent_id]
+      properties:
+        character_id: {type: string}
+        intent_id: {type: string}
+        operation:
+          type: string
+          enum: [upsert, resolve, abandon]
+        kind: {type: string}
+        summary: {type: string}
+        status: {type: string}
+        priority: {}
+        trigger: {type: string}
+        why_it_matters: {type: string}
+        planned_action: {type: string}
+        target_character_id: {type: string}
+        source_fact_ids:
+          type: array
+          items: {type: string}
+        next_eligible_game_day: {type: integer, minimum: 0}
+        pursued_now: {type: boolean}
+        resolution: {type: string}
+      additionalProperties: true
     TurnCommit:
       type: object
       required: [user_input, scene_output, extracted]
@@ -78,7 +102,7 @@ components:
         scene_output: {type: string}
         extracted:
           type: object
-          required: [persistence_reviewed, chronology, knowledge_add, experiences_add, dialogue_memory_add]
+          required: [persistence_reviewed, chronology, knowledge_add, experiences_add, dialogue_memory_add, npc_intent_updates]
           properties:
             persistence_reviewed: {type: boolean}
             chronology:
@@ -93,6 +117,10 @@ components:
             dialogue_memory_add:
               type: array
               items: {type: object, additionalProperties: true}
+            npc_intent_updates:
+              type: array
+              description: Durable NPC-owned follow-ups, suspicions, promises, investigations, plans or blocked goals; use empty array when none changed.
+              items: {$ref: '#/components/schemas/NPCIntentUpdate'}
             presence_updates:
               type: array
               description: Explicit scene transitions. Omission preserves the start roster; only leave removes a present character.
@@ -126,14 +154,14 @@ paths:
   /runtime:
     get:
       operationId: getRuntime
-      summary: Prepare the complete runtime documents as safe chunks
-      description: Returns only a manifest. Read every getRuntimeChunk from 0 through chunk_count-1.
+      summary: Prepare the complete setup-time runtime documents as safe chunks
+      description: Returns a manifest. During new-novel setup read every getRuntimeChunk from 0 through chunk_count-1.
       responses:
         '200': {description: Runtime chunk manifest}
   /runtime/{chunk_index}:
     get:
       operationId: getRuntimeChunk
-      summary: Read one chunk of the complete runtime rules
+      summary: Read one setup-time runtime chunk
       parameters:
         - {in: path, name: chunk_index, required: true, schema: {type: integer}}
       responses:
@@ -249,11 +277,11 @@ paths:
     post:
       operationId: resumeSession
       summary: Reconnect to the exact existing session
-      description: If current_recovery_required=true, call recoverSessionCurrent before prepareTurn. Never repair state.current through a fake gameplay turn.
+      description: Compact checkpoint only. If current_recovery_required=true, call recoverSessionCurrent before prepareTurn. Complete canon remains in Railway.
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
       responses:
-        '200': {description: Same-session checkpoint, including current recovery status}
+        '200': {description: Same-session compact checkpoint with recovery status}
         '404': {description: Session not found}
   /sessions/{session_id}/recover-current:
     post:
@@ -270,7 +298,7 @@ paths:
     post:
       operationId: rollbackLastTurn
       summary: Roll back only the latest saved canonical turn after explicit user request
-      description: Requires the exact current turn number and confirm=true. Restores turns, state, cards, memory, chronology, audits and meta transactionally or refuses without mutation.
+      description: Requires the exact current turn number and confirm=true. Restores persistent canon transactionally or refuses without mutation.
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
       requestBody:
@@ -285,31 +313,31 @@ paths:
   /sessions/{session_id}/audit-snapshot:
     get:
       operationId: getAuditSnapshot
-      summary: Prepare the exact 15-turn audit working context as chunks
-      description: Exact audited turns plus current state/source and relevant full character memory. Read every audit chunk individually.
+      summary: Prepare a fast 15-turn persisted audit backup
+      description: Visible committed chat scenes are primary evidence. Response includes audit chunk 0 when first_chunk_included=true; do not fetch chunk 0 again.
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
       responses:
-        '200': {description: Audit manifest with audit_id and chunk_count}
+        '200': {description: Fast audit manifest plus inline chunk 0 when available}
         '409': {description: Audit is not currently required}
   /sessions/{session_id}/audit-snapshot/{audit_id}/{chunk_index}:
     get:
       operationId: getAuditSnapshotChunk
-      summary: Read one response-safe audit chunk
-      description: Read indices 0 through chunk_count-1 in order. Do not batch Action responses.
+      summary: Read one remaining fast-audit chunk
+      description: If getAuditSnapshot included chunk 0, start at next_chunk_index and read only remaining indices. Do not batch Action responses.
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
         - {in: path, name: audit_id, required: true, schema: {type: string}}
         - {in: path, name: chunk_index, required: true, schema: {type: integer, minimum: 0}}
       responses:
-        '200': {description: One lossless audit chunk}
+        '200': {description: One remaining audit chunk}
         '403': {description: Invalid or stale audit_id}
         '404': {description: Chunk index out of range}
   /sessions/{session_id}/turn-packet:
     post:
       operationId: prepareTurn
-      summary: Build or reuse scene-scoped working context from complete persistent canon
-      description: Repeated prepareTurn with the same pending turn and exact user_input reuses the existing packet_id instead of invalidating in-progress reads.
+      summary: Build or reuse bounded writer-first context from complete persistent canon
+      description: New packet response includes chunk 0 when first_chunk_included=true. Repeating the same pending user_input reuses the packet; never create a duplicate turn.
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
       requestBody:
@@ -318,44 +346,44 @@ paths:
           application/json:
             schema: {$ref: '#/components/schemas/TurnPrepare'}
       responses:
-        '200': {description: Packet manifest}
+        '200': {description: Writer-first manifest plus inline chunk 0 when a new packet was prepared}
         '409': {description: Audit required or current scene pointer requires technical recovery}
   /sessions/{session_id}/turn-packet/{packet_id}/{chunk_index}:
     get:
       operationId: getTurnPacketChunk
-      summary: Read one response-safe turn packet chunk
-      description: Read indices 0 through chunk_count-1 in order. Do not batch Action responses.
+      summary: Read one remaining writer-first packet chunk
+      description: When prepareTurn included chunk 0, start at next_chunk_index and read only remaining indices. Do not batch Action responses.
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
         - {in: path, name: packet_id, required: true, schema: {type: string}}
         - {in: path, name: chunk_index, required: true, schema: {type: integer, minimum: 0}}
       responses:
-        '200': {description: One lossless packet chunk}
+        '200': {description: One remaining writer packet chunk}
         '403': {description: Invalid or stale packet_id}
         '404': {description: Chunk index out of range}
   /sessions/{session_id}/characters/{character_id}/read:
     post:
       operationId: prepareCharacterBundleRead
-      summary: Prepare a response-safe full dossier read for one dormant registered character
-      description: Returns a snapshot read_id and chunk_count. Use only when the full dossier is absent from the current packet and the character must enter or materially act.
+      summary: Prepare one bounded offscreen participation dossier
+      description: Returns the full card plus bounded personal memory, relationship and active intents. Chunk 0 is included when first_chunk_included=true; complete lifetime memory remains persistent.
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
         - {in: path, name: character_id, required: true, schema: {type: string}}
       responses:
-        '200': {description: Character dossier read manifest}
+        '200': {description: Character participation manifest plus inline chunk 0}
         '404': {description: Session or character not found}
   /sessions/{session_id}/characters/{character_id}/read/{read_id}/{chunk_index}:
     get:
       operationId: getCharacterBundleChunk
-      summary: Read one response-safe chunk of the complete character dossier
-      description: Read every index from 0 through chunk_count-1. If the dossier changes during reading, restart from prepareCharacterBundleRead.
+      summary: Read one remaining bounded character participation chunk
+      description: When prepareCharacterBundleRead included chunk 0, start at next_chunk_index. If the dossier changes during reading, restart the prepared read.
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
         - {in: path, name: character_id, required: true, schema: {type: string}}
         - {in: path, name: read_id, required: true, schema: {type: string}}
         - {in: path, name: chunk_index, required: true, schema: {type: integer, minimum: 0}}
       responses:
-        '200': {description: One lossless character dossier chunk}
+        '200': {description: One remaining bounded character participation chunk}
         '404': {description: Session, character or chunk not found}
         '409': {description: Character dossier changed during reading}
   /sessions/{session_id}/turns:
@@ -370,8 +398,8 @@ paths:
         '200': {description: Raw turns}
     post:
       operationId: commitTurn
-      summary: Save one complete turn after every packet chunk was read
-      description: Transactionally persists turn, state, character cards, memory, chronology and meta. Scene membership changes only through structural presence updates.
+      summary: Save one complete turn after required writer chunks were read
+      description: Transactionally persists turn, state, cards, personal memory, chronology, relationships and NPC intent state. Presence changes only through structural updates.
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
       requestBody:
@@ -381,11 +409,11 @@ paths:
             schema: {$ref: '#/components/schemas/TurnCommit'}
       responses:
         '200': {description: Turn committed}
-        '409': {description: Audit, packet reading, persistence review, relationship footer, presence, or current-state validation incomplete}
+        '409': {description: Audit, packet reading, persistence review, relationship, presence, knowledge or current-state validation incomplete}
   /sessions/{session_id}/audit:
     post:
       operationId: commitAudit
-      summary: Finish the mandatory 15-turn audit after every audit chunk was read
+      summary: Finish one fast 15-turn reconciliation after required audit chunks were read
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
       requestBody:
