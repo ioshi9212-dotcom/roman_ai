@@ -67,17 +67,15 @@ def test_unresolved_npc_intent_persists_and_resurfaces_without_player_reminder()
                 "user_input": "(убрать телефон)",
                 "scene_output": "POV remains alone.\n\nОтношения:\n\nХод 1 · цикл 1/15",
                 "extracted": base_extracted(
-                    npc_intent_updates=[
-                        {
-                            "character_id": "ren",
-                            "intent_id": "check_account_origin",
-                            "kind": "investigation",
-                            "summary": "Выяснить, кто стоит за странным аккаунтом",
-                            "priority": "high",
-                            "planned_action": "Проверить происхождение аккаунта и потом вернуться к POV с результатом",
-                            "next_eligible_game_day": 3,
-                        }
-                    ]
+                    npc_intent_updates=[{
+                        "character_id": "ren",
+                        "intent_id": "check_account_origin",
+                        "kind": "investigation",
+                        "summary": "Выяснить, кто стоит за странным аккаунтом",
+                        "priority": "high",
+                        "planned_action": "Проверить происхождение аккаунта и потом вернуться к POV с результатом",
+                        "next_eligible_game_day": 3,
+                    }]
                 ),
             },
         )
@@ -96,7 +94,8 @@ def test_unresolved_npc_intent_persists_and_resurfaces_without_player_reminder()
         intent = context["npc_active_intents"]["ren"][0]
         assert intent["intent_id"] == "check_account_origin"
         assert intent["eligible_now"] is True
-        assert "напомин" in context["npc_intent_instruction"].casefold() or "remind" in context["npc_intent_instruction"].casefold()
+        assert "npc_intent_instruction" not in context
+        assert "без напоминания POV" in context["runtime_rules"]
 
         bundle = get_character_bundle(sid, "ren")
         assert bundle["active_intents"][0]["intent_id"] == "check_account_origin"
@@ -113,22 +112,11 @@ def test_intent_source_fact_may_be_added_to_same_character_in_same_commit():
                 "user_input": "(Рен замечает деталь)",
                 "scene_output": "POV remains alone.\n\nОтношения:\n\nХод 1 · цикл 1/15",
                 "extracted": base_extracted(
-                    knowledge_add=[
-                        {
-                            "character_id": "ren",
-                            "fact_id": "account_created_recently",
-                            "content": "Аккаунт создан недавно",
-                        }
-                    ],
-                    npc_intent_updates=[
-                        {
-                            "character_id": "ren",
-                            "intent_id": "trace_account",
-                            "kind": "investigation",
-                            "summary": "Проверить происхождение аккаунта",
-                            "source_fact_ids": ["account_created_recently"],
-                        }
-                    ],
+                    knowledge_add=[{"character_id": "ren", "fact_id": "account_created_recently", "content": "Аккаунт создан недавно"}],
+                    npc_intent_updates=[{
+                        "character_id": "ren", "intent_id": "trace_account", "kind": "investigation",
+                        "summary": "Проверить происхождение аккаунта", "source_fact_ids": ["account_created_recently"],
+                    }],
                 ),
             },
         )
@@ -149,14 +137,11 @@ def test_intent_cannot_launder_author_only_fact_into_future_npc_behavior():
                     "user_input": "(убрать телефон)",
                     "scene_output": "POV remains alone.\n\nОтношения:\n\nХод 1 · цикл 1/15",
                     "extracted": base_extracted(
-                        npc_intent_updates=[
-                            {
-                                "character_id": "ren",
-                                "intent_id": "impossible_followup",
-                                "summary": "Действовать на основании неизвестной ему тайны",
-                                "source_fact_ids": ["author_only_secret"],
-                            }
-                        ]
+                        npc_intent_updates=[{
+                            "character_id": "ren", "intent_id": "impossible_followup",
+                            "summary": "Действовать на основании неизвестной ему тайны",
+                            "source_fact_ids": ["author_only_secret"],
+                        }]
                     ),
                 },
             )
@@ -171,25 +156,13 @@ def test_intent_can_be_marked_pursued_and_resolved():
 
     state = {
         "current": {"game_day": 4},
-        "npc_intents": {
-            "ren": [
-                {
-                    "intent_id": "ask_again",
-                    "character_id": "ren",
-                    "summary": "Вернуться к незакрытому вопросу",
-                    "status": "active",
-                    "priority": 70,
-                    "created_turn": 10,
-                    "created_game_day": 1,
-                }
-            ]
-        },
+        "npc_intents": {"ren": [{
+            "intent_id": "ask_again", "character_id": "ren",
+            "summary": "Вернуться к незакрытому вопросу", "status": "active", "priority": 70,
+            "created_turn": 10, "created_game_day": 1,
+        }]},
     }
-    pursued = apply_updates(
-        state,
-        [{"character_id": "ren", "intent_id": "ask_again", "pursued_now": True}],
-        current_turn=20,
-    )
+    pursued = apply_updates(state, [{"character_id": "ren", "intent_id": "ask_again", "pursued_now": True}], current_turn=20)
     item = pursued["npc_intents"]["ren"][0]
     assert item["last_pursued_turn"] == 20
     assert item["last_pursued_game_day"] == 4
