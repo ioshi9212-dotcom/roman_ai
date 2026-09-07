@@ -16,10 +16,10 @@ def setup_temp_storage(tmp: str):
 
 def read_packet_context(session_id: str, user_input: str):
     packet = session_runtime.prepare_turn_packet(session_id, user_input)
-    text = ""
-    for index in range(packet["chunk_count"]):
-        text += storage.get_turn_packet_chunk(session_id, packet["packet_id"], index)["content"]
-    return packet, json.loads(text)
+    parts = [packet["content"]]
+    for index in range(1, packet["chunk_count"]):
+        parts.append(storage.get_turn_packet_chunk(session_id, packet["packet_id"], index)["content"])
+    return packet, json.loads("".join(parts))
 
 
 def test_starting_state_canon_and_scene_relevant_cards_are_available_without_heavy_baseline_state():
@@ -67,20 +67,22 @@ def test_starting_state_canon_and_scene_relevant_cards_are_available_without_hea
         assert {x["character_id"] for x in context["cast_index"]} == {"elena", "aiden", "liam"}
         assert context["novel_rules"]["tone"] == "cinematic"
         assert context["hidden_lore"]["secret"].startswith("Aiden")
-        assert context["story_direction"]["focus"] == "relationships first"
+        assert "story_direction" not in context
+        assert context["future_guidance"]["story_direction"]["focus"] == "relationships first"
+        assert context["future_guidance"]["status"] == "future_only_not_history"
         assert context["world_canon"]["city"] == "Eastern Sector"
         assert context["starting_state"]["current"] == novel["starting_state"]["current"]
         assert "relationships" not in context["starting_state"]
         assert context["relationship_policy"]["authoritative_start_snapshot"]["aiden"]["metrics"] == {"trust": 10}
 
         builder = context["scene_builder"]
-        assert "Формат обязателен" in builder
+        assert "Форма обязательна" in builder
         assert "🎭 {название новеллы} · {время года}" in builder
         assert "Что я могу сделать:" in builder
         assert "Что я могу сказать:" in builder
         assert "Что я могу подумать:" in builder
         assert "Ход {turn_number} · цикл {cycle_position}/15" in builder
-        assert "FORMAT" in context["scene_builder_instruction"]
+        assert "scene_builder_instruction" not in context
 
 
 def test_new_recurring_npc_becomes_live_card_and_returns_later():
