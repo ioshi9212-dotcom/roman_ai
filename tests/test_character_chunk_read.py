@@ -4,14 +4,13 @@ from pathlib import Path
 
 import pytest
 
-from app import storage
-from app.character_access import get_character_bundle
+from app import session_runtime, storage
 from app.character_chunk_read import (
     CHARACTER_CHUNK_CHARS,
+    CHARACTER_MEMORY_TEXT_CHARS,
     get_character_bundle_chunk,
     prepare_character_bundle_read,
 )
-from app import session_runtime
 
 
 def setup_temp_storage(tmp: str):
@@ -37,28 +36,43 @@ def _novel():
     }
 
 
-def test_character_bundle_chunks_are_lossless_and_response_safe():
+def test_character_bundle_chunks_preserve_full_card_but_bound_memory_transport():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         sid = storage.create_session(_novel())["session_id"]
         root = storage.SESSIONS_DIR / sid
+        full_memory_text = "DORMANT_MEMORY_" + "M" * 22000
         memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
         memory["characters"]["away"]["experiences"] = [
-            {"event_id": "huge", "event": "DORMANT_MEMORY_" + "M" * 22000}
+            {"event_id": "huge", "event": full_memory_text}
         ]
         storage._write_json(root / "memory.json", memory)
 
         manifest = prepare_character_bundle_read(sid, "away")
-        parts = []
-        for index in range(manifest["chunk_count"]):
+        assert manifest["first_chunk_included"] is True
+        assert manifest["chunk_index"] == 0
+        parts = [manifest["content"]]
+        assert len(parts[0]) <= CHARACTER_CHUNK_CHARS
+        for index in range(1, manifest["chunk_count"]):
             chunk = get_character_bundle_chunk(sid, "away", manifest["read_id"], index)
             assert len(chunk["content"]) <= CHARACTER_CHUNK_CHARS
             parts.append(chunk["content"])
 
         rebuilt = json.loads("".join(parts))
-        assert rebuilt == get_character_bundle(sid, "away")
+        assert rebuilt["working_bundle"] is True
+        assert rebuilt["persistent_lifetime_memory_complete"] is True
         assert "DORMANT_CARD_" in rebuilt["card"]["bio"]
-        assert "DORMANT_MEMORY_" in rebuilt["personal_memory"]["experiences"][0]["event"]
+        assert len(rebuilt["card"]["bio"]) > 18000  # card itself remains complete
+        experience = rebuilt["personal_memory"]["experiences"][0]
+        assert experience["event_id"] == "huge"
+        assert experience["event"].startswith("DORMANT_MEMORY_")
+        assert len(experience["event"]) <= CHARACTER_MEMORY_TEXT_CHARS + 80
+        assert rebuilt["personal_memory"]["persistent_counts"]["experiences"] == 1
+        assert rebuilt["personal_memory"]["oversized_record_text_bounded_in_transport"] is True
+
+        # Transport compaction never mutates the persistent lifetime record.
+        stored = storage._read_json(root / "memory.json", {})
+        assert stored["characters"]["away"]["experiences"][0]["event"] == full_memory_text
 
 
 def test_character_read_detects_dossier_change():
@@ -71,7 +85,7 @@ def test_character_read_detects_dossier_change():
         memory["characters"]["away"]["knowledge"] = [{"fact_id": "changed", "fact": "new"}]
         storage._write_json(root / "memory.json", memory)
         with pytest.raises(PermissionError):
-            get_character_bundle_chunk(sid, "away", manifest["read_id"], 0)
+            get_character_bundle_chunk(sid, "away", manifest["read_id"], 1 if manifest["chunk_count"] > 1 else 0)
 
 
 def test_dormant_dossier_stays_out_of_normal_packet_but_is_retrievable():
@@ -85,4 +99,5 @@ def test_dormant_dossier_stays_out_of_normal_packet_but_is_retrievable():
         assert "DORMANT_CARD_" not in text
         assert "prepareCharacterBundleRead" in text
         read = prepare_character_bundle_read(sid, "away")
-        assert read["chunk_count"] > 1
+        assert read["first_chunk_included"] is True
+        assert read["chunk_count"] >= 2  # huge full card still requires safe chunking
