@@ -6,11 +6,13 @@ from copy import deepcopy
 from typing import Any, Dict, List
 
 from . import storage
-from .runtime_access import runtime_documents
 
 
-AUDIT_PACKET_VERSION = 5
+AUDIT_PACKET_VERSION = 6
 AUDIT_PACKET_FILE = "audit_packet.json"
+MAX_AUDIT_ANCHORS = 24
+MAX_AUDIT_MAJOR = 20
+MAX_AUDIT_PRIOR_RELATED = 20
 
 
 def _audit_range(meta: Dict[str, Any]) -> tuple[int, int]:
@@ -31,12 +33,6 @@ def _memory_record_turn(item: Dict[str, Any]) -> int:
         return int(item.get("learned_turn") or item.get("turn_number") or item.get("turn") or 0)
     except (TypeError, ValueError):
         return 0
-
-
-def _source_canon_without_cards(source: Dict[str, Any]) -> Dict[str, Any]:
-    result = deepcopy(source if isinstance(source, dict) else {})
-    result.pop("characters", None)
-    return result
 
 
 def _audit_character_ids(
@@ -88,14 +84,25 @@ def _audit_character_ids(
     return [cid for cid in dict.fromkeys(selected) if cid in valid]
 
 
-def _audit_memory(memory: Dict[str, Any], character_ids: List[str]) -> Dict[str, Any]:
+def _audit_memory(memory: Dict[str, Any], character_ids: List[str], start_turn: int, end_turn: int) -> Dict[str, Any]:
     buckets = memory.get("characters", {}) if isinstance(memory.get("characters"), dict) else {}
-    return {
-        "characters": {
-            cid: deepcopy(buckets.get(cid, {"knowledge": [], "experiences": [], "dialogue_memory": []}))
-            for cid in character_ids
+    result: Dict[str, Any] = {"characters": {}}
+    for cid in character_ids:
+        bucket = buckets.get(cid, {}) if isinstance(buckets.get(cid), dict) else {}
+        scoped: Dict[str, Any] = {}
+        for field in ("knowledge", "experiences", "dialogue_memory"):
+            values = bucket.get(field, []) if isinstance(bucket.get(field), list) else []
+            scoped[field] = [
+                deepcopy(item)
+                for item in values
+                if isinstance(item, dict) and start_turn <= _memory_record_turn(item) <= end_turn
+            ]
+        scoped["persistent_counts"] = {
+            field: len(bucket.get(field, [])) if isinstance(bucket.get(field), list) else 0
+            for field in ("knowledge", "experiences", "dialogue_memory")
         }
-    }
+        result["characters"][cid] = scoped
+    return result
 
 
 def _audit_chronology(
@@ -142,7 +149,12 @@ def _audit_chronology(
         if relevant & ids:
             prior_related.append(event)
 
-    combined = [*durable_anchors, *recent_major[-30:], *prior_related[-30:], *in_range]
+    combined = [
+        *durable_anchors[-MAX_AUDIT_ANCHORS:],
+        *recent_major[-MAX_AUDIT_MAJOR:],
+        *prior_related[-MAX_AUDIT_PRIOR_RELATED:],
+        *in_range,
+    ]
     seen = set()
     result: List[Dict[str, Any]] = []
     for event in combined:
@@ -154,6 +166,31 @@ def _audit_chronology(
     return sorted(result, key=lambda event: (_event_turn(event), str(event.get("event_id") or "")))
 
 
+def _audit_state(state: Dict[str, Any], character_ids: List[str]) -> Dict[str, Any]:
+    result = deepcopy(state if isinstance(state, dict) else {})
+    result.pop("relationships", None)
+    result.pop("relationship_documents", None)
+    result.pop("relationship_schemas", None)
+    result.pop("threads", None)
+    runtime = result.get("characters")
+    if isinstance(runtime, dict):
+        wanted = set(character_ids)
+        result["characters"] = {
+            str(cid): deepcopy(info)
+            for cid, info in runtime.items()
+            if str(cid) in wanted
+        }
+    return result
+
+
+def _source_reference(source: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        key: deepcopy(source[key])
+        for key in ("novel_id", "title", "version")
+        if key in source
+    }
+
+
 def _build_audit_payload(session_id: str) -> Dict[str, Any]:
     root = storage.SESSIONS_DIR / session_id
     meta = storage._read_json(root / "meta.json", {})
@@ -162,7 +199,6 @@ def _build_audit_payload(session_id: str) -> Dict[str, Any]:
 
     start_turn, end_turn = _audit_range(meta)
     source = storage._read_json(root / "source.json", {})
-    source_canon = _source_canon_without_cards(source)
     cards = storage._load_cards(root, source)
     state = storage._read_json(root / "state.json", {})
     memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
@@ -175,33 +211,39 @@ def _build_audit_payload(session_id: str) -> Dict[str, Any]:
         "audit_packet_version": AUDIT_PACKET_VERSION,
         "session_id": session_id,
         "audit_range": [start_turn, end_turn],
-        "runtime_documents_full": runtime_documents(),
-        "source_full": source_canon,
-        "source_character_cards_omitted_from_transport": True,
-        "state_full": state,
+        "source_reference": _source_reference(source),
+        "state_audit": _audit_state(state, character_ids),
         "audit_character_ids": character_ids,
         "character_cards_audit": [deepcopy(card_map[cid]) for cid in character_ids if cid in card_map],
         "character_registry_index": [
             {"character_id": storage._card_id(card), "name": storage._card_name(card), "role": storage._card_role(card)}
             for card in cards if storage._card_id(card)
         ],
-        "memory_audit": _audit_memory(memory, character_ids),
+        "memory_audit": _audit_memory(memory, character_ids, start_turn, end_turn),
         "chronology_audit": _audit_chronology(chronology, character_ids, start_turn, end_turn),
         "audit_turns_full": audit_turns,
+        "audit_contract": {
+            "exact_turns_are_authoritative": True,
+            "memory_scope": "Only memory records created/learned inside audit_range are transported. Complete lifetime memory remains persistent.",
+            "chronology_scope": "Exact in-range events plus bounded older continuity anchors/major/related context.",
+            "state_scope": "Current scene/state without full relationship stores or dormant character runtime payloads.",
+            "source_scope": "Source canon remains persistent and unchanged; audit verifies durable records created by these exact saved turns, not the entire novel source on every cycle.",
+            "character_bundle_rule": "If an exact older personal-memory detail is needed to resolve an inconsistency, load that character bundle on demand before repairing.",
+        },
         "storage_contract": {
             "persistent_storage_is_complete": True,
             "audit_payload_is_range_scoped": True,
             "source_character_cards_stay_persistent": True,
-            "durable_anchors_do_not_age_out": True,
+            "lifetime_memory_stays_persistent": True,
+            "full_relationship_stores_stay_persistent": True,
             "instruction": (
-                "Railway stores complete source, live cards, personal memory and chronology. The audit contains exact audited turns, involved dossiers/memory, "
-                "all true anchor/critical milestones, bounded major/prior continuity and current state/runtime. Nothing is deleted from storage."
+                "Railway retains complete source, live cards, lifetime personal memory, relationships and chronology. This audit packet intentionally transports only the exact 15-turn evidence and bounded continuity needed to audit it. Nothing is deleted from storage."
             ),
         },
         "instruction": (
             "15-TURN AUDIT. Read EVERY audit chunk before commitAudit. audit_turns_full contains the exact saved turns in the audit range. "
-            "Compare those turns against state_full, memory_audit and chronology_audit. Repair only genuine missing or inconsistent durable records. "
-            "Never copy objective chronology/source/card knowledge into personal memory unless an exact audited turn proves perception or disclosure."
+            "Compare those turns against state_audit, memory_audit and chronology_audit. Repair only genuine missing or inconsistent durable records proven by those turns. "
+            "Never copy objective chronology/card/source knowledge into personal memory unless an exact audited turn proves perception or disclosure."
         ),
     }
 
@@ -236,7 +278,7 @@ def get_audit_snapshot(session_id: str) -> Dict[str, Any]:
             "chunk_count": len(chunks),
             "total_chars": sum(len(chunk) for chunk in chunks),
             "already_read_chunks": packet.get("read_chunks", []),
-            "instruction": "Read every audit batch in order until next_start_index is null, then commitAudit once.",
+            "instruction": "Read every audit chunk in order, then commitAudit once.",
         }
 
     payload = _build_audit_payload(session_id)
@@ -258,7 +300,7 @@ def get_audit_snapshot(session_id: str) -> Dict[str, Any]:
         "chunk_count": len(chunks),
         "total_chars": len(text),
         "already_read_chunks": [],
-        "instruction": "Read every audit batch in order until next_start_index is null, then commitAudit once.",
+        "instruction": "Read every audit chunk in order, then commitAudit once.",
     }
 
 
