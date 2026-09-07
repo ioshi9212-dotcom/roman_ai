@@ -10,7 +10,7 @@ from .transactional_storage import session_transaction
 
 
 _ORIGINAL_PREPARE = None
-WRITER_FIRST_VERSION = 5
+WRITER_FIRST_VERSION = 6
 WRITER_PACKET_CHARS = 16000
 RECENT_FULL_TURNS = 2
 CONTINUITY_WINDOW = 15
@@ -19,8 +19,12 @@ MAX_WORKING_EXPERIENCES = 12
 MAX_WORKING_DIALOGUE = 12
 MAX_HISTORICAL_KNOWLEDGE_CATALOG = 8
 MAX_ACTIVE_THREADS = 12
+MAX_RECENT_CHRONOLOGY = 12
+MAX_CHARACTER_CHRONOLOGY = 4
+MAX_LOCATION_CHRONOLOGY = 4
+MAX_ANCHOR_CHRONOLOGY = 12
 
-_TERMINAL_THREAD_STATES = {"resolved", "closed", "expired", "cancelled", "canceled", "done", "abandoned"}
+_TERMINAL = {"resolved", "closed", "expired", "cancelled", "canceled", "done", "abandoned"}
 _RUNTIME_DROP_KEYS = (
     "pov_participation_contract",
     "npc_agency_contract",
@@ -42,6 +46,42 @@ _REDUNDANT_INSTRUCTION_KEYS = (
 )
 
 
+def _parse_player_input(text: str) -> Dict[str, Any]:
+    ordered: List[Dict[str, str]] = []
+    buffer: List[str] = []
+    depth = 0
+
+    def flush(kind: str) -> None:
+        value = "".join(buffer).strip()
+        buffer.clear()
+        if value:
+            ordered.append({"kind": kind, "text": value})
+
+    for char in str(text or ""):
+        if char == "(":
+            if depth == 0:
+                flush("spoken")
+                depth = 1
+                continue
+            depth += 1
+            buffer.append(char)
+        elif char == ")" and depth > 0:
+            depth -= 1
+            if depth == 0:
+                flush("stage_direction")
+            else:
+                buffer.append(char)
+        else:
+            buffer.append(char)
+    flush("stage_direction" if depth else "spoken")
+    return {
+        "ordered_segments": ordered,
+        "spoken_segments": [row["text"] for row in ordered if row["kind"] == "spoken"],
+        "stage_directions": [row["text"] for row in ordered if row["kind"] == "stage_direction"],
+        "unclosed_parenthesis": depth > 0,
+    }
+
+
 def _compact_cast_index(value: Any) -> List[Dict[str, Any]]:
     if not isinstance(value, list):
         return []
@@ -59,7 +99,7 @@ def _compact_cast_index(value: Any) -> List[Dict[str, Any]]:
     return result
 
 
-def _thread_status(value: Any) -> str:
+def _status(value: Any) -> str:
     if isinstance(value, dict):
         for key in ("status", "state", "phase"):
             if value.get(key) not in (None, ""):
@@ -67,37 +107,45 @@ def _thread_status(value: Any) -> str:
     return ""
 
 
-def _thread_priority(value: Any) -> int:
+def _priority(value: Any) -> int:
     if not isinstance(value, dict):
         return 0
     raw = value.get("priority")
     if isinstance(raw, (int, float)) and not isinstance(raw, bool):
         return int(raw)
-    lookup = {"critical": 100, "high": 75, "medium": 50, "normal": 50, "low": 25}
-    return lookup.get(str(raw or "").casefold(), 0)
+    return {"critical": 100, "high": 75, "medium": 50, "normal": 50, "low": 25}.get(str(raw or "").casefold(), 0)
 
 
 def _active_threads(value: Any) -> Any:
     if isinstance(value, dict):
-        rows = []
-        for key, item in value.items():
-            if _thread_status(item) in _TERMINAL_THREAD_STATES:
-                continue
-            rows.append((str(key), deepcopy(item)))
-        rows.sort(key=lambda pair: _thread_priority(pair[1]), reverse=True)
+        rows = [(str(key), deepcopy(item)) for key, item in value.items() if _status(item) not in _TERMINAL]
+        rows.sort(key=lambda pair: _priority(pair[1]), reverse=True)
         return {key: item for key, item in rows[:MAX_ACTIVE_THREADS]}
     if isinstance(value, list):
-        rows = [deepcopy(item) for item in value if _thread_status(item) not in _TERMINAL_THREAD_STATES]
-        rows.sort(key=_thread_priority, reverse=True)
+        rows = [deepcopy(item) for item in value if _status(item) not in _TERMINAL]
+        rows.sort(key=_priority, reverse=True)
         return rows[:MAX_ACTIVE_THREADS]
-    return value
+    return deepcopy(value)
+
+
+def _active_guidance(value: Any) -> Any:
+    if isinstance(value, list):
+        return [deepcopy(item) for item in value if _status(item) not in _TERMINAL]
+    if isinstance(value, dict):
+        result: Dict[str, Any] = {}
+        for key, item in value.items():
+            if isinstance(item, list):
+                result[key] = [deepcopy(row) for row in item if _status(row) not in _TERMINAL]
+            elif not (isinstance(item, dict) and _status(item) in _TERMINAL):
+                result[key] = deepcopy(item)
+        return result
+    return deepcopy(value)
 
 
 def _tail(values: Any, limit: int) -> List[Dict[str, Any]]:
     if not isinstance(values, list):
         return []
-    rows = [deepcopy(item) for item in values if isinstance(item, dict)]
-    return rows[-limit:]
+    return [deepcopy(item) for item in values if isinstance(item, dict)][-limit:]
 
 
 def _compact_memory(context: Dict[str, Any]) -> None:
@@ -107,7 +155,7 @@ def _compact_memory(context: Dict[str, Any]) -> None:
     for bucket in memory.values():
         if not isinstance(bucket, dict):
             continue
-        original_counts = {
+        counts = {
             "knowledge": len(bucket.get("knowledge", [])) if isinstance(bucket.get("knowledge"), list) else 0,
             "experiences": len(bucket.get("experiences", [])) if isinstance(bucket.get("experiences"), list) else 0,
             "dialogue_memory": len(bucket.get("dialogue_memory", [])) if isinstance(bucket.get("dialogue_memory"), list) else 0,
@@ -115,24 +163,72 @@ def _compact_memory(context: Dict[str, Any]) -> None:
         bucket["knowledge"] = _tail(bucket.get("knowledge"), MAX_WORKING_KNOWLEDGE)
         bucket["experiences"] = _tail(bucket.get("experiences"), MAX_WORKING_EXPERIENCES)
         bucket["dialogue_memory"] = _tail(bucket.get("dialogue_memory"), MAX_WORKING_DIALOGUE)
-
         catalog = bucket.get("historical_knowledge_catalog")
-        if isinstance(catalog, list) and len(catalog) > MAX_HISTORICAL_KNOWLEDGE_CATALOG:
+        if isinstance(catalog, list):
             bucket["historical_knowledge_catalog"] = deepcopy(catalog[-MAX_HISTORICAL_KNOWLEDGE_CATALOG:])
-        older = bucket.get("older_history_available") if isinstance(bucket.get("older_history_available"), dict) else {}
         omitted = {
-            "knowledge": max(0, original_counts["knowledge"] - len(bucket["knowledge"])),
-            "experiences": max(0, original_counts["experiences"] - len(bucket["experiences"])),
-            "dialogue_memory": max(0, original_counts["dialogue_memory"] - len(bucket["dialogue_memory"])),
+            "knowledge": max(0, counts["knowledge"] - len(bucket["knowledge"])),
+            "experiences": max(0, counts["experiences"] - len(bucket["experiences"])),
+            "dialogue_memory": max(0, counts["dialogue_memory"] - len(bucket["dialogue_memory"])),
         }
         if any(omitted.values()) or (isinstance(catalog, list) and len(catalog) > MAX_HISTORICAL_KNOWLEDGE_CATALOG):
             bucket["older_history_available"] = {
                 "records_omitted": omitted,
-                "historical_catalog_truncated": bool(
-                    isinstance(catalog, list) and len(catalog) > MAX_HISTORICAL_KNOWLEDGE_CATALOG
-                ),
+                "historical_catalog_truncated": bool(isinstance(catalog, list) and len(catalog) > MAX_HISTORICAL_KNOWLEDGE_CATALOG),
                 "retrieval": "prepareCharacterBundleRead",
             }
+
+
+def _event_turn(event: Dict[str, Any]) -> int:
+    try:
+        return int(event.get("turn_number") or event.get("turn") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _event_participants(event: Dict[str, Any]) -> set[str]:
+    raw = event.get("participants_present") or event.get("participants") or []
+    if isinstance(raw, str):
+        raw = [raw]
+    result = set()
+    for value in raw if isinstance(raw, list) else []:
+        if isinstance(value, dict):
+            value = value.get("character_id") or value.get("id") or value.get("name")
+        if value:
+            result.add(str(value))
+    return result
+
+
+def _event_location(event: Dict[str, Any]) -> str:
+    return str(event.get("location") or event.get("location_id") or event.get("place") or "").casefold().strip()
+
+
+def _compact_chronology(value: Any, character_ids: List[str], location: Any) -> List[Dict[str, Any]]:
+    events = [deepcopy(item) for item in value if isinstance(item, dict)] if isinstance(value, list) else []
+    selected: Dict[str, Dict[str, Any]] = {}
+
+    def keep(event: Dict[str, Any], index: int) -> None:
+        key = str(event.get("event_id") or f"{_event_turn(event)}:{index}:{event.get('event', '')}")
+        selected[key] = event
+
+    for index, event in list(enumerate(events))[-MAX_RECENT_CHRONOLOGY:]:
+        keep(event, index)
+    for character_id in character_ids:
+        matches = [(i, e) for i, e in enumerate(events) if character_id in _event_participants(e)][-MAX_CHARACTER_CHRONOLOGY:]
+        for index, event in matches:
+            keep(event, index)
+    needle = str(location or "").casefold().strip()
+    if needle:
+        matches = [(i, e) for i, e in enumerate(events) if _event_location(e) == needle][-MAX_LOCATION_CHRONOLOGY:]
+        for index, event in matches:
+            keep(event, index)
+    anchors = [
+        (i, e) for i, e in enumerate(events)
+        if str(e.get("importance") or "").casefold() in {"anchor", "major", "critical"} or e.get("anchor") is True
+    ][-MAX_ANCHOR_CHRONOLOGY:]
+    for index, event in anchors:
+        keep(event, index)
+    return sorted(selected.values(), key=lambda event: (_event_turn(event), str(event.get("event_id", ""))))
 
 
 def _compact_scene_state(value: Any) -> Dict[str, Any]:
@@ -148,19 +244,12 @@ def _compact_starting_state(value: Any) -> Dict[str, Any]:
 
 
 def _compact_full_turn(turn: Dict[str, Any]) -> Dict[str, Any]:
-    return {
-        key: deepcopy(turn[key])
-        for key in ("turn_number", "user_input", "scene_output", "extracted")
-        if key in turn
-    }
+    return {key: deepcopy(turn[key]) for key in ("turn_number", "user_input", "scene_output", "extracted") if key in turn}
 
 
 def _compact_continuity_turn(turn: Dict[str, Any]) -> Dict[str, Any]:
     extracted = turn.get("extracted") if isinstance(turn.get("extracted"), dict) else {}
-    result: Dict[str, Any] = {
-        "turn_number": int(turn.get("turn_number", 0) or 0),
-        "user_input": str(turn.get("user_input") or "")[:700],
-    }
+    result: Dict[str, Any] = {"turn_number": int(turn.get("turn_number", 0) or 0), "user_input": str(turn.get("user_input") or "")[:700]}
     chronology = extracted.get("chronology")
     if isinstance(chronology, list) and chronology:
         result["chronology"] = deepcopy(chronology[:4])
@@ -168,9 +257,8 @@ def _compact_continuity_turn(turn: Dict[str, Any]) -> Dict[str, Any]:
         value = extracted.get(key)
         if isinstance(value, list) and value:
             result[key] = deepcopy(value[:8])
-    state_patch = extracted.get("state_patch") if isinstance(extracted.get("state_patch"), dict) else {}
-    current = state_patch.get("current") if isinstance(state_patch.get("current"), dict) else {}
-    if current:
+    current = extracted.get("state_patch", {}).get("current") if isinstance(extracted.get("state_patch"), dict) else None
+    if isinstance(current, dict) and current:
         result["current_patch"] = deepcopy(current)
     if len(result) == 2:
         scene = " ".join(str(turn.get("scene_output") or "").split())
@@ -182,9 +270,10 @@ def _compact_continuity_turn(turn: Dict[str, Any]) -> Dict[str, Any]:
 def _rolling_turn_context(root) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     turns = storage._read_turns(root)
     window = turns[-CONTINUITY_WINDOW:]
-    full = [_compact_full_turn(turn) for turn in window[-RECENT_FULL_TURNS:]]
-    continuity = [_compact_continuity_turn(turn) for turn in window[:-RECENT_FULL_TURNS]]
-    return full, continuity
+    return (
+        [_compact_full_turn(turn) for turn in window[-RECENT_FULL_TURNS:]],
+        [_compact_continuity_turn(turn) for turn in window[:-RECENT_FULL_TURNS]],
+    )
 
 
 def _scene_ids(context: Dict[str, Any]) -> List[str]:
@@ -208,7 +297,7 @@ def _separate_future_guidance(context: Dict[str, Any]) -> None:
         author.pop("knowledge_quarantine", None)
         context["author_context"] = author
     context["future_guidance"] = {
-        "story_direction": deepcopy(direction) if direction not in (None, "") else {},
+        "story_direction": _active_guidance(direction if direction is not None else {}),
         "status": "future_only_not_history",
     }
 
@@ -216,24 +305,19 @@ def _separate_future_guidance(context: Dict[str, Any]) -> None:
 def _strip_instruction_noise(context: Dict[str, Any]) -> None:
     for key in _REDUNDANT_INSTRUCTION_KEYS:
         context.pop(key, None)
-
     lens = context.get("relationship_lens")
     if isinstance(lens, dict):
         lens = deepcopy(lens)
         lens.pop("initialization_instruction", None)
-        candidates = lens.get("present_npc_candidates")
-        if isinstance(candidates, list):
-            for row in candidates:
-                if isinstance(row, dict):
-                    row.pop("initialization_rule", None)
+        for row in lens.get("present_npc_candidates", []) if isinstance(lens.get("present_npc_candidates"), list) else []:
+            if isinstance(row, dict):
+                row.pop("initialization_rule", None)
         context["relationship_lens"] = lens
-
     policy = context.get("relationship_policy")
     if isinstance(policy, dict):
         policy = deepcopy(policy)
         policy.pop("authoritative_start_snapshot_note", None)
         context["relationship_policy"] = policy
-
     contract = context.get("working_context_contract")
     if isinstance(contract, dict):
         contract = deepcopy(contract)
@@ -251,10 +335,8 @@ def _rewrite_context(session_id: str, context: Dict[str, Any]) -> Dict[str, Any]
         result.pop(key, None)
     _strip_instruction_noise(result)
     _separate_future_guidance(result)
-    result["runtime_document_paths"] = {
-        "rules": "runtime_rules",
-        "scene_builder": "scene_builder",
-    }
+    result["runtime_document_paths"] = {"rules": "runtime_rules", "scene_builder": "scene_builder"}
+    result["player_input_map"] = _parse_player_input(str(result.get("user_input") or ""))
 
     result["scene_state"] = _compact_scene_state(result.get("scene_state"))
     result["starting_state"] = _compact_starting_state(result.get("starting_state"))
@@ -266,11 +348,10 @@ def _rewrite_context(session_id: str, context: Dict[str, Any]) -> Dict[str, Any]
     _compact_memory(result)
 
     character_ids = _scene_ids(result)
-    result["npc_active_intents"] = active_intents_for(
-        state,
-        character_ids,
-        current_turn=int(meta.get("turn_number", 0) or 0),
-    )
+    current = result.get("scene_state", {}).get("current", {}) if isinstance(result.get("scene_state"), dict) else {}
+    location = current.get("location") or current.get("place") if isinstance(current, dict) else None
+    result["chronology_recent"] = _compact_chronology(result.get("chronology_recent"), character_ids, location)
+    result["npc_active_intents"] = active_intents_for(state, character_ids, current_turn=int(meta.get("turn_number", 0) or 0))
 
     contract = result.get("working_context_contract") if isinstance(result.get("working_context_contract"), dict) else {}
     contract.update(
@@ -278,6 +359,7 @@ def _rewrite_context(session_id: str, context: Dict[str, Any]) -> Dict[str, Any]
             "writer_first_version": WRITER_FIRST_VERSION,
             "recent_full_turns": RECENT_FULL_TURNS,
             "continuity_window": CONTINUITY_WINDOW,
+            "chronology_selection": {"recent": 12, "per_character": 4, "location": 4, "anchors": 12},
             "working_memory_caps": {
                 "knowledge": MAX_WORKING_KNOWLEDGE,
                 "experiences": MAX_WORKING_EXPERIENCES,
@@ -336,7 +418,6 @@ def _prepare_turn(session_id: str, user_input: str) -> Dict[str, Any]:
         packet = storage._read_json(root / "turn_packet.json", {})
         if not isinstance(packet, dict) or not packet.get("chunks"):
             return base
-
         if packet.get("writer_first_version") == WRITER_FIRST_VERSION:
             return _manifest(packet, base)
 
