@@ -14,7 +14,7 @@ def setup_temp_storage(tmp: str):
     storage.ensure_dirs()
 
 
-def test_audit_snapshot_keeps_exact_15_turns_without_retransmitting_lifetime_storage():
+def test_audit_snapshot_keeps_exact_15_turn_evidence_without_retransmitting_lifetime_storage():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         huge_x = "X" * 80_000
@@ -109,29 +109,36 @@ def test_audit_snapshot_keeps_exact_15_turns_without_retransmitting_lifetime_sto
 
         manifest = audit_runtime.get_audit_snapshot(sid)
         assert manifest["audit_range"] == [31, 45]
-        assert manifest["chunk_count"] < 20
-        assert len(json.dumps(manifest, ensure_ascii=False)) < 5_000
+        assert manifest["chunk_count"] <= 5
+        assert manifest["first_chunk_included"] is True
+        assert manifest["already_read_chunks"] == [0]
+        assert manifest["chunk_index"] == 0
+        assert len(json.dumps(manifest, ensure_ascii=False)) < 20_000
 
         with pytest.raises(RuntimeError, match="AUDIT_PACKET_INCOMPLETE"):
             audit_runtime.require_complete_audit_read(sid, 31, 45)
 
-        chunks = [
-            audit_runtime.get_audit_snapshot_chunk(sid, manifest["audit_id"], index)["content"]
-            for index in range(manifest["chunk_count"])
-        ]
+        chunks = [manifest["content"]]
+        for index in range(1, manifest["chunk_count"]):
+            chunks.append(
+                audit_runtime.get_audit_snapshot_chunk(sid, manifest["audit_id"], index)["content"]
+            )
         payload = json.loads("".join(chunks))
         audit_runtime.require_complete_audit_read(sid, 31, 45)
 
+        assert payload["audit_mode"] == "fast_chat_reconciliation"
         assert payload["audit_range"] == [31, 45]
         assert payload["source_reference"]["novel_id"] == "audit_big"
         assert "source_full" not in payload
         assert "runtime_documents_full" not in payload
         assert "state_full" not in payload
+        assert "audit_turns_full" not in payload
         assert "relationships" not in payload["state_audit"]
         assert "relationship_documents" not in payload["state_audit"]
-        assert len(payload["audit_turns_full"]) == 15
-        assert payload["audit_turns_full"][0]["turn_number"] == 31
-        assert payload["audit_turns_full"][-1]["turn_number"] == 45
+        assert len(payload["turn_evidence_backup"]) == 15
+        assert payload["turn_evidence_backup"][0]["turn_number"] == 31
+        assert payload["turn_evidence_backup"][-1]["turn_number"] == 45
+        assert payload["audit_repair_policy"]["mandatory_original_turn"] is True
         assert set(payload["audit_character_ids"]) == {"pov", "npc"}
         assert set(payload["memory_audit"]["characters"]) == {"pov", "npc"}
         assert "away" not in payload["memory_audit"]["characters"]
