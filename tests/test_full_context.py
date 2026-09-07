@@ -38,7 +38,7 @@ def test_runtime_is_complete_and_chunked():
     assert manifest["total_chars"] == sum(len(x) for x in chunks)
 
 
-def test_turn_packet_uses_single_builder_compatible_working_set_and_preserves_storage():
+def test_turn_packet_uses_bounded_builder_working_set_and_preserves_storage():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         marker_novel = "NOVEL_CANON_UNIQUE_4f3a"
@@ -58,7 +58,7 @@ def test_turn_packet_uses_single_builder_compatible_working_set_and_preserves_st
             ],
             "starting_state": {
                 "pov": {"character_id": "pov"},
-                "current": {"location": "room", "present_characters": ["pov", "npc"]},
+                "current": {"location": "room", "scene": "start", "present_characters": ["pov", "npc"]},
                 "relationships": {"npc": {"trust": 17}},
             },
         }
@@ -70,17 +70,29 @@ def test_turn_packet_uses_single_builder_compatible_working_set_and_preserves_st
         storage._write_json(root / "memory.json", memory)
         chronology = [{"event_id": "e1", "turn_number": 1, "event": "old event", "importance": "anchor"}]
         storage._write_json(root / "chronology.json", chronology)
+        persistent_state_before = storage._read_json(root / "state.json", {})
 
         manifest, context, raw = read_packet(sid)
         assert manifest["working_context"] is True
         assert context["working_context_contract"]["single_copy_transport"] is True
         assert context["working_context_contract"]["single_runtime_document_copy"] is True
         assert context["working_context_contract"]["scene_builder_paths_are_canonical"] is True
+        assert context["working_context_contract"]["full_relationship_documents_in_packet"] is False
+        assert context["working_context_contract"]["full_starting_state_in_packet"] is False
         assert context["transport_context_paths"] == {
             "state": "scene_state", "cards": "character_cards", "memory": "character_memory",
             "registry": "character_registry", "chronology": "chronology_recent", "starting_state": "starting_state",
         }
-        assert context["scene_state"] == storage._read_json(root / "state.json", {})
+
+        scene_state = context["scene_state"]
+        assert scene_state["current"]["location"] == persistent_state_before["current"]["location"]
+        assert scene_state["current"]["present_characters"] == persistent_state_before["current"]["present_characters"]
+        assert scene_state["pov"] == persistent_state_before["pov"]
+        assert "relationships" not in scene_state
+        assert "relationship_documents" not in scene_state
+        assert "threads" not in scene_state
+        assert "away" not in scene_state.get("characters", {})
+
         assert {x["character_id"] for x in context["character_cards"]} == {"pov", "npc"}
         assert set(context["character_memory"]) == {"pov", "npc"}
         assert "away" in {x["character_id"] for x in context["character_registry"]}
@@ -88,8 +100,10 @@ def test_turn_packet_uses_single_builder_compatible_working_set_and_preserves_st
         assert context["knowledge_guard"]["personal_memory_path"] == "character_memory[character_id]"
         assert context["novel"] == novel["novel"]
         assert context["novel_lore"] == novel["lore"]
-        assert context["starting_state"] == novel["starting_state"]
+        assert context["starting_state"]["pov"] == novel["starting_state"]["pov"]
+        assert "relationships" not in context["starting_state"]
 
+        assert context["relationship_policy"]["authoritative_start_snapshot"]["npc"]["metrics"] == {"trust": 17}
         assert "runtime_documents" not in context
         assert context["runtime_rules"]
         assert context["scene_builder"]
@@ -113,10 +127,16 @@ def test_turn_packet_uses_single_builder_compatible_working_set_and_preserves_st
         assert marker_away_card not in raw
         assert marker_away_memory not in raw
 
+        # Transport compaction does not remove persistent canon. Game-day normalization is allowed.
         assert storage._read_json(root / "source.json", {}) == novel
+        persistent_state_after = storage._read_json(root / "state.json", {})
+        assert persistent_state_after["relationships"] == persistent_state_before["relationships"]
+        assert persistent_state_after["current"]["location"] == persistent_state_before["current"]["location"]
+        assert persistent_state_after["current"]["present_characters"] == persistent_state_before["current"]["present_characters"]
         assert marker_away_card in next(x["bio"] for x in storage._read_json(root / "characters.json", []) if x["character_id"] == "away")
         assert marker_away_memory in storage._read_json(root / "memory.json", {})["characters"]["away"]["dialogue_memory"][0]["summary"]
         assert storage._read_json(root / "chronology.json", []) == chronology
-        assert "POV thoughts" in context["knowledge_guard"]["instruction"]
-        assert "Mere proximity" in context["knowledge_guard"]["instruction"]
-        assert "NEVER keep the leak" in context["knowledge_guard"]["instruction"]
+        guard = context["knowledge_guard"]["instruction"]
+        assert "Private POV thoughts" in guard
+        assert "outside the physical scene" in guard
+        assert "must not be persisted" in guard

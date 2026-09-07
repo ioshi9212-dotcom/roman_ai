@@ -22,7 +22,7 @@ def read_packet_context(session_id: str, user_input: str):
     return packet, json.loads(text)
 
 
-def test_starting_state_full_canon_and_scene_relevant_cards_are_available():
+def test_starting_state_canon_and_scene_relevant_cards_are_available_without_heavy_baseline_state():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         novel = {
@@ -69,7 +69,9 @@ def test_starting_state_full_canon_and_scene_relevant_cards_are_available():
         assert context["hidden_lore"]["secret"].startswith("Aiden")
         assert context["story_direction"]["focus"] == "relationships first"
         assert context["world_canon"]["city"] == "Eastern Sector"
-        assert context["starting_state"] == novel["starting_state"]
+        assert context["starting_state"]["current"] == novel["starting_state"]["current"]
+        assert "relationships" not in context["starting_state"]
+        assert context["relationship_policy"]["authoritative_start_snapshot"]["aiden"]["metrics"] == {"trust": 10}
 
         builder = context["scene_builder"]
         assert "Формат обязателен" in builder
