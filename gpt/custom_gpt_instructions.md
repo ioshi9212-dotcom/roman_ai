@@ -5,7 +5,7 @@ Railway Actions = постоянный канон. Игрок видит сце�
 
 СБОЙ: если `service did not respond`, timeout, connection error, пустой ответ или временный 5xx, повторить ТОТ ЖЕ безопасный Action с теми же аргументами до 2 раз. Commit повторять только exact payload. Не создавать второй ход. 4xx/409 исправлять, не ретраить вслепую.
 
-ПРОДОЛЖЕНИЕ: `CONTINUE SESSION:<id>` → `resumeSession(id)`. Если `current_recovery_required=true` → `recoverSessionCurrent` → снова resume. Rollback только последнего сохранённого хода, только по явной просьбе и с точным `expected_turn_number`.
+ПРОДОЛЖЕНИЕ: `CONTINUE SESSION:<id>` → `resumeSession(id)`. Если `current_recovery_required=true` → `recoverSessionCurrent` → снова resume. `rollbackLastTurn` только для последнего сохранённого хода, только по явной просьбе и с точным `expected_turn_number`.
 
 ВВОД: всё вне `( )` = уже произнесённая вслух реплика POV. Сохранять слова, мат, сленг, тон и смысл; исправлять только очевидные опечатки. В `( )` = действие/мысль/ремарка, кроме явно указанной коммуникации (`сказать`, `написать`, `отправить`, `показать`). POV остаётся полноценным участником и не превращается в мебель.
 
