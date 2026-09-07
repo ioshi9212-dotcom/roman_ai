@@ -9,17 +9,18 @@ from .transactional_storage import session_transaction
 
 _ORIGINAL_PREPARE = None
 _MAX_THREAD_TEXT = 1200
+_MAX_MEMORY_FIELD_TEXT = 700
 
 
-def _bounded_transport_value(value: Any) -> Any:
+def _bounded_transport_value(value: Any, *, max_text: int = _MAX_THREAD_TEXT) -> Any:
     if isinstance(value, str):
-        if len(value) <= _MAX_THREAD_TEXT:
+        if len(value) <= max_text:
             return value
-        return value[:_MAX_THREAD_TEXT] + "…[full value remains in persistent storage]"
+        return value[:max_text] + "…[full value remains in persistent storage]"
     if isinstance(value, dict):
-        return {str(key): _bounded_transport_value(item) for key, item in value.items()}
+        return {str(key): _bounded_transport_value(item, max_text=max_text) for key, item in value.items()}
     if isinstance(value, list):
-        return [_bounded_transport_value(item) for item in value]
+        return [_bounded_transport_value(item, max_text=max_text) for item in value]
     return deepcopy(value)
 
 
@@ -30,6 +31,12 @@ def _compact_starting_state(value: Any) -> Dict[str, Any]:
     for key in ("relationships", "relationship_documents", "relationship_schemas", "threads", "characters"):
         result.pop(key, None)
     return _bounded_transport_value(result)
+
+
+def _compact_character_memory(value: Any) -> Dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    return _bounded_transport_value(value, max_text=_MAX_MEMORY_FIELD_TEXT)
 
 
 def _relationship_snapshot_from_persistent_state(state: Dict[str, Any]) -> Dict[str, Any]:
@@ -114,6 +121,7 @@ def _strip_legacy_full_payloads(context: Dict[str, Any], *, persistent_state: Di
         result["author_context"] = author
 
     result["starting_state"] = _compact_starting_state(result.get("starting_state"))
+    result["character_memory"] = _compact_character_memory(result.get("character_memory"))
     if "active_threads" in result:
         result["active_threads"] = _bounded_transport_value(result.get("active_threads"))
 
@@ -127,8 +135,8 @@ def _strip_legacy_full_payloads(context: Dict[str, Any], *, persistent_state: Di
 
     result["character_context_instruction"] = (
         "Full character_cards are transported only for POV, physically present characters and registered characters explicitly participating in the current input or communication. "
-        "character_memory is a bounded working copy; complete lifetime memory remains persisted. character_registry stays available for every registered character. "
-        "If any other offscreen registered character must enter, speak, message, call, answer, react remotely or otherwise materially act, call prepareCharacterBundleRead and read every getCharacterBundleChunk individually before writing that character. "
+        "character_memory is a bounded working copy; complete lifetime memory remains persisted. Oversized memory text may be shortened in transport only; load the full character bundle if exact omitted wording matters. "
+        "character_registry stays available for every registered character. If any other offscreen registered character must enter, speak, message, call, answer, react remotely or otherwise materially act, call prepareCharacterBundleRead and read every getCharacterBundleChunk individually before writing that character. "
         "Do not use direct oversized character bundle or memory Actions."
     )
     contract = result.get("working_context_contract") if isinstance(result.get("working_context_contract"), dict) else {}
@@ -138,6 +146,7 @@ def _strip_legacy_full_payloads(context: Dict[str, Any], *, persistent_state: Di
             "legacy_full_state_memory_chronology_in_packet": False,
             "dormant_full_dossiers_in_packet": False,
             "lifetime_memory_in_packet": False,
+            "oversized_memory_text_bounded_in_transport": True,
             "full_relationship_documents_in_packet": False,
             "full_starting_state_in_packet": False,
             "active_threads_text_is_bounded": True,
@@ -200,7 +209,7 @@ def _prepare_turn(session_id: str, user_input: str) -> Dict[str, Any]:
         packet["chunks"] = chunks
         packet["chunk_count"] = len(chunks)
         packet["read_chunks"] = []
-        packet["transport_scope_version"] = 5
+        packet["transport_scope_version"] = 6
         storage._write_json(root / "turn_packet.json", packet)
         manifest["chunk_count"] = len(chunks)
         manifest["total_chars"] = len(text)
