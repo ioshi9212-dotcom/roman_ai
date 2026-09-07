@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 from copy import deepcopy
-from pathlib import Path
 from typing import Any, Dict, List
 
 from . import session_runtime, storage
@@ -11,7 +10,7 @@ from .transactional_storage import session_transaction
 
 
 _ORIGINAL_PREPARE = None
-WRITER_FIRST_VERSION = 4
+WRITER_FIRST_VERSION = 5
 WRITER_PACKET_CHARS = 16000
 RECENT_FULL_TURNS = 2
 CONTINUITY_WINDOW = 15
@@ -20,7 +19,6 @@ MAX_WORKING_EXPERIENCES = 12
 MAX_WORKING_DIALOGUE = 12
 MAX_HISTORICAL_KNOWLEDGE_CATALOG = 8
 MAX_ACTIVE_THREADS = 12
-RUNTIME_DIR = Path(__file__).resolve().parent.parent / "runtime"
 
 _TERMINAL_THREAD_STATES = {"resolved", "closed", "expired", "cancelled", "canceled", "done", "abandoned"}
 _RUNTIME_DROP_KEYS = (
@@ -30,11 +28,18 @@ _RUNTIME_DROP_KEYS = (
     "presence_contract",
     "memory_contract",
     "continuity_contract",
+    "writer_contract",
 )
-
-
-def _writer_contract() -> str:
-    return (RUNTIME_DIR / "writer_contract.md").read_text(encoding="utf-8")
+_REDUNDANT_INSTRUCTION_KEYS = (
+    "knowledge_boundary",
+    "knowledge_guard",
+    "scene_builder_instruction",
+    "pov_participation_instruction",
+    "npc_agency_instruction",
+    "character_context_instruction",
+    "relationship_lens_instruction",
+    "npc_intent_instruction",
+)
 
 
 def _compact_cast_index(value: Any) -> List[Dict[str, Any]]:
@@ -115,18 +120,19 @@ def _compact_memory(context: Dict[str, Any]) -> None:
         if isinstance(catalog, list) and len(catalog) > MAX_HISTORICAL_KNOWLEDGE_CATALOG:
             bucket["historical_knowledge_catalog"] = deepcopy(catalog[-MAX_HISTORICAL_KNOWLEDGE_CATALOG:])
         older = bucket.get("older_history_available") if isinstance(bucket.get("older_history_available"), dict) else {}
-        omitted_working = {
+        omitted = {
             "knowledge": max(0, original_counts["knowledge"] - len(bucket["knowledge"])),
             "experiences": max(0, original_counts["experiences"] - len(bucket["experiences"])),
             "dialogue_memory": max(0, original_counts["dialogue_memory"] - len(bucket["dialogue_memory"])),
         }
-        if any(omitted_working.values()) or (isinstance(catalog, list) and len(catalog) > MAX_HISTORICAL_KNOWLEDGE_CATALOG):
-            older["writer_first_records_omitted"] = omitted_working
-            older["historical_catalog_truncated"] = bool(
-                isinstance(catalog, list) and len(catalog) > MAX_HISTORICAL_KNOWLEDGE_CATALOG
-            )
-            older["retrieval"] = "prepareCharacterBundleRead -> getCharacterBundleChunk"
-            bucket["older_history_available"] = older
+        if any(omitted.values()) or (isinstance(catalog, list) and len(catalog) > MAX_HISTORICAL_KNOWLEDGE_CATALOG):
+            bucket["older_history_available"] = {
+                "records_omitted": omitted,
+                "historical_catalog_truncated": bool(
+                    isinstance(catalog, list) and len(catalog) > MAX_HISTORICAL_KNOWLEDGE_CATALOG
+                ),
+                "retrieval": "prepareCharacterBundleRead",
+            }
 
 
 def _compact_scene_state(value: Any) -> Dict[str, Any]:
@@ -173,7 +179,7 @@ def _compact_continuity_turn(turn: Dict[str, Any]) -> Dict[str, Any]:
     return result
 
 
-def _rolling_turn_context(root: Path) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+def _rolling_turn_context(root) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     turns = storage._read_turns(root)
     window = turns[-CONTINUITY_WINDOW:]
     full = [_compact_full_turn(turn) for turn in window[-RECENT_FULL_TURNS:]]
@@ -189,6 +195,52 @@ def _scene_ids(context: Dict[str, Any]) -> List[str]:
     return list(dict.fromkeys(ids))
 
 
+def _separate_future_guidance(context: Dict[str, Any]) -> None:
+    direction = context.pop("story_direction", None)
+    author = context.get("author_context")
+    if isinstance(author, dict):
+        author = deepcopy(author)
+        if direction in (None, {}, []):
+            direction = author.pop("story_direction", None)
+        else:
+            author.pop("story_direction", None)
+        author.pop("instruction", None)
+        author.pop("knowledge_quarantine", None)
+        context["author_context"] = author
+    context["future_guidance"] = {
+        "story_direction": deepcopy(direction) if direction not in (None, "") else {},
+        "status": "future_only_not_history",
+    }
+
+
+def _strip_instruction_noise(context: Dict[str, Any]) -> None:
+    for key in _REDUNDANT_INSTRUCTION_KEYS:
+        context.pop(key, None)
+
+    lens = context.get("relationship_lens")
+    if isinstance(lens, dict):
+        lens = deepcopy(lens)
+        lens.pop("initialization_instruction", None)
+        candidates = lens.get("present_npc_candidates")
+        if isinstance(candidates, list):
+            for row in candidates:
+                if isinstance(row, dict):
+                    row.pop("initialization_rule", None)
+        context["relationship_lens"] = lens
+
+    policy = context.get("relationship_policy")
+    if isinstance(policy, dict):
+        policy = deepcopy(policy)
+        policy.pop("authoritative_start_snapshot_note", None)
+        context["relationship_policy"] = policy
+
+    contract = context.get("working_context_contract")
+    if isinstance(contract, dict):
+        contract = deepcopy(contract)
+        contract.pop("instruction", None)
+        context["working_context_contract"] = contract
+
+
 def _rewrite_context(session_id: str, context: Dict[str, Any]) -> Dict[str, Any]:
     root = storage.SESSIONS_DIR / session_id
     result = deepcopy(context)
@@ -197,11 +249,11 @@ def _rewrite_context(session_id: str, context: Dict[str, Any]) -> Dict[str, Any]
 
     for key in _RUNTIME_DROP_KEYS:
         result.pop(key, None)
-    result["writer_contract"] = _writer_contract()
+    _strip_instruction_noise(result)
+    _separate_future_guidance(result)
     result["runtime_document_paths"] = {
         "rules": "runtime_rules",
         "scene_builder": "scene_builder",
-        "writer_contract": "writer_contract",
     }
 
     result["scene_state"] = _compact_scene_state(result.get("scene_state"))
@@ -219,11 +271,6 @@ def _rewrite_context(session_id: str, context: Dict[str, Any]) -> Dict[str, Any]
         character_ids,
         current_turn=int(meta.get("turn_number", 0) or 0),
     )
-    result["npc_intent_instruction"] = (
-        "Memory must cause behavior when appropriate. npc_active_intents are unresolved character-owned follow-ups, suspicions, promises, investigations and goals. "
-        "An eligible intent may drive initiative without POV reminding the NPC. Do not repeat it mechanically; character, opportunity, urgency, relationship and elapsed game time decide whether to pursue it now. "
-        "When an NPC genuinely forms, advances, resolves or abandons a durable future-facing motive, persist it through extracted.npc_intent_updates."
-    )
 
     contract = result.get("working_context_contract") if isinstance(result.get("working_context_contract"), dict) else {}
     contract.update(
@@ -238,7 +285,8 @@ def _rewrite_context(session_id: str, context: Dict[str, Any]) -> Dict[str, Any]
                 "historical_knowledge_catalog": MAX_HISTORICAL_KNOWLEDGE_CATALOG,
             },
             "active_thread_cap": MAX_ACTIVE_THREADS,
-            "runtime_documents_per_turn": ["runtime_rules", "scene_builder", "writer_contract"],
+            "runtime_documents_per_turn": ["runtime_rules", "scene_builder"],
+            "future_guidance_is_not_history": True,
             "npc_intents_are_persistent": True,
             "full_npc_intent_store_in_packet": False,
             "first_packet_chunk_in_prepare_response": True,
@@ -248,7 +296,16 @@ def _rewrite_context(session_id: str, context: Dict[str, Any]) -> Dict[str, Any]
     return result
 
 
-def _manifest(packet: Dict[str, Any], base: Dict[str, Any], *, include_first: bool) -> Dict[str, Any]:
+def _next_unread(packet: Dict[str, Any]) -> int | None:
+    chunks = packet.get("chunks", []) if isinstance(packet.get("chunks"), list) else []
+    read = {int(value) for value in packet.get("read_chunks", []) if isinstance(value, int)}
+    for index in range(1, len(chunks)):
+        if index not in read:
+            return index
+    return None
+
+
+def _manifest(packet: Dict[str, Any], base: Dict[str, Any]) -> Dict[str, Any]:
     chunks = packet.get("chunks", []) if isinstance(packet.get("chunks"), list) else []
     result = dict(base)
     result.update(
@@ -260,18 +317,15 @@ def _manifest(packet: Dict[str, Any], base: Dict[str, Any], *, include_first: bo
             "writer_first": True,
             "writer_first_version": WRITER_FIRST_VERSION,
             "chunk_chars_max": WRITER_PACKET_CHARS,
-            "first_chunk_included": bool(include_first and chunks),
-            "next_chunk_index": 1 if include_first and len(chunks) > 1 else None,
-            "instruction": (
-                "The prepareTurn response includes chunk 0 when first_chunk_included=true; count it as already read. Read only remaining chunks individually in order. "
-                "Then write and commit the scene once. The packet is a bounded writer-sized working set; complete persistent canon remains in Railway."
-            ),
+            "first_chunk_included": bool(chunks),
+            "next_chunk_index": _next_unread(packet),
+            "instruction": "Chunk 0 is included here. Read only remaining unread chunks, then write and commit once.",
         }
     )
-    if include_first and chunks:
+    if chunks:
         result["chunk_index"] = 0
         result["content"] = chunks[0]
-        result["all_chunks_read"] = len(chunks) == 1
+        result["all_chunks_read"] = len(set(packet.get("read_chunks", []))) >= len(chunks)
     return result
 
 
@@ -284,7 +338,7 @@ def _prepare_turn(session_id: str, user_input: str) -> Dict[str, Any]:
             return base
 
         if packet.get("writer_first_version") == WRITER_FIRST_VERSION:
-            return _manifest(packet, base, include_first=False)
+            return _manifest(packet, base)
 
         raw = "".join(str(chunk) for chunk in packet.get("chunks", []))
         context = _rewrite_context(session_id, json.loads(raw))
@@ -296,7 +350,7 @@ def _prepare_turn(session_id: str, user_input: str) -> Dict[str, Any]:
         packet["writer_first_version"] = WRITER_FIRST_VERSION
         packet["writer_first_payload_chars"] = len(text)
         storage._write_json(root / "turn_packet.json", packet)
-        return _manifest(packet, base, include_first=True)
+        return _manifest(packet, base)
 
 
 def install() -> None:
