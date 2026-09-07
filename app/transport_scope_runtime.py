@@ -13,8 +13,6 @@ _ORIGINAL_PREPARE = None
 def _strip_legacy_full_payloads(context: Dict[str, Any]) -> Dict[str, Any]:
     result = deepcopy(context)
 
-    # These legacy fields duplicate complete persistent files and are the main
-    # source of long-session packet growth. Persistent files remain untouched.
     for key in (
         "state",
         "memory",
@@ -62,9 +60,9 @@ def _strip_legacy_full_payloads(context: Dict[str, Any]) -> Dict[str, Any]:
         result["author_context"] = author
 
     result["character_context_instruction"] = (
-        "character_cards and character_memory are complete for POV, present cast and characters resolved from current input. "
-        "character_registry is the compact registry for every registered character. Dormant full dossiers remain persisted in Railway but are not retransmitted. "
-        "If an offscreen registered character whose dossier is absent must enter or materially act, call prepareCharacterBundleRead, then read every getCharacterBundleChunk individually before writing that character. "
+        "Full character_cards are transported only for POV, physically present characters and registered characters explicitly participating in the current input or communication. "
+        "character_memory is a bounded working copy; complete lifetime memory remains persisted. character_registry stays available for every registered character. "
+        "If any other offscreen registered character must enter, speak, message, call, answer, react remotely or otherwise materially act, call prepareCharacterBundleRead and read every getCharacterBundleChunk individually before writing that character. "
         "Do not use direct oversized character bundle or memory Actions."
     )
     contract = result.get("working_context_contract") if isinstance(result.get("working_context_contract"), dict) else {}
@@ -73,7 +71,10 @@ def _strip_legacy_full_payloads(context: Dict[str, Any]) -> Dict[str, Any]:
             "turn_packet_is_scene_scoped": True,
             "legacy_full_state_memory_chronology_in_packet": False,
             "dormant_full_dossiers_in_packet": False,
+            "lifetime_memory_in_packet": False,
+            "full_relationship_documents_in_packet": False,
             "dormant_character_retrieval": "chunked_on_demand",
+            "remote_communication_requires_loaded_dossier": True,
             "persistent_storage_is_complete": True,
             "same_pending_turn_prepare_is_idempotent": True,
         }
@@ -105,8 +106,6 @@ def _prepare_turn(session_id: str, user_input: str) -> Dict[str, Any]:
     if not root.exists():
         raise FileNotFoundError(session_id)
 
-    # Multiple simultaneous/retried prepareTurn calls for the same turn must not
-    # replace each other's packet_id. Serialize check + creation across requests.
     with session_transaction(root):
         meta = storage._read_json(root / "meta.json", {})
         expected_turn = int(meta.get("turn_number", 0) or 0) + 1
@@ -132,7 +131,7 @@ def _prepare_turn(session_id: str, user_input: str) -> Dict[str, Any]:
         packet["chunks"] = chunks
         packet["chunk_count"] = len(chunks)
         packet["read_chunks"] = []
-        packet["transport_scope_version"] = 3
+        packet["transport_scope_version"] = 4
         storage._write_json(root / "turn_packet.json", packet)
         manifest["chunk_count"] = len(chunks)
         manifest["total_chars"] = len(text)
@@ -140,8 +139,8 @@ def _prepare_turn(session_id: str, user_input: str) -> Dict[str, Any]:
         manifest["relevant_character_ids"] = [str(value) for value in context.get("relevant_character_ids", []) if value]
         manifest["reused_pending_packet"] = False
         manifest["instruction"] = (
-            "Read every turn packet chunk individually before writing. The packet is scene-scoped; dormant full dossiers remain safely persisted. "
-            "Use prepareCharacterBundleRead plus getCharacterBundleChunk for an offscreen registered character whose dossier is absent."
+            "Read every turn packet chunk individually before writing. The packet is a bounded scene working set; complete persistent data remains in Railway. "
+            "Load an absent registered character bundle before any entrance, speech, message, call, remote reaction or other material action."
         )
         return manifest
 
