@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from copy import deepcopy
 from pathlib import Path
-from typing import Any, Dict, Iterable, List
+from typing import Any, Dict, List
 
 from . import session_runtime, storage
 from .npc_intent import active_intents_for
@@ -11,11 +11,14 @@ from .transactional_storage import session_transaction
 
 
 _ORIGINAL_PREPARE = None
-WRITER_FIRST_VERSION = 1
+WRITER_FIRST_VERSION = 2
 WRITER_PACKET_CHARS = 16000
 RECENT_FULL_TURNS = 2
 CONTINUITY_WINDOW = 15
-MAX_HISTORICAL_KNOWLEDGE_CATALOG = 24
+MAX_WORKING_KNOWLEDGE = 18
+MAX_WORKING_EXPERIENCES = 12
+MAX_WORKING_DIALOGUE = 12
+MAX_HISTORICAL_KNOWLEDGE_CATALOG = 16
 MAX_ACTIVE_THREADS = 12
 RUNTIME_DIR = Path(__file__).resolve().parent.parent / "runtime"
 
@@ -85,6 +88,13 @@ def _active_threads(value: Any) -> Any:
     return value
 
 
+def _tail(values: Any, limit: int) -> List[Dict[str, Any]]:
+    if not isinstance(values, list):
+        return []
+    rows = [deepcopy(item) for item in values if isinstance(item, dict)]
+    return rows[-limit:]
+
+
 def _compact_memory(context: Dict[str, Any]) -> None:
     memory = context.get("character_memory")
     if not isinstance(memory, dict):
@@ -92,12 +102,29 @@ def _compact_memory(context: Dict[str, Any]) -> None:
     for bucket in memory.values():
         if not isinstance(bucket, dict):
             continue
+        original_counts = {
+            "knowledge": len(bucket.get("knowledge", [])) if isinstance(bucket.get("knowledge"), list) else 0,
+            "experiences": len(bucket.get("experiences", [])) if isinstance(bucket.get("experiences"), list) else 0,
+            "dialogue_memory": len(bucket.get("dialogue_memory", [])) if isinstance(bucket.get("dialogue_memory"), list) else 0,
+        }
+        bucket["knowledge"] = _tail(bucket.get("knowledge"), MAX_WORKING_KNOWLEDGE)
+        bucket["experiences"] = _tail(bucket.get("experiences"), MAX_WORKING_EXPERIENCES)
+        bucket["dialogue_memory"] = _tail(bucket.get("dialogue_memory"), MAX_WORKING_DIALOGUE)
+
         catalog = bucket.get("historical_knowledge_catalog")
         if isinstance(catalog, list) and len(catalog) > MAX_HISTORICAL_KNOWLEDGE_CATALOG:
             bucket["historical_knowledge_catalog"] = deepcopy(catalog[-MAX_HISTORICAL_KNOWLEDGE_CATALOG:])
-            older = bucket.get("older_history_available") if isinstance(bucket.get("older_history_available"), dict) else {}
-            older["historical_catalog_truncated"] = True
-            older["historical_catalog_records_omitted"] = len(catalog) - MAX_HISTORICAL_KNOWLEDGE_CATALOG
+        older = bucket.get("older_history_available") if isinstance(bucket.get("older_history_available"), dict) else {}
+        omitted_working = {
+            "knowledge": max(0, original_counts["knowledge"] - len(bucket["knowledge"])),
+            "experiences": max(0, original_counts["experiences"] - len(bucket["experiences"])),
+            "dialogue_memory": max(0, original_counts["dialogue_memory"] - len(bucket["dialogue_memory"])),
+        }
+        if any(omitted_working.values()) or (isinstance(catalog, list) and len(catalog) > MAX_HISTORICAL_KNOWLEDGE_CATALOG):
+            older["writer_first_records_omitted"] = omitted_working
+            older["historical_catalog_truncated"] = bool(
+                isinstance(catalog, list) and len(catalog) > MAX_HISTORICAL_KNOWLEDGE_CATALOG
+            )
             older["retrieval"] = "prepareCharacterBundleRead -> getCharacterBundleChunk"
             bucket["older_history_available"] = older
 
@@ -190,7 +217,12 @@ def _rewrite_context(session_id: str, context: Dict[str, Any]) -> Dict[str, Any]
             "writer_first_version": WRITER_FIRST_VERSION,
             "recent_full_turns": RECENT_FULL_TURNS,
             "continuity_window": CONTINUITY_WINDOW,
-            "historical_knowledge_catalog_cap": MAX_HISTORICAL_KNOWLEDGE_CATALOG,
+            "working_memory_caps": {
+                "knowledge": MAX_WORKING_KNOWLEDGE,
+                "experiences": MAX_WORKING_EXPERIENCES,
+                "dialogue_memory": MAX_WORKING_DIALOGUE,
+                "historical_knowledge_catalog": MAX_HISTORICAL_KNOWLEDGE_CATALOG,
+            },
             "active_thread_cap": MAX_ACTIVE_THREADS,
             "runtime_documents_per_turn": ["runtime_rules", "scene_builder", "writer_contract"],
             "npc_intents_are_persistent": True,
