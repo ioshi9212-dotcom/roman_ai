@@ -3,13 +3,13 @@ from __future__ import annotations
 import json
 import secrets
 from copy import deepcopy
-from typing import Any, Dict, List
+from typing import Any, Dict
 
 from . import audit_runtime, storage
 
 
 _ORIGINAL_GET_AUDIT = None
-FAST_AUDIT_PACKET_VERSION = 7
+FAST_AUDIT_PACKET_VERSION = 8
 AUDIT_PACKET_CHARS = 16000
 
 
@@ -33,9 +33,9 @@ def _turn_evidence(turn: Dict[str, Any]) -> Dict[str, Any]:
     scene = str(turn.get("scene_output") or "")
     if scene:
         compact = " ".join(scene.split())
-        result["scene_opening"] = compact[:500]
-        if len(compact) > 500:
-            result["scene_ending"] = compact[-800:]
+        result["scene_opening"] = compact[:350]
+        if len(compact) > 350:
+            result["scene_ending"] = compact[-550:]
     return result
 
 
@@ -74,6 +74,14 @@ def _build_fast_payload(session_id: str) -> Dict[str, Any]:
         ],
         "memory_audit": audit_runtime._audit_memory(memory, character_ids, start_turn, end_turn),
         "chronology_audit": audit_runtime._audit_chronology(chronology, character_ids, start_turn, end_turn),
+        "audit_repair_policy": {
+            "mandatory_original_turn": True,
+            "chronology_add": "Each repair must carry turn_number/turn/source_turn from the exact audited turn where the event happened.",
+            "knowledge_add": "Each repair must carry learned_turn or turn_number/source_turn from the exact audited turn where the character learned it.",
+            "experiences_add": "Each repair must carry turn or turn_number/source_turn from the exact audited turn.",
+            "dialogue_memory_add": "Each repair must carry turn or turn_number/source_turn from the exact audited turn.",
+            "npc_intent_updates": "Create or repair an intent only when an audited turn proves the NPC formed, advanced, resolved or abandoned that future-facing motive.",
+        },
         "audit_contract": {
             "exact_range": [start_turn, end_turn],
             "visible_chat_is_primary": True,
@@ -90,7 +98,8 @@ def _build_fast_payload(session_id: str) -> Dict[str, Any]:
         "instruction": (
             "FAST 15-TURN AUDIT. The committed scenes are normally already visible in the current chat and are the primary evidence. "
             "Use turn_evidence_backup only as compact persisted backup. Do one reconciliation pass, not a second full novel reread. "
-            "Repair only durable omissions or contradictions supported by these exact 15 turns. Include npc_intent_updates when an unresolved future-facing NPC motive was missed, advanced, resolved or abandoned. "
+            "Repair only durable omissions or contradictions supported by these exact 15 turns and preserve the original causal turn on every repair. "
+            "Include npc_intent_updates when an unresolved future-facing NPC motive was missed, advanced, resolved or abandoned. "
             "Never give a character knowledge merely because chronology/source/card knows it. Commit the audit immediately after the single pass."
         ),
     }
