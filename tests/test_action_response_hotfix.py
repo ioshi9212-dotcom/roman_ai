@@ -17,16 +17,16 @@ def test_single_chunk_operations_are_exposed_for_response_size_hotfix():
     assert "/sessions/{session_id}/audit-snapshot-batch/{audit_id}" not in paths
 
 
-def test_custom_gpt_hotfix_uses_inline_chunk_zero_then_single_reads_only():
+def test_custom_gpt_uses_inline_chunk_zero_then_single_reads_only():
     instructions = (ROOT / "gpt" / "custom_gpt_instructions.md").read_text(encoding="utf-8")
     runtime_guide = (ROOT / "runtime" / "custom_gpt.md").read_text(encoding="utf-8")
 
     assert "first_chunk_included=true" in instructions
-    assert "НЕ запрашивать chunk 0 снова" in instructions
+    assert "Не запрашивать 0 снова" in instructions
     assert "getTurnPacketChunk" in instructions
-    assert "Не использовать batch" in instructions
+    assert "Batch не использовать" in instructions
     assert "getAuditSnapshotChunk" in instructions
     assert "first_chunk_included=true" in runtime_guide
-    assert "Read only remaining packet chunks individually" in runtime_guide
-    assert "Do not batch" in runtime_guide
+    assert "Не запрашивай его снова" in runtime_guide
+    assert "getTurnPacketChunk" in runtime_guide
     assert "getAuditSnapshotChunk" in runtime_guide
