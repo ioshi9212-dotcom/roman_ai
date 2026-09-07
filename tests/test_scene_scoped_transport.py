@@ -103,6 +103,9 @@ def test_turn_packet_only_transports_full_cards_for_scene_or_current_communicati
 
         assert any(row["character_id"] == "thread_only" for row in context["character_registry"])
         assert "old_thread" in context["active_threads"]
+        assert len(context["active_threads"]["old_thread"]["notes"]) < 2000
+        assert "characters" not in context["starting_state"]
+        assert "relationship_documents" not in context["starting_state"]
         assert manifest["chunk_count"] < 25
 
         # Nothing was removed from persistent storage.
@@ -129,7 +132,7 @@ def test_thread_membership_alone_does_not_transport_full_dossier():
             ],
             "starting_state": {
                 "pov": {"character_id": "pov"},
-                "current": {"present_characters": ["pov", "present"]},
+                "current": {"location": "room", "scene": "conversation", "present_characters": ["pov", "present"]},
                 "threads": {"plot": {"participants": ["thread_only"]}},
             },
         }
