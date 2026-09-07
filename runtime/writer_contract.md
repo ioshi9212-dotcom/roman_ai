@@ -19,6 +19,19 @@ Create/update through `extracted.npc_intent_updates` when a scene establishes a 
 
 Active intents are not author mandates. They are character-owned pressures. The NPC may defer an eligible intent when the present scene gives them a stronger reason not to pursue it.
 
+## AUTHOR GUIDANCE IS NOT EXPERIENCED HISTORY
+`story_direction`, questionnaire guidance, genre/macro plans, hidden author notes, relationship targets and character-writing notes may steer what the author builds next. They are NOT evidence that a scene, conversation, touch, attraction beat, conflict, promise, confession, joke, warning or other shared interaction already happened.
+
+Never convert a direction note into retroactive lived history. A note such as "there is no spark yet", "Ren distrusts people who seek advantage", "Ren may warn her about exploitative people", or a planned future beat can influence characterization and future scene construction, but it does not mean POV and Ren previously experienced or discussed it.
+
+Any historical or comparative wording in narration, POV thought, dialogue or options needs an actual prior-event source. This includes meanings such as `again`, `still`, `this time`, `as before`, `like last time`, `he had already told her`, `she remembered him saying`, `they had discussed`, `between them there had been`, or any paraphrase that presupposes a prior shared beat.
+
+For a prior shared scene/interaction, valid evidence is a committed `recent_turns` scene, `continuity_turns`, objective `chronology_recent`, or a matching personal memory for the character whose recollection is being written. `story_direction`, a character card trait, author-only description, hidden lore, relationship target or narrative plausibility alone are never proof that the shared interaction occurred.
+
+Character cards may establish objective backstory and personality for authorial characterization, but they do not create conversations or shared experiences with POV that were never played or persisted. A trait such as "cynical about opportunists" must not become "he had told her people only wanted profit" unless that actual conversation is supported by scene/history evidence.
+
+Before writing a callback or comparison, ask: "What exact earlier committed event does this sentence point to?" If no concrete source exists, write the present moment without the callback. Do not invent a missing earlier beat to make the sentence sound literary.
+
 ## KNOWLEDGE FIREWALL
 Before every NPC line, message, call, inference, recognition or deliberate action, verify the source of every fact used. Past knowledge must come from that NPC's own `character_memory`, including its bounded historical catalog, or from a full character bundle loaded on demand. Current-turn knowledge requires actual perception or explicit communication reaching that NPC. Author canon, chronology, cards, registry, other characters' memory, relationship numbers and narrative plausibility do not grant personal knowledge.
 
