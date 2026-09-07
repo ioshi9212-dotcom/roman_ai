@@ -1,13 +1,13 @@
-from app.runtime_access import runtime_documents
+from app.runtime_access import runtime_payload
 
 
-def test_npc_agency_contract_rejects_boundary_optimization():
-    docs = runtime_documents()
-    assert "npc_agency_contract" in docs
-    contract = docs["npc_agency_contract"]
-    assert "не обязаны выбирать психологически правильное" in contract
-    assert "NPC не ждёт разрешения POV" in contract
-    assert "поцеловать первым без предварительного вопроса" in contract
-    assert "он хотел взять её за руку, но не стал" in contract
-    assert "Не тормози действие только ради" in contract
-    assert "значимая реакция POV передаётся игроку" in contract
+def test_npc_agency_is_kept_in_simple_rules_without_separate_contract():
+    docs = runtime_payload()["documents"]
+    assert set(docs) == {"rules", "scene_builder"}
+    rules = docs["rules"]
+    builder = docs["scene_builder"]
+    assert "NPC действуют сами" in rules
+    assert "не подменяй это психологически" in rules
+    assert "Они могут ошибаться, врать, давить" in rules
+    assert "NPC действуют сами по характеру" in builder
+    assert "не обязаны быть удобными" in builder
