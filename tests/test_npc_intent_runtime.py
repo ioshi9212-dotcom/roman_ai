@@ -2,6 +2,9 @@ import json
 import tempfile
 from pathlib import Path
 
+import pytest
+from fastapi import HTTPException
+
 from app import session_runtime, storage
 from app.character_access import get_character_bundle
 
@@ -29,11 +32,6 @@ def novel():
     }
 
 
-def read_remaining(manifest):
-    for index in range(1 if manifest.get("first_chunk_included") else 0, manifest["chunk_count"]):
-        storage.get_turn_packet_chunk(manifest["session_id"] if "session_id" in manifest else SID, manifest["packet_id"], index)
-
-
 def read_packet(session_id: str, user_input: str):
     manifest = session_runtime.prepare_turn_packet(session_id, user_input)
     pieces = [manifest["content"]] if manifest.get("first_chunk_included") else []
@@ -43,25 +41,33 @@ def read_packet(session_id: str, user_input: str):
     return manifest, json.loads("".join(pieces))
 
 
+def base_extracted(**overrides):
+    value = {
+        "persistence_reviewed": True,
+        "chronology": [],
+        "knowledge_add": [],
+        "experiences_add": [],
+        "dialogue_memory_add": [],
+        "npc_intent_updates": [],
+    }
+    value.update(overrides)
+    return value
+
+
 def test_unresolved_npc_intent_persists_and_resurfaces_without_player_reminder():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         sid = storage.create_session(novel())["session_id"]
         root = storage.SESSIONS_DIR / sid
 
-        manifest, _ = read_packet(sid, "(убрать телефон)")
+        read_packet(sid, "(убрать телефон)")
         result = session_runtime.commit_turn(
             sid,
             {
                 "user_input": "(убрать телефон)",
                 "scene_output": "POV remains alone.\n\nОтношения:\n\nХод 1 · цикл 1/15",
-                "extracted": {
-                    "persistence_reviewed": True,
-                    "chronology": [],
-                    "knowledge_add": [],
-                    "experiences_add": [],
-                    "dialogue_memory_add": [],
-                    "npc_intent_updates": [
+                "extracted": base_extracted(
+                    npc_intent_updates=[
                         {
                             "character_id": "ren",
                             "intent_id": "check_account_origin",
@@ -71,8 +77,8 @@ def test_unresolved_npc_intent_persists_and_resurfaces_without_player_reminder()
                             "planned_action": "Проверить происхождение аккаунта и потом вернуться к POV с результатом",
                             "next_eligible_game_day": 3,
                         }
-                    ],
-                },
+                    ]
+                ),
             },
         )
         assert result["turn_number"] == 1
@@ -86,7 +92,7 @@ def test_unresolved_npc_intent_persists_and_resurfaces_without_player_reminder()
         state.setdefault("characters", {}).setdefault("ren", {})["present"] = True
         storage._write_json(root / "state.json", state)
 
-        manifest2, context = read_packet(sid, "(посмотреть на Рена)")
+        _, context = read_packet(sid, "(посмотреть на Рена)")
         intent = context["npc_active_intents"]["ren"][0]
         assert intent["intent_id"] == "check_account_origin"
         assert intent["eligible_now"] is True
@@ -94,6 +100,70 @@ def test_unresolved_npc_intent_persists_and_resurfaces_without_player_reminder()
 
         bundle = get_character_bundle(sid, "ren")
         assert bundle["active_intents"][0]["intent_id"] == "check_account_origin"
+
+
+def test_intent_source_fact_may_be_added_to_same_character_in_same_commit():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(novel())["session_id"]
+        read_packet(sid, "(Рен замечает деталь)")
+        result = session_runtime.commit_turn(
+            sid,
+            {
+                "user_input": "(Рен замечает деталь)",
+                "scene_output": "POV remains alone.\n\nОтношения:\n\nХод 1 · цикл 1/15",
+                "extracted": base_extracted(
+                    knowledge_add=[
+                        {
+                            "character_id": "ren",
+                            "fact_id": "account_created_recently",
+                            "content": "Аккаунт создан недавно",
+                        }
+                    ],
+                    npc_intent_updates=[
+                        {
+                            "character_id": "ren",
+                            "intent_id": "trace_account",
+                            "kind": "investigation",
+                            "summary": "Проверить происхождение аккаунта",
+                            "source_fact_ids": ["account_created_recently"],
+                        }
+                    ],
+                ),
+            },
+        )
+        assert result["ok"] is True
+        state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
+        assert state["npc_intents"]["ren"][0]["source_fact_ids"] == ["account_created_recently"]
+
+
+def test_intent_cannot_launder_author_only_fact_into_future_npc_behavior():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(novel())["session_id"]
+        read_packet(sid, "(убрать телефон)")
+        with pytest.raises(HTTPException) as exc:
+            session_runtime.commit_turn(
+                sid,
+                {
+                    "user_input": "(убрать телефон)",
+                    "scene_output": "POV remains alone.\n\nОтношения:\n\nХод 1 · цикл 1/15",
+                    "extracted": base_extracted(
+                        npc_intent_updates=[
+                            {
+                                "character_id": "ren",
+                                "intent_id": "impossible_followup",
+                                "summary": "Действовать на основании неизвестной ему тайны",
+                                "source_fact_ids": ["author_only_secret"],
+                            }
+                        ]
+                    ),
+                },
+            )
+        assert exc.value.status_code == 409
+        assert exc.value.detail["code"] == "NPC_INTENT_SOURCE_FACT_UNKNOWN"
+        state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
+        assert "ren" not in state.get("npc_intents", {})
 
 
 def test_intent_can_be_marked_pursued_and_resolved():
