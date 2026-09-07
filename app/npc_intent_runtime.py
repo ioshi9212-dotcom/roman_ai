@@ -3,6 +3,8 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any, Dict, Iterable
 
+from fastapi import HTTPException
+
 from . import session_runtime, storage
 from .npc_intent import apply_updates
 
@@ -41,6 +43,21 @@ def _source_ids(raw: Dict[str, Any]) -> Iterable[str]:
     return [str(value) for value in values if value not in (None, "")]
 
 
+def _source_error(character_id: str, unknown: list[str]) -> None:
+    raise HTTPException(
+        status_code=409,
+        detail={
+            "code": "NPC_INTENT_SOURCE_FACT_UNKNOWN",
+            "message": (
+                "An NPC intent cited a fact that is not in this character's persisted personal knowledge "
+                "and is not being added to this same character in the current commit. Do not create future behavior from author-only knowledge."
+            ),
+            "character_id": character_id,
+            "unknown_source_fact_ids": unknown,
+        },
+    )
+
+
 def _validate_intent_sources(root, container: Dict[str, Any], updates: Any) -> None:
     if not isinstance(updates, list):
         return
@@ -53,11 +70,12 @@ def _validate_intent_sources(root, container: Dict[str, Any], updates: Any) -> N
             continue
         character_id = str(raw.get("character_id") or "")
         if not character_id:
-            raise RuntimeError("NPC_INTENT_SOURCE_FACT_UNKNOWN")
+            _source_error(character_id, source_ids)
         if character_id not in known_cache:
             known_cache[character_id] = _persistent_fact_ids(root, character_id) | _same_commit_fact_ids(container, character_id)
-        if any(source_id not in known_cache[character_id] for source_id in source_ids):
-            raise RuntimeError("NPC_INTENT_SOURCE_FACT_UNKNOWN")
+        unknown = [source_id for source_id in source_ids if source_id not in known_cache[character_id]]
+        if unknown:
+            _source_error(character_id, unknown)
 
 
 def _with_intent_patch(session_id: str, payload: Dict[str, Any], *, audit: bool = False) -> Dict[str, Any]:
