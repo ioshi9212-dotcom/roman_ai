@@ -13,6 +13,7 @@ CHARACTER_WORKING_KNOWLEDGE = 18
 CHARACTER_WORKING_EXPERIENCES = 12
 CHARACTER_WORKING_DIALOGUE = 12
 CHARACTER_HISTORICAL_CATALOG = 8
+CHARACTER_MEMORY_TEXT_CHARS = 900
 MAX_INTENT_SOURCE_FACTS = 12
 _ORIGINAL_INJECT = None
 
@@ -43,6 +44,26 @@ def _summary(item: Dict[str, Any]) -> str:
     return json.dumps(item, ensure_ascii=False, separators=(",", ":"))[:220]
 
 
+def _bound_memory_value(value: Any) -> Any:
+    """Bound writer-facing memory prose without touching identifiers or persistent storage."""
+    if isinstance(value, str):
+        if len(value) <= CHARACTER_MEMORY_TEXT_CHARS:
+            return value
+        return value[:CHARACTER_MEMORY_TEXT_CHARS] + "…[full memory text remains in persistent storage]"
+    if isinstance(value, dict):
+        result: Dict[str, Any] = {}
+        for key, item in value.items():
+            # IDs must remain exact so intent source references and audit provenance still work.
+            if key in {"fact_id", "event_id", "topic_id", "id", "character_id", "source_turn"}:
+                result[key] = deepcopy(item)
+            else:
+                result[key] = _bound_memory_value(item)
+        return result
+    if isinstance(value, list):
+        return [_bound_memory_value(item) for item in value]
+    return deepcopy(value)
+
+
 def _tail(values: Any, limit: int) -> List[Dict[str, Any]]:
     rows = [deepcopy(item) for item in values if isinstance(item, dict)] if isinstance(values, list) else []
     rows.sort(key=_turn)
@@ -69,8 +90,8 @@ def _working_memory(bundle: Dict[str, Any]) -> Dict[str, Any]:
     recent_knowledge = _tail(all_knowledge, CHARACTER_WORKING_KNOWLEDGE)
     selected_ids = {_id(item) for item in recent_knowledge if _id(item)}
 
-    # If an active intent was born from an old fact, keep that exact known premise
-    # beside the intent so autonomous follow-up cannot drift into invented knowledge.
+    # If an active intent was born from an old fact, keep that known premise beside
+    # the intent so autonomous follow-up cannot drift into invented knowledge.
     source_ids = _intent_source_ids(bundle)
     source_rows = [
         deepcopy(item)
@@ -93,9 +114,9 @@ def _working_memory(bundle: Dict[str, Any]) -> Dict[str, Any]:
     experiences = _tail(memory.get("experiences"), CHARACTER_WORKING_EXPERIENCES)
     dialogue = _tail(memory.get("dialogue_memory"), CHARACTER_WORKING_DIALOGUE)
     return {
-        "knowledge": knowledge,
-        "experiences": experiences,
-        "dialogue_memory": dialogue,
+        "knowledge": _bound_memory_value(knowledge),
+        "experiences": _bound_memory_value(experiences),
+        "dialogue_memory": _bound_memory_value(dialogue),
         "historical_knowledge_catalog": [
             {key: value for key, value in row.items() if value not in (None, "", 0)}
             for row in catalog
@@ -106,6 +127,8 @@ def _working_memory(bundle: Dict[str, Any]) -> Dict[str, Any]:
             "dialogue_memory": len(memory.get("dialogue_memory", [])) if isinstance(memory.get("dialogue_memory"), list) else 0,
         },
         "older_history_available": True,
+        "oversized_record_text_bounded_in_transport": True,
+        "memory_text_chars_max": CHARACTER_MEMORY_TEXT_CHARS,
     }
 
 
@@ -124,7 +147,7 @@ def _participation_bundle(session_id: str, character_id: str) -> Dict[str, Any]:
         "instruction": (
             "Use this full card plus bounded personal working memory, relationship and active intents to write this character. "
             "Knowledge supporting an active intent is included when source_fact_ids identify it. Complete lifetime memory remains persistent in Railway and is intentionally not retransmitted for every offscreen entrance/message/call. "
-            "Do not infer private current-scene facts from author context."
+            "Long prose inside memory records may be shortened in transport only; identifiers and persistent originals remain exact. Do not infer private current-scene facts from author context."
         ),
     }
 
