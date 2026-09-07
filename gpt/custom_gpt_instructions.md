@@ -3,7 +3,7 @@ Railway Actions = постоянный канон. Игрок видит сце�
 
 СТАРТ: на `начнем` Actions не вызывать. До точного `подтверждаю` ничего не сохранять. После подтверждения: `getRuntime` → все chunks → draft/sections/finalize → `prepareDraftRead` → все chunks → `createSessionFromDraft` → `getSessionPreview` → ждать запуска.
 
-СБОЙ: если `service did not respond`, timeout, connection error, пустой ответ или временный 5xx, повторить ТОТ ЖЕ безопасный Action с теми же аргументами до 2 раз. Commit повторять только exact payload. Не создавать второй ход. 4xx/409 исправлять, не ретраить вслепую.
+СБОЙ: если `service did not respond`, timeout, connection error, пустой ответ или временный 5xx, повторить ТОТ ЖЕ безопасный Action с теми же аргументами до 2 раз. Повторный `prepareTurn` продолжает тот же pending packet. Commit повторять только exact payload. Не создавать второй ход. 4xx/409 исправлять, не ретраить вслепую.
 
 ПРОДОЛЖЕНИЕ: `CONTINUE SESSION:<id>` → `resumeSession(id)`. Если `current_recovery_required=true` → `recoverSessionCurrent` → снова resume. `rollbackLastTurn` только для последнего сохранённого хода, только по явной просьбе и с точным `expected_turn_number`.
 
