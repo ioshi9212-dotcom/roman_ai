@@ -11,14 +11,14 @@ from .transactional_storage import session_transaction
 
 
 _ORIGINAL_PREPARE = None
-WRITER_FIRST_VERSION = 3
+WRITER_FIRST_VERSION = 4
 WRITER_PACKET_CHARS = 16000
 RECENT_FULL_TURNS = 2
 CONTINUITY_WINDOW = 15
 MAX_WORKING_KNOWLEDGE = 18
 MAX_WORKING_EXPERIENCES = 12
 MAX_WORKING_DIALOGUE = 12
-MAX_HISTORICAL_KNOWLEDGE_CATALOG = 16
+MAX_HISTORICAL_KNOWLEDGE_CATALOG = 8
 MAX_ACTIVE_THREADS = 12
 RUNTIME_DIR = Path(__file__).resolve().parent.parent / "runtime"
 
@@ -131,8 +131,6 @@ def _compact_memory(context: Dict[str, Any]) -> None:
 
 def _compact_scene_state(value: Any) -> Dict[str, Any]:
     state = deepcopy(value) if isinstance(value, dict) else {}
-    # The complete intent store is persistent engine state. The writer receives
-    # only ranked current-character intents through npc_active_intents.
     state.pop("npc_intents", None)
     return state
 
