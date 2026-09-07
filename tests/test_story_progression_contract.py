@@ -35,6 +35,16 @@ def test_source_genres_cast_and_pov_biography_are_active_material():
     assert "скрытые истины" in text
 
 
+def test_offscreen_npcs_cannot_know_current_scene_without_a_source():
+    scene = (ROOT / "runtime" / "scene_builder.md").read_text(encoding="utf-8")
+    turn_context = (ROOT / "app" / "turn_context.py").read_text(encoding="utf-8")
+    assert "отсутствующий NPC не реагирует на текущую сцену без установленного источника знания" in scene
+    assert "удалённое сообщение или звонок не содержит фактов, которых отправитель не мог получить" in scene
+    assert "MANDATORY KNOWLEDGE FIREWALL" in turn_context
+    assert "Before an offscreen NPC sends a message, calls or reacts to a current event" in turn_context
+    assert "author knows it" in turn_context
+
+
 def test_prompt_facing_rules_do_not_embed_examples():
     paths = [
         *sorted((ROOT / "runtime").glob("*.md")),

@@ -194,15 +194,23 @@ def inject_required_turn_context(context: Dict[str, Any], cards: List[Dict[str, 
         "personal_memory_path": "character_memory[character_id]",
         "present_at_turn_start_path": "present_character_ids_at_turn_start",
         "author_only_paths": [
-            "character_cards", "novel", "novel_rules", "novel_lore", "hidden_lore", "world_canon",
-            "story_direction", "chronology_recent", "character_memory[OTHER_CHARACTER_ID]",
+            "character_cards", "character_registry", "cast_index", "scene_state", "relationships",
+            "novel", "novel_rules", "novel_lore", "hidden_lore", "world_canon", "story_direction",
+            "chronology_recent", "recent_turns", "character_memory[OTHER_CHARACTER_ID]",
         ],
         "instruction": (
-            "Before every NPC line, inference, recognition or deliberate action, identify that NPC and verify the exact fact source. "
-            "Past knowledge must come from that NPC's own character_memory. Current-turn knowledge must come from an explicit perception or communication channel established in the scene. "
-            "Private POV content stays private without established access. Characters outside the relevant time or place get no retroactive knowledge. "
-            "Inference may use only premises the NPC already knows. If drafted content leaks an unsupported fact, rewrite or delete it before output. "
-            "An invalid leak is not canon, must not be persisted, and must not survive into the next turn."
+            "MANDATORY KNOWLEDGE FIREWALL. Before every NPC line, message, call, inference, recognition or deliberate action, identify that NPC and verify the exact source for every referenced fact. "
+            "Past knowledge may come only from that NPC's own character_memory. A fact created during the current turn may be used only after that NPC personally perceived it or received it through an explicit communication channel established in the scene. "
+            "Author context, recent turns, chronology, cards, registry, scene state, another character's memory, relationship values and narrative plausibility are never character knowledge sources. "
+            "Private POV thoughts, phone screens, typed or received messages, calls not heard by the NPC, letters, photos, headphones and other private content remain unknown without established access. "
+            "An NPC outside the physical scene does not know what is happening there merely because the author knows it. Before an offscreen NPC sends a message, calls or reacts to a current event, verify how that NPC learned the specific event first. "
+            "Arrival after an event and departure before an event do not grant retroactive knowledge. Inference may use only premises already available to that NPC and may not reproduce an unavailable exact detail. "
+            "If any drafted line or action uses a fact without a valid source, rewrite or delete it before output. The leak is not canon, must not be persisted, and must not survive into another turn."
+        ),
+        "offscreen_contact_rule": (
+            "For every phone message, call or remote action by an NPC who is not physically present, perform a source check before writing the content. "
+            "The remote NPC may refer only to facts already stored in that NPC's own memory or facts delivered to that NPC through an explicit current communication channel. "
+            "Do not let remote NPC dialogue reveal awareness of the POV's current company, activity, location, private messages or scene events without such a source."
         ),
     }
     context["working_context_contract"] = {
@@ -221,8 +229,9 @@ def inject_required_turn_context(context: Dict[str, Any], cards: List[Dict[str, 
     author_context = context.get("author_context") if isinstance(context.get("author_context"), dict) else {}
     author_context["character_cards"] = scene_cards
     author_context["knowledge_quarantine"] = (
-        "Everything in author_context is objective author/engine truth only. Never use it as a character knowledge source without "
-        "that character's own personal memory or an explicit current-scene perception channel."
+        "Everything in author_context is objective author/engine truth only. Never use it as a character knowledge source. "
+        "A character may use a fact only from that character's own personal memory or from a perception/communication channel that actually reached that character. "
+        "This quarantine applies equally to physically present and offscreen characters."
     )
     context["author_context"] = author_context
     return context
