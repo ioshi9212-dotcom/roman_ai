@@ -3,6 +3,7 @@ import tempfile
 from pathlib import Path
 
 from app import audit_runtime, session_runtime, storage
+from app.context_stats import session_context_stats
 
 
 def setup_temp_storage(tmp: str):
@@ -123,7 +124,8 @@ def populate(session_id: str, turn_count: int):
 
 def prepare_size(session_id: str):
     manifest = session_runtime.prepare_turn_packet(session_id, "(посмотреть на Рена)")
-    return manifest["total_chars"], manifest["chunk_count"]
+    stats = session_context_stats(session_id)["turn_packet"]
+    return manifest["total_chars"], manifest["chunk_count"], stats.get("top_level_chars", {})
 
 
 def test_turn_300_writer_packet_stays_same_order_of_magnitude_as_turn_30():
@@ -134,8 +136,19 @@ def test_turn_300_writer_packet_stays_same_order_of_magnitude_as_turn_30():
         populate(short_sid, 30)
         populate(long_sid, 300)
 
-        chars_30, chunks_30 = prepare_size(short_sid)
-        chars_300, chunks_300 = prepare_size(long_sid)
+        chars_30, chunks_30, top_30 = prepare_size(short_sid)
+        chars_300, chunks_300, top_300 = prepare_size(long_sid)
+
+        if chunks_300 > 8:
+            growth = sorted(
+                (
+                    (key, int(top_30.get(key, 0)), int(top_300.get(key, 0)), int(top_300.get(key, 0)) - int(top_30.get(key, 0)))
+                    for key in set(top_30) | set(top_300)
+                ),
+                key=lambda row: row[3],
+                reverse=True,
+            )
+            print("writer-first longevity diagnostic", {"chars_30": chars_30, "chunks_30": chunks_30, "chars_300": chars_300, "chunks_300": chunks_300, "largest_growth": growth[:15]})
 
         assert chunks_30 <= 8
         assert chunks_300 <= 8
