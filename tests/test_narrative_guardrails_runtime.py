@@ -144,7 +144,9 @@ def test_prepare_turn_packet_contains_noncanonical_narrative_guardrails():
 
         assert packet["narrative_guardrails"] is True
         signals = context["narrative_guardrails"]
-        assert signals["version"] == 1
+        assert signals["version"] == 2
+        assert signals["pov_activity"]["mandatory"] is True
+        assert signals["pov_activity"]["ordinary_dialogue_expected"] is True
         assert isinstance(signals["cast_pressure"], list)
         assert isinstance(signals["story_pressure"], list)
         assert isinstance(signals["character_relevance"], list)
