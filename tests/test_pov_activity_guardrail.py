@@ -57,7 +57,7 @@ def test_writer_packet_contains_mandatory_pov_activity_after_writer_first_rewrit
         context = json.loads("".join(chunks))
 
         signals = context["narrative_guardrails"]
-        assert signals["version"] == 2
+        assert signals["version"] == 3
         assert signals["pov_activity"]["mandatory"] is True
         assert signals["pov_activity"]["ordinary_dialogue_expected"] is True
         assert signals["pov_activity"]["multiple_pov_lines_allowed"] is True
