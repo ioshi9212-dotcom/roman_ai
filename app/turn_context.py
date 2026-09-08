@@ -273,21 +273,9 @@ def inject_required_turn_context(context: Dict[str, Any], cards: List[Dict[str, 
     context.pop("runtime_documents", None)
     context["runtime_rules"] = documents["rules"]
     context["scene_builder"] = documents["scene_builder"]
-    context["pov_participation_contract"] = documents["pov_contract"]
-    context["npc_agency_contract"] = documents["npc_agency_contract"]
-    context["relationship_contract"] = documents["relationship_contract"]
-    context["presence_contract"] = documents["presence_contract"]
-    context["memory_contract"] = documents["memory_contract"]
-    context["continuity_contract"] = documents["continuity_contract"]
     context["runtime_document_paths"] = {
         "rules": "runtime_rules",
         "scene_builder": "scene_builder",
-        "pov_contract": "pov_participation_contract",
-        "npc_agency_contract": "npc_agency_contract",
-        "relationship_contract": "relationship_contract",
-        "presence_contract": "presence_contract",
-        "memory_contract": "memory_contract",
-        "continuity_contract": "continuity_contract",
     }
     context["scene_builder_instruction"] = (
         "MANDATORY. Read scene_builder completely before writing and follow its FORMAT exactly. "
