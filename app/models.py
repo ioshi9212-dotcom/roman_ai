@@ -1,5 +1,7 @@
 from typing import Any, Dict, List, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from .scene_format import validate_scene_output
 
 
 class NovelTemplate(BaseModel):
@@ -52,6 +54,11 @@ class TurnCommit(BaseModel):
     user_input: str
     scene_output: str
     extracted: Dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("scene_output")
+    @classmethod
+    def scene_output_must_match_builder(cls, value: str) -> str:
+        return validate_scene_output(value)
 
 
 class AuditCommit(BaseModel):
