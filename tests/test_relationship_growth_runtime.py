@@ -2,6 +2,9 @@ import json
 import tempfile
 from pathlib import Path
 
+import pytest
+from fastapi import HTTPException
+
 from app import session_runtime, storage
 
 
@@ -50,16 +53,16 @@ def test_new_dimension_is_appended_after_initial_schema():
         assert state["relationships"]["adrian"] == {"симпатия": 11, "настороженность": 7, "доверие": 6}
 
 
-def test_multiple_later_dimensions_can_accumulate_without_replacing_old_ones():
+def test_multiple_allowed_dimensions_can_accumulate_without_replacing_old_ones():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         sid = storage.create_session(novel({"симпатия": 10}))["session_id"]
         read_packet(sid, "one")
         session_runtime.commit_turn(sid, {"user_input": "one", "scene_output": scene("симпатия 10; доверие 4/+4; ревность 3/+3"), "extracted": extracted()})
         read_packet(sid, "two")
-        session_runtime.commit_turn(sid, {"user_input": "two", "scene_output": scene("симпатия 10; доверие 5/+1; ревность 3; скепсис 7/+7", turn=2), "extracted": extracted()})
+        session_runtime.commit_turn(sid, {"user_input": "two", "scene_output": scene("симпатия 10; доверие 5/+1; ревность 3; уважение 7/+7", turn=2), "extracted": extracted()})
         state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
-        assert state["relationships"]["adrian"] == {"симпатия": 10, "доверие": 5, "ревность": 3, "скепсис": 7}
+        assert state["relationships"]["adrian"] == {"симпатия": 10, "доверие": 5, "ревность": 3, "уважение": 7}
 
 
 def test_zero_dimensions_may_be_hidden_but_remain_persisted():
@@ -72,15 +75,15 @@ def test_zero_dimensions_may_be_hidden_but_remain_persisted():
         assert state["relationships"]["adrian"] == {"ревность": 0, "доверие": 0}
 
 
-def test_negative_relationship_concepts_are_valid_dimensions():
+def test_unknown_new_relationship_dimension_is_rejected_but_legacy_label_survives():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
-        sid = storage.create_session(novel({"доверие": 3}))["session_id"]
+        sid = storage.create_session(novel({"доверие": 3, "настороженность": 4}))["session_id"]
         read_packet(sid, "conflict")
-        session_runtime.commit_turn(sid, {"user_input": "conflict", "scene_output": scene("доверие 1/-2; недоверие 9/+9; скепсис 6/+6"), "extracted": extracted()})
-        state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
-        assert state["relationships"]["adrian"]["недоверие"] == 9
-        assert state["relationships"]["adrian"]["скепсис"] == 6
+        with pytest.raises(HTTPException) as exc:
+            session_runtime.commit_turn(sid, {"user_input": "conflict", "scene_output": scene("доверие 1/-2; настороженность 5/+1; скепсис 6/+6"), "extracted": extracted()})
+        assert exc.value.status_code == 409
+        assert exc.value.detail["code"] == "RELATIONSHIP_DIMENSION_UNKNOWN"
 
 
 def test_custom_gpt_retries_transient_transport_failures_without_advancing_turn():

@@ -18,6 +18,7 @@ ALLOWED_SECTIONS = {
     "world",
     "starting_state",
     "story_direction",
+    "foundation",
 }
 _CURRENT_FIELDS = (
     "date",
@@ -135,6 +136,92 @@ def _merge_current_shape(current: Dict[str, Any], candidate: Any) -> None:
             current[target_key] = deepcopy(value)
 
 
+def _foundation_coverage(template: Dict[str, Any], *, required: bool) -> Dict[str, Any]:
+    foundation = template.get("foundation")
+    if not required and not isinstance(foundation, dict):
+        return {"required": False, "ok": True, "fact_count": 0, "hook_count": 0, "pillar_count": 0, "unmapped": []}
+    if not isinstance(foundation, dict):
+        raise ValueError("FOUNDATION_REQUIRED")
+
+    facts = foundation.get("facts")
+    hooks = foundation.get("hooks")
+    pillars = foundation.get("story_pillars")
+    if not isinstance(facts, list) or not facts:
+        raise ValueError("FOUNDATION_FACTS_REQUIRED")
+    if not isinstance(hooks, list):
+        raise ValueError("FOUNDATION_HOOKS_REQUIRED")
+    if not isinstance(pillars, list) or not pillars:
+        raise ValueError("FOUNDATION_STORY_PILLARS_REQUIRED")
+
+    fact_ids: set[str] = set()
+    fact_rows: Dict[str, Dict[str, Any]] = {}
+    for row in facts:
+        if not isinstance(row, dict):
+            raise ValueError("FOUNDATION_FACT_INVALID")
+        fact_id = str(row.get("fact_id") or "").strip()
+        text = str(row.get("text") or "").strip()
+        if not fact_id or not text or fact_id in fact_ids:
+            raise ValueError("FOUNDATION_FACT_INVALID")
+        fact_ids.add(fact_id)
+        fact_rows[fact_id] = row
+
+    hook_ids: set[str] = set()
+    hooked_facts: set[str] = set()
+    for row in hooks:
+        if not isinstance(row, dict):
+            raise ValueError("FOUNDATION_HOOK_INVALID")
+        hook_id = str(row.get("hook_id") or "").strip()
+        refs = row.get("fact_ids")
+        if not hook_id or hook_id in hook_ids or not isinstance(refs, list) or not refs:
+            raise ValueError("FOUNDATION_HOOK_INVALID")
+        hook_ids.add(hook_id)
+        for value in refs:
+            ref = str(value)
+            if ref not in fact_ids:
+                raise ValueError("FOUNDATION_HOOK_UNKNOWN_FACT")
+            hooked_facts.add(ref)
+
+    pillar_ids: set[str] = set()
+    for row in pillars:
+        if not isinstance(row, dict):
+            raise ValueError("FOUNDATION_STORY_PILLAR_INVALID")
+        pillar_id = str(row.get("pillar_id") or "").strip()
+        label = str(row.get("label") or row.get("name") or "").strip()
+        if not pillar_id or not label or pillar_id in pillar_ids:
+            raise ValueError("FOUNDATION_STORY_PILLAR_INVALID")
+        pillar_ids.add(pillar_id)
+        refs = row.get("source_fact_ids", [])
+        if refs is not None and not isinstance(refs, list):
+            raise ValueError("FOUNDATION_STORY_PILLAR_INVALID")
+        for value in refs or []:
+            if str(value) not in fact_ids:
+                raise ValueError("FOUNDATION_STORY_PILLAR_UNKNOWN_FACT")
+
+    unmapped: list[str] = []
+    for fact_id, row in fact_rows.items():
+        stored_in = row.get("stored_in")
+        use = str(row.get("story_use") or row.get("usage") or "").casefold().strip()
+        if not isinstance(stored_in, list) or not [value for value in stored_in if str(value).strip()]:
+            unmapped.append(fact_id)
+            continue
+        if use not in {"reference", "hook"}:
+            unmapped.append(fact_id)
+            continue
+        if use == "hook" and fact_id not in hooked_facts:
+            unmapped.append(fact_id)
+
+    if unmapped:
+        raise ValueError("FOUNDATION_COVERAGE_INCOMPLETE:" + ",".join(unmapped[:20]))
+    return {
+        "required": required,
+        "ok": True,
+        "fact_count": len(fact_ids),
+        "hook_count": len(hook_ids),
+        "pillar_count": len(pillar_ids),
+        "unmapped": [],
+    }
+
+
 def _normalise_starting_state_for_session(template: Dict[str, Any]) -> Dict[str, Any]:
     result = deepcopy(template)
     cards = storage._normalise_cards(result.get("characters", []))
@@ -197,6 +284,34 @@ def _normalise_starting_state_for_session(template: Dict[str, Any]) -> Dict[str,
     if not isinstance(state.get("world"), dict):
         state["world"] = {}
 
+    foundation = result.get("foundation") if isinstance(result.get("foundation"), dict) else {}
+    if foundation:
+        world = deepcopy(state["world"])
+        hook_state = world.get("foundation_hook_state") if isinstance(world.get("foundation_hook_state"), dict) else {}
+        hook_state = deepcopy(hook_state)
+        for hook in foundation.get("hooks", []) if isinstance(foundation.get("hooks"), list) else []:
+            if isinstance(hook, dict) and hook.get("hook_id"):
+                hook_state.setdefault(str(hook["hook_id"]), {"status": str(hook.get("status") or "latent"), "touch_count": 0, "last_touched_turn": 0})
+        world["foundation_hook_state"] = hook_state
+
+        story_pillars = world.get("story_pillars") if isinstance(world.get("story_pillars"), dict) else {}
+        story_pillars = deepcopy(story_pillars)
+        for pillar in foundation.get("story_pillars", []) if isinstance(foundation.get("story_pillars"), list) else []:
+            if not isinstance(pillar, dict) or not pillar.get("pillar_id"):
+                continue
+            pid = str(pillar["pillar_id"])
+            story_pillars.setdefault(pid, {
+                "label": pillar.get("label") or pillar.get("name") or pid,
+                "source_fact_ids": deepcopy(pillar.get("source_fact_ids", [])),
+                "last_touched_turn": 0,
+                "status": "active",
+            })
+        world["story_pillars"] = story_pillars
+        social = world.get("social") if isinstance(world.get("social"), dict) else {}
+        social.setdefault("signals", {})
+        world["social"] = social
+        state["world"] = world
+
     result["starting_state"] = state
     return result
 
@@ -229,6 +344,13 @@ def _validate_starting_state(template: Dict[str, Any]) -> Dict[str, Any]:
     return normalized
 
 
+def _validate_template(template: Dict[str, Any]) -> tuple[Dict[str, Any], Dict[str, Any]]:
+    normalized = _validate_starting_state(template)
+    version = int(normalized.get("version", 1) or 1)
+    coverage = _foundation_coverage(normalized, required=version >= 2)
+    return normalized, coverage
+
+
 def create_draft(novel_id: str, title: str, version: int = 1) -> Dict[str, Any]:
     draft_id = uuid.uuid4().hex
     draft = {
@@ -254,6 +376,8 @@ def save_section(draft_id: str, section_name: str, section_json: str) -> Dict[st
         raise TypeError("characters must be a JSON array")
     if section_name == "starting_state" and not isinstance(parsed, dict):
         raise TypeError("starting_state must be a JSON object")
+    if section_name == "foundation" and not isinstance(parsed, dict):
+        raise TypeError("foundation must be a JSON object")
     draft["sections"][section_name] = parsed
     draft["finalized"] = False
     draft.pop("finalized_template", None)
@@ -265,13 +389,17 @@ def draft_status(draft_id: str) -> Dict[str, Any]:
     draft = _read(draft_id)
     sections = draft.get("sections", {})
     characters = sections.get("characters", [])
-    missing = [name for name in REQUIRED_SECTIONS if name not in sections]
+    required = list(REQUIRED_SECTIONS)
+    if int(draft.get("version", 1) or 1) >= 2:
+        required.append("foundation")
+    missing = [name for name in required if name not in sections]
     blocker = None
+    coverage = None
 
     base_ready = not missing and isinstance(characters, list) and len(characters) > 0
     if base_ready:
         try:
-            _validate_starting_state(_build_template(draft))
+            _normalized, coverage = _validate_template(_build_template(draft))
         except ValueError as exc:
             blocker = str(exc)
 
@@ -285,6 +413,7 @@ def draft_status(draft_id: str) -> Dict[str, Any]:
         "character_count": len(characters) if isinstance(characters, list) else 0,
         "ready_to_finalize": base_ready and blocker is None,
         "finalize_blocker": blocker,
+        "foundation_coverage": coverage,
         "finalized": bool(draft.get("finalized")),
         "published_to_library": bool(draft.get("published_to_library")),
     }
@@ -295,7 +424,7 @@ def finalize_draft(draft_id: str) -> Dict[str, Any]:
     status = draft_status(draft_id)
     if not status["ready_to_finalize"]:
         raise ValueError(status.get("finalize_blocker") or "DRAFT_INCOMPLETE")
-    template = _validate_starting_state(_build_template(draft))
+    template, coverage = _validate_template(_build_template(draft))
     verification = verify_template(template)
     if not verification["ok"]:
         raise RuntimeError("FINAL_VERIFICATION_FAILED")
@@ -306,6 +435,7 @@ def finalize_draft(draft_id: str) -> Dict[str, Any]:
         "ok": True,
         "draft_id": draft_id,
         "verification": verification,
+        "foundation_coverage": coverage,
         "saved_to_library": False,
         "instruction": "Draft is verified but NOT added to the library. Read it with prepareDraftRead, then createSessionFromDraft. Publish only on explicit user request.",
     }
@@ -324,15 +454,16 @@ def prepare_draft_read(draft_id: str) -> Dict[str, Any]:
 
 
 def create_session_from_draft(draft_id: str) -> Dict[str, Any]:
-    template = _validate_starting_state(_finalized_template(draft_id))
+    template, coverage = _validate_template(_finalized_template(draft_id))
     meta = storage.create_session(template)
     meta["source_type"] = "session_draft"
+    meta["foundation_coverage"] = coverage
     return meta
 
 
 def publish_draft_to_library(draft_id: str) -> Dict[str, Any]:
     draft = _read(draft_id)
-    template = _finalized_template(draft_id)
+    template, _coverage = _validate_template(_finalized_template(draft_id))
     storage.save_novel(template)
     draft["published_to_library"] = True
     _write(_draft_path(draft_id), draft)
