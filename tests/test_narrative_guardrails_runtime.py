@@ -42,6 +42,17 @@ VALID_SCENE = """🎭 Тест · осень
 Ход 1 · цикл 1/15"""
 
 
+REVIEWED_EMPTY = {
+    "persistence_reviewed": True,
+    "chronology": [],
+    "knowledge_add": [],
+    "experiences_add": [],
+    "dialogue_memory_add": [],
+    "npc_intent_updates": [],
+    "story_thread_updates": [],
+}
+
+
 def _setup_temp_storage(tmp: str):
     storage.DATA_DIR = Path(tmp)
     storage.LIBRARY_DIR = storage.DATA_DIR / "library"
@@ -59,12 +70,19 @@ def test_scene_format_rejects_missing_exact_option_count():
         guardrails._validate_scene_output(broken)
 
 
-def test_turn_commit_model_enforces_scene_builder_format_at_api_boundary():
+def test_turn_commit_model_enforces_scene_builder_and_story_review_at_api_boundary():
     broken = VALID_SCENE.replace("Что я могу подумать:", "Мысли:")
     with pytest.raises(ValidationError, match="SCENE_FORMAT_INVALID"):
-        TurnCommit(user_input="тест", scene_output=broken, extracted={})
-    model = TurnCommit(user_input="тест", scene_output=VALID_SCENE, extracted={})
+        TurnCommit(user_input="тест", scene_output=broken, extracted=REVIEWED_EMPTY)
+    with pytest.raises(ValidationError, match="story_thread_updates"):
+        TurnCommit(
+            user_input="тест",
+            scene_output=VALID_SCENE,
+            extracted={key: value for key, value in REVIEWED_EMPTY.items() if key != "story_thread_updates"},
+        )
+    model = TurnCommit(user_input="тест", scene_output=VALID_SCENE, extracted=REVIEWED_EMPTY)
     assert model.scene_output == VALID_SCENE
+    assert model.extracted.story_thread_updates == []
 
 
 def test_cast_pressure_surfaces_long_absent_important_npc_and_intent():
@@ -179,6 +197,7 @@ def test_prepare_turn_packet_contains_noncanonical_narrative_guardrails():
         assert signals["npc_intent_drive"]["mandatory"] is True
         assert signals["scene_momentum"]["mandatory"] is True
         assert signals["scene_momentum"]["ending_required"] is True
+        assert signals["story_drive"]["mandatory"] is True
         assert isinstance(signals["cast_pressure"], list)
         assert isinstance(signals["story_pressure"], list)
         assert isinstance(signals["character_relevance"], list)

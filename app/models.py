@@ -1,5 +1,5 @@
 from typing import Any, Dict, List, Optional
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from .scene_format import validate_scene_output
 
@@ -50,10 +50,59 @@ class SessionMeta(BaseModel):
     handoff_generation: int = 0
 
 
+class StoryThreadUpdate(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    thread_id: str
+    operation: Optional[str] = None
+    title: Optional[str] = None
+    summary: Optional[str] = None
+    status: Optional[str] = None
+    priority: Any = None
+    premise: Optional[str] = None
+    current_goal: Optional[str] = None
+    current_phase: Optional[str] = None
+    unresolved: Optional[List[Any]] = None
+    end_conditions: Optional[List[Any]] = None
+    possible_routes: Optional[List[Any]] = None
+    anchor_facts: Optional[List[Any]] = None
+    participants: Optional[List[str]] = None
+    next_eligible_game_day: Optional[int] = Field(default=None, ge=0)
+    progressed_now: Optional[bool] = None
+    progress_summary: Optional[str] = None
+    resolution: Optional[str] = None
+
+    @field_validator("operation")
+    @classmethod
+    def operation_must_be_supported(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return value
+        normalized = value.casefold().strip()
+        if normalized not in {"upsert", "resolve", "abandon"}:
+            raise ValueError("story thread operation must be upsert, resolve or abandon")
+        return normalized
+
+
+class TurnExtracted(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    persistence_reviewed: bool
+    chronology: List[Dict[str, Any]]
+    knowledge_add: List[Dict[str, Any]]
+    experiences_add: List[Dict[str, Any]]
+    dialogue_memory_add: List[Dict[str, Any]]
+    npc_intent_updates: List[Dict[str, Any]]
+    story_thread_updates: List[StoryThreadUpdate]
+    presence_updates: Optional[List[Dict[str, Any]]] = None
+    relationship_updates: Optional[List[Dict[str, Any]]] = None
+    state_patch: Dict[str, Any] = Field(default_factory=dict)
+    character_upserts: Optional[List[Dict[str, Any]]] = None
+
+
 class TurnCommit(BaseModel):
     user_input: str
     scene_output: str
-    extracted: Dict[str, Any] = Field(default_factory=dict)
+    extracted: TurnExtracted
 
     @field_validator("scene_output")
     @classmethod

@@ -38,6 +38,8 @@ Each session keeps:
 - current state and presence;
 - persistent directional NPC -> POV relationships;
 - per-character personal memory;
+- persistent NPC intents;
+- persistent active story threads;
 - chronology;
 - full raw turn archive;
 - audits.
@@ -54,17 +56,19 @@ Continuation text:
 
 `CONTINUE SESSION: <session_id>`
 
-The new chat calls `resumeSession` for that same id. The next `prepareTurn` reloads current state, memory, chronology, character registry, relationships and runtime directly from persistent storage.
+The new chat calls `resumeSession` for that same id. The next `prepareTurn` reloads current state, memory, chronology, character registry, relationships, NPC intents, story threads and runtime directly from persistent storage.
 
 ## Runtime invariants
 
 - `scene_builder` remains the scene-format authority.
 - Character card/source/chronology are author truth, not automatic character knowledge.
 - Personal knowledge is stored per character.
-- Relationships are `NPC -> POV`, persist across absences, and use `relationship_lens + relationship_contract` as the authoritative model.
+- Relationships are `NPC -> POV`, persist across absences, and use `relationship_lens` as the authoritative model.
 - A relationship changed for an NPC who leaves before the visible footer can be persisted through `extracted.relationship_updates` without displaying an absent NPC.
+- Durable NPC questions/plans use `npc_intent_updates`; bounded live plot events use `story_thread_updates` and persist in `state.threads`.
+- The final writer packet includes mandatory narrative guardrails, including POV activity, NPC intent drive, scene momentum and story drive.
 - Audit chronology/memory repairs must keep the original turn where the event or knowledge actually occurred.
 
 ## Custom GPT
 
-Use `/openapi.json` as the Action schema and the current instructions in `gpt/custom_gpt_instructions.md`. Runtime contracts are also delivered in full inside the turn packets.
+Use `/openapi.json` as the Action schema and the current instructions in `gpt/custom_gpt_instructions.md`. Runtime contracts and final narrative guardrails are delivered inside the turn packets.
