@@ -9,9 +9,9 @@ from .memory_integrity_runtime import install as _install_memory_integrity_runti
 from .character_chunk_read import install as _install_character_chunk_read
 from .transport_scope_runtime import install as _install_transport_scope_runtime
 from .npc_intent_runtime import install as _install_npc_intent_runtime
-from .story_thread_runtime import install as _install_story_thread_runtime
 from .writer_first_runtime import install as _install_writer_first_runtime
 from .narrative_guardrails_runtime import install as _install_narrative_guardrails_runtime
+from .story_thread_runtime import install as _install_story_thread_runtime
 from .fast_audit_runtime import install as _install_fast_audit_runtime
 from .resume_compact_runtime import install as _install_resume_compact_runtime
 
@@ -26,9 +26,9 @@ _install_memory_integrity_runtime()
 _install_character_chunk_read()
 _install_transport_scope_runtime()
 _install_npc_intent_runtime()
-_install_story_thread_runtime()
 _install_writer_first_runtime()
 _install_narrative_guardrails_runtime()
+_install_story_thread_runtime()
 _install_fast_audit_runtime()
 _install_resume_compact_runtime()
 del _install_runtime_fixes
@@ -42,8 +42,8 @@ del _install_memory_integrity_runtime
 del _install_character_chunk_read
 del _install_transport_scope_runtime
 del _install_npc_intent_runtime
-del _install_story_thread_runtime
 del _install_writer_first_runtime
 del _install_narrative_guardrails_runtime
+del _install_story_thread_runtime
 del _install_fast_audit_runtime
 del _install_resume_compact_runtime
