@@ -1,7 +1,12 @@
+import json
+import tempfile
+from pathlib import Path
+
 import pytest
 from pydantic import ValidationError
 
 from app import narrative_guardrails_runtime as guardrails
+from app import session_runtime, storage
 from app.models import TurnCommit
 
 
@@ -35,6 +40,13 @@ VALID_SCENE = """🎭 Тест · осень
 Лиам - доверие 2
 
 Ход 1 · цикл 1/15"""
+
+
+def _setup_temp_storage(tmp: str):
+    storage.DATA_DIR = Path(tmp)
+    storage.LIBRARY_DIR = storage.DATA_DIR / "library"
+    storage.SESSIONS_DIR = storage.DATA_DIR / "sessions"
+    storage.ensure_dirs()
 
 
 def test_valid_scene_format_is_accepted():
@@ -100,3 +112,40 @@ def test_character_relevance_extracts_existing_card_hooks_without_inventing_hist
     assert "замкнутые пространства" in facts
     assert "не просит помощи" in facts
     assert "короткие" not in facts
+
+
+def test_prepare_turn_packet_contains_noncanonical_narrative_guardrails():
+    with tempfile.TemporaryDirectory() as tmp:
+        _setup_temp_storage(tmp)
+        novel = {
+            "novel_id": "guardrail_packet",
+            "title": "Guardrail Packet",
+            "novel": {"pov_character": "elena"},
+            "characters": [
+                {
+                    "character_id": "elena",
+                    "name": "Елена",
+                    "is_pov": True,
+                    "psychology": {"fears": ["замкнутые пространства"]},
+                },
+                {"character_id": "liam", "name": "Лиам", "role": "major"},
+            ],
+            "lore": {},
+            "starting_state": {
+                "current": {"location": "база", "present_characters": ["elena"]},
+            },
+        }
+        sid = storage.create_session(novel)["session_id"]
+        packet = session_runtime.prepare_turn_packet(sid, "Осмотреться")
+        parts = [packet["content"]]
+        for index in range(1, packet["chunk_count"]):
+            parts.append(storage.get_turn_packet_chunk(sid, packet["packet_id"], index)["content"])
+        context = json.loads("".join(parts))
+
+        assert packet["narrative_guardrails"] is True
+        signals = context["narrative_guardrails"]
+        assert signals["version"] == 1
+        assert isinstance(signals["cast_pressure"], list)
+        assert isinstance(signals["story_pressure"], list)
+        assert isinstance(signals["character_relevance"], list)
+        assert "not canon" in signals["instruction"]
