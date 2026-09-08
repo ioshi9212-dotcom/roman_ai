@@ -40,8 +40,8 @@ from .turn_rollback import RollbackError, rollback_last_turn
 
 app = FastAPI(
     title="Roman AI",
-    version="1.9.3",
-    description="Persistent isolated novel sessions with response-safe scene-scoped context, runtime rules, character cards, memory, chronology, relationships, recovery, rollback and audits.",
+    version="1.10.0",
+    description="Persistent isolated novel sessions with bounded writer-first context, runtime rules, character cards, memory, chronology, relationships, NPC intents, persistent story threads, recovery, rollback and audits.",
 )
 
 
