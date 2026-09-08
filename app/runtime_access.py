@@ -10,14 +10,6 @@ from . import storage
 RUNTIME_DIR = Path(__file__).resolve().parent.parent / "runtime"
 RUNTIME_VERSION = "2.0.0-writer-first"
 PUBLIC_RUNTIME_FILES = ("rules.md", "scene_builder.md")
-_INTERNAL_COMPAT_KEYS = (
-    "pov_contract",
-    "npc_agency_contract",
-    "relationship_contract",
-    "presence_contract",
-    "memory_contract",
-    "continuity_contract",
-)
 
 
 def runtime_documents() -> Dict[str, str]:
@@ -27,11 +19,6 @@ def runtime_documents() -> Dict[str, str]:
         if not path.exists():
             raise RuntimeError(f"RUNTIME_FILE_MISSING:{name}")
         result[name.removesuffix(".md")] = path.read_text(encoding="utf-8")
-    # Older internal context builders still reference these names before the
-    # writer-first transport layer strips them. Keep empty slots so mechanics
-    # stay compatible without sending duplicate contracts to the model.
-    for key in _INTERNAL_COMPAT_KEYS:
-        result[key] = ""
     return result
 
 
