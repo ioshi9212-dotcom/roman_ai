@@ -9,7 +9,7 @@ from .transactional_storage import session_transaction
 
 
 _ORIGINAL_PREPARE = None
-_GUARDRAIL_VERSION = 1
+_GUARDRAIL_VERSION = 2
 _TERMINAL = {"resolved", "closed", "expired", "cancelled", "canceled", "done", "abandoned"}
 _HOOK_KEYS = (
     "fear", "страх", "weak", "слаб", "past", "прошл", "history", "истор",
@@ -177,6 +177,36 @@ def _character_relevance(context: Dict[str, Any]) -> List[Dict[str, Any]]:
     return result[:5]
 
 
+def _pov_activity_rule() -> Dict[str, Any]:
+    return {
+        "mandatory": True,
+        "ordinary_dialogue_expected": True,
+        "multiple_pov_lines_allowed": True,
+        "allowed_without_player_input": [
+            "бытовой или нейтральный ответ",
+            "шутка, сарказм, подкол или огрызание по характеру",
+            "очевидный вопрос из доступных POV фактов",
+            "комментарий к происходящему",
+            "несколько обычных реплик в продолжающемся разговоре",
+            "мелкая реакция, мысль, движение или завершение уже выбранного действия",
+        ],
+        "reserved_for_player": [
+            "согласие или отказ с заметными последствиями",
+            "обещание, признание или сознательная ложь",
+            "раскрытие секрета или важной тайны",
+            "выбор стороны, серьёзный риск или существенная тактика",
+            "сексуальное согласие",
+            "решение или реплика, заметно меняющие сюжет, конфликт или отношения",
+        ],
+        "instruction": (
+            "После выполнения user_input POV не выключается из сцены. В обычном разговоре продолжай его голос самостоятельно по характеру и ситуации. "
+            "Не заканчивай ход только потому, что NPC задал обычный вопрос: если ответ не является значимым выбором, напиши ответ и продолжи обмен. "
+            "POV может говорить несколько раз за один ход. Не своди его к кивкам, молчанию, однословным ответам или описанию тела из осторожности. "
+            "Не придумывай за POV секреты, обязательства, признания, сознательную ложь или решения с заметными последствиями: перед таким выбором остановись для игрока."
+        ),
+    }
+
+
 def _rewrite_packet(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
     root = storage.SESSIONS_DIR / session_id
     with session_transaction(root):
@@ -196,10 +226,14 @@ def _rewrite_packet(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
         current_turn = max(0, int(packet.get("prepared_for_turn", 1) or 1) - 1)
         context["narrative_guardrails"] = {
             "version": _GUARDRAIL_VERSION,
+            "pov_activity": _pov_activity_rule(),
             "cast_pressure": _cast_pressure(context, state if isinstance(state, dict) else {}, current_turn),
             "story_pressure": _story_pressure(context, current_turn),
             "character_relevance": _character_relevance(context),
-            "instruction": "These are soft anti-forgetting signals, not canon and not mandatory beats. Prefer causal, natural use; never invent past events.",
+            "instruction": (
+                "pov_activity is a mandatory participation rule. cast_pressure, story_pressure and character_relevance are soft anti-forgetting signals, not canon or mandatory beats. "
+                "Prefer causal, natural use and never invent past events."
+            ),
         }
 
         text = json.dumps(context, ensure_ascii=False, separators=(",", ":"))
