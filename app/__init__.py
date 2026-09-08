@@ -1,4 +1,3 @@
-from .storage_compat_runtime import install as _install_storage_compat
 from .runtime_fixes_compat import install as _install_runtime_fixes
 from .relationship_growth_runtime import install as _install_relationship_growth_runtime
 from .scene_presence_runtime import install as _install_scene_presence
@@ -14,7 +13,6 @@ from .writer_first_runtime import install as _install_writer_first_runtime
 from .fast_audit_runtime import install as _install_fast_audit_runtime
 from .resume_compact_runtime import install as _install_resume_compact_runtime
 
-_install_storage_compat()
 _install_runtime_fixes()
 _install_relationship_growth_runtime()
 _install_scene_presence()
@@ -29,7 +27,6 @@ _install_npc_intent_runtime()
 _install_writer_first_runtime()
 _install_fast_audit_runtime()
 _install_resume_compact_runtime()
-del _install_storage_compat
 del _install_runtime_fixes
 del _install_relationship_growth_runtime
 del _install_scene_presence
