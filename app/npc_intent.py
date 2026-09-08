@@ -51,6 +51,8 @@ def normalise_intent(raw: Any, *, character_id: str, current_turn: int, current_
         "created_game_day": _turn(raw.get("created_game_day")) or current_game_day,
         "last_pursued_turn": _turn(raw.get("last_pursued_turn")),
         "last_pursued_game_day": _turn(raw.get("last_pursued_game_day")),
+        "attempt_count": _turn(raw.get("attempt_count")),
+        "last_outcome": _text(raw.get("last_outcome")),
         "next_eligible_game_day": _turn(raw.get("next_eligible_game_day")),
         "target_character_id": _text(raw.get("target_character_id"), 120),
         "trigger": _text(raw.get("trigger")),
@@ -103,17 +105,27 @@ def apply_updates(state: Dict[str, Any], updates: Any, *, current_turn: int) -> 
         if operation in {"resolve", "resolved", "close", "closed", "abandon", "abandoned", "cancel", "cancelled", "canceled", "supersede", "superseded"}:
             if existing is None:
                 continue
+            resolution = _text(raw.get("resolution"))
+            if not resolution:
+                # A terminal operation without a concrete outcome must not silently erase an NPC-owned motive.
+                if raw.get("pursued_now") is True:
+                    existing["last_pursued_turn"] = current_turn
+                    existing["last_pursued_game_day"] = current_game_day
+                    existing["attempt_count"] = _turn(existing.get("attempt_count")) + 1
+                    existing["last_outcome"] = _text(raw.get("last_outcome") or "attempted_without_resolution")
+                continue
             existing["status"] = "resolved" if operation.startswith(("resolv", "clos")) else "abandoned"
             existing["resolved_turn"] = current_turn
             existing["resolved_game_day"] = current_game_day
-            if raw.get("resolution"):
-                existing["resolution"] = _text(raw.get("resolution"))
+            existing["resolution"] = resolution
             continue
         base = deepcopy(existing) if existing is not None else {"intent_id": intent_id, "character_id": character_id}
         base.update({key: deepcopy(value) for key, value in raw.items() if key not in {"operation", "action"}})
         if raw.get("pursued_now") is True:
             base["last_pursued_turn"] = current_turn
             base["last_pursued_game_day"] = current_game_day
+            base["attempt_count"] = _turn(base.get("attempt_count")) + 1
+            base["last_outcome"] = _text(raw.get("last_outcome") or "attempted_without_resolution")
         item = normalise_intent(base, character_id=character_id, current_turn=current_turn, current_game_day=current_game_day)
         if item is None:
             continue
