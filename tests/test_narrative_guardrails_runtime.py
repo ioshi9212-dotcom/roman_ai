@@ -132,6 +132,22 @@ def test_character_relevance_extracts_existing_card_hooks_without_inventing_hist
     assert "короткие" not in facts
 
 
+def test_character_driven_behavior_has_no_psychology_or_boundary_filter():
+    rule = guardrails._character_driven_behavior_rule()
+    assert rule["mandatory"] is True
+    assert rule["no_psychological_correctness_filter"] is True
+    assert rule["no_boundary_compliance_filter"] is True
+    allowed = " ".join(rule["allowed_when_character_driven"])
+    forbidden = " ".join(rule["forbidden_respectability_narration"])
+    instruction = rule["instruction"]
+    assert "поцеловать без предварительного вопроса" in allowed
+    assert "решить что-то за POV" in allowed
+    assert "он не коснулся её, хотя мог" in forbidden
+    assert "оставил ей пространство" in forbidden
+    assert "Не пропускай его решения через авторский фильтр" in instruction
+    assert "реакция POV остаётся игроку" in instruction
+
+
 def test_npc_intent_drive_treats_evasion_as_unresolved():
     context = {
         "npc_active_intents": {
@@ -191,9 +207,11 @@ def test_prepare_turn_packet_contains_noncanonical_narrative_guardrails():
 
         assert packet["narrative_guardrails"] is True
         signals = context["narrative_guardrails"]
-        assert signals["version"] == 4
+        assert signals["version"] == 5
         assert signals["pov_activity"]["mandatory"] is True
         assert signals["pov_activity"]["ordinary_dialogue_expected"] is True
+        assert signals["character_driven_behavior"]["mandatory"] is True
+        assert signals["character_driven_behavior"]["no_boundary_compliance_filter"] is True
         assert signals["npc_intent_drive"]["mandatory"] is True
         assert signals["scene_momentum"]["mandatory"] is True
         assert signals["scene_momentum"]["ending_required"] is True
@@ -201,4 +219,5 @@ def test_prepare_turn_packet_contains_noncanonical_narrative_guardrails():
         assert isinstance(signals["cast_pressure"], list)
         assert isinstance(signals["story_pressure"], list)
         assert isinstance(signals["character_relevance"], list)
+        assert "character_driven_behavior" in signals["instruction"]
         assert "not canon" in signals["instruction"]
