@@ -93,10 +93,20 @@ class TurnExtracted(BaseModel):
     dialogue_memory_add: List[Dict[str, Any]]
     npc_intent_updates: List[Dict[str, Any]]
     story_thread_updates: List[StoryThreadUpdate]
-    presence_updates: Optional[List[Dict[str, Any]]] = None
-    relationship_updates: Optional[List[Dict[str, Any]]] = None
+    presence_updates: Optional[List[Dict[str, Any]]] = Field(default_factory=list)
+    relationship_updates: Optional[List[Dict[str, Any]]] = Field(default_factory=list)
     state_patch: Dict[str, Any] = Field(default_factory=dict)
-    character_upserts: Optional[List[Dict[str, Any]]] = None
+    character_upserts: Optional[List[Dict[str, Any]]] = Field(default_factory=list)
+
+    @field_validator(
+        "presence_updates",
+        "relationship_updates",
+        "character_upserts",
+        mode="before",
+    )
+    @classmethod
+    def nullable_optional_lists_become_empty(cls, value: Any):
+        return [] if value is None else value
 
 
 class TurnCommit(BaseModel):
