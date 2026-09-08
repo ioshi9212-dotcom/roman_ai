@@ -233,7 +233,10 @@ def _with_story_patch(session_id: str, payload: Dict[str, Any], *, audit: bool =
     container = result.get(container_key) if isinstance(result.get(container_key), dict) else {}
     updates = container.get("story_thread_updates")
 
-    if not audit:
+    # Legacy saved turns and internal replay paths predate story_thread_updates.
+    # The new public Actions contract always supplies the array (possibly empty),
+    # so hard stagnation enforcement applies to new gameplay without breaking rollback replay.
+    if not audit and isinstance(updates, list):
         streak = trailing_stagnant_turns(root)
         if streak >= _STAGNATION_LIMIT and not _container_has_progress(container, str(result.get("scene_output") or "")):
             _progress_required_error(streak)
@@ -249,6 +252,21 @@ def _with_story_patch(session_id: str, payload: Dict[str, Any], *, audit: bool =
     container["state_patch"] = patch
     result[container_key] = container
     return result
+
+
+def _clean_relationship_policy(context: Dict[str, Any]) -> None:
+    policy = context.get("relationship_policy")
+    if not isinstance(policy, dict):
+        return
+    policy = deepcopy(policy)
+    policy["source_of_truth"] = "relationship_lens"
+    for key in ("instruction", "authoritative_start_snapshot_note"):
+        value = policy.get(key)
+        if isinstance(value, str):
+            value = value.replace("relationship_lens + relationship_contract", "relationship_lens")
+            value = value.replace("relationship_lens and relationship_contract", "relationship_lens")
+            policy[key] = value
+    context["relationship_policy"] = policy
 
 
 def _rewrite_story_drive(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
@@ -274,11 +292,13 @@ def _rewrite_story_drive(session_id: str, base: Dict[str, Any]) -> Dict[str, Any
         guardrails["instruction"] = (
             "pov_activity, npc_intent_drive, scene_momentum and story_drive are mandatory behavior rules. "
             "story_pressure items marked must_advance_or_causally_pause are mandatory to address. "
-            "cast_pressure and character_relevance are soft anti-forgetting signals. Prefer causal, natural use and never invent past events."
+            "cast_pressure and character_relevance are soft anti-forgetting signals, not canon or mandatory beats. "
+            "Prefer causal, natural use and never invent past events."
         ) if prior_instruction else (
-            "story_drive is mandatory. Use causal existing material, not random events."
+            "story_drive is mandatory. Other anti-forgetting signals are not canon. Use causal existing material, not random events."
         )
         context["narrative_guardrails"] = guardrails
+        _clean_relationship_policy(context)
 
         text = json.dumps(context, ensure_ascii=False, separators=(",", ":"))
         size = writer_first_runtime.WRITER_PACKET_CHARS
