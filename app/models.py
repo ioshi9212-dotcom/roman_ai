@@ -83,6 +83,7 @@ class StoryThreadUpdate(BaseModel):
     end_conditions: Optional[List[Any]] = None
     possible_routes: Optional[List[Any]] = None
     anchor_facts: Optional[List[Any]] = None
+    pillar_ids: Optional[List[str]] = None
     participants: Optional[List[str]] = None
     next_eligible_game_day: Optional[int] = Field(default=None, ge=0)
     progressed_now: Optional[bool] = None
