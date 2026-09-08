@@ -1,8 +1,8 @@
 openapi: 3.1.0
 info:
   title: Roman AI
-  version: 1.9.3
-  description: Persistent isolated novel sessions with bounded writer-first context, transactional memory and NPC intents, recovery, rollback and fast 15-turn audits.
+  version: 1.10.0
+  description: Persistent isolated novel sessions with bounded writer-first context, transactional memory, NPC intents and story threads, recovery, rollback and fast 15-turn audits.
 servers:
   - url: https://romanai-production-0fdb.up.railway.app
 components:
@@ -94,6 +94,41 @@ components:
         pursued_now: {type: boolean}
         resolution: {type: string}
       additionalProperties: true
+    StoryThreadUpdate:
+      type: object
+      required: [thread_id]
+      properties:
+        thread_id: {type: string}
+        operation:
+          type: string
+          enum: [upsert, resolve, abandon]
+        title: {type: string}
+        summary: {type: string}
+        status: {type: string}
+        priority: {}
+        premise: {type: string}
+        current_goal: {type: string}
+        current_phase: {type: string}
+        unresolved:
+          type: array
+          items: {}
+        end_conditions:
+          type: array
+          items: {}
+        possible_routes:
+          type: array
+          items: {}
+        anchor_facts:
+          type: array
+          items: {}
+        participants:
+          type: array
+          items: {type: string}
+        next_eligible_game_day: {type: integer, minimum: 0}
+        progressed_now: {type: boolean}
+        progress_summary: {type: string}
+        resolution: {type: string}
+      additionalProperties: true
     TurnCommit:
       type: object
       required: [user_input, scene_output, extracted]
@@ -102,7 +137,7 @@ components:
         scene_output: {type: string}
         extracted:
           type: object
-          required: [persistence_reviewed, chronology, knowledge_add, experiences_add, dialogue_memory_add, npc_intent_updates]
+          required: [persistence_reviewed, chronology, knowledge_add, experiences_add, dialogue_memory_add, npc_intent_updates, story_thread_updates]
           properties:
             persistence_reviewed: {type: boolean}
             chronology:
@@ -121,6 +156,10 @@ components:
               type: array
               description: Durable NPC-owned follow-ups, suspicions, promises, investigations, plans or blocked goals; use empty array when none changed.
               items: {$ref: '#/components/schemas/NPCIntentUpdate'}
+            story_thread_updates:
+              type: array
+              description: Persistent lifecycle updates for live bounded plot events. Use empty array after review when no thread changed.
+              items: {$ref: '#/components/schemas/StoryThreadUpdate'}
             presence_updates:
               type: array
               description: Explicit scene transitions. Omission preserves the start roster; only leave removes a present character.
@@ -399,7 +438,7 @@ paths:
     post:
       operationId: commitTurn
       summary: Save one complete turn after required writer chunks were read
-      description: Transactionally persists turn, state, cards, personal memory, chronology, relationships and NPC intent state. Presence changes only through structural updates.
+      description: Transactionally persists turn, state, cards, personal memory, chronology, relationships, NPC intents and persistent story-thread state. After three consecutive static turns a fourth static commit is rejected.
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
       requestBody:
@@ -409,7 +448,7 @@ paths:
             schema: {$ref: '#/components/schemas/TurnCommit'}
       responses:
         '200': {description: Turn committed}
-        '409': {description: Audit, packet reading, persistence review, relationship, presence, knowledge or current-state validation incomplete}
+        '409': {description: Audit, packet reading, persistence review, relationship, presence, knowledge, current-state or story-progress validation incomplete}
   /sessions/{session_id}/audit:
     post:
       operationId: commitAudit
