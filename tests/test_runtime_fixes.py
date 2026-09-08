@@ -69,7 +69,8 @@ def test_turn_packet_uses_one_relationship_model():
         packet = read_turn_packet(sid, "test")
 
         policy = packet["relationship_policy"]
-        assert policy["source_of_truth"] == "relationship_lens + relationship_contract"
+        assert policy["source_of_truth"] == "relationship_lens"
+        assert "relationship_contract" not in str(policy)
         assert "metric_names_locked" not in policy
         assert policy["authoritative_start_snapshot"]["adrian"]["metrics"] == {
             "симпатия": 10
