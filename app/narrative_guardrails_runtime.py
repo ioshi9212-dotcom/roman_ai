@@ -9,7 +9,7 @@ from .transactional_storage import session_transaction
 
 
 _ORIGINAL_PREPARE = None
-_GUARDRAIL_VERSION = 4
+_GUARDRAIL_VERSION = 5
 _TERMINAL = {"resolved", "closed", "expired", "cancelled", "canceled", "done", "abandoned"}
 _HOOK_KEYS = (
     "fear", "страх", "weak", "слаб", "past", "прошл", "history", "истор",
@@ -207,6 +207,52 @@ def _pov_activity_rule() -> Dict[str, Any]:
     }
 
 
+def _character_driven_behavior_rule() -> Dict[str, Any]:
+    return {
+        "mandatory": True,
+        "no_psychological_correctness_filter": True,
+        "no_boundary_compliance_filter": True,
+        "drivers": [
+            "характер и прошлое конкретного NPC",
+            "его цели, желания и выгода",
+            "отношения к POV и другим персонажам",
+            "знания, настроение и текущая ситуация",
+        ],
+        "allowed_when_character_driven": [
+            "подойти ближе или нарушить дистанцию",
+            "коснуться, удержать или схватить",
+            "поцеловать без предварительного вопроса",
+            "решить что-то за POV или вмешаться",
+            "надавить, ревновать, солгать, ошибиться или быть уверенным в собственной неправоте",
+            "сделать то, что POV может не понравиться",
+        ],
+        "forbidden_authorial_filters": [
+            "здоровая коммуникация как обязательная норма",
+            "уважение границ как автоматическая причина поведения",
+            "комфорт или безопасность POV как скрытый приоритет автора",
+            "моральная или терапевтическая правильность вместо характера персонажа",
+        ],
+        "forbidden_respectability_narration": [
+            "он не коснулся её, хотя мог",
+            "он оставил ей пространство",
+            "он не стал давить",
+            "он ждал, пока она сама решит",
+            "объяснение или похвала поведения через границы, правильность или психологию",
+        ],
+        "player_boundary": (
+            "NPC может инициировать неприятное, навязчивое или физическое действие, если это естественно для него. "
+            "Не выбирай за POV его реакцию, значимое согласие/отказ или другое решение с последствиями."
+        ),
+        "instruction": (
+            "Пиши NPC изнутри его характера, целей, желаний, выгоды, отношений, знаний и ситуации. Не пропускай его решения через авторский фильтр психологии, здоровой коммуникации, границ, комфорта POV или того, как было бы правильно поступить. "
+            "Если конкретный NPC по своим причинам хочет подойти, коснуться, схватить, вмешаться, надавить, решить за POV или поцеловать без предварительного вопроса, это допустимое действие персонажа; реакция POV остаётся игроку. "
+            "NPC не обязан нарушать границы: отказ от действия тоже должен идти из его характера, желания, страха, расчёта или ситуации, а не из авторской правильности. "
+            "Не выделяй отсутствующее действие как добродетель или романтический знак. Не пиши формулы вроде 'он не коснулся её, хотя мог', 'оставил ей пространство', 'не стал давить', 'ждал, пока она сама решит', если именно эта сдержанность не является конкретным важным поступком данного персонажа. "
+            "Показывай то, что реально произошло, без психологического, морального или терапевтического комментария."
+        ),
+    }
+
+
 def _npc_intent_drive_rule(context: Dict[str, Any]) -> Dict[str, Any]:
     active = context.get("npc_active_intents")
     active = active if isinstance(active, dict) else {}
@@ -298,13 +344,14 @@ def _rewrite_packet(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
         context["narrative_guardrails"] = {
             "version": _GUARDRAIL_VERSION,
             "pov_activity": _pov_activity_rule(),
+            "character_driven_behavior": _character_driven_behavior_rule(),
             "npc_intent_drive": _npc_intent_drive_rule(context),
             "scene_momentum": _scene_momentum_rule(),
             "cast_pressure": _cast_pressure(context, state if isinstance(state, dict) else {}, current_turn),
             "story_pressure": _story_pressure(context, current_turn),
             "character_relevance": _character_relevance(context),
             "instruction": (
-                "pov_activity, npc_intent_drive and scene_momentum are mandatory behavior rules. "
+                "pov_activity, character_driven_behavior, npc_intent_drive and scene_momentum are mandatory behavior rules. "
                 "cast_pressure, story_pressure and character_relevance are soft anti-forgetting signals, not canon or mandatory beats. "
                 "Prefer causal, natural use and never invent past events."
             ),
