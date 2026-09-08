@@ -98,6 +98,16 @@ class TurnExtracted(BaseModel):
     state_patch: Dict[str, Any] = Field(default_factory=dict)
     character_upserts: Optional[List[Dict[str, Any]]] = None
 
+    @field_validator(
+        "presence_updates",
+        "relationship_updates",
+        "character_upserts",
+        mode="before",
+    )
+    @classmethod
+    def nullable_optional_lists_become_empty(cls, value: Any):
+        return [] if value is None else value
+
 
 class TurnCommit(BaseModel):
     user_input: str
