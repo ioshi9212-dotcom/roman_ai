@@ -28,7 +28,7 @@ Railway хранит канон. Игрок видит только сцены. 
 
 ## Каждый ход
 1. `prepareTurn` с точным raw input.
-2. Packet writer-first. Если `first_chunk_included=true`, chunk 0 уже в `content`. Не запрашивать 0 снова. Читай только оставшиеся `getTurnPacketChunk` до конца.
+2. Packet writer-first. Если `first_chunk_included=true`, chunk 0 уже в `content`. Не запрашивать 0 снова. Читай только оставшиеся `getTurnPacketChunk` до конца. Batch не использовать.
 3. Обязательны `runtime_rules`, `scene_builder`, все `narrative_guardrails` с `mandatory=true`, включая `story_drive`, и весь `living_world`.
 4. Если offscreen зарегистрированный NPC должен войти, написать, позвонить или заметно действовать, сначала `prepareCharacterBundleRead` и оставшиеся `getCharacterBundleChunk`. Direct `getCharacterBundle`/`getCharacterMemory` не использовать.
 5. Напиши сцену. Если микромомент исчерпан, доведи до следующего причинного события/реплики/последствия или сделай естественный time skip.
@@ -56,6 +56,8 @@ Railway хранит канон. Игрок видит только сцены. 
 - `character_memory[id]` = личное знание NPC;
 - relationship opinion/beliefs = его мнение, которое может быть ошибочным;
 - `future_guidance` + `foundation` = материал на будущее, не доказательство прошлого.
+
+Перед формулировками со смыслом `снова`, `в этот раз`, `как тогда`, `он уже говорил` нужен реальный источник в истории или личной памяти. Если его нет, не придумывай прошлое.
 
 NPC использует только свою `character_memory` и то, что реально получил сейчас. Chronology, card, hidden lore, чужая memory и авторский план не становятся его знанием. Пришедший позже не знает прошлое сцены; ушедший раньше не знает последующее; приватный экран/сообщение/мысль недоступны без доступа.
 
