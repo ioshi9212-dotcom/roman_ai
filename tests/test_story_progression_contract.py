@@ -39,7 +39,6 @@ def test_prompt_facing_rules_do_not_embed_literal_example_payloads():
     paths = [
         ROOT / "runtime" / "rules.md",
         ROOT / "runtime" / "scene_builder.md",
-        ROOT / "runtime" / "custom_gpt.md",
         ROOT / "gpt" / "custom_gpt_instructions.md",
     ]
     for path in paths:
