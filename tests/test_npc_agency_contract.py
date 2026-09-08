@@ -10,7 +10,7 @@ def test_npc_agency_is_kept_in_simple_rules_without_separate_contract():
     assert "Не подменяй это психологически" in rules
     assert "уважение границ" in rules
     assert "поцеловать без предварительного вопроса" in rules
-    assert "реакция POV" in rules
+    assert "Реакция POV" in rules
     assert "он не коснулся её, хотя мог" in rules
     assert "Не оправдывай и не объясняй поведение NPC" in rules
     assert "NPC действуют сами по характеру" in builder
