@@ -50,6 +50,23 @@ class SessionMeta(BaseModel):
     handoff_generation: int = 0
 
 
+class RelationshipDimensionUpdate(BaseModel):
+    label: str
+    value: float
+    delta: Optional[float] = None
+
+
+class RelationshipUpdate(BaseModel):
+    character_id: str
+    dimensions: Optional[List[RelationshipDimensionUpdate]] = None
+    opinion: Optional[str] = None
+    current_dynamic: Optional[str] = None
+    beliefs_about_target: Optional[List[Any]] = None
+    unresolved_between_them: Optional[List[Any]] = None
+    relationship_type: Optional[str] = None
+    relationship_context: Optional[str] = None
+
+
 class StoryThreadUpdate(BaseModel):
     model_config = ConfigDict(extra="allow")
 
@@ -94,7 +111,7 @@ class TurnExtracted(BaseModel):
     npc_intent_updates: List[Dict[str, Any]]
     story_thread_updates: List[StoryThreadUpdate]
     presence_updates: Optional[List[Dict[str, Any]]] = Field(default_factory=list)
-    relationship_updates: Optional[List[Dict[str, Any]]] = Field(default_factory=list)
+    relationship_updates: Optional[List[RelationshipUpdate]] = Field(default_factory=list)
     state_patch: Dict[str, Any] = Field(default_factory=dict)
     character_upserts: Optional[List[Dict[str, Any]]] = Field(default_factory=list)
 
