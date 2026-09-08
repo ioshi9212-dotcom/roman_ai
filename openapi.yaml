@@ -2,7 +2,7 @@ openapi: 3.1.0
 info:
   title: Roman AI
   version: 1.10.0
-  description: Persistent isolated novel sessions with bounded writer-first context, transactional memory, NPC intents and story threads, recovery, rollback and fast 15-turn audits.
+  description: Persistent isolated novel sessions with bounded writer-first context, transactional memory, living NPC relationships, NPC intents, story threads, recovery, rollback and fast 15-turn audits.
 servers:
   - url: https://romanai-production-0fdb.up.railway.app
 components:
@@ -20,7 +20,7 @@ components:
       properties:
         section_name:
           type: string
-          enum: [novel, characters, lore, rules, hidden_lore, world, starting_state, story_direction]
+          enum: [novel, characters, lore, rules, hidden_lore, world, starting_state, story_direction, foundation]
         section_json: {type: string}
     SessionCreate:
       type: object
@@ -62,13 +62,23 @@ components:
       additionalProperties: false
     RelationshipUpdate:
       type: object
-      required: [character_id, dimensions]
+      required: [character_id]
       properties:
         character_id: {type: string}
         dimensions:
           type: array
           minItems: 1
           items: {$ref: '#/components/schemas/RelationshipDimensionUpdate'}
+        opinion: {type: string}
+        current_dynamic: {type: string}
+        beliefs_about_target:
+          type: array
+          items: {}
+        unresolved_between_them:
+          type: array
+          items: {}
+        relationship_type: {type: string}
+        relationship_context: {type: string}
       additionalProperties: false
     NPCIntentUpdate:
       type: object
@@ -121,6 +131,9 @@ components:
         anchor_facts:
           type: array
           items: {}
+        pillar_ids:
+          type: array
+          items: {type: string}
         participants:
           type: array
           items: {type: string}
@@ -166,7 +179,7 @@ components:
               items: {$ref: '#/components/schemas/PresenceUpdate'}
             relationship_updates:
               type: array
-              description: Hidden NPC-to-POV persistence for a participating NPC that changed this turn but is absent at scene end.
+              description: Persist an NPC opinion/beliefs/unresolved dynamic when it changed; dimensions are used only when a participating NPC is absent at scene end.
               items: {$ref: '#/components/schemas/RelationshipUpdate'}
             state_patch: {type: object, additionalProperties: true}
             character_upserts:
