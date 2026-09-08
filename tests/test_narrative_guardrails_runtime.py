@@ -133,6 +133,16 @@ def test_npc_intent_drive_treats_evasion_as_unresolved():
     assert "operation=resolve" in drive["instruction"]
 
 
+def test_scene_momentum_requires_event_or_time_skip_instead_of_static_rest():
+    rule = guardrails._scene_momentum_rule()
+    assert rule["mandatory"] is True
+    assert rule["ending_required"] is True
+    assert any("пропуск времени" in item for item in rule["valid_endings"])
+    assert any("просто лежит" in item for item in rule["invalid_endings"])
+    assert "не заканчивай его статичным отдыхом" in rule["instruction"]
+    assert "time skip" in rule["causality"]
+
+
 def test_prepare_turn_packet_contains_noncanonical_narrative_guardrails():
     with tempfile.TemporaryDirectory() as tmp:
         _setup_temp_storage(tmp)
@@ -163,10 +173,12 @@ def test_prepare_turn_packet_contains_noncanonical_narrative_guardrails():
 
         assert packet["narrative_guardrails"] is True
         signals = context["narrative_guardrails"]
-        assert signals["version"] == 3
+        assert signals["version"] == 4
         assert signals["pov_activity"]["mandatory"] is True
         assert signals["pov_activity"]["ordinary_dialogue_expected"] is True
         assert signals["npc_intent_drive"]["mandatory"] is True
+        assert signals["scene_momentum"]["mandatory"] is True
+        assert signals["scene_momentum"]["ending_required"] is True
         assert isinstance(signals["cast_pressure"], list)
         assert isinstance(signals["story_pressure"], list)
         assert isinstance(signals["character_relevance"], list)

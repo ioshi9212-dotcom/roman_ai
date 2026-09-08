@@ -9,7 +9,7 @@ from .transactional_storage import session_transaction
 
 
 _ORIGINAL_PREPARE = None
-_GUARDRAIL_VERSION = 3
+_GUARDRAIL_VERSION = 4
 _TERMINAL = {"resolved", "closed", "expired", "cancelled", "canceled", "done", "abandoned"}
 _HOOK_KEYS = (
     "fear", "страх", "weak", "слаб", "past", "прошл", "history", "истор",
@@ -245,6 +245,39 @@ def _npc_intent_drive_rule(context: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _scene_momentum_rule() -> Dict[str, Any]:
+    return {
+        "mandatory": True,
+        "ending_required": True,
+        "valid_endings": [
+            "событие, действие или реплика NPC, которые создают следующий живой момент",
+            "сообщение, звонок, новая информация, последствие или вмешательство мира",
+            "естественная встреча, приход, уход, предложение, вопрос, конфликт или изменение ситуации",
+            "значимая точка выбора POV, которую действительно нужно передать игроку",
+            "разумный пропуск времени до следующего содержательного момента, если текущий эпизод уже исчерпан",
+        ],
+        "invalid_endings": [
+            "POV просто лежит, отдыхает, молчит, смотрит в потолок, засыпает или наслаждается тишиной без следующего импульса",
+            "еда, душ, сигарета, кровать, музыка, прогулка или одиночество становятся финальной точкой сами по себе",
+            "финал строится на том, что никто ничего не требует, никто не пришёл и ничего не происходит",
+            "рутина растягивается после того, как её исход уже понятен",
+        ],
+        "anti_therapy": (
+            "Отдых и тишина могут существовать как обычная часть жизни, но не превращай их в эмоциональное лечение, безопасный опыт, заслуженное восстановление или отдельную арку облегчения. "
+            "Если отдых не несёт нового содержания, сожми его и двигай время дальше."
+        ),
+        "causality": (
+            "Не придумывай случайное событие только ради крючка. Следующий импульс бери из уже существующих персонажей, npc_active_intents, active_threads, расписания, последствий, сообщений, обязанностей и логики мира. "
+            "Если сейчас объективно ничего не должно произойти, сделай time skip до момента, когда появляется следующее содержательное действие или событие."
+        ),
+        "instruction": (
+            "Каждая сцена должна закончиться на живой точке продолжения. Если текущий микромомент уже исчерпан, не заканчивай его статичным отдыхом, тишиной или бытовой паузой. "
+            "Либо продвинь сцену до следующего причинного события/реплики/информации, либо сделай естественный пропуск времени к следующему содержательному моменту. "
+            "Не растягивай описание того, как POV постепенно расслабляется, отдыхает, чувствует безопасность или остаётся без требований."
+        ),
+    }
+
+
 def _rewrite_packet(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
     root = storage.SESSIONS_DIR / session_id
     with session_transaction(root):
@@ -266,11 +299,12 @@ def _rewrite_packet(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
             "version": _GUARDRAIL_VERSION,
             "pov_activity": _pov_activity_rule(),
             "npc_intent_drive": _npc_intent_drive_rule(context),
+            "scene_momentum": _scene_momentum_rule(),
             "cast_pressure": _cast_pressure(context, state if isinstance(state, dict) else {}, current_turn),
             "story_pressure": _story_pressure(context, current_turn),
             "character_relevance": _character_relevance(context),
             "instruction": (
-                "pov_activity and npc_intent_drive are mandatory behavior rules. "
+                "pov_activity, npc_intent_drive and scene_momentum are mandatory behavior rules. "
                 "cast_pressure, story_pressure and character_relevance are soft anti-forgetting signals, not canon or mandatory beats. "
                 "Prefer causal, natural use and never invent past events."
             ),
