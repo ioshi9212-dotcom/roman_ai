@@ -1,70 +1,24 @@
 from __future__ import annotations
 
 import json
-import re
-from copy import deepcopy
 from typing import Any, Dict, Iterable, List
 
 from . import session_runtime, storage, writer_first_runtime
+from .scene_format import validate_scene_output
 from .transactional_storage import session_transaction
 
 
 _ORIGINAL_PREPARE = None
-_ORIGINAL_COMMIT = None
 _GUARDRAIL_VERSION = 1
-_SCENE_DIVIDER = "--------------------------------------------------------"
-_OPTION_MARKERS = ("Что я могу сделать:", "Что я могу сказать:", "Что я могу подумать:")
-_TURN_RE = re.compile(r"^Ход\s+\d+\s*·\s*цикл\s+\d+/15\s*$", re.MULTILINE)
-_NUMBERED_RE = re.compile(r"^\s*([1-3])\.\s+\S.*$", re.MULTILINE)
-_REQUIRED_PREFIXES = ("🎭 ", "🕒 День ", "🌦️ Погода:", "⚙️ Сцена:", "✦ ", "🧥 Одежда, волосы:")
 _TERMINAL = {"resolved", "closed", "expired", "cancelled", "canceled", "done", "abandoned"}
-_HOOK_KEYS = ("fear", "страх", "weak", "слаб", "past", "прошл", "history", "истор", "trauma", "травм", "goal", "цель", "secret", "тайн", "profession", "професс", "family", "семь", "background", "биограф")
+_HOOK_KEYS = (
+    "fear", "страх", "weak", "слаб", "past", "прошл", "history", "истор",
+    "trauma", "травм", "goal", "цель", "secret", "тайн", "profession",
+    "професс", "family", "семь", "background", "биограф",
+)
 
-
-def _validate_scene_output(scene_output: Any) -> None:
-    text = str(scene_output or "").strip()
-    errors: List[str] = []
-    if not text:
-        raise RuntimeError("SCENE_FORMAT_INVALID:empty_scene")
-    lines = [line.rstrip() for line in text.splitlines()]
-    nonempty = [line.strip() for line in lines if line.strip()]
-    if not nonempty or not nonempty[0].startswith("🎭 "):
-        errors.append("title_header")
-    for prefix in _REQUIRED_PREFIXES:
-        if not any(line.strip().startswith(prefix) for line in lines):
-            errors.append(prefix.strip())
-    if _SCENE_DIVIDER not in text:
-        errors.append("divider")
-
-    positions = [text.find(marker) for marker in _OPTION_MARKERS]
-    if any(pos < 0 for pos in positions):
-        errors.append("option_sections")
-    elif positions != sorted(positions):
-        errors.append("option_order")
-    else:
-        tails = positions[1:] + [len(text)]
-        for marker, start, end in zip(_OPTION_MARKERS, positions, tails):
-            section = text[start + len(marker):end]
-            nums = [int(match.group(1)) for match in _NUMBERED_RE.finditer(section)]
-            if nums[:3] != [1, 2, 3] or len(nums) != 3:
-                errors.append(f"{marker}exactly_3")
-
-    state_pos = text.find("Состояние:")
-    rel_pos = text.find("Отношения:")
-    turn_match = _TURN_RE.search(text)
-    if state_pos < 0:
-        errors.append("state_footer")
-    if rel_pos < 0:
-        errors.append("relationships_footer")
-    if not turn_match:
-        errors.append("turn_footer")
-    if state_pos >= 0 and rel_pos >= 0 and state_pos > rel_pos:
-        errors.append("footer_order")
-    if rel_pos >= 0 and turn_match and rel_pos > turn_match.start():
-        errors.append("footer_order")
-
-    if errors:
-        raise RuntimeError("SCENE_FORMAT_INVALID:" + ",".join(dict.fromkeys(errors)))
+# Backward-compatible private alias for focused unit tests.
+_validate_scene_output = validate_scene_output
 
 
 def _status(value: Any) -> str:
@@ -147,9 +101,13 @@ def _story_pressure(context: Dict[str, Any], current_turn: int) -> List[Dict[str
     if isinstance(value, dict):
         rows = [(str(key), item) for key, item in value.items() if isinstance(item, dict)]
     elif isinstance(value, list):
-        rows = [(str(item.get("thread_id") or item.get("id") or index), item) for index, item in enumerate(value) if isinstance(item, dict)]
+        rows = [
+            (str(item.get("thread_id") or item.get("id") or index), item)
+            for index, item in enumerate(value) if isinstance(item, dict)
+        ]
     else:
         rows = []
+
     result: List[tuple[int, Dict[str, Any]]] = []
     for thread_id, thread in rows:
         if _status(thread) in _TERMINAL:
@@ -168,8 +126,7 @@ def _story_pressure(context: Dict[str, Any], current_turn: int) -> List[Dict[str
             "overdue": overdue,
             "guidance": "Keep this line alive through an existing cause, consequence, message, NPC action or scene beat; do not inject a random event.",
         }
-        score = priority + (age or 0)
-        result.append((score, {k: v for k, v in item.items() if v not in (None, "", False)}))
+        result.append((priority + (age or 0), {k: v for k, v in item.items() if v not in (None, "", False)}))
     result.sort(key=lambda pair: pair[0], reverse=True)
     return [item for _, item in result[:6]]
 
@@ -235,6 +192,7 @@ def _rewrite_packet(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
         existing = context.get("narrative_guardrails")
         if isinstance(existing, dict) and existing.get("version") == _GUARDRAIL_VERSION:
             return base
+
         state = storage._read_json(root / "state.json", {})
         current_turn = max(0, int(packet.get("prepared_for_turn", 1) or 1) - 1)
         context["narrative_guardrails"] = {
@@ -244,6 +202,7 @@ def _rewrite_packet(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
             "character_relevance": _character_relevance(context),
             "instruction": "These are soft anti-forgetting signals, not canon and not mandatory beats. Prefer causal, natural use; never invent past events.",
         }
+
         text = json.dumps(context, ensure_ascii=False, separators=(",", ":"))
         size = writer_first_runtime.WRITER_PACKET_CHARS
         chunks = [text[index:index + size] for index in range(0, len(text), size)] or ["{}"]
@@ -271,16 +230,9 @@ def _prepare_turn(session_id: str, user_input: str) -> Dict[str, Any]:
     return _rewrite_packet(session_id, dict(_ORIGINAL_PREPARE(session_id, user_input)))
 
 
-def _commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
-    _validate_scene_output(payload.get("scene_output"))
-    return _ORIGINAL_COMMIT(session_id, payload)
-
-
 def install() -> None:
-    global _ORIGINAL_PREPARE, _ORIGINAL_COMMIT
+    global _ORIGINAL_PREPARE
     if _ORIGINAL_PREPARE is not None:
         return
     _ORIGINAL_PREPARE = session_runtime.prepare_turn_packet
-    _ORIGINAL_COMMIT = session_runtime.commit_turn
     session_runtime.prepare_turn_packet = _prepare_turn
-    session_runtime.commit_turn = _commit_turn
