@@ -1,6 +1,8 @@
 import pytest
+from pydantic import ValidationError
 
 from app import narrative_guardrails_runtime as guardrails
+from app.models import TurnCommit
 
 
 VALID_SCENE = """🎭 Тест · осень
@@ -41,8 +43,16 @@ def test_valid_scene_format_is_accepted():
 
 def test_scene_format_rejects_missing_exact_option_count():
     broken = VALID_SCENE.replace("3. Остаться на месте.\n", "")
-    with pytest.raises(RuntimeError, match="SCENE_FORMAT_INVALID"):
+    with pytest.raises(ValueError, match="SCENE_FORMAT_INVALID"):
         guardrails._validate_scene_output(broken)
+
+
+def test_turn_commit_model_enforces_scene_builder_format_at_api_boundary():
+    broken = VALID_SCENE.replace("Что я могу подумать:", "Мысли:")
+    with pytest.raises(ValidationError, match="SCENE_FORMAT_INVALID"):
+        TurnCommit(user_input="тест", scene_output=broken, extracted={})
+    model = TurnCommit(user_input="тест", scene_output=VALID_SCENE, extracted={})
+    assert model.scene_output == VALID_SCENE
 
 
 def test_cast_pressure_surfaces_long_absent_important_npc_and_intent():
