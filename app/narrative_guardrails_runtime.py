@@ -9,7 +9,7 @@ from .transactional_storage import session_transaction
 
 
 _ORIGINAL_PREPARE = None
-_GUARDRAIL_VERSION = 2
+_GUARDRAIL_VERSION = 3
 _TERMINAL = {"resolved", "closed", "expired", "cancelled", "canceled", "done", "abandoned"}
 _HOOK_KEYS = (
     "fear", "страх", "weak", "слаб", "past", "прошл", "history", "истор",
@@ -207,6 +207,44 @@ def _pov_activity_rule() -> Dict[str, Any]:
     }
 
 
+def _npc_intent_drive_rule(context: Dict[str, Any]) -> Dict[str, Any]:
+    active = context.get("npc_active_intents")
+    active = active if isinstance(active, dict) else {}
+    count = sum(len(rows) for rows in active.values() if isinstance(rows, list))
+    return {
+        "mandatory": True,
+        "active_intent_count": count,
+        "source_path": "npc_active_intents",
+        "closure_semantics": {
+            "pursued_now": "NPC attempted to advance the intent; this does NOT mean the intent is satisfied.",
+            "resolve": "Use only when the underlying question/goal/agreement is substantively satisfied or otherwise actually closed.",
+            "abandon": "Use only when the NPC genuinely stops wanting to pursue it for character/situation reasons.",
+        },
+        "not_resolution": [
+            "POV увилила, отшутилась, промолчала или сменила тему",
+            "POV дала неполный, двусмысленный или явно неудовлетворительный ответ",
+            "NPC один раз спросил, напомнил или попытался надавить",
+            "договорённость или обещание только прозвучали, но ещё не выполнены",
+            "разговор прервался, сцена закончилась или персонажи разошлись",
+        ],
+        "persistence_behavior": [
+            "Если NPC всё ещё нужен ответ/результат, intent остаётся активным.",
+            "Упрямый, подозрительный, заинтересованный или мотивированный NPC может продолжить дожим в той же сцене, если это естественно.",
+            "Не повторяй одну и ту же фразу механически: меняй тактику по характеру — уточнить, переформулировать, поддеть, надавить, привести аргумент, поймать позже, проверить самому.",
+            "Приоритет и характер определяют настойчивость. Вежливость или уклонение POV сами по себе не гасят чужую цель.",
+            "Договорённость, обещание, долг, просьба или задача остаются активными до исполнения, явной отмены/пересмотра или настоящего отказа NPC от цели.",
+        ],
+        "instruction": (
+            "npc_active_intents — это незакрытые собственные мотивы NPC, а не список тем, которые достаточно один раз упомянуть. "
+            "Если eligible intent естественно относится к текущей ситуации, дай ему причинно влиять на поведение NPC. "
+            "Увиливание POV, шутка, молчание, смена темы, неполный ответ или сам факт попытки НЕ закрывают intent. "
+            "Если NPC всё ещё хочет ответ или результат, он может продолжить добиваться его сейчас или вернуться позже в другой форме, согласно характеру, приоритету, отношениям и обстоятельствам. "
+            "Не превращай настойчивость в механическое повторение одной реплики. "
+            "Ставь pursued_now=true только за реальную попытку продвинуть intent; operation=resolve только при фактическом удовлетворении/закрытии цели, operation=abandon только когда NPC действительно отказался от неё."
+        ),
+    }
+
+
 def _rewrite_packet(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
     root = storage.SESSIONS_DIR / session_id
     with session_transaction(root):
@@ -227,11 +265,13 @@ def _rewrite_packet(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
         context["narrative_guardrails"] = {
             "version": _GUARDRAIL_VERSION,
             "pov_activity": _pov_activity_rule(),
+            "npc_intent_drive": _npc_intent_drive_rule(context),
             "cast_pressure": _cast_pressure(context, state if isinstance(state, dict) else {}, current_turn),
             "story_pressure": _story_pressure(context, current_turn),
             "character_relevance": _character_relevance(context),
             "instruction": (
-                "pov_activity is a mandatory participation rule. cast_pressure, story_pressure and character_relevance are soft anti-forgetting signals, not canon or mandatory beats. "
+                "pov_activity and npc_intent_drive are mandatory behavior rules. "
+                "cast_pressure, story_pressure and character_relevance are soft anti-forgetting signals, not canon or mandatory beats. "
                 "Prefer causal, natural use and never invent past events."
             ),
         }

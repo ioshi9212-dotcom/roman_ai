@@ -114,6 +114,25 @@ def test_character_relevance_extracts_existing_card_hooks_without_inventing_hist
     assert "короткие" not in facts
 
 
+def test_npc_intent_drive_treats_evasion_as_unresolved():
+    context = {
+        "npc_active_intents": {
+            "ren": [{
+                "intent_id": "get_answer",
+                "summary": "Добиться ответа, где POV была ночью",
+                "priority": 75,
+                "eligible_now": True,
+            }]
+        }
+    }
+    drive = guardrails._npc_intent_drive_rule(context)
+    assert drive["mandatory"] is True
+    assert drive["active_intent_count"] == 1
+    assert any("увилила" in item for item in drive["not_resolution"])
+    assert "НЕ закрывают intent" in drive["instruction"]
+    assert "operation=resolve" in drive["instruction"]
+
+
 def test_prepare_turn_packet_contains_noncanonical_narrative_guardrails():
     with tempfile.TemporaryDirectory() as tmp:
         _setup_temp_storage(tmp)
@@ -144,9 +163,10 @@ def test_prepare_turn_packet_contains_noncanonical_narrative_guardrails():
 
         assert packet["narrative_guardrails"] is True
         signals = context["narrative_guardrails"]
-        assert signals["version"] == 2
+        assert signals["version"] == 3
         assert signals["pov_activity"]["mandatory"] is True
         assert signals["pov_activity"]["ordinary_dialogue_expected"] is True
+        assert signals["npc_intent_drive"]["mandatory"] is True
         assert isinstance(signals["cast_pressure"], list)
         assert isinstance(signals["story_pressure"], list)
         assert isinstance(signals["character_relevance"], list)

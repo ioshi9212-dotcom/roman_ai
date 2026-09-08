@@ -96,6 +96,7 @@ def test_unresolved_npc_intent_persists_and_resurfaces_without_player_reminder()
         assert intent["eligible_now"] is True
         assert "npc_intent_instruction" not in context
         assert "без напоминания POV" in context["runtime_rules"]
+        assert context["narrative_guardrails"]["npc_intent_drive"]["mandatory"] is True
 
         bundle = get_character_bundle(sid, "ren")
         assert bundle["active_intents"][0]["intent_id"] == "check_account_origin"
@@ -166,6 +167,8 @@ def test_intent_can_be_marked_pursued_and_resolved():
     item = pursued["npc_intents"]["ren"][0]
     assert item["last_pursued_turn"] == 20
     assert item["last_pursued_game_day"] == 4
+    assert item["attempt_count"] == 1
+    assert item["last_outcome"] == "attempted_without_resolution"
 
     resolved = apply_updates(
         pursued,
@@ -174,3 +177,37 @@ def test_intent_can_be_marked_pursued_and_resolved():
     )
     assert resolved["npc_intents"]["ren"][0]["status"] == "resolved"
     assert active_intents_for(resolved, ["ren"], current_turn=30) == {}
+
+
+def test_terminal_operation_without_concrete_resolution_keeps_intent_active():
+    from app.npc_intent import apply_updates, active_intents_for
+
+    state = {
+        "current": {"game_day": 2},
+        "npc_intents": {"ren": [{
+            "intent_id": "need_answer",
+            "character_id": "ren",
+            "summary": "Добиться ответа, где POV была ночью",
+            "status": "active",
+            "priority": 80,
+            "created_turn": 3,
+            "created_game_day": 1,
+        }]},
+    }
+    result = apply_updates(
+        state,
+        [{
+            "character_id": "ren",
+            "intent_id": "need_answer",
+            "operation": "resolve",
+            "pursued_now": True,
+            "last_outcome": "POV отшутилась и сменила тему",
+        }],
+        current_turn=8,
+    )
+    item = result["npc_intents"]["ren"][0]
+    assert item["status"] == "active"
+    assert item["attempt_count"] == 1
+    assert item["last_outcome"] == "POV отшутилась и сменила тему"
+    active = active_intents_for(result, ["ren"], current_turn=9)
+    assert active["ren"][0]["intent_id"] == "need_answer"
