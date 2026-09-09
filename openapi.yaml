@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Roman AI
-  version: 1.10.0
+  version: 1.11.0
   description: Persistent isolated novel sessions with bounded writer-first context, transactional memory, living NPC relationships, NPC intents, story threads, recovery, rollback and fast 15-turn audits.
 servers:
   - url: https://romanai-production-0fdb.up.railway.app
@@ -173,6 +173,9 @@ components:
               type: array
               description: Persistent lifecycle updates for live bounded plot events. Use empty array after review when no thread changed.
               items: {$ref: '#/components/schemas/StoryThreadUpdate'}
+            scene_progressed:
+              type: boolean
+              description: True only when this turn materially changed action, contact, position, emotion, risk, information or a character goal without needing a separate durable canon event. Do not use for simple rest, waiting or repetition.
             presence_updates:
               type: array
               description: Explicit scene transitions. Omission preserves the start roster; only leave removes a present character.
