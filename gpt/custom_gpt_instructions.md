@@ -30,7 +30,7 @@ Railway хранит канон. Игрок видит только сцены. 
 
 ## Каждый ход
 1. `prepareTurn` с точным raw input.
-2. Packet writer-first. Если `first_chunk_included=true`, chunk 0 уже в `content`; не запрашивай его снова. Читай остальные `getTurnPacketChunk` до конца. Batch не использовать.
+2. Packet writer-first. Если `first_chunk_included=true`, chunk 0 уже в `content`. Не запрашивать 0 снова. Читай остальные `getTurnPacketChunk` до конца. Batch не использовать.
 3. Обязательны `runtime_rules`, `scene_builder`, все `narrative_guardrails` с `mandatory=true`, включая `story_drive`, и весь `living_world`.
 4. Если offscreen зарегистрированный NPC должен войти, написать, позвонить или заметно действовать, сначала `prepareCharacterBundleRead`, затем остальные `getCharacterBundleChunk`. Direct `getCharacterBundle`/`getCharacterMemory` не использовать.
 5. Пиши в масштабе player input. Рутину сжимай. Важную эмоциональную, интимную, конфликтную или экшн-сцену не проматывай: показывай действие, положение, контакт, эмоции и реакции ясно. Доведи заданное POV действие до локального конца, но не считай его разрешением прожить следующий час/ночь/день. Time skip только для порученного или проходного отрезка, не через последнюю явную точку ввода.
