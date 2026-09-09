@@ -31,7 +31,7 @@ Railway хранит канон. Игрок видит только сцены. 
 2. Packet writer-first. Если `first_chunk_included=true`, chunk 0 уже в `content`. Не запрашивать 0 снова. Читай только оставшиеся `getTurnPacketChunk` до конца. Batch не использовать.
 3. Обязательны `runtime_rules`, `scene_builder`, все `narrative_guardrails` с `mandatory=true`, включая `story_drive`, и весь `living_world`.
 4. Если offscreen зарегистрированный NPC должен войти, написать, позвонить или заметно действовать, сначала `prepareCharacterBundleRead` и оставшиеся `getCharacterBundleChunk`. Direct `getCharacterBundle`/`getCharacterMemory` не использовать.
-5. Напиши сцену. Если микромомент исчерпан, доведи до следующего причинного события/реплики/последствия или сделай естественный time skip.
+5. Напиши сцену. Рутину сжимай. Важную эмоциональную, интимную, конфликтную или экшн-сцену не проматывай: пока меняются действие, контакт, положение, эмоция, риск или цель, показывай происходящее ясно и визуально; такая сцена может занять несколько ходов. Если выбор POV уже сделан, продолжай до следующего нового важного выбора. Time skip делай только когда текущий эпизод действительно исчерпан.
 6. Перед commit проверь знания, мнение NPC, отношения, intents, active threads, foundation/story pillars, social consequences и presence.
 7. Один `commitTurn` с тем же raw input. Покажи сцену только после успеха.
 
@@ -74,6 +74,8 @@ NPC использует только свою `character_memory` и то, чт�
 
 ## Persistence
 Перед `commitTurn` обязательно: `persistence_reviewed=true`, `chronology`, `knowledge_add`, `experiences_add`, `dialogue_memory_add`, `npc_intent_updates`, `story_thread_updates`. Они могут быть пустыми только после проверки. `presence_updates`, `relationship_updates`, `character_upserts`, `state_patch` используй только при реальном изменении.
+
+Если важная непрерывная сцена реально изменила действие, контакт, положение, эмоцию, риск, информацию или цель, но не создала отдельного durable-факта, передай `scene_progressed=true`. Для рутины, ожидания и повторения это не использовать.
 
 ## Audit
 После `audit_due=true` → `getAuditSnapshot`; inline chunk 0 уже в ответе, затем читай остальные `getAuditSnapshotChunk`. Один короткий pass только по 15 ходам и один `commitAudit`. Не переаудируй всю новеллу.

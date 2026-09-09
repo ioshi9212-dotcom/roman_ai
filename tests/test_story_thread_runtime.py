@@ -125,6 +125,33 @@ def test_fourth_consecutive_static_commit_is_rejected_but_real_progress_passes(m
         assert prepared["extracted"]["state_patch"]["threads"]["deployment"]["last_progress_turn"] == 4
 
 
+def test_continuous_important_scene_can_mark_real_scene_progress_without_fake_canon(monkeypatch):
+    with tempfile.TemporaryDirectory() as tmp:
+        sessions = Path(tmp) / "sessions"
+        root = sessions / "sid"
+        root.mkdir(parents=True)
+        monkeypatch.setattr(storage, "SESSIONS_DIR", sessions)
+        _write_json(root / "state.json", {"threads": {}})
+        _write_json(root / "meta.json", {"turn_number": 3})
+        (root / "turns.jsonl").write_text(
+            "\n".join(json.dumps(_static_turn(i), ensure_ascii=False) for i in range(1, 4)) + "\n",
+            encoding="utf-8",
+        )
+
+        payload = {
+            "scene_output": "важная непрерывная сцена заметно изменилась внутри того же эпизода",
+            "extracted": {
+                "scene_progressed": True,
+                "chronology": [],
+                "npc_intent_updates": [],
+                "story_thread_updates": [],
+            },
+        }
+        prepared = runtime._with_story_patch("sid", payload, audit=False)
+        assert prepared["extracted"]["scene_progressed"] is True
+        assert prepared["extracted"]["chronology"] == []
+
+
 def test_story_pressure_starts_early_and_becomes_mandatory_at_six_turns():
     context = {
         "active_threads": {
@@ -157,6 +184,8 @@ def test_story_drive_forces_movement_after_three_static_turns(monkeypatch):
         assert drive["stagnant_turns"] == 3
         assert drive["force_progress_this_turn"] is True
         assert drive["future_direction_cues"]
+        assert "scene_progressed=true" in drive["scene_progress_flag"]
+        assert "continuous important scene" in drive["instruction"]
 
 
 def test_actions_schema_and_gpt_instruction_include_story_thread_contract():
@@ -171,6 +200,7 @@ def test_actions_schema_and_gpt_instruction_include_story_thread_contract():
     assert "story_drive" in instructions
     assert "STORY_PROGRESS_REQUIRED" in instructions
     assert "story_thread_updates" in instructions
+    assert "scene_progressed=true" in instructions
     assert "Быстро проверить" not in instructions
 
 

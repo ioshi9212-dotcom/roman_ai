@@ -167,14 +167,19 @@ def test_npc_intent_drive_treats_evasion_as_unresolved():
     assert "operation=resolve" in drive["instruction"]
 
 
-def test_scene_momentum_requires_event_or_time_skip_instead_of_static_rest():
+def test_scene_momentum_compresses_routine_but_not_important_continuous_scene():
     rule = guardrails._scene_momentum_rule()
     assert rule["mandatory"] is True
     assert rule["ending_required"] is True
+    assert rule["important_scene_can_span_turns"] is True
     assert any("пропуск времени" in item for item in rule["valid_endings"])
     assert any("просто лежит" in item for item in rule["invalid_endings"])
-    assert "не заканчивай его статичным отдыхом" in rule["instruction"]
-    assert "time skip" in rule["causality"]
+    assert any("важная сцена обрывается" in item for item in rule["invalid_endings"])
+    assert "несколько ходов" in rule["instruction"]
+    assert "ясно и визуально" in rule["instruction"]
+    assert "до следующего нового важного выбора" in rule["instruction"]
+    assert "Time skip нужен только" in rule["causality"]
+    assert "каталог микродвижений" in rule["anti_overstretch"]
 
 
 def test_prepare_turn_packet_contains_noncanonical_narrative_guardrails():
@@ -207,7 +212,7 @@ def test_prepare_turn_packet_contains_noncanonical_narrative_guardrails():
 
         assert packet["narrative_guardrails"] is True
         signals = context["narrative_guardrails"]
-        assert signals["version"] == 5
+        assert signals["version"] == 6
         assert signals["pov_activity"]["mandatory"] is True
         assert signals["pov_activity"]["ordinary_dialogue_expected"] is True
         assert signals["character_driven_behavior"]["mandatory"] is True
@@ -215,6 +220,7 @@ def test_prepare_turn_packet_contains_noncanonical_narrative_guardrails():
         assert signals["npc_intent_drive"]["mandatory"] is True
         assert signals["scene_momentum"]["mandatory"] is True
         assert signals["scene_momentum"]["ending_required"] is True
+        assert signals["scene_momentum"]["important_scene_can_span_turns"] is True
         assert signals["story_drive"]["mandatory"] is True
         assert isinstance(signals["cast_pressure"], list)
         assert isinstance(signals["story_pressure"], list)
