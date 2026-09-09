@@ -15,7 +15,7 @@ from .transactional_storage import session_transaction
 _ORIGINAL_PREPARE = None
 _ORIGINAL_COMMIT_TURN = None
 _ORIGINAL_COMMIT_AUDIT = None
-_STORY_ENGINE_VERSION = 1
+_STORY_ENGINE_VERSION = 2
 _STAGNATION_LIMIT = 3
 _THREAD_SOFT_AGE = 4
 _THREAD_HARD_AGE = 6
@@ -56,6 +56,8 @@ def _intent_progress(values: Any) -> bool:
 def _container_has_progress(container: Any, scene_output: str = "") -> bool:
     if not isinstance(container, dict):
         return False
+    if container.get("scene_progressed") is True:
+        return True
     if isinstance(container.get("chronology"), list) and container["chronology"]:
         return True
     if _updates_progress(container.get("story_thread_updates")):
@@ -167,7 +169,7 @@ def _future_direction_cues(context: Dict[str, Any]) -> list[Dict[str, str]]:
     future = context.get("future_guidance") if isinstance(context.get("future_guidance"), dict) else {}
     direction = future.get("story_direction")
     result: list[Dict[str, str]] = []
-    seen: set[str] = set()
+    seen = set()
     for path, text in _flatten_future(direction):
         marker = text.casefold()
         if marker in seen:
@@ -190,6 +192,9 @@ def _story_drive(context: Dict[str, Any], root, current_turn: int, pressure: lis
         "max_consecutive_static_turns": _STAGNATION_LIMIT,
         "force_progress_this_turn": force_progress,
         "active_thread_count": len(current_threads),
+        "scene_progress_flag": (
+            "Set extracted.scene_progressed=true only when a continuous important scene materially changed action, contact, position, emotion, risk, information or a character goal even if no durable canon field changed. Routine/rest/neutral repetition is false."
+        ),
         "story_thread_updates_required_in_persistence_review": True,
         "future_direction_cues": _future_direction_cues(context),
         "thread_lifecycle": {
@@ -199,9 +204,10 @@ def _story_drive(context: Dict[str, Any], root, current_turn: int, pressure: lis
             "close": "Resolve/abandon only when the event actually ends or is genuinely dropped; keep anchor_facts intact.",
         },
         "instruction": (
-            "The story is not allowed to idle indefinitely. A few quiet turns are allowed, but after three consecutive turns without causal/durable movement, the current scene MUST create movement. "
-            "Use an existing active thread, NPC intent, consequence, schedule, obligation, message, character goal or a causally ready future_guidance direction. If the current micro-scene is exhausted, time-skip to that next substantive moment. "
-            "Do not invent a random interruption merely to satisfy this rule. When a bounded plot event becomes live, persist it in story_thread_updates so later turns know its phase, unresolved tasks and last real progress."
+            "The story is not allowed to idle indefinitely. A few quiet turns are allowed, but after three consecutive turns without real movement, the current scene MUST create movement. "
+            "A continuous important scene is already movement while each turn changes action, contact, position, emotion, risk, information or a character goal; do not time-skip it merely because it remains one scene. "
+            "Otherwise use an active thread, NPC intent, consequence, schedule, obligation, message, character goal or causally ready future guidance. If the current scene is truly exhausted, time-skip to the next substantive moment. "
+            "Do not invent a random interruption merely to satisfy this rule."
         ),
     }
 
@@ -212,9 +218,8 @@ def _progress_required_error(streak: int) -> None:
         detail={
             "code": "STORY_PROGRESS_REQUIRED",
             "message": (
-                "The previous turns have formed a static streak. Do not commit another scene that only extends routine, rest, waiting or neutral talk. "
-                "Advance an existing story thread/NPC intent/consequence, bring the scene to a causally grounded event, or time-skip to the next substantive moment. "
-                "Record the real movement in chronology and/or story_thread_updates/npc_intent_updates before retrying the same turn."
+                "The previous turns have formed a static streak. Do not commit another turn that only extends routine, rest, waiting or neutral repetition. "
+                "If an important continuous scene genuinely changes action/contact/position/emotion/risk/information, mark scene_progressed=true. Otherwise advance an existing thread/intent/consequence or time-skip to the next substantive moment."
             ),
             "stagnant_turns_before_this_commit": streak,
             "maximum_consecutive_static_turns": _STAGNATION_LIMIT,
@@ -234,8 +239,8 @@ def _with_story_patch(session_id: str, payload: Dict[str, Any], *, audit: bool =
     updates = container.get("story_thread_updates")
 
     # Legacy saved turns and internal replay paths predate story_thread_updates.
-    # The new public Actions contract always supplies the array (possibly empty),
-    # so hard stagnation enforcement applies to new gameplay without breaking rollback replay.
+    # The public Actions contract always supplies the array (possibly empty), so
+    # hard stagnation enforcement applies to new gameplay without breaking replay.
     if not audit and isinstance(updates, list):
         streak = trailing_stagnant_turns(root)
         if streak >= _STAGNATION_LIMIT and not _container_has_progress(container, str(result.get("scene_output") or "")):
