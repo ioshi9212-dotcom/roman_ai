@@ -111,6 +111,7 @@ class TurnExtracted(BaseModel):
     dialogue_memory_add: List[Dict[str, Any]]
     npc_intent_updates: List[Dict[str, Any]]
     story_thread_updates: List[StoryThreadUpdate]
+    scene_progressed: Optional[bool] = None
     presence_updates: Optional[List[Dict[str, Any]]] = Field(default_factory=list)
     relationship_updates: Optional[List[RelationshipUpdate]] = Field(default_factory=list)
     state_patch: Dict[str, Any] = Field(default_factory=dict)
