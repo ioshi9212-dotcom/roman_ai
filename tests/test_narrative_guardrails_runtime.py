@@ -181,7 +181,7 @@ def test_scene_momentum_respects_explicit_stage_direction_endpoint():
     assert rule["important_scene_can_span_turns"] is True
     assert rule["player_input_scope"]["has_stage_direction"] is True
     assert rule["player_input_scope"]["last_segment_text"] == "лечь, обнимая его"
-    assert "локальную конечную точку" in rule["instruction"]
+    assert "локальной конечной точки" in rule["instruction"]
     assert "не проживай за POV следующий час, ночь или день" in rule["instruction"]
     assert "не должен перескакивать дальше последней явной stage_direction" in rule["time_skip_policy"]
     assert any("локальная конечная точка" in item for item in rule["valid_endings"])
@@ -199,7 +199,7 @@ def test_scene_momentum_allows_spoken_only_immediate_follow_through():
     rule = guardrails._scene_momentum_rule(context)
     assert rule["player_input_scope"]["has_stage_direction"] is False
     assert rule["player_input_scope"]["has_spoken"] is True
-    assert "Реплика без ремарки" in rule["player_choice"]
+    assert "Если ввод состоит только из реплики" in rule["player_choice"]
 
 
 def test_prepare_turn_packet_contains_noncanonical_narrative_guardrails():
