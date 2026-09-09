@@ -75,5 +75,7 @@ NPC использует только свою `character_memory` и то, чт�
 ## Persistence
 Перед `commitTurn` обязательно: `persistence_reviewed=true`, `chronology`, `knowledge_add`, `experiences_add`, `dialogue_memory_add`, `npc_intent_updates`, `story_thread_updates`. Они могут быть пустыми только после проверки. `presence_updates`, `relationship_updates`, `character_upserts`, `state_patch` используй только при реальном изменении.
 
+Если важная непрерывная сцена реально изменила действие, контакт, положение, эмоцию, риск, информацию или цель, но не создала отдельного durable-факта, передай `scene_progressed=true`. Для рутины, ожидания и повторения это не использовать.
+
 ## Audit
 После `audit_due=true` → `getAuditSnapshot`; inline chunk 0 уже в ответе, затем читай остальные `getAuditSnapshotChunk`. Один короткий pass только по 15 ходам и один `commitAudit`. Не переаудируй всю новеллу.
