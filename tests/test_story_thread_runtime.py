@@ -125,7 +125,7 @@ def test_fourth_consecutive_static_commit_is_rejected_but_real_progress_passes(m
         assert prepared["extracted"]["state_patch"]["threads"]["deployment"]["last_progress_turn"] == 4
 
 
-def test_continuous_important_scene_can_mark_real_scene_progress_without_fake_canon(monkeypatch):
+def test_player_action_or_continuous_important_scene_can_mark_progress_without_fake_canon(monkeypatch):
     with tempfile.TemporaryDirectory() as tmp:
         sessions = Path(tmp) / "sessions"
         root = sessions / "sid"
@@ -139,7 +139,7 @@ def test_continuous_important_scene_can_mark_real_scene_progress_without_fake_ca
         )
 
         payload = {
-            "scene_output": "важная непрерывная сцена заметно изменилась внутри того же эпизода",
+            "scene_output": "явное действие игрока естественно завершилось в текущем моменте",
             "extracted": {
                 "scene_progressed": True,
                 "chronology": [],
@@ -165,7 +165,7 @@ def test_story_pressure_starts_early_and_becomes_mandatory_at_six_turns():
     assert pressure[0]["must_advance_or_causally_pause"] is True
 
 
-def test_story_drive_forces_movement_after_three_static_turns(monkeypatch):
+def test_story_drive_forces_movement_after_three_static_turns_without_overrunning_input(monkeypatch):
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp) / "sid"
         root.mkdir(parents=True)
@@ -185,15 +185,17 @@ def test_story_drive_forces_movement_after_three_static_turns(monkeypatch):
         assert drive["force_progress_this_turn"] is True
         assert drive["future_direction_cues"]
         assert "scene_progressed=true" in drive["scene_progress_flag"]
-        assert "continuous important scene" in drive["instruction"]
+        assert "player_input_scope" in drive["instruction"]
+        assert "local endpoint" in drive["instruction"]
 
 
 def test_actions_schema_and_gpt_instruction_include_story_thread_contract():
     schema = yaml.safe_load((ROOT / "openapi.yaml").read_text(encoding="utf-8"))
-    assert schema["info"]["version"] == "1.10.0"
+    assert schema["info"]["version"] == "1.11.0"
     extracted = schema["components"]["schemas"]["TurnCommit"]["properties"]["extracted"]
     assert "story_thread_updates" in extracted["required"]
     assert extracted["properties"]["story_thread_updates"]["items"]["$ref"].endswith("StoryThreadUpdate")
+    assert extracted["properties"]["scene_progressed"]["type"] == "boolean"
 
     instructions = (ROOT / "gpt" / "custom_gpt_instructions.md").read_text(encoding="utf-8")
     assert "narrative_guardrails" in instructions
@@ -201,6 +203,7 @@ def test_actions_schema_and_gpt_instruction_include_story_thread_contract():
     assert "STORY_PROGRESS_REQUIRED" in instructions
     assert "story_thread_updates" in instructions
     assert "scene_progressed=true" in instructions
+    assert "локальный масштаб хода" in instructions
     assert "Быстро проверить" not in instructions
 
 

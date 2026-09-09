@@ -167,19 +167,39 @@ def test_npc_intent_drive_treats_evasion_as_unresolved():
     assert "operation=resolve" in drive["instruction"]
 
 
-def test_scene_momentum_compresses_routine_but_not_important_continuous_scene():
-    rule = guardrails._scene_momentum_rule()
+def test_scene_momentum_respects_explicit_stage_direction_endpoint():
+    context = {
+        "player_input_map": {
+            "ordered_segments": [{"kind": "stage_direction", "text": "лечь, обнимая его"}],
+            "stage_directions": ["лечь, обнимая его"],
+            "spoken_segments": [],
+        }
+    }
+    rule = guardrails._scene_momentum_rule(context)
     assert rule["mandatory"] is True
     assert rule["ending_required"] is True
     assert rule["important_scene_can_span_turns"] is True
-    assert any("пропуск времени" in item for item in rule["valid_endings"])
-    assert any("просто лежит" in item for item in rule["invalid_endings"])
-    assert any("важная сцена обрывается" in item for item in rule["invalid_endings"])
-    assert "несколько ходов" in rule["instruction"]
-    assert "ясно и визуально" in rule["instruction"]
-    assert "до следующего нового важного выбора" in rule["instruction"]
-    assert "Time skip нужен только" in rule["causality"]
-    assert "каталог микродвижений" in rule["anti_overstretch"]
+    assert rule["player_input_scope"]["has_stage_direction"] is True
+    assert rule["player_input_scope"]["last_segment_text"] == "лечь, обнимая его"
+    assert "локальной конечной точки" in rule["instruction"]
+    assert "не проживай за POV следующий час, ночь или день" in rule["instruction"]
+    assert "перескочить дальше последней явной stage_direction" in rule["time_skip_policy"]
+    assert any("локальная конечная точка" in item for item in rule["valid_endings"])
+    assert any("новый день" in item for item in rule["invalid_endings"])
+
+
+def test_scene_momentum_allows_spoken_only_immediate_follow_through():
+    context = {
+        "player_input_map": {
+            "ordered_segments": [{"kind": "spoken", "text": "Идём."}],
+            "stage_directions": [],
+            "spoken_segments": ["Идём."],
+        }
+    }
+    rule = guardrails._scene_momentum_rule(context)
+    assert rule["player_input_scope"]["has_stage_direction"] is False
+    assert rule["player_input_scope"]["has_spoken"] is True
+    assert "Если ввод состоит только из реплики" in rule["player_choice"]
 
 
 def test_prepare_turn_packet_contains_noncanonical_narrative_guardrails():
@@ -204,7 +224,7 @@ def test_prepare_turn_packet_contains_noncanonical_narrative_guardrails():
             },
         }
         sid = storage.create_session(novel)["session_id"]
-        packet = session_runtime.prepare_turn_packet(sid, "Осмотреться")
+        packet = session_runtime.prepare_turn_packet(sid, "(Осмотреться)")
         parts = [packet["content"]]
         for index in range(1, packet["chunk_count"]):
             parts.append(storage.get_turn_packet_chunk(sid, packet["packet_id"], index)["content"])
@@ -212,7 +232,7 @@ def test_prepare_turn_packet_contains_noncanonical_narrative_guardrails():
 
         assert packet["narrative_guardrails"] is True
         signals = context["narrative_guardrails"]
-        assert signals["version"] == 6
+        assert signals["version"] == 7
         assert signals["pov_activity"]["mandatory"] is True
         assert signals["pov_activity"]["ordinary_dialogue_expected"] is True
         assert signals["character_driven_behavior"]["mandatory"] is True
@@ -221,6 +241,7 @@ def test_prepare_turn_packet_contains_noncanonical_narrative_guardrails():
         assert signals["scene_momentum"]["mandatory"] is True
         assert signals["scene_momentum"]["ending_required"] is True
         assert signals["scene_momentum"]["important_scene_can_span_turns"] is True
+        assert signals["scene_momentum"]["player_input_scope"]["has_stage_direction"] is True
         assert signals["story_drive"]["mandatory"] is True
         assert isinstance(signals["cast_pressure"], list)
         assert isinstance(signals["story_pressure"], list)

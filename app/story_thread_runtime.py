@@ -15,7 +15,7 @@ from .transactional_storage import session_transaction
 _ORIGINAL_PREPARE = None
 _ORIGINAL_COMMIT_TURN = None
 _ORIGINAL_COMMIT_AUDIT = None
-_STORY_ENGINE_VERSION = 2
+_STORY_ENGINE_VERSION = 3
 _STAGNATION_LIMIT = 3
 _THREAD_SOFT_AGE = 4
 _THREAD_HARD_AGE = 6
@@ -169,7 +169,7 @@ def _future_direction_cues(context: Dict[str, Any]) -> list[Dict[str, str]]:
     future = context.get("future_guidance") if isinstance(context.get("future_guidance"), dict) else {}
     direction = future.get("story_direction")
     result: list[Dict[str, str]] = []
-    seen = set()
+    seen: set[str] = set()
     for path, text in _flatten_future(direction):
         marker = text.casefold()
         if marker in seen:
@@ -193,7 +193,7 @@ def _story_drive(context: Dict[str, Any], root, current_turn: int, pressure: lis
         "force_progress_this_turn": force_progress,
         "active_thread_count": len(current_threads),
         "scene_progress_flag": (
-            "Set extracted.scene_progressed=true only when a continuous important scene materially changed action, contact, position, emotion, risk, information or a character goal even if no durable canon field changed. Routine/rest/neutral repetition is false."
+            "Set extracted.scene_progressed=true when this turn materially changes action, contact, position, emotion, risk, information or a character goal, including the natural completion of an explicit player stage direction, even if no separate durable canon field changed. Simple rest, waiting and repetition are false."
         ),
         "story_thread_updates_required_in_persistence_review": True,
         "future_direction_cues": _future_direction_cues(context),
@@ -204,10 +204,10 @@ def _story_drive(context: Dict[str, Any], root, current_turn: int, pressure: lis
             "close": "Resolve/abandon only when the event actually ends or is genuinely dropped; keep anchor_facts intact.",
         },
         "instruction": (
-            "The story is not allowed to idle indefinitely. A few quiet turns are allowed, but after three consecutive turns without real movement, the current scene MUST create movement. "
-            "A continuous important scene is already movement while each turn changes action, contact, position, emotion, risk, information or a character goal; do not time-skip it merely because it remains one scene. "
-            "Otherwise use an active thread, NPC intent, consequence, schedule, obligation, message, character goal or causally ready future guidance. If the current scene is truly exhausted, time-skip to the next substantive moment. "
-            "Do not invent a random interruption merely to satisfy this rule."
+            "The story is not allowed to idle indefinitely, but story pressure does not grant permission to overrun the player's current action. "
+            "Respect narrative_guardrails.scene_momentum.player_input_scope first. If the explicit player action itself changes the scene, mark scene_progressed=true and the turn may end at that local endpoint. "
+            "A continuous important scene is also movement while action, contact, position, emotion, risk, information or a character goal changes. "
+            "Only when the current player input allows a longer span may routine be compressed or time-skipped to the next substantive moment. Do not invent a random interruption merely to satisfy this rule."
         ),
     }
 
@@ -218,8 +218,9 @@ def _progress_required_error(streak: int) -> None:
         detail={
             "code": "STORY_PROGRESS_REQUIRED",
             "message": (
-                "The previous turns have formed a static streak. Do not commit another turn that only extends routine, rest, waiting or neutral repetition. "
-                "If an important continuous scene genuinely changes action/contact/position/emotion/risk/information, mark scene_progressed=true. Otherwise advance an existing thread/intent/consequence or time-skip to the next substantive moment."
+                "The previous turns have formed a static streak. Do not commit another turn that only extends rest, waiting or neutral repetition. "
+                "If the current player action or important continuous scene materially changes action/contact/position/emotion/risk/information, mark scene_progressed=true and keep the player's local endpoint. "
+                "Otherwise advance an existing thread/intent/consequence within the current input scope, or time-skip only when that input permits a longer span."
             ),
             "stagnant_turns_before_this_commit": streak,
             "maximum_consecutive_static_turns": _STAGNATION_LIMIT,
@@ -296,11 +297,11 @@ def _rewrite_story_drive(session_id: str, base: Dict[str, Any]) -> Dict[str, Any
         prior_instruction = str(guardrails.get("instruction") or "").strip()
         guardrails["instruction"] = (
             "pov_activity, character_driven_behavior, npc_intent_drive, scene_momentum and story_drive are mandatory behavior rules. "
-            "story_pressure items marked must_advance_or_causally_pause are mandatory to address. "
+            "story_pressure items marked must_advance_or_causally_pause are mandatory to address without overrunning player_input_scope. "
             "cast_pressure and character_relevance are soft anti-forgetting signals, not canon or mandatory beats. "
             "Prefer causal, natural use and never invent past events."
         ) if prior_instruction else (
-            "character_driven_behavior and story_drive are mandatory. Other anti-forgetting signals are not canon. Use causal existing material, not random events."
+            "character_driven_behavior and story_drive are mandatory. Respect player_input_scope; other anti-forgetting signals are not canon."
         )
         context["narrative_guardrails"] = guardrails
         _clean_relationship_policy(context)

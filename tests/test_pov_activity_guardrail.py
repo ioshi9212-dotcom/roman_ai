@@ -25,11 +25,12 @@ def test_pov_activity_rule_allows_ordinary_dialogue_but_reserves_consequential_c
     instruction = rule["instruction"]
 
     assert "шутка" in allowed
-    assert "несколько обычных реплик" in allowed
+    assert "очевидное ближайшее действие" in allowed
     assert "секрета" in reserved
     assert "сексуальное согласие" in reserved
+    assert "следующий самостоятельный этап" in reserved
     assert "не выключается" in instruction
-    assert "несколько раз за один ход" in instruction
+    assert "stage_direction задаёт локальную конечную точку" in instruction
 
 
 def test_writer_packet_contains_mandatory_pov_activity_after_writer_first_rewrite():
@@ -49,7 +50,7 @@ def test_writer_packet_contains_mandatory_pov_activity_after_writer_first_rewrit
             },
         }
         sid = storage.create_session(novel)["session_id"]
-        packet = session_runtime.prepare_turn_packet(sid, "Пожать плечами")
+        packet = session_runtime.prepare_turn_packet(sid, "(Пожать плечами)")
 
         chunks = [packet["content"]]
         for index in range(1, packet["chunk_count"]):
@@ -57,8 +58,8 @@ def test_writer_packet_contains_mandatory_pov_activity_after_writer_first_rewrit
         context = json.loads("".join(chunks))
 
         signals = context["narrative_guardrails"]
-        assert signals["version"] == 6
+        assert signals["version"] == 7
         assert signals["pov_activity"]["mandatory"] is True
         assert signals["pov_activity"]["ordinary_dialogue_expected"] is True
         assert signals["pov_activity"]["multiple_pov_lines_allowed"] is True
-        assert "обычный вопрос" in signals["pov_activity"]["instruction"]
+        assert signals["scene_momentum"]["player_input_scope"]["has_stage_direction"] is True
