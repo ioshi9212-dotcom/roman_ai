@@ -183,7 +183,7 @@ def test_scene_momentum_respects_explicit_stage_direction_endpoint():
     assert rule["player_input_scope"]["last_segment_text"] == "лечь, обнимая его"
     assert "локальной конечной точки" in rule["instruction"]
     assert "не проживай за POV следующий час, ночь или день" in rule["instruction"]
-    assert "не должен перескакивать дальше последней явной stage_direction" in rule["time_skip_policy"]
+    assert "перескочить дальше последней явной stage_direction" in rule["time_skip_policy"]
     assert any("локальная конечная точка" in item for item in rule["valid_endings"])
     assert any("новый день" in item for item in rule["invalid_endings"])
 
