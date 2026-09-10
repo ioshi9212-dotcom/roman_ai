@@ -52,9 +52,22 @@ def _story_use(value: Any, *, hooked: bool) -> str:
     return "reference"
 
 
-def _normalise_hooks(raw_hooks: Any, fact_ids: set[str]) -> tuple[list[Any], set[str]]:
+def _normalise_hooks(raw_hooks: Any, fact_ids: set[str]) -> tuple[list[Any] | Any, set[str]]:
+    if raw_hooks in (None, {}):
+        raw_hooks = []
+    elif isinstance(raw_hooks, dict):
+        expanded = []
+        for key, value in raw_hooks.items():
+            if isinstance(value, dict):
+                row = deepcopy(value)
+                row.setdefault("hook_id", str(key))
+            else:
+                row = {"hook_id": str(key), "fact_ids": value}
+            expanded.append(row)
+        raw_hooks = expanded
     if not isinstance(raw_hooks, list):
         return raw_hooks, set()
+
     result: list[Any] = []
     hooked: set[str] = set()
     used_ids: set[str] = set()
@@ -88,8 +101,7 @@ def _normalise_hooks(raw_hooks: Any, fact_ids: set[str]) -> tuple[list[Any], set
         row["hook_id"] = hook_id
         for alias in ("id", "key", "slug"):
             row.pop(alias, None)
-        if refs:
-            hooked.update(ref for ref in refs if ref in fact_ids)
+        hooked.update(ref for ref in refs if ref in fact_ids)
         result.append(row)
     return result, hooked
 
