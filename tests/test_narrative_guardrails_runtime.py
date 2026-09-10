@@ -225,8 +225,10 @@ def test_prepare_turn_packet_contains_noncanonical_narrative_guardrails():
         context = json.loads("".join(parts))
 
         signals = context["narrative_guardrails"]
-        assert signals["version"] == 8
+        assert signals["version"] == 9
         assert signals["pov_activity"]["mandatory"] is True
+        assert signals["pov_activity"]["ordinary_dialogue_required_when_natural"] is True
+        assert signals["pov_activity"]["silence_requires_character_or_scene_reason"] is True
         assert signals["scene_momentum"]["player_input_scope"]["boundary"] == "next_meaningful_pov_choice"
         assert signals["story_drive"]["mandatory"] is True
         assert isinstance(signals["cast_pressure"], list)
