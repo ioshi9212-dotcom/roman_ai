@@ -13,28 +13,37 @@ def _setup_temp_storage(tmp: str) -> None:
     storage.ensure_dirs()
 
 
-def test_pov_activity_automates_minutiae_but_reserves_meaningful_choices():
+def test_pov_activity_automates_minutiae_and_requires_natural_ordinary_dialogue():
     rule = guardrails._pov_activity_rule()
 
     assert rule["mandatory"] is True
     assert rule["ordinary_dialogue_expected"] is True
+    assert rule["ordinary_dialogue_required_when_natural"] is True
     assert rule["multiple_pov_lines_allowed"] is True
+    assert rule["silence_requires_character_or_scene_reason"] is True
 
     automatic = " ".join(rule["automatic_without_player_input"])
+    anti_silence = " ".join(rule["do_not_silence_pov"])
     reserved = " ".join(rule["reserved_for_player"])
+    checks = " ".join(rule["pre_commit_check"])
     instruction = rule["instruction"]
 
     assert "проверить телефон" in automatic
     assert "продолжение уже выбранной работы" in automatic
-    assert "нейтральный ответ" in automatic
+    assert "бытовой или нейтральный ответ" in automatic
+    assert "несколько обычных реплик" in automatic
+    assert "не заменяй естественный словесный ответ" in anti_silence
+    assert "говорят только NPC" in anti_silence
     assert "значимое согласие или отказ" in reserved
     assert "сексуальное согласие" in reserved
     assert "раскрытие секрета" in reserved
-    assert "Не спрашивай игрока" in instruction
-    assert "следующий шаг действительно определяет позицию POV" in instruction
+    assert "не замолчал искусственно" in checks
+    assert "POV НЕ должен искусственно молчать" in instruction
+    assert "несколько обычных обменов репликами" in instruction
+    assert "Молчание допустимо" in instruction
 
 
-def test_writer_packet_contains_meaningful_choice_boundary_after_writer_first_rewrite():
+def test_writer_packet_contains_active_pov_dialogue_and_meaningful_choice_boundary():
     with tempfile.TemporaryDirectory() as tmp:
         _setup_temp_storage(tmp)
         novel = {
@@ -59,7 +68,8 @@ def test_writer_packet_contains_meaningful_choice_boundary_after_writer_first_re
         context = json.loads("".join(chunks))
 
         signals = context["narrative_guardrails"]
-        assert signals["version"] == 8
+        assert signals["version"] == 9
         assert signals["pov_activity"]["mandatory"] is True
-        assert signals["pov_activity"]["ordinary_dialogue_expected"] is True
+        assert signals["pov_activity"]["ordinary_dialogue_required_when_natural"] is True
+        assert signals["pov_activity"]["silence_requires_character_or_scene_reason"] is True
         assert signals["scene_momentum"]["player_input_scope"]["boundary"] == "next_meaningful_pov_choice"
