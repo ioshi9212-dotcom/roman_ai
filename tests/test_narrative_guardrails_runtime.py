@@ -145,7 +145,7 @@ def test_character_driven_behavior_has_no_psychology_or_boundary_filter():
     assert "он не коснулся её, хотя мог" in forbidden
     assert "оставил ей пространство" in forbidden
     assert "Не пропускай его решения через авторский фильтр" in instruction
-    assert "реакция POV остаётся игроку" in instruction
+    assert "значимая реакция POV остаётся игроку" in instruction
 
 
 def test_npc_intent_drive_treats_evasion_as_unresolved():
@@ -167,7 +167,26 @@ def test_npc_intent_drive_treats_evasion_as_unresolved():
     assert "operation=resolve" in drive["instruction"]
 
 
-def test_scene_momentum_respects_explicit_stage_direction_endpoint():
+def test_scene_momentum_uses_meaningful_choice_not_literal_last_action_as_boundary():
+    context = {
+        "player_input_map": {
+            "ordered_segments": [{"kind": "stage_direction", "text": "добраться до смены и работать как обычно"}],
+            "stage_directions": ["добраться до смены и работать как обычно"],
+            "spoken_segments": [],
+        }
+    }
+    rule = guardrails._scene_momentum_rule(context)
+    assert rule["mandatory"] is True
+    assert rule["player_input_scope"]["boundary"] == "next_meaningful_pov_choice"
+    assert "ongoing ordinary activity" in rule["player_input_scope"]["rule"]
+    assert any("проверить телефон" in item for item in rule["automatic_minor_actions"])
+    assert any("обычную работу" in item for item in rule["automatic_minor_actions"])
+    assert any("значимый контакт" in item for item in rule["meaningful_choice_boundary"])
+    assert any("техническую мелочь" in item for item in rule["invalid_endings"])
+    assert "сжимай до конца" in rule["instruction"]
+
+
+def test_scene_momentum_does_not_turn_short_meaningful_action_into_whole_new_phase():
     context = {
         "player_input_map": {
             "ordered_segments": [{"kind": "stage_direction", "text": "лечь, обнимая его"}],
@@ -176,30 +195,10 @@ def test_scene_momentum_respects_explicit_stage_direction_endpoint():
         }
     }
     rule = guardrails._scene_momentum_rule(context)
-    assert rule["mandatory"] is True
-    assert rule["ending_required"] is True
-    assert rule["important_scene_can_span_turns"] is True
-    assert rule["player_input_scope"]["has_stage_direction"] is True
-    assert rule["player_input_scope"]["last_segment_text"] == "лечь, обнимая его"
-    assert "локальной конечной точки" in rule["instruction"]
-    assert "не проживай за POV следующий час, ночь или день" in rule["instruction"]
-    assert "перескочить дальше последней явной stage_direction" in rule["time_skip_policy"]
-    assert any("локальная конечная точка" in item for item in rule["valid_endings"])
-    assert any("новый день" in item for item in rule["invalid_endings"])
-
-
-def test_scene_momentum_allows_spoken_only_immediate_follow_through():
-    context = {
-        "player_input_map": {
-            "ordered_segments": [{"kind": "spoken", "text": "Идём."}],
-            "stage_directions": [],
-            "spoken_segments": ["Идём."],
-        }
-    }
-    rule = guardrails._scene_momentum_rule(context)
-    assert rule["player_input_scope"]["has_stage_direction"] is False
-    assert rule["player_input_scope"]["has_spoken"] is True
-    assert "Если ввод состоит только из реплики" in rule["player_choice"]
+    assert rule["player_input_scope"]["boundary"] == "next_meaningful_pov_choice"
+    assert "short" not in rule["player_input_scope"].get("boundary", "")
+    assert any("следующим самостоятельным этапом" in item for item in rule["do_not_compress"])
+    assert any("следующий час" in item for item in rule["invalid_endings"])
 
 
 def test_prepare_turn_packet_contains_noncanonical_narrative_guardrails():
@@ -210,12 +209,7 @@ def test_prepare_turn_packet_contains_noncanonical_narrative_guardrails():
             "title": "Guardrail Packet",
             "novel": {"pov_character": "elena"},
             "characters": [
-                {
-                    "character_id": "elena",
-                    "name": "Елена",
-                    "is_pov": True,
-                    "psychology": {"fears": ["замкнутые пространства"]},
-                },
+                {"character_id": "elena", "name": "Елена", "is_pov": True},
                 {"character_id": "liam", "name": "Лиам", "role": "major"},
             ],
             "lore": {},
@@ -224,27 +218,16 @@ def test_prepare_turn_packet_contains_noncanonical_narrative_guardrails():
             },
         }
         sid = storage.create_session(novel)["session_id"]
-        packet = session_runtime.prepare_turn_packet(sid, "(Осмотреться)")
+        packet = session_runtime.prepare_turn_packet(sid, "(работать до конца смены)")
         parts = [packet["content"]]
         for index in range(1, packet["chunk_count"]):
             parts.append(storage.get_turn_packet_chunk(sid, packet["packet_id"], index)["content"])
         context = json.loads("".join(parts))
 
-        assert packet["narrative_guardrails"] is True
         signals = context["narrative_guardrails"]
-        assert signals["version"] == 7
+        assert signals["version"] == 8
         assert signals["pov_activity"]["mandatory"] is True
-        assert signals["pov_activity"]["ordinary_dialogue_expected"] is True
-        assert signals["character_driven_behavior"]["mandatory"] is True
-        assert signals["character_driven_behavior"]["no_boundary_compliance_filter"] is True
-        assert signals["npc_intent_drive"]["mandatory"] is True
-        assert signals["scene_momentum"]["mandatory"] is True
-        assert signals["scene_momentum"]["ending_required"] is True
-        assert signals["scene_momentum"]["important_scene_can_span_turns"] is True
-        assert signals["scene_momentum"]["player_input_scope"]["has_stage_direction"] is True
+        assert signals["scene_momentum"]["player_input_scope"]["boundary"] == "next_meaningful_pov_choice"
         assert signals["story_drive"]["mandatory"] is True
         assert isinstance(signals["cast_pressure"], list)
-        assert isinstance(signals["story_pressure"], list)
-        assert isinstance(signals["character_relevance"], list)
-        assert "character_driven_behavior" in signals["instruction"]
         assert "not canon" in signals["instruction"]

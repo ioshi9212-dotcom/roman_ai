@@ -165,7 +165,7 @@ def test_story_pressure_starts_early_and_becomes_mandatory_at_six_turns():
     assert pressure[0]["must_advance_or_causally_pause"] is True
 
 
-def test_story_drive_forces_movement_after_three_static_turns_without_overrunning_input(monkeypatch):
+def test_story_drive_forces_movement_but_keeps_meaningful_pov_choice_with_player(monkeypatch):
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp) / "sid"
         root.mkdir(parents=True)
@@ -185,8 +185,9 @@ def test_story_drive_forces_movement_after_three_static_turns_without_overrunnin
         assert drive["force_progress_this_turn"] is True
         assert drive["future_direction_cues"]
         assert "scene_progressed=true" in drive["scene_progress_flag"]
-        assert "player_input_scope" in drive["instruction"]
-        assert "local endpoint" in drive["instruction"]
+        assert "next meaningful POV choice" in drive["instruction"]
+        assert "compress the uneventful part" in drive["instruction"]
+        assert "consent" in drive["instruction"]
 
 
 def test_actions_schema_and_gpt_instruction_include_story_thread_contract():
@@ -203,7 +204,7 @@ def test_actions_schema_and_gpt_instruction_include_story_thread_contract():
     assert "STORY_PROGRESS_REQUIRED" in instructions
     assert "story_thread_updates" in instructions
     assert "scene_progressed=true" in instructions
-    assert "локальный масштаб хода" in instructions
+    assert "следующего значимого выбора" in instructions
     assert "Быстро проверить" not in instructions
 
 

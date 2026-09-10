@@ -13,27 +13,28 @@ def _setup_temp_storage(tmp: str) -> None:
     storage.ensure_dirs()
 
 
-def test_pov_activity_rule_allows_ordinary_dialogue_but_reserves_consequential_choices():
+def test_pov_activity_automates_minutiae_but_reserves_meaningful_choices():
     rule = guardrails._pov_activity_rule()
 
     assert rule["mandatory"] is True
     assert rule["ordinary_dialogue_expected"] is True
     assert rule["multiple_pov_lines_allowed"] is True
 
-    allowed = " ".join(rule["allowed_without_player_input"])
+    automatic = " ".join(rule["automatic_without_player_input"])
     reserved = " ".join(rule["reserved_for_player"])
     instruction = rule["instruction"]
 
-    assert "шутка" in allowed
-    assert "очевидное ближайшее действие" in allowed
-    assert "секрета" in reserved
+    assert "проверить телефон" in automatic
+    assert "продолжение уже выбранной работы" in automatic
+    assert "нейтральный ответ" in automatic
+    assert "значимое согласие или отказ" in reserved
     assert "сексуальное согласие" in reserved
-    assert "следующий самостоятельный этап" in reserved
-    assert "не выключается" in instruction
-    assert "stage_direction задаёт локальную конечную точку" in instruction
+    assert "раскрытие секрета" in reserved
+    assert "Не спрашивай игрока" in instruction
+    assert "следующий шаг действительно определяет позицию POV" in instruction
 
 
-def test_writer_packet_contains_mandatory_pov_activity_after_writer_first_rewrite():
+def test_writer_packet_contains_meaningful_choice_boundary_after_writer_first_rewrite():
     with tempfile.TemporaryDirectory() as tmp:
         _setup_temp_storage(tmp)
         novel = {
@@ -50,7 +51,7 @@ def test_writer_packet_contains_mandatory_pov_activity_after_writer_first_rewrit
             },
         }
         sid = storage.create_session(novel)["session_id"]
-        packet = session_runtime.prepare_turn_packet(sid, "(Пожать плечами)")
+        packet = session_runtime.prepare_turn_packet(sid, "(работать как обычно)")
 
         chunks = [packet["content"]]
         for index in range(1, packet["chunk_count"]):
@@ -58,8 +59,7 @@ def test_writer_packet_contains_mandatory_pov_activity_after_writer_first_rewrit
         context = json.loads("".join(chunks))
 
         signals = context["narrative_guardrails"]
-        assert signals["version"] == 7
+        assert signals["version"] == 8
         assert signals["pov_activity"]["mandatory"] is True
         assert signals["pov_activity"]["ordinary_dialogue_expected"] is True
-        assert signals["pov_activity"]["multiple_pov_lines_allowed"] is True
-        assert signals["scene_momentum"]["player_input_scope"]["has_stage_direction"] is True
+        assert signals["scene_momentum"]["player_input_scope"]["boundary"] == "next_meaningful_pov_choice"
