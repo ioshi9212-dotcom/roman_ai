@@ -67,19 +67,22 @@ def test_v2_draft_cannot_finalize_without_foundation():
         assert status["ready_to_finalize"] is False
 
 
-def test_v2_foundation_rejects_unmapped_or_unhooked_player_fact():
+def test_v2_foundation_auto_repairs_explicit_hook_fact_missing_hook_row():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         draft_id = create_draft("v2-bad", "V2 Bad", version=2)["draft_id"]
         save_base(draft_id)
-        bad = complete_foundation()
-        bad["hooks"] = [row for row in bad["hooks"] if row["hook_id"] != "h_brother"]
-        save_section(draft_id, "foundation", json.dumps(bad, ensure_ascii=False))
+        foundation = complete_foundation()
+        foundation["hooks"] = [row for row in foundation["hooks"] if row["hook_id"] != "h_brother"]
+        save_section(draft_id, "foundation", json.dumps(foundation, ensure_ascii=False))
+
         status = draft_status(draft_id)
-        assert status["ready_to_finalize"] is False
-        assert status["finalize_blocker"].startswith("FOUNDATION_COVERAGE_INCOMPLETE")
-        with pytest.raises(ValueError):
-            finalize_draft(draft_id)
+        assert status["ready_to_finalize"] is True
+        assert status["foundation_coverage"]["unmapped"] == []
+        finalize_draft(draft_id)
+        draft = json.loads((storage.DATA_DIR / "novel_drafts" / f"{draft_id}.json").read_text(encoding="utf-8"))
+        hooks = draft["finalized_template"]["foundation"]["hooks"]
+        assert any(row.get("fact_ids") == ["f_missing_brother"] for row in hooks)
 
 
 def test_complete_v2_foundation_finalizes_and_seeds_live_hook_and_pillar_state():
