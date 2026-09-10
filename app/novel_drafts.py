@@ -1,4 +1,5 @@
 import json
+import re
 import uuid
 from copy import deepcopy
 from pathlib import Path
@@ -134,6 +135,108 @@ def _merge_current_shape(current: Dict[str, Any], candidate: Any) -> None:
         target_key = _CURRENT_ALIASES.get(key, key)
         if target_key in _CURRENT_FIELDS and target_key not in current and value not in (None, "", [], {}):
             current[target_key] = deepcopy(value)
+
+
+def _pillar_id(value: Any, index: int) -> str:
+    text = str(value or "").casefold().replace("ё", "е").strip()
+    text = re.sub(r"[^\w]+", "_", text, flags=re.UNICODE).strip("_")
+    return text[:80] or f"pillar_{index + 1}"
+
+
+def _normalise_foundation_shape(template: Dict[str, Any]) -> Dict[str, Any]:
+    result = deepcopy(template)
+    foundation = result.get("foundation")
+    if not isinstance(foundation, dict):
+        return result
+    foundation = deepcopy(foundation)
+    raw_pillars = foundation.get("story_pillars")
+    if isinstance(raw_pillars, dict):
+        expanded = []
+        for key, value in raw_pillars.items():
+            if isinstance(value, dict):
+                row = deepcopy(value)
+                row.setdefault("pillar_id", str(key))
+            else:
+                row = {"pillar_id": str(key), "label": value}
+            expanded.append(row)
+        raw_pillars = expanded
+    if not isinstance(raw_pillars, list):
+        result["foundation"] = foundation
+        return result
+
+    normalized: list[Dict[str, Any]] = []
+    aliases: Dict[str, str] = {}
+    used: set[str] = set()
+    for index, raw in enumerate(raw_pillars):
+        if isinstance(raw, str):
+            row: Dict[str, Any] = {"label": raw}
+        elif isinstance(raw, dict):
+            row = deepcopy(raw)
+        else:
+            normalized.append(raw)
+            continue
+
+        label = str(
+            row.get("label")
+            or row.get("name")
+            or row.get("title")
+            or row.get("summary")
+            or ""
+        ).strip()
+        explicit_id = row.get("pillar_id") or row.get("id") or row.get("key") or row.get("slug")
+        pid = str(explicit_id or _pillar_id(label, index)).strip()
+        base_pid = pid
+        suffix = 2
+        while pid in used:
+            pid = f"{base_pid}_{suffix}"
+            suffix += 1
+        used.add(pid)
+
+        refs = row.get("source_fact_ids")
+        if refs is None:
+            refs = row.get("fact_ids")
+        if refs is None:
+            refs = row.get("facts")
+        if refs is None:
+            refs = []
+        elif isinstance(refs, (str, int, float)):
+            refs = [str(refs)]
+
+        clean = deepcopy(row)
+        clean["pillar_id"] = pid
+        clean["label"] = label or pid
+        clean["source_fact_ids"] = refs
+        for alias_key in ("id", "key", "slug", "title", "summary", "fact_ids", "facts"):
+            clean.pop(alias_key, None)
+        normalized.append(clean)
+
+        for alias in (explicit_id, label, raw if isinstance(raw, str) else None, pid):
+            if alias not in (None, ""):
+                aliases[str(alias).casefold().replace("ё", "е").strip()] = pid
+
+    foundation["story_pillars"] = normalized
+
+    hooks = foundation.get("hooks")
+    if isinstance(hooks, list) and aliases:
+        rewritten_hooks = []
+        for raw in hooks:
+            if not isinstance(raw, dict):
+                rewritten_hooks.append(raw)
+                continue
+            hook = deepcopy(raw)
+            refs = hook.get("pillar_ids")
+            if isinstance(refs, (str, int, float)):
+                refs = [refs]
+            if isinstance(refs, list):
+                hook["pillar_ids"] = [
+                    aliases.get(str(value).casefold().replace("ё", "е").strip(), str(value))
+                    for value in refs
+                ]
+            rewritten_hooks.append(hook)
+        foundation["hooks"] = rewritten_hooks
+
+    result["foundation"] = foundation
+    return result
 
 
 def _foundation_coverage(template: Dict[str, Any], *, required: bool) -> Dict[str, Any]:
@@ -345,7 +448,8 @@ def _validate_starting_state(template: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _validate_template(template: Dict[str, Any]) -> tuple[Dict[str, Any], Dict[str, Any]]:
-    normalized = _validate_starting_state(template)
+    normalized = _normalise_foundation_shape(template)
+    normalized = _validate_starting_state(normalized)
     version = int(normalized.get("version", 1) or 1)
     coverage = _foundation_coverage(normalized, required=version >= 2)
     return normalized, coverage
