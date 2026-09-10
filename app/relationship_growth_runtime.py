@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from copy import deepcopy
 from typing import Any, Dict, List
 
 from . import relationship_runtime
@@ -32,25 +31,49 @@ def _merge_footer_dimensions(existing: List[Dict[str, Any]], incoming: List[Dict
 
 
 def _validate_dimensions(incoming: List[Dict[str, Any]], baseline: Dict[str, int | float], *, owner_name: str = "NPC") -> None:
-    """Relationship display mistakes must not brick a gameplay transaction.
+    """Allow partial display rows while rejecting a complete metric-schema swap.
 
-    Existing values are already preserved by _merge_footer_dimensions. A partial visible row therefore
-    updates only the dimensions it actually contains. Missing labels keep their saved values. Displayed
-    deltas are explanatory UI text, not an independent source of canon, so arithmetic disagreement does
-    not reject the turn; the visible final value is what the merge uses.
+    Existing values are preserved by _merge_footer_dimensions, so omitted labels are not data loss.
+    Deltas are explanatory UI and do not independently block a turn. A footer that replaces every
+    established label with unrelated labels is still rejected so legacy relationship vocabularies
+    cannot silently disappear under a new schema.
     """
-    return None
+    baseline_norms = {
+        base._relationship_norm(label)
+        for label, value in baseline.items()
+        if relationship_runtime._is_number(value)
+    }
+    incoming_norms = {
+        base._relationship_norm(str(item.get("label") or item.get("key") or ""))
+        for item in incoming
+        if isinstance(item, dict) and str(item.get("label") or item.get("key") or "").strip()
+    }
+    if baseline_norms and incoming_norms and baseline_norms.isdisjoint(incoming_norms):
+        base._http_error(
+            409,
+            "RELATIONSHIP_DIMENSIONS_INCOMPLETE",
+            f"{owner_name}: footer replaced all established relationship labels instead of preserving the existing relationship model.",
+        )
 
 
 def _validate_visible_footer(scene_output: str, *, cards: List[Dict[str, Any]], state_before: Dict[str, Any], state_after: Dict[str, Any]) -> Dict[str, List[Dict[str, Any]]]:
-    """Parse the footer without using it as a hard transaction gate.
-
-    The scene builder still tells the writer to show only present NPCs and preserve established labels.
-    Persistence is safer when the server reconciles mistakes instead of bouncing the writer between
-    contradictory 409s: absent rows are ignored by relationship_patch_from_scene, missing rows simply
-    preserve saved canon, and partial rows merge into the existing dimensions.
-    """
-    return compat._parse_footer_compat(scene_output, cards=cards, resolve_character_id=base._resolve_character_id)
+    """Reconcile footer drift instead of using display formatting as a hard transaction gate."""
+    footer = compat._parse_footer_compat(scene_output, cards=cards, resolve_character_id=base._resolve_character_id)
+    final_present = set(compat._current_present_ids(state_after))
+    pov = state_after.get("pov") if isinstance(state_after.get("pov"), dict) else {}
+    pov_id = str(pov.get("character_id") or "")
+    for owner_id in final_present:
+        if not owner_id or owner_id == pov_id:
+            continue
+        incoming = footer.get(owner_id)
+        baseline = base._numeric_relationships(state_before, owner_id)
+        if incoming and baseline:
+            _validate_dimensions(
+                incoming,
+                baseline,
+                owner_name=compat._card_display_name(cards, owner_id),
+            )
+    return footer
 
 
 def _hidden_relationship_scene(
@@ -62,13 +85,7 @@ def _hidden_relationship_scene(
     start_present: set[str],
     upsert_ids: set[str],
 ) -> str:
-    """Persist numeric updates for departed NPCs without rejecting redundant present-NPC updates.
-
-    Present NPC numeric state is taken from the visible footer when available. If Actions redundantly
-    sends dimensions for a still-present NPC, ignore that duplicate channel rather than failing the
-    whole turn. This removes the footer-vs-relationship_updates deadlock while keeping one numeric
-    source of truth for characters still on screen.
-    """
+    """Persist departed-NPC numeric updates without conflicting with the visible present-NPC footer."""
     if updates in (None, []):
         return ""
     if not isinstance(updates, list):
@@ -86,7 +103,8 @@ def _hidden_relationship_scene(
             base._http_error(409, "RELATIONSHIP_UPDATES_INVALID", "Unknown character_id in relationship_updates.")
         owner_id = str(owner_id)
 
-        # Duplicate numeric channel for a present NPC: the visible footer (or preserved baseline) wins.
+        # Present-NPC numeric state comes from the visible footer when available; a redundant
+        # relationship_updates row must not bounce the same gameplay turn into another 409.
         if owner_id in final_present:
             continue
         if owner_id not in allowed:
