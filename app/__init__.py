@@ -15,6 +15,7 @@ from .story_thread_runtime import install as _install_story_thread_runtime
 from .living_world_runtime import install as _install_living_world_runtime
 from .fast_audit_runtime import install as _install_fast_audit_runtime
 from .resume_compact_runtime import install as _install_resume_compact_runtime
+from .scene_logic_runtime import install as _install_scene_logic_runtime
 
 _install_runtime_fixes()
 _install_relationship_growth_runtime()
@@ -33,6 +34,7 @@ _install_story_thread_runtime()
 _install_living_world_runtime()
 _install_fast_audit_runtime()
 _install_resume_compact_runtime()
+_install_scene_logic_runtime()
 del _install_runtime_fixes
 del _install_relationship_growth_runtime
 del _install_scene_presence
@@ -50,3 +52,4 @@ del _install_story_thread_runtime
 del _install_living_world_runtime
 del _install_fast_audit_runtime
 del _install_resume_compact_runtime
+del _install_scene_logic_runtime
