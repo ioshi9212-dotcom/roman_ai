@@ -107,15 +107,14 @@ def test_reunion_with_completely_new_metric_words_is_rejected():
         assert state["relationships"]["adrian"] == {"симпатия": 35, "доверие": 18, "влечение": 42}
 
 
-def test_partial_footer_is_rejected_when_established_dimensions_are_missing():
+def test_partial_footer_merges_and_preserves_omitted_saved_dimensions():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         sid = storage.create_session(novel(starting_relationships={"adrian": {"симпатия": 35, "доверие": 18, "влечение": 42}}))["session_id"]
         read_all_packet_chunks(sid, "test")
-        with pytest.raises(HTTPException) as exc:
-            session_runtime.commit_turn(sid, {"user_input": "test", "scene_output": scene("симпатия 37/+2"), "extracted": extracted()})
-        assert exc.value.status_code == 409
-        assert exc.value.detail["code"] == "RELATIONSHIP_DIMENSIONS_INCOMPLETE"
+        session_runtime.commit_turn(sid, {"user_input": "test", "scene_output": scene("симпатия 37/+2"), "extracted": extracted()})
+        state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
+        assert state["relationships"]["adrian"] == {"симпатия": 37, "доверие": 18, "влечение": 42}
 
 
 def test_missing_relation_recovers_from_last_visible_footer():
@@ -147,14 +146,44 @@ def test_relationship_key_by_character_name_is_canonicalized_to_id():
         assert state["relationships"]["adrian"]["симпатия"] == 10
 
 
-def test_absent_npc_footer_is_rejected_and_cannot_overwrite_relationship():
+def test_absent_npc_footer_is_ignored_and_cannot_overwrite_relationship():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         sid = storage.create_session(novel(present=False, starting_relationships={"adrian": {"симпатия": 10}}))["session_id"]
         read_all_packet_chunks(sid, "test")
-        with pytest.raises(HTTPException) as exc:
-            session_runtime.commit_turn(sid, {"user_input": "test", "scene_output": scene("симпатия 99/+89"), "extracted": extracted()})
-        assert exc.value.status_code == 409
-        assert exc.value.detail["code"] == "RELATIONSHIP_FOOTER_ABSENT_NPC"
+        session_runtime.commit_turn(sid, {"user_input": "test", "scene_output": scene("симпатия 99/+89"), "extracted": extracted()})
         state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
+        assert state["relationships"]["adrian"]["симпатия"] == 10
+
+
+def test_redundant_present_npc_relationship_update_does_not_conflict_with_footer():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(novel(starting_relationships={"adrian": {"симпатия": 10, "доверие": 5}}))["session_id"]
+        read_all_packet_chunks(sid, "test")
+        payload = extracted()
+        payload["relationship_updates"] = [
+            {"character_id": "adrian", "dimensions": [{"label": "симпатия", "value": 99}]}
+        ]
+        session_runtime.commit_turn(
+            sid,
+            {"user_input": "test", "scene_output": scene("симпатия 11/+1; доверие 5"), "extracted": payload},
+        )
+        state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
+        assert state["relationships"]["adrian"] == {"симпатия": 11, "доверие": 5}
+
+
+def test_leave_transition_with_stale_visible_footer_does_not_block_or_overwrite():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(novel(starting_relationships={"adrian": {"симпатия": 10}}))["session_id"]
+        read_all_packet_chunks(sid, "test")
+        payload = extracted()
+        payload["presence_updates"] = [{"character_id": "adrian", "action": "leave"}]
+        session_runtime.commit_turn(
+            sid,
+            {"user_input": "test", "scene_output": scene("симпатия 99/+89"), "extracted": payload},
+        )
+        state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
+        assert "adrian" not in state["current"]["present_characters"]
         assert state["relationships"]["adrian"]["симпатия"] == 10
