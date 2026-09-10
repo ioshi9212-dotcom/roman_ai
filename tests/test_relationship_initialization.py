@@ -2,9 +2,6 @@ import json
 import tempfile
 from pathlib import Path
 
-import pytest
-from fastapi import HTTPException
-
 from app import session_runtime, storage
 
 
@@ -47,6 +44,7 @@ def test_fresh_present_npc_is_exposed_but_baseline_is_not_forced():
         assert first["relationship_policy"]["footer_required_for_every_present_npc"] is False
         assert first["relationship_policy"]["fresh_baseline_required"] is False
         assert first["relationship_policy"]["new_dimensions_may_be_appended"] is True
+        assert first["relationship_policy"]["footer_is_transaction_gate"] is False
 
 
 def test_fresh_relationship_may_stay_empty_until_story_creates_one():
@@ -71,7 +69,7 @@ def test_first_meaningful_footer_persists_baseline():
         assert state["relationships"]["adrian"] == {"симпатия": 12, "настороженность": 8}
 
 
-def test_commit_rejects_disappearing_nonzero_saved_dimensions():
+def test_partial_footer_keeps_saved_dimensions_that_are_not_rendered():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         novel = fresh_novel()
@@ -79,7 +77,6 @@ def test_commit_rejects_disappearing_nonzero_saved_dimensions():
         sid = storage.create_session(novel)["session_id"]
         read_packet(sid, "test")
         scene = "🎭 Fresh Relationship · осень\n\nСцена.\n\nСостояние: спокойно\nОтношения:\nЭдриан - симпатия 21/+1\n\nХод 1 · цикл 1/15"
-        with pytest.raises(HTTPException) as exc:
-            session_runtime.commit_turn(sid, {"user_input": "test", "scene_output": scene, "extracted": extracted()})
-        assert exc.value.status_code == 409
-        assert exc.value.detail["code"] == "RELATIONSHIP_DIMENSIONS_INCOMPLETE"
+        session_runtime.commit_turn(sid, {"user_input": "test", "scene_output": scene, "extracted": extracted()})
+        state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
+        assert state["relationships"]["adrian"] == {"симпатия": 21, "доверие": 9}
