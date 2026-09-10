@@ -75,6 +75,7 @@ def test_turn_packet_uses_one_relationship_model():
         assert policy["authoritative_start_snapshot"]["adrian"]["metrics"] == {
             "симпатия": 10
         }
+        assert policy["footer_is_transaction_gate"] is False
         assert "relationship_updates" in packet["persistence_contract"]
 
 
@@ -176,7 +177,7 @@ def test_departed_npc_relationship_persists_without_visible_footer_line():
         assert relation["last_changed_turn"] == 1
 
 
-def test_absent_npc_in_visible_footer_is_rejected():
+def test_absent_npc_in_visible_footer_is_ignored_for_relationship_persistence():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         sid = storage.create_session(
@@ -184,37 +185,35 @@ def test_absent_npc_in_visible_footer_is_rejected():
         )["session_id"]
 
         read_turn_packet(sid, "(Эдриан уходит)")
-        with pytest.raises(HTTPException) as exc:
-            session_runtime.commit_turn(
-                sid,
-                {
-                    "user_input": "(Эдриан уходит)",
-                    "scene_output": """🎭 Runtime fixes
+        session_runtime.commit_turn(
+            sid,
+            {
+                "user_input": "(Эдриан уходит)",
+                "scene_output": """🎭 Runtime fixes
 
 Состояние: одна
 Отношения:
 Эдриан - симпатия 11/+1
 
 Ход 1 · цикл 1/15""",
-                    "extracted": reviewed(
-                        presence_updates=[
-                            {"character_id": "adrian", "action": "leave"}
-                        ],
-                        state_patch={
-                            "current": {
-                                "present_characters": ["rina"],
-                            }
+                "extracted": reviewed(
+                    presence_updates=[
+                        {"character_id": "adrian", "action": "leave"}
+                    ],
+                    state_patch={
+                        "current": {
+                            "present_characters": ["rina"],
                         }
-                    ),
-                },
-            )
-        assert exc.value.status_code == 409
-        assert exc.value.detail["code"] == "RELATIONSHIP_FOOTER_ABSENT_NPC"
+                    }
+                ),
+            },
+        )
         state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
         assert state["relationships"]["adrian"]["симпатия"] == 10
+        assert "adrian" not in state["current"]["present_characters"]
 
 
-def test_bad_relationship_delta_is_rejected():
+def test_bad_relationship_delta_does_not_block_turn_and_final_value_wins():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         sid = storage.create_session(
@@ -222,23 +221,22 @@ def test_bad_relationship_delta_is_rejected():
         )["session_id"]
 
         read_turn_packet(sid, "test")
-        with pytest.raises(HTTPException) as exc:
-            session_runtime.commit_turn(
-                sid,
-                {
-                    "user_input": "test",
-                    "scene_output": """🎭 Runtime fixes
+        session_runtime.commit_turn(
+            sid,
+            {
+                "user_input": "test",
+                "scene_output": """🎭 Runtime fixes
 
 Состояние: вместе
 Отношения:
 Эдриан - симпатия 15/+2
 
 Ход 1 · цикл 1/15""",
-                    "extracted": reviewed(),
-                },
-            )
-        assert exc.value.status_code == 409
-        assert exc.value.detail["code"] == "RELATIONSHIP_ARITHMETIC_MISMATCH"
+                "extracted": reviewed(),
+            },
+        )
+        state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
+        assert state["relationships"]["adrian"]["симпатия"] == 15
 
 
 def test_audit_repairs_keep_original_turns_and_generate_ids():

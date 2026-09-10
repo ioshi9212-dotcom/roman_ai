@@ -10,6 +10,7 @@ from . import storage
 
 
 MAX_RELATIONSHIP_DIMENSIONS = 12
+_RELATIONSHIP_GROWTH_VERSION = 2
 
 
 def _merge_footer_dimensions(existing: List[Dict[str, Any]], incoming: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -30,62 +31,116 @@ def _merge_footer_dimensions(existing: List[Dict[str, Any]], incoming: List[Dict
 
 
 def _validate_dimensions(incoming: List[Dict[str, Any]], baseline: Dict[str, int | float], *, owner_name: str = "NPC") -> None:
-    baseline_by_norm = {base._relationship_norm(label): (label, value) for label, value in baseline.items()}
-    incoming_by_norm: Dict[str, Dict[str, Any]] = {}
-    for item in incoming:
-        label = str(item.get("label") or "").strip()
-        normalized = base._relationship_norm(label)
-        if not normalized:
-            continue
-        if normalized in incoming_by_norm:
-            base._http_error(409, "RELATIONSHIP_DIMENSION_DUPLICATE", f"{owner_name}: relationship dimension {label!r} is duplicated in the footer.")
-        incoming_by_norm[normalized] = item
-    missing_nonzero = {key for key, (_label, value) in baseline_by_norm.items() if value != 0} - set(incoming_by_norm)
-    if missing_nonzero:
-        labels = ", ".join(baseline_by_norm[key][0] for key in sorted(missing_nonzero))
-        base._http_error(409, "RELATIONSHIP_DIMENSIONS_INCOMPLETE", f"{owner_name}: footer omitted saved non-zero dimensions: {labels}.")
-    for normalized, item in incoming_by_norm.items():
-        saved = baseline_by_norm.get(normalized)
-        if not saved:
-            continue
-        saved_label, old_value = saved
-        delta = item.get("delta")
-        if delta is None:
-            continue
-        expected = old_value + delta
-        final_value = item.get("value")
-        if abs(float(final_value) - float(expected)) > 1e-9:
-            base._http_error(409, "RELATIONSHIP_ARITHMETIC_MISMATCH", f"{owner_name}: {saved_label} started at {old_value}, displayed delta is {delta:+g}, so final value must be {expected}, not {final_value}.")
+    """Allow partial display rows while rejecting a complete metric-schema swap.
+
+    Existing values are preserved by _merge_footer_dimensions, so omitted labels are not data loss.
+    Deltas are explanatory UI and do not independently block a turn. A footer that replaces every
+    established label with unrelated labels is still rejected so legacy relationship vocabularies
+    cannot silently disappear under a new schema.
+    """
+    baseline_norms = {
+        base._relationship_norm(label)
+        for label, value in baseline.items()
+        if relationship_runtime._is_number(value)
+    }
+    incoming_norms = {
+        base._relationship_norm(str(item.get("label") or item.get("key") or ""))
+        for item in incoming
+        if isinstance(item, dict) and str(item.get("label") or item.get("key") or "").strip()
+    }
+    if baseline_norms and incoming_norms and baseline_norms.isdisjoint(incoming_norms):
+        base._http_error(
+            409,
+            "RELATIONSHIP_DIMENSIONS_INCOMPLETE",
+            f"{owner_name}: footer replaced all established relationship labels instead of preserving the existing relationship model.",
+        )
 
 
 def _validate_visible_footer(scene_output: str, *, cards: List[Dict[str, Any]], state_before: Dict[str, Any], state_after: Dict[str, Any]) -> Dict[str, List[Dict[str, Any]]]:
+    """Reconcile footer drift instead of using display formatting as a hard transaction gate."""
     footer = compat._parse_footer_compat(scene_output, cards=cards, resolve_character_id=base._resolve_character_id)
+    final_present = set(compat._current_present_ids(state_after))
     pov = state_after.get("pov") if isinstance(state_after.get("pov"), dict) else {}
     pov_id = str(pov.get("character_id") or "")
-    final_present = set(compat._current_present_ids(state_after))
-    for owner_id in footer:
-        owner_name = compat._card_display_name(cards, owner_id)
-        if owner_id == pov_id:
-            base._http_error(409, "RELATIONSHIP_DIRECTION_INVALID", f"{owner_name}: Relationships footer may contain NPC -> POV only, never POV -> NPC.")
-        if owner_id not in final_present:
-            base._http_error(409, "RELATIONSHIP_FOOTER_ABSENT_NPC", f"{owner_name}: relationship row is visible although this NPC is absent at scene end.")
     for owner_id in final_present:
         if not owner_id or owner_id == pov_id:
             continue
-        owner_name = compat._card_display_name(cards, owner_id)
+        incoming = footer.get(owner_id)
         baseline = base._numeric_relationships(state_before, owner_id)
-        incoming = footer.get(owner_id, [])
-        nonzero_baseline = {label: value for label, value in baseline.items() if value != 0}
-        if not incoming:
-            if nonzero_baseline:
-                labels = ", ".join(nonzero_baseline)
-                base._http_error(409, "RELATIONSHIP_FOOTER_REQUIRED", f"{owner_name}: saved non-zero relationship dimensions must remain visible: {labels}.")
-            continue
-        if baseline:
-            _validate_dimensions(incoming, baseline, owner_name=owner_name)
-        elif not 1 <= len(incoming) <= 3:
-            base._http_error(409, "RELATIONSHIP_BASELINE_INVALID", f"{owner_name}: first meaningful relationship baseline must contain 1-3 natural dimensions; received {len(incoming)}.")
+        if incoming and baseline:
+            _validate_dimensions(
+                incoming,
+                baseline,
+                owner_name=compat._card_display_name(cards, owner_id),
+            )
     return footer
+
+
+def _hidden_relationship_scene(
+    updates: Any,
+    *,
+    cards: List[Dict[str, Any]],
+    state_before: Dict[str, Any],
+    state_after: Dict[str, Any],
+    start_present: set[str],
+    upsert_ids: set[str],
+) -> str:
+    """Persist departed-NPC numeric updates without conflicting with the visible present-NPC footer."""
+    if updates in (None, []):
+        return ""
+    if not isinstance(updates, list):
+        base._http_error(409, "RELATIONSHIP_UPDATES_INVALID", "relationship_updates must be an array.")
+
+    final_present = set(compat._current_present_ids(state_after))
+    allowed = set(start_present) | set(upsert_ids)
+    lines: List[str] = []
+
+    for raw in updates:
+        if not isinstance(raw, dict):
+            base._http_error(409, "RELATIONSHIP_UPDATES_INVALID", "Each relationship update must be an object.")
+        owner_id = base._resolve_character_id(cards, raw.get("character_id"))
+        if not owner_id:
+            base._http_error(409, "RELATIONSHIP_UPDATES_INVALID", "Unknown character_id in relationship_updates.")
+        owner_id = str(owner_id)
+
+        # Present-NPC numeric state comes from the visible footer when available; a redundant
+        # relationship_updates row must not bounce the same gameplay turn into another 409.
+        if owner_id in final_present:
+            continue
+        if owner_id not in allowed:
+            owner_name = compat._card_display_name(cards, owner_id)
+            base._http_error(
+                409,
+                "RELATIONSHIP_UPDATE_FOR_UNSEEN_NPC",
+                f"{owner_name}: hidden relationship update is allowed only for an NPC who participated in this turn.",
+            )
+
+        dimensions = raw.get("dimensions")
+        if not isinstance(dimensions, list) or not dimensions:
+            owner_name = compat._card_display_name(cards, owner_id)
+            base._http_error(
+                409,
+                "RELATIONSHIP_UPDATES_INVALID",
+                f"{owner_name}: relationship update must include non-empty dimensions.",
+            )
+
+        rendered: List[str] = []
+        for item in dimensions:
+            if not isinstance(item, dict):
+                base._http_error(409, "RELATIONSHIP_UPDATES_INVALID", "Relationship dimension must be an object.")
+            label = str(item.get("label") or "").strip()
+            value = item.get("value")
+            delta = item.get("delta")
+            if not label or not relationship_runtime._is_number(value):
+                base._http_error(409, "RELATIONSHIP_UPDATES_INVALID", "Relationship dimension requires label and numeric value.")
+            if delta is not None and not relationship_runtime._is_number(delta):
+                base._http_error(409, "RELATIONSHIP_UPDATES_INVALID", "Relationship delta must be numeric.")
+            suffix = f"/{delta:+g}" if delta is not None else ""
+            rendered.append(f"{label} {value:g}{suffix}")
+
+        lines.append(f"{owner_id} - {'; '.join(rendered)}")
+
+    return "Отношения:\n" + "\n".join(lines) if lines else ""
 
 
 def _install_packet_policy_wrapper() -> None:
@@ -115,14 +170,21 @@ def _install_packet_policy_wrapper() -> None:
         policy["fresh_baseline_required"] = False
         policy["zero_dimensions_may_be_hidden"] = True
         policy["new_dimensions_may_be_appended"] = True
-        policy["footer_validation"] = "Server-enforced: visible rows are NPC->POV and only for NPCs present at scene end. Saved non-zero dimensions stay visible. Zero dimensions may be omitted. New dimensions may be appended when causally established."
-        policy["instruction"] = "Relationships are persistent but dynamically extensible. Preserve old non-zero dimensions, append genuinely new states when the plot creates them, hide zero values if desired, and never manufacture metrics just to keep numbers moving."
+        policy["footer_is_transaction_gate"] = False
+        policy["footer_validation"] = (
+            "Writer should show present NPC->POV rows, but the server reconciles display mistakes instead of rejecting the gameplay turn. "
+            "Missing or partial rows preserve saved dimensions; rows for absent NPCs are ignored for visible persistence; redundant present-NPC relationship_updates do not conflict with the footer."
+        )
+        policy["instruction"] = (
+            "Relationships are persistent but dynamically extensible. Preserve old non-zero dimensions and show the correct rows when possible. "
+            "Do not retry a whole scene merely to repair cosmetic footer drift: persistent canon keeps saved values when a row/label is missing, and the server ignores redundant relationship channels."
+        )
         context["relationship_policy"] = policy
         text = json.dumps(context, ensure_ascii=False, separators=(",", ":"))
         packet["chunks"] = [text[i:i + storage.MAX_PACKET_CHARS] for i in range(0, len(text), storage.MAX_PACKET_CHARS)] or ["{}"]
         packet["chunk_count"] = len(packet["chunks"])
         packet["read_chunks"] = []
-        packet["relationship_growth_runtime"] = 1
+        packet["relationship_growth_runtime"] = _RELATIONSHIP_GROWTH_VERSION
         storage._write_json(root / "turn_packet.json", packet)
         updated = dict(result)
         updated["chunk_count"] = packet["chunk_count"]
@@ -136,6 +198,8 @@ def install() -> None:
     relationship_runtime._merge_footer_dimensions = _merge_footer_dimensions
     compat._validate_dimensions = _validate_dimensions
     compat._validate_visible_footer = _validate_visible_footer
+    compat._hidden_relationship_scene = _hidden_relationship_scene
     base._validate_dimensions = _validate_dimensions
     base._validate_visible_footer = _validate_visible_footer
+    base._hidden_relationship_scene = _hidden_relationship_scene
     _install_packet_policy_wrapper()
