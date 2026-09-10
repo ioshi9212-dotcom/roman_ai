@@ -99,3 +99,63 @@ def test_complete_v2_foundation_finalizes_and_seeds_live_hook_and_pillar_state()
         assert state["world"]["foundation_hook_state"]["h_brother"]["status"] == "latent"
         assert state["world"]["story_pillars"]["war_action"]["label"] == "война и экшн"
         assert state["world"]["social"]["signals"] == {}
+
+
+def test_story_pillars_accept_simple_strings_and_finalize_without_resaving_foundation():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        draft_id = create_draft("v2-simple-pillars", "Simple Pillars", version=2)["draft_id"]
+        save_base(draft_id)
+        foundation = complete_foundation()
+        foundation["hooks"][0]["pillar_ids"] = ["личная тайна прошлого"]
+        foundation["hooks"][1]["pillar_ids"] = ["война и экшн"]
+        foundation["story_pillars"] = ["личная тайна прошлого", "война и экшн"]
+        save_section(draft_id, "foundation", json.dumps(foundation, ensure_ascii=False))
+
+        status = draft_status(draft_id)
+        assert status["ready_to_finalize"] is True
+        assert status["foundation_coverage"]["pillar_count"] == 2
+
+        finalize_draft(draft_id)
+        created = create_session_from_draft(draft_id)
+        root = storage.SESSIONS_DIR / created["session_id"]
+        state = storage._read_json(root / "state.json", {})
+        labels = {row["label"] for row in state["world"]["story_pillars"].values()}
+        assert labels == {"личная тайна прошлого", "война и экшн"}
+
+
+def test_story_pillars_accept_mapping_aliases_and_scalar_fact_reference():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        draft_id = create_draft("v2-map-pillars", "Mapped Pillars", version=2)["draft_id"]
+        save_base(draft_id)
+        foundation = complete_foundation()
+        foundation["story_pillars"] = {
+            "personal_mystery": {"title": "личная тайна прошлого", "fact_ids": "f_missing_brother"},
+            "war_action": {"name": "война и экшн", "facts": ["f_war"]},
+        }
+        save_section(draft_id, "foundation", json.dumps(foundation, ensure_ascii=False))
+
+        status = draft_status(draft_id)
+        assert status["ready_to_finalize"] is True
+        final = finalize_draft(draft_id)
+        assert final["foundation_coverage"]["pillar_count"] == 2
+        created = create_session_from_draft(draft_id)
+        root = storage.SESSIONS_DIR / created["session_id"]
+        state = storage._read_json(root / "state.json", {})
+        assert state["world"]["story_pillars"]["personal_mystery"]["source_fact_ids"] == ["f_missing_brother"]
+        assert state["world"]["story_pillars"]["war_action"]["source_fact_ids"] == ["f_war"]
+
+
+def test_story_pillar_unknown_fact_still_blocks_finalize_after_normalization():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        draft_id = create_draft("v2-bad-pillar-fact", "Bad Pillar Fact", version=2)["draft_id"]
+        save_base(draft_id)
+        foundation = complete_foundation()
+        foundation["story_pillars"] = [{"title": "война", "facts": "does_not_exist"}]
+        save_section(draft_id, "foundation", json.dumps(foundation, ensure_ascii=False))
+
+        status = draft_status(draft_id)
+        assert status["ready_to_finalize"] is False
+        assert status["finalize_blocker"] == "FOUNDATION_STORY_PILLAR_UNKNOWN_FACT"
