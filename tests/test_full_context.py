@@ -34,8 +34,8 @@ def test_runtime_is_only_rules_and_scene_builder_and_stays_small():
     assert "POV — живой участник" in rules
     assert "future_guidance" in rules
     assert "NPC действуют сами" in rules
-    assert "Форма обязательна" in builder
-    assert "ИСТОРИЯ НЕ ПРИДУМЫВАЕТСЯ ЗАДНИМ ЧИСЛОМ" in builder
+    assert "Формат scene_builder обязателен" in builder
+    assert "Каждый ход должен быть логично связан с предыдущим" in builder
     assert manifest["total_chars"] == sum(len(x) for x in chunks)
     assert manifest["total_chars"] < 30000
 

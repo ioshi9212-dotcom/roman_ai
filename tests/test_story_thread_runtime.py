@@ -192,7 +192,7 @@ def test_story_drive_forces_movement_but_keeps_meaningful_pov_choice_with_player
 
 def test_actions_schema_and_gpt_instruction_include_story_thread_contract():
     schema = yaml.safe_load((ROOT / "openapi.yaml").read_text(encoding="utf-8"))
-    assert schema["info"]["version"] == "1.11.0"
+    assert schema["info"]["version"] == "1.11.1"
     extracted = schema["components"]["schemas"]["TurnCommit"]["properties"]["extracted"]
     assert "story_thread_updates" in extracted["required"]
     assert extracted["properties"]["story_thread_updates"]["items"]["$ref"].endswith("StoryThreadUpdate")
@@ -210,5 +210,5 @@ def test_actions_schema_and_gpt_instruction_include_story_thread_contract():
 
 def test_scene_builder_is_not_modified_by_story_engine_fix():
     text = (ROOT / "runtime" / "scene_builder.md").read_text(encoding="utf-8")
-    assert text.startswith("# SCENE BUILDER")
+    assert text.startswith("Формат scene_builder обязателен")
     assert "2000–3000 символов" in text

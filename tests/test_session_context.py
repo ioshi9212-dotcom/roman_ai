@@ -76,11 +76,11 @@ def test_starting_state_canon_and_scene_relevant_cards_are_available_without_hea
         assert context["relationship_policy"]["authoritative_start_snapshot"]["aiden"]["metrics"] == {"trust": 10}
 
         builder = context["scene_builder"]
-        assert "Форма обязательна" in builder
-        assert "🎭 {название новеллы} · {время года}" in builder
-        assert "Что я могу сделать:" in builder
-        assert "Что я могу сказать:" in builder
-        assert "Что я могу подумать:" in builder
+        assert "Формат scene_builder обязателен" in builder
+        assert "🎭 {зафиксированное название новеллы} · {время года}" in builder
+        assert "Что я могу сделать {" in builder
+        assert "Что я могу сказать {" in builder
+        assert "Что я могу подумать {" in builder
         assert "Ход {turn_number} · цикл {cycle_position}/15" in builder
         assert "scene_builder_instruction" not in context
 

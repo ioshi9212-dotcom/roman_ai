@@ -12,8 +12,8 @@ def test_simple_runtime_forbids_direction_notes_from_becoming_shared_history():
     assert "не доказывают" in combined or "не означает" in combined
     assert "в этот раз" in combined
     assert "он уже говорил" in combined
-    assert "Рен" in combined
-    assert "искра" in combined
+    assert "Источник знания" in combined
+    assert "задним числом" in combined
 
 
 def test_custom_gpt_keeps_history_memory_and_future_guidance_separate():

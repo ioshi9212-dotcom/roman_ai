@@ -41,9 +41,11 @@ Railway хранит канон. Игрок видит только сцены. 
 Длительный вопрос, подозрение, обещание, план или цель сохраняй через `npc_intent_updates`. Увиливание POV intent не закрывает.
 
 ## Отношения и мнение
-Отношения `NPC -> POV`. Для новых показателей используй только `living_world.relationship_model.fixed_new_dimensions`; старые labels не переименовывай. Числа влияют на тон, инициативу, дистанцию, трактовки и частоту контакта, но не меняются ради footer.
+Отношения `NPC -> POV`. Источник истины — актуальный `relationship_lens`/Railway, не числа из прошлых сцен. Новые показатели только из `living_world.relationship_model.fixed_new_dimensions`; старые labels не переименовывай.
 
-Если изменились мнение, убеждения или незакрытая динамика, передай `relationship_updates`: `character_id` + `opinion/current_dynamic` и/или полные `beliefs_about_target`, `unresolved_between_them`. Мнение NPC может быть ошибочным.
+Если число реально изменилось, передай `relationship_updates`: `character_id` + `label/value/delta`. Для существующего показателя сервер применит delta к сохранённому значению. Не отправляй неизменившиеся числа. Это работает и если NPC ушёл. Блок `Отношения:` только отображение.
+
+Там же сохраняй изменившиеся `opinion/current_dynamic`, полные `beliefs_about_target`, `unresolved_between_them`. Мнение NPC может быть ошибочным.
 
 ## ДАННЫЕ НЕ СМЕШИВАТЬ
 - `recent_turns` + `continuity_turns` + `chronology_recent` = реально произошедшее;

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from copy import deepcopy
 from typing import Any, Dict, List
 
@@ -10,13 +11,13 @@ from .transactional_storage import session_transaction
 
 
 _ORIGINAL_PREPARE = None
-WRITER_FIRST_VERSION = 7
+WRITER_FIRST_VERSION = 8
 WRITER_PACKET_CHARS = 16000
 RECENT_FULL_TURNS = 2
 CONTINUITY_WINDOW = 15
-MAX_WORKING_KNOWLEDGE = 18
-MAX_WORKING_EXPERIENCES = 12
-MAX_WORKING_DIALOGUE = 12
+MAX_WORKING_KNOWLEDGE = 12
+MAX_WORKING_EXPERIENCES = 10
+MAX_WORKING_DIALOGUE = 10
 MAX_HISTORICAL_KNOWLEDGE_CATALOG = 8
 MAX_ACTIVE_THREADS = 12
 MAX_RECENT_CHRONOLOGY = 12
@@ -103,13 +104,26 @@ def _priority(value: Any) -> int:
     return {"critical": 100, "high": 75, "medium": 50, "normal": 50, "low": 25}.get(str(raw or "").casefold(), 0)
 
 
+def _compact_thread(item: Any) -> Any:
+    result = deepcopy(item)
+    if not isinstance(result, dict):
+        return result
+    # Keep all structural thread fields, but do not let old free-form notes dominate every turn packet.
+    # Full persistent thread state remains in Railway.
+    notes = result.get("notes")
+    if isinstance(notes, str) and len(notes) > 700:
+        result["notes"] = notes[:700]
+        result["notes_truncated_in_writer_context"] = True
+    return result
+
+
 def _active_threads(value: Any) -> Any:
     if isinstance(value, dict):
-        rows = [(str(key), deepcopy(item)) for key, item in value.items() if _status(item) not in _TERMINAL]
+        rows = [(str(key), _compact_thread(item)) for key, item in value.items() if _status(item) not in _TERMINAL]
         rows.sort(key=lambda pair: _priority(pair[1]), reverse=True)
         return {key: item for key, item in rows[:MAX_ACTIVE_THREADS]}
     if isinstance(value, list):
-        rows = [deepcopy(item) for item in value if _status(item) not in _TERMINAL]
+        rows = [_compact_thread(item) for item in value if _status(item) not in _TERMINAL]
         rows.sort(key=_priority, reverse=True)
         return rows[:MAX_ACTIVE_THREADS]
     return deepcopy(value)
@@ -247,8 +261,24 @@ def _compact_starting_state(value: Any) -> Dict[str, Any]:
     return state
 
 
+def _strip_relationship_display(scene_output: Any) -> str:
+    """Remove historical relationship numbers from writer context, not from stored/player scenes."""
+    text = str(scene_output or "")
+    marker = text.rfind("\nОтношения:")
+    if marker < 0:
+        return text
+    tail = text[marker:]
+    footer = re.search(r"(?m)^\s*Ход\s+\d+\s*·\s*цикл\b.*$", tail)
+    if footer is None:
+        return text[:marker].rstrip()
+    return text[:marker] + "\nОтношения:\n\n" + tail[footer.start():]
+
+
 def _compact_full_turn(turn: Dict[str, Any]) -> Dict[str, Any]:
-    return {key: deepcopy(turn[key]) for key in ("turn_number", "user_input", "scene_output", "extracted") if key in turn}
+    result = {key: deepcopy(turn[key]) for key in ("turn_number", "user_input", "scene_output", "extracted") if key in turn}
+    if "scene_output" in result:
+        result["scene_output"] = _strip_relationship_display(result["scene_output"])
+    return result
 
 
 def _compact_continuity_turn(turn: Dict[str, Any]) -> Dict[str, Any]:
@@ -263,7 +293,7 @@ def _compact_continuity_turn(turn: Dict[str, Any]) -> Dict[str, Any]:
     if isinstance(current, dict) and current:
         result["current_patch"] = deepcopy(current)
     if len(result) == 2:
-        scene = " ".join(str(turn.get("scene_output") or "").split())
+        scene = " ".join(_strip_relationship_display(turn.get("scene_output")).split())
         if scene:
             result["scene_tail"] = scene[-700:]
     return result

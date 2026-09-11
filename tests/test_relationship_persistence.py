@@ -94,15 +94,15 @@ def test_footer_persists_changes_and_accepts_missing_delta_like_old_generator():
         assert state["relationships"]["adrian"] == {"симпатия": 12, "близость": 5}
 
 
-def test_reunion_with_completely_new_metric_words_is_rejected():
+def test_wrong_visible_metric_words_do_not_block_or_replace_saved_relationship():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         sid = storage.create_session(novel(starting_relationships={"adrian": {"симпатия": 35, "доверие": 18, "влечение": 42}}))["session_id"]
         read_all_packet_chunks(sid, "first")
-        with pytest.raises(HTTPException) as exc:
-            session_runtime.commit_turn(sid, {"user_input": "first", "scene_output": scene("интерес 70; нежность 55"), "extracted": extracted()})
-        assert exc.value.status_code == 409
-        assert exc.value.detail["code"] == "RELATIONSHIP_DIMENSIONS_INCOMPLETE"
+        session_runtime.commit_turn(
+            sid,
+            {"user_input": "first", "scene_output": scene("интерес 70; нежность 55"), "extracted": extracted()},
+        )
         state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
         assert state["relationships"]["adrian"] == {"симпатия": 35, "доверие": 18, "влечение": 42}
 
@@ -187,3 +187,53 @@ def test_leave_transition_with_stale_visible_footer_does_not_block_or_overwrite(
         state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
         assert "adrian" not in state["current"]["present_characters"]
         assert state["relationships"]["adrian"]["симпатия"] == 10
+
+
+def test_explicit_delta_uses_saved_baseline_not_supplied_absolute_value():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(novel(starting_relationships={"adrian": {"симпатия": 50, "доверие": 20}}))["session_id"]
+        read_all_packet_chunks(sid, "test")
+        payload = extracted()
+        payload["relationship_updates"] = [
+            {"character_id": "adrian", "dimensions": [{"label": "симпатия", "value": 12, "delta": 2}]}
+        ]
+        session_runtime.commit_turn(
+            sid,
+            {"user_input": "test", "scene_output": scene("симпатия 12/+2; доверие 20"), "extracted": payload},
+        )
+        state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
+        assert state["relationships"]["adrian"] == {"симпатия": 52, "доверие": 20}
+
+
+def test_absolute_value_without_delta_cannot_roll_back_existing_metric():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(novel(starting_relationships={"adrian": {"симпатия": 50}}))["session_id"]
+        read_all_packet_chunks(sid, "test")
+        payload = extracted()
+        payload["relationship_updates"] = [
+            {"character_id": "adrian", "dimensions": [{"label": "симпатия", "value": 31}]}
+        ]
+        session_runtime.commit_turn(
+            sid,
+            {"user_input": "test", "scene_output": scene("симпатия 31"), "extracted": payload},
+        )
+        state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
+        assert state["relationships"]["adrian"]["симпатия"] == 50
+
+
+def test_valid_footer_delta_still_persists_when_npc_leaves_for_backward_compatibility():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(novel(starting_relationships={"adrian": {"симпатия": 10}}))["session_id"]
+        read_all_packet_chunks(sid, "test")
+        payload = extracted()
+        payload["presence_updates"] = [{"character_id": "adrian", "action": "leave"}]
+        session_runtime.commit_turn(
+            sid,
+            {"user_input": "test", "scene_output": scene("симпатия 11/+1"), "extracted": payload},
+        )
+        state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
+        assert "adrian" not in state["current"]["present_characters"]
+        assert state["relationships"]["adrian"]["симпатия"] == 11
