@@ -347,14 +347,11 @@ def _install_packet_policy_wrapper() -> None:
 
         lens = context.get("relationship_lens") if isinstance(context.get("relationship_lens"), dict) else {}
         lens["initialization_required"] = False
-        lens["initialization_instruction"] = (
-            "Do not invent a relationship just because an NPC is present. When a meaningful directed attitude exists, "
-            "initialize only relevant dimensions. Existing dimensions persist independently of scene presence."
-        )
+        lens["initialization_instruction"] = "Initialize only meaningful dimensions; saved dimensions persist."
         context["relationship_lens"] = lens
         context["relationship_lens_instruction"] = (
-            "MANDATORY NPC->POV state. Treat the saved relationship_lens snapshot as the authoritative start of this turn. "
-            "Old relationship numbers inside prior scene text are history/display only and must never replace this snapshot."
+            "MANDATORY. Saved relationship_lens is this turn's authoritative NPC->POV start. "
+            "Ignore old relationship numbers from prior scene text."
         )
 
         policy = context.get("relationship_policy") if isinstance(context.get("relationship_policy"), dict) else {}
@@ -366,24 +363,9 @@ def _install_packet_policy_wrapper() -> None:
             "fresh_baseline_required": False,
             "zero_dimensions_may_be_hidden": True,
             "new_dimensions_may_be_appended": True,
-            "existing_metric_update": (
-                "If an established metric truly changes, send it in extracted.relationship_updates with delta. "
-                "The server computes saved_value + delta; the supplied absolute value is not authoritative."
-            ),
-            "unchanged_metric_rule": (
-                "If a metric did not change, do not send a numeric update. Its saved value persists automatically."
-            ),
-            "presence_rule": (
-                "The same relationship update works whether the NPC remains present or leaves during this turn."
-            ),
-            "footer_validation": (
-                "The footer only displays the relationship state for the reader. Footer omissions, stale absolute values "
-                "or presence drift do not overwrite persistent relationship canon and do not block the turn."
-            ),
             "instruction": (
-                "Start from authoritative_start_snapshot/relationship_lens. Persist only real numeric changes through "
-                "relationship_updates. For an established metric include a small causal delta; never copy an older scene's "
-                "absolute number back into canon. The footer is display, not storage."
+                "Existing metrics change only through relationship_updates delta; Railway applies saved+delta. "
+                "Omitted metrics persist. Same rule if NPC stays or leaves. Footer is display only."
             ),
         })
         context["relationship_policy"] = policy
@@ -391,12 +373,11 @@ def _install_packet_policy_wrapper() -> None:
         persistence = context.get("persistence_contract") if isinstance(context.get("persistence_contract"), dict) else {}
         persistence["relationship_updates"] = {
             "optional": True,
-            "when": "Only when an NPC->POV numeric relationship metric or relationship metadata actually changed in this turn.",
+            "when": "Only on a real numeric or relationship-metadata change.",
             "format": '[{"character_id":"npc_id","dimensions":[{"label":"доверие","value":12,"delta":2}]}]',
             "instruction": (
-                "For an established numeric metric, delta is the causal write and Railway computes it from the saved baseline. "
-                "Do not resend unchanged dimensions. The same update works for present and departed participating NPCs; "
-                "opinion/current_dynamic/beliefs/unresolved may be included in the same row."
+                "Existing metric: send delta; Railway applies saved+delta. Omit unchanged metrics. "
+                "Works if the participating NPC stays or leaves; metadata may share the row."
             ),
         }
         context["persistence_contract"] = persistence
