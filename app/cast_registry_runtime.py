@@ -10,7 +10,7 @@ from .transactional_storage import session_transaction
 
 _ORIGINAL_PREPARE = None
 _ORIGINAL_COMMIT = None
-_VERSION = 2
+_VERSION = 3
 _TERMINAL = {"dead", "deceased", "inactive", "removed", "мертв", "мёртв", "погиб", "умер", "неактив"}
 
 
@@ -44,41 +44,31 @@ def _has_open_intent(state: Dict[str, Any], character_id: str) -> bool:
         rows = list(rows.values())
     if not isinstance(rows, list):
         return False
-    for row in rows:
-        if isinstance(row, dict) and str(row.get("status") or "active").casefold() not in {"resolved", "closed", "done", "abandoned", "cancelled", "canceled"}:
-            return True
-    return False
+    return any(
+        isinstance(row, dict)
+        and str(row.get("status") or "active").casefold() not in {"resolved", "closed", "done", "abandoned", "cancelled", "canceled"}
+        for row in rows
+    )
 
 
 def _ensure_registry(state: Dict[str, Any], cards: List[Dict[str, Any]], current_turn: int) -> Dict[str, Any]:
     world = state.get("world") if isinstance(state.get("world"), dict) else {}
-    registry = world.get("cast_registry") if isinstance(world.get("cast_registry"), dict) else {}
-    registry = deepcopy(registry)
+    registry = deepcopy(world.get("cast_registry") if isinstance(world.get("cast_registry"), dict) else {})
     runtime = state.get("characters") if isinstance(state.get("characters"), dict) else {}
-    present = set(storage._present_character_ids(state))
     for card in cards:
         cid = storage._card_id(card)
         if not cid:
             continue
         info = runtime.get(cid) if isinstance(runtime.get(cid), dict) else {}
-        row = registry.get(cid) if isinstance(registry.get(cid), dict) else {}
-        row = deepcopy(row)
+        row = deepcopy(registry.get(cid) if isinstance(registry.get(cid), dict) else {})
         row.setdefault("character_id", cid)
         row.setdefault("name", storage._card_name(card))
         row.setdefault("role", storage._card_role(card))
         row.setdefault("origin", "player_created")
         row.setdefault("first_registered_turn", 0)
+        row.setdefault("appearance_count", 0)
         row["status"] = info.get("status") or card.get("status") or row.get("status") or "active"
-        if cid in present:
-            row["last_appearance_turn"] = current_turn
-            row["last_contact_turn"] = current_turn
-            if row.get("_seen_this_turn") != current_turn:
-                row["appearance_count"] = int(row.get("appearance_count", 0) or 0) + 1
-                row["_seen_this_turn"] = current_turn
         registry[cid] = row
-    world = deepcopy(world)
-    world["cast_registry"] = registry
-    state["world"] = world
     return registry
 
 
@@ -103,22 +93,22 @@ def _rotation_pressure(state: Dict[str, Any], cards: List[Dict[str, Any]], curre
             continue
         last_appearance = int(row.get("last_appearance_turn", 0) or 0)
         last_activity = _last_activity_turn(row)
-        absent = max(0, current_turn - last_activity) if last_activity else current_turn
+        inactive_for = max(0, current_turn - last_activity) if last_activity else current_turn
         since_appearance = max(0, current_turn - last_appearance) if last_appearance else current_turn
         origin = str(row.get("origin") or "story_created")
         relation = _relation_strength(state, cid)
         has_intent = _has_open_intent(state, cid)
         player_created = origin == "player_created"
-        due = absent >= (8 if player_created else 15) or has_intent or (relation >= 0.6 and absent >= 5)
+        due = inactive_for >= (8 if player_created else 15) or has_intent or (relation >= 0.6 and inactive_for >= 5)
         if not due:
             continue
-        score = float(absent) + (40.0 if player_created else 10.0) + relation * 30.0 + (35.0 if has_intent else 0.0)
+        score = float(inactive_for) + (40.0 if player_created else 10.0) + relation * 30.0 + (35.0 if has_intent else 0.0)
         scored.append((score, {
             "character_id": cid,
             "name": row.get("name"),
             "role": row.get("role"),
             "origin": origin,
-            "turns_since_activity": absent,
+            "turns_since_activity": inactive_for,
             "turns_since_appearance": since_appearance,
             "relationship_salience": round(relation, 2),
             "open_intent": has_intent,
@@ -127,6 +117,90 @@ def _rotation_pressure(state: Dict[str, Any], cards: List[Dict[str, Any]], curre
         }))
     scored.sort(key=lambda pair: pair[0], reverse=True)
     return [row for _, row in scored[:8]]
+
+
+def _post_turn_present(state: Dict[str, Any], extracted: Dict[str, Any]) -> set[str]:
+    present = set(storage._present_character_ids(state))
+    for row in extracted.get("presence_updates", []) if isinstance(extracted.get("presence_updates"), list) else []:
+        if not isinstance(row, dict) or not row.get("character_id"):
+            continue
+        cid = str(row["character_id"])
+        action = str(row.get("action") or "").casefold()
+        if action == "enter":
+            present.add(cid)
+        elif action == "leave":
+            present.discard(cid)
+    return present
+
+
+def _event_summary_for(character_id: str, card: Dict[str, Any], chronology: Any) -> str | None:
+    names = [str(name).casefold() for name in storage._card_names(card) if str(name).strip()]
+    for event in reversed(chronology if isinstance(chronology, list) else []):
+        if not isinstance(event, dict):
+            continue
+        ids = event.get("character_ids") or event.get("participants") or event.get("characters") or []
+        if isinstance(ids, str):
+            ids = [ids]
+        serialized = json.dumps(event, ensure_ascii=False).casefold()
+        if character_id in [str(value) for value in ids] or any(name in serialized for name in names):
+            summary = event.get("summary") or event.get("event") or event.get("text") or event.get("description")
+            if summary:
+                return " ".join(str(summary).split())[:320]
+    return None
+
+
+def _with_registry_patch(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    root = storage.SESSIONS_DIR / session_id
+    with session_transaction(root):
+        state = storage._read_json(root / "state.json", {})
+        source = storage._read_json(root / "source.json", {})
+        meta = storage._read_json(root / "meta.json", {})
+        turn_number = int(meta.get("turn_number", 0) or 0) + 1
+        current_cards = storage._load_cards(root, source)
+        source_ids = {storage._card_id(card) for card in storage._normalise_cards(source.get("characters", []))}
+
+        prepared = deepcopy(payload)
+        extracted = prepared.get("extracted") if isinstance(prepared.get("extracted"), dict) else {}
+        extracted = deepcopy(extracted)
+        resulting_cards = storage._apply_character_upserts(current_cards, extracted)
+        upsert_ids = {storage._card_id(row) for row in extracted.get("character_upserts", []) if isinstance(row, dict) and storage._card_id(row)}
+        registry = _ensure_registry(state, resulting_cards, int(meta.get("turn_number", 0) or 0))
+        post_present = _post_turn_present(state, extracted)
+        chronology = extracted.get("chronology") if isinstance(extracted.get("chronology"), list) else []
+        card_map = {storage._card_id(card): card for card in resulting_cards}
+
+        for cid, row in registry.items():
+            if cid in source_ids:
+                row["origin"] = "player_created"
+                row["first_registered_turn"] = 0
+            elif cid in upsert_ids or row.get("origin") != "story_created":
+                row["origin"] = "story_created"
+                if not int(row.get("first_registered_turn", 0) or 0):
+                    row["first_registered_turn"] = turn_number
+
+            if cid in post_present:
+                row["last_appearance_turn"] = turn_number
+                row["last_contact_turn"] = turn_number
+                if int(row.get("_seen_this_turn", 0) or 0) != turn_number:
+                    row["appearance_count"] = int(row.get("appearance_count", 0) or 0) + 1
+                    row["_seen_this_turn"] = turn_number
+
+            summary = _event_summary_for(cid, card_map.get(cid, {}), chronology)
+            if summary:
+                row["last_meaning_event"] = summary
+                row["last_meaningful_event"] = summary
+                row["last_meaningful_turn"] = turn_number
+                row["last_contact_turn"] = turn_number
+
+        state_patch = extracted.get("state_patch") if isinstance(extracted.get("state_patch"), dict) else {}
+        state_patch = deepcopy(state_patch)
+        world_patch = state_patch.get("world") if isinstance(state_patch.get("world"), dict) else {}
+        world_patch = deepcopy(world_patch)
+        world_patch["cast_registry"] = registry
+        state_patch["world"] = world_patch
+        extracted["state_patch"] = state_patch
+        prepared["extracted"] = extracted
+        return prepared
 
 
 def _rewrite_packet(session_id: str, base_result: Dict[str, Any]) -> Dict[str, Any]:
@@ -145,11 +219,9 @@ def _rewrite_packet(session_id: str, base_result: Dict[str, Any]) -> Dict[str, A
         state = storage._read_json(root / "state.json", {})
         source = storage._read_json(root / "source.json", {})
         cards = storage._load_cards(root, source)
-        meta = storage._read_json(root / "meta.json", {})
-        current_turn = int(meta.get("turn_number", 0) or 0)
+        current_turn = int(storage._read_json(root / "meta.json", {}).get("turn_number", 0) or 0)
         registry = _ensure_registry(state, cards, current_turn)
         pressure = _rotation_pressure(state, cards, current_turn)
-        storage._write_json(root / "state.json", state)
         context["cast_registry"] = {
             "version": _VERSION,
             "characters": [{k: v for k, v in row.items() if not str(k).startswith("_")} for row in registry.values()],
@@ -187,65 +259,13 @@ def _rewrite_packet(session_id: str, base_result: Dict[str, Any]) -> Dict[str, A
         return result
 
 
-def _event_summary_for(character_id: str, card: Dict[str, Any], chronology: Any) -> str | None:
-    names = [str(name).casefold() for name in storage._card_names(card) if str(name).strip()]
-    for event in reversed(chronology if isinstance(chronology, list) else []):
-        if not isinstance(event, dict):
-            continue
-        ids = event.get("character_ids") or event.get("participants") or event.get("characters") or []
-        if isinstance(ids, str):
-            ids = [ids]
-        serialized = json.dumps(event, ensure_ascii=False).casefold()
-        if character_id in [str(value) for value in ids] or any(name in serialized for name in names):
-            summary = event.get("summary") or event.get("event") or event.get("text") or event.get("description")
-            if summary:
-                return " ".join(str(summary).split())[:320]
-    return None
-
-
-def _update_after_commit(session_id: str, payload: Dict[str, Any], result: Dict[str, Any]) -> None:
-    root = storage.SESSIONS_DIR / session_id
-    with session_transaction(root):
-        state = storage._read_json(root / "state.json", {})
-        source = storage._read_json(root / "source.json", {})
-        cards = storage._load_cards(root, source)
-        source_ids = {storage._card_id(card) for card in storage._normalise_cards(source.get("characters", []))}
-        turn_number = int(result.get("turn_number") or storage._read_json(root / "meta.json", {}).get("turn_number", 0) or 0)
-        registry = _ensure_registry(state, cards, turn_number)
-        extracted = payload.get("extracted") if isinstance(payload.get("extracted"), dict) else {}
-        upsert_ids = {storage._card_id(row) for row in extracted.get("character_upserts", []) if isinstance(row, dict) and storage._card_id(row)}
-        present = set(storage._present_character_ids(state))
-        chronology = extracted.get("chronology") if isinstance(extracted.get("chronology"), list) else []
-        card_map = {storage._card_id(card): card for card in cards}
-        for cid, row in registry.items():
-            if cid in upsert_ids and cid not in source_ids:
-                row["origin"] = "story_created"
-                if not int(row.get("first_registered_turn", 0) or 0):
-                    row["first_registered_turn"] = turn_number
-            elif cid in source_ids:
-                row["origin"] = "player_created"
-                row["first_registered_turn"] = 0
-            if cid in present:
-                row["last_appearance_turn"] = turn_number
-                row["last_contact_turn"] = turn_number
-            summary = _event_summary_for(cid, card_map.get(cid, {}), chronology)
-            if summary:
-                row["last_meaningful_event"] = summary
-                row["last_meaningful_turn"] = turn_number
-                row["last_contact_turn"] = turn_number
-        world = state.get("world") if isinstance(state.get("world"), dict) else {}
-        world["cast_registry"] = registry
-        state["world"] = world
-        storage._write_json(root / "state.json", state)
-
-
 def _prepare_turn(session_id: str, user_input: str) -> Dict[str, Any]:
     return _rewrite_packet(session_id, dict(_ORIGINAL_PREPARE(session_id, user_input)))
 
 
 def _commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
-    result = dict(_ORIGINAL_COMMIT(session_id, payload))
-    _update_after_commit(session_id, payload, result)
+    result = dict(_ORIGINAL_COMMIT(session_id, _with_registry_patch(session_id, payload)))
+    result["cast_registry_persisted"] = True
     return result
 
 
