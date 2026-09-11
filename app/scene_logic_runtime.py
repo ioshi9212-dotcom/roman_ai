@@ -8,7 +8,7 @@ from .transactional_storage import session_transaction
 
 
 _ORIGINAL_PREPARE = None
-_GUARD_VERSION = 1
+_GUARD_VERSION = 2
 
 
 def _knowledge_causality_rule() -> Dict[str, Any]:
@@ -17,25 +17,45 @@ def _knowledge_causality_rule() -> Dict[str, Any]:
         "source_before_use": True,
         "scene_order_is_causal": True,
         "no_retroactive_justification": True,
+        "character_knowledge_is_closed_world": True,
         "allowed_sources": [
-            "own personal_memory / character_memory",
-            "directly saw, heard, read, received or was told earlier in this scene while present",
-            "an inference whose every premise this character already knew",
+            "this character's own personal_memory / character_memory",
+            "something this character directly saw, heard, read, received or was explicitly told earlier in the current scene while present",
+            "an inference whose every premise was already available to this character from the two sources above",
+        ],
+        "author_only_not_character_knowledge": [
+            "POV questionnaire, NPC questionnaire, character cards and character backstory fields",
+            "foundation, foundation_pressure, story_pillars, future_guidance and author plans",
+            "chronology, chronology_recent, recent_turns and continuity_turns",
+            "lore, hidden_lore, world canon and scene direction",
+            "another character's memory, beliefs, relationship state or private information",
         ],
         "forbidden": [
-            "author chronology, recent turns, cards, lore, another character's memory or hidden context as personal knowledge",
+            "treating any author-only source as if a character personally knows its contents",
+            "giving an NPC facts from the POV questionnaire merely because the writer packet contains them",
+            "giving one NPC facts from another NPC's questionnaire/card/memory",
+            "using chronology/recent turns as a character knowledge source unless the same fact is independently present in that character's own memory or was perceived in-scene",
             "an absent/late character knowing an exchange they missed",
             "writing a factual line first and inventing the missing source afterwards",
             "adding a convenient forgotten detail after the fact to justify a conclusion",
         ],
-        "inference_rule": "Every premise must be known before the inference; weak premises mean suspicion/question, not certainty.",
+        "questionnaire_rule": (
+            "Questionnaire/card/foundation facts are author guidance only. They may shape plot opportunities or a character's own established traits, "
+            "but they never grant factual knowledge about another person or event. To become character knowledge, the fact must enter that character's memory "
+            "through a real witnessed/read/heard/told channel in story time."
+        ),
+        "chronology_rule": (
+            "Chronology and recent/continuity turns establish authorial canon only. They are never evidence that a specific character knows the event. "
+            "For character dialogue or action, require that character's own memory or a current-scene perception/source."
+        ),
+        "inference_rule": "Every premise must already be known by this character before the inference; weak premises mean suspicion/question, not certainty.",
         "missing_source_behavior": (
             "If the chain is missing before the line, rewrite before commit: remove the knowledge, make it a question/uncertain guess, "
             "or first show a real source the character perceives. Never justify it retroactively."
         ),
         "pre_commit_check": (
-            "Trace every non-trivial factual statement, recognition, inference, question premise and deliberate action to what that character knew immediately before it. "
-            "Cause/information must precede reaction/conclusion."
+            "Trace every non-trivial factual statement, recognition, inference, question premise and deliberate action to this character's own memory or a source "
+            "they personally perceived before that exact moment. Do not cite chronology, questionnaire/card, foundation, lore or another character's memory."
         ),
     }
 
@@ -85,7 +105,7 @@ def _rewrite_packet(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
             "version": _GUARD_VERSION,
             "knowledge_causality": _knowledge_causality_rule(),
             "player_text_cleanup": _player_text_cleanup_rule(),
-            "instruction": "Both rules are mandatory.",
+            "instruction": "Both rules are mandatory. Character knowledge is closed-world: author canon is not personal knowledge.",
         }
 
         text = json.dumps(context, ensure_ascii=False, separators=(",", ":"))
