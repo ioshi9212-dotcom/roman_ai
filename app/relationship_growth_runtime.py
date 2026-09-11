@@ -154,7 +154,25 @@ def _merge_footer_delta_fallbacks(
         if not isinstance(dims, list):
             dims = []
             target["dimensions"] = dims
-        dims.extend(fallback)
+        for item in fallback:
+            label_norm = base._relationship_norm(str(item.get("label") or ""))
+            replaced = False
+            for index, existing_item in enumerate(dims):
+                if not isinstance(existing_item, dict):
+                    continue
+                existing_norm = base._relationship_norm(
+                    str(existing_item.get("label") or existing_item.get("key") or "")
+                )
+                if existing_norm != label_norm:
+                    continue
+                # A real explicit delta already won above. A snapshot-only duplicate must not
+                # suppress the safe footer-delta fallback during migration.
+                if _bounded_scene_delta(existing_item.get("delta")) is None:
+                    dims[index] = item
+                replaced = True
+                break
+            if not replaced:
+                dims.append(item)
 
     extracted = deepcopy(extracted)
     extracted["relationship_updates"] = rows
