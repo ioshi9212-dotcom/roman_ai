@@ -128,15 +128,22 @@ def _merge_footer_delta_fallbacks(
         for dim in dimensions:
             if not isinstance(dim, dict):
                 continue
-            delta = _bounded_scene_delta(dim.get("delta"))
             label_text = str(dim.get("label") or dim.get("key") or "").strip()
             label_norm = base._relationship_norm(label_text)
-            if delta is None or not label_norm:
+            if not label_norm:
                 continue
             if label_norm in explicit_delta_labels.get(owner_id, set()):
                 continue
             # Legacy saved labels remain valid; genuinely new labels must come from the fixed vocabulary.
             if label_norm not in existing and label_norm not in _FIXED_NEW_LABELS:
+                continue
+            raw_delta = dim.get("delta")
+            if not _is_number(raw_delta):
+                continue
+            # Existing counters may move only by the scene-sized delta. A newly created counter uses
+            # its supplied initial value; its printed delta is only a backwards-compatible change marker.
+            delta = _bounded_scene_delta(raw_delta) if label_norm in existing else float(raw_delta)
+            if delta is None:
                 continue
             value = dim.get("value")
             if not _is_number(value):
