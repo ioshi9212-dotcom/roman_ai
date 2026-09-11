@@ -622,6 +622,7 @@ def continue_session(session_id: str) -> Dict[str, Any]:
     return {
         "ok": True,
         "session_id": session_id,
+        "source_draft_id": meta.get("source_draft_id"),
         "turn_number": int(meta.get("turn_number", 0)),
         "last_audit_turn": int(meta.get("last_audit_turn", 0) or 0),
         "audit_required": bool(meta.get("audit_required")),
