@@ -24,7 +24,7 @@ def _knowledge_causality_rule() -> Dict[str, Any]:
             "an inference whose every premise was already available to this character from the two sources above",
         ],
         "author_only_not_character_knowledge": [
-            "POV questionnaire, NPC questionnaire, character cards and character backstory fields",
+            "POV questionnaire, NPC questionnaire including that NPC's own questionnaire, character cards and character backstory fields",
             "foundation, foundation_pressure, story_pillars, future_guidance and author plans",
             "chronology, chronology_recent, recent_turns and continuity_turns",
             "lore, hidden_lore, world canon and scene direction",
@@ -34,15 +34,16 @@ def _knowledge_causality_rule() -> Dict[str, Any]:
             "treating any author-only source as if a character personally knows its contents",
             "giving an NPC facts from the POV questionnaire merely because the writer packet contains them",
             "giving one NPC facts from another NPC's questionnaire/card/memory",
+            "treating a character's own questionnaire/card/backstory as factual awareness unless the same fact exists in that character's memory or was acquired through a real in-story channel",
             "using chronology/recent turns as a character knowledge source unless the same fact is independently present in that character's own memory or was perceived in-scene",
             "an absent/late character knowing an exchange they missed",
             "writing a factual line first and inventing the missing source afterwards",
             "adding a convenient forgotten detail after the fact to justify a conclusion",
         ],
         "questionnaire_rule": (
-            "Questionnaire/card/foundation facts are author guidance only. They may shape plot opportunities or a character's own established traits, "
-            "but they never grant factual knowledge about another person or event. To become character knowledge, the fact must enter that character's memory "
-            "through a real witnessed/read/heard/told channel in story time."
+            "Neither the POV questionnaire nor any NPC questionnaire, including that character's own questionnaire/card/backstory, is personal knowledge. "
+            "These author-only fields may shape characterization and plot possibilities, but factual awareness still requires that character's own memory "
+            "or a real witnessed/read/heard/received/told channel in story time."
         ),
         "chronology_rule": (
             "Chronology and recent/continuity turns establish authorial canon only. They are never evidence that a specific character knows the event. "
@@ -54,8 +55,8 @@ def _knowledge_causality_rule() -> Dict[str, Any]:
             "or first show a real source the character perceives. Never justify it retroactively."
         ),
         "pre_commit_check": (
-            "Trace every non-trivial factual statement, recognition, inference, question premise and deliberate action to this character's own memory or a source "
-            "they personally perceived before that exact moment. Do not cite chronology, questionnaire/card, foundation, lore or another character's memory."
+            "Cause/information must precede reaction/conclusion. Trace every non-trivial factual statement, recognition, inference, question premise and deliberate action "
+            "to this character's own memory or a source they personally perceived before that exact moment. Do not cite chronology, questionnaire/card, foundation, lore or another character's memory."
         ),
     }
 
