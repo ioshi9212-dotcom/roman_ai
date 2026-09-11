@@ -98,13 +98,16 @@ def _save_section(draft_id: str, section_name: str, section_json: str) -> Dict[s
     if section_name.strip() != "intake":
         return _ORIGINAL_SAVE_SECTION(draft_id, section_name, section_json)
     draft = novel_drafts._read(draft_id)
+    was_finalized = bool(draft.get("finalized"))
     parsed = novel_drafts._parse_one_json(section_json)
     merged = _merge_intake(draft.get("sections", {}).get("intake"), parsed)
     draft.setdefault("sections", {})["intake"] = merged
     draft["finalized"] = False
     draft.pop("finalized_template", None)
     novel_drafts._write(novel_drafts._draft_path(draft_id), draft)
-    return _draft_status(draft_id)
+    result = dict(_draft_status(draft_id))
+    result["reopened_from_finalized"] = was_finalized
+    return result
 
 
 def _draft_status(draft_id: str) -> Dict[str, Any]:
