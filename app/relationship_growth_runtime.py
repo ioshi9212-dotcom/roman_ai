@@ -13,7 +13,7 @@ from . import storage
 
 MAX_RELATIONSHIP_DIMENSIONS = 12
 _RELATIONSHIP_GROWTH_VERSION = 3
-_ORIGINAL_PREPARE_EXTRACTED_FOR_COMMIT = base._prepare_extracted_for_commit
+_ORIGINAL_PREPARE_EXTRACTED_FOR_COMMIT = None
 
 # New labels are intentionally small and stable. Existing legacy labels remain valid.
 _FIXED_NEW_LABELS = {
@@ -320,6 +320,8 @@ def _prepare_extracted_for_commit(
     root,
     turn_number: int,
 ) -> tuple[Dict[str, Any], Dict[str, Any]]:
+    if _ORIGINAL_PREPARE_EXTRACTED_FOR_COMMIT is None:
+        raise RuntimeError("RELATIONSHIP_GROWTH_RUNTIME_NOT_INSTALLED")
     # Preserve old GPT installations: a valid small footer delta becomes a relationship_update fallback.
     prepared_payload = _merge_footer_delta_fallbacks(payload, root=root)
     # Never let the visible footer itself overwrite persistent numeric canon.
@@ -413,6 +415,8 @@ def _install_packet_policy_wrapper() -> None:
 
 
 def install() -> None:
+    global _ORIGINAL_PREPARE_EXTRACTED_FOR_COMMIT
+    _ORIGINAL_PREPARE_EXTRACTED_FOR_COMMIT = base._prepare_extracted_for_commit
     relationship_runtime.MAX_DIMENSIONS = MAX_RELATIONSHIP_DIMENSIONS
     relationship_runtime._merge_footer_dimensions = _merge_footer_dimensions
     compat._validate_dimensions = _validate_dimensions
