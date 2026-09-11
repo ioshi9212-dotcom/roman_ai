@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from copy import deepcopy
 from typing import Any, Dict, List
 
@@ -10,7 +11,7 @@ from .transactional_storage import session_transaction
 
 
 _ORIGINAL_PREPARE = None
-WRITER_FIRST_VERSION = 7
+WRITER_FIRST_VERSION = 8
 WRITER_PACKET_CHARS = 16000
 RECENT_FULL_TURNS = 2
 CONTINUITY_WINDOW = 15
@@ -247,8 +248,24 @@ def _compact_starting_state(value: Any) -> Dict[str, Any]:
     return state
 
 
+def _strip_relationship_display(scene_output: Any) -> str:
+    """Remove historical relationship numbers from writer context, not from stored/player scenes."""
+    text = str(scene_output or "")
+    marker = text.rfind("\nОтношения:")
+    if marker < 0:
+        return text
+    tail = text[marker:]
+    footer = re.search(r"(?m)^\s*Ход\s+\d+\s*·\s*цикл\b.*$", tail)
+    if footer is None:
+        return text[:marker].rstrip()
+    return text[:marker] + "\nОтношения:\n\n" + tail[footer.start():]
+
+
 def _compact_full_turn(turn: Dict[str, Any]) -> Dict[str, Any]:
-    return {key: deepcopy(turn[key]) for key in ("turn_number", "user_input", "scene_output", "extracted") if key in turn}
+    result = {key: deepcopy(turn[key]) for key in ("turn_number", "user_input", "scene_output", "extracted") if key in turn}
+    if "scene_output" in result:
+        result["scene_output"] = _strip_relationship_display(result["scene_output"])
+    return result
 
 
 def _compact_continuity_turn(turn: Dict[str, Any]) -> Dict[str, Any]:
@@ -263,7 +280,7 @@ def _compact_continuity_turn(turn: Dict[str, Any]) -> Dict[str, Any]:
     if isinstance(current, dict) and current:
         result["current_patch"] = deepcopy(current)
     if len(result) == 2:
-        scene = " ".join(str(turn.get("scene_output") or "").split())
+        scene = " ".join(_strip_relationship_display(turn.get("scene_output")).split())
         if scene:
             result["scene_tail"] = scene[-700:]
     return result
