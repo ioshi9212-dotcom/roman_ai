@@ -10,7 +10,7 @@ from .transactional_storage import session_transaction
 
 _ORIGINAL_PREPARE = None
 _ORIGINAL_COMMIT = None
-_VERSION = 8
+_VERSION = 9
 _TERMINAL = {"dead", "deceased", "inactive", "removed", "мертв", "мёртв", "погиб", "умер", "неактив"}
 
 
@@ -86,7 +86,7 @@ def _ensure_registry(
 
 def _last_activity_turn(row: Dict[str, Any]) -> int:
     values = []
-    for key in ("last_appearance_turn", "last_contact_turn", "last_meaningful_turn"):
+    for key in ("last_appearance_turn", "last_contact_turn", "last_meaningful_turn", "first_registered_turn"):
         try:
             values.append(int(row.get(key, 0) or 0))
         except (TypeError, ValueError):
@@ -109,10 +109,12 @@ def _rotation_pressure(
     for cid, row in registry.items():
         if cid == pov_id or cid in present or not isinstance(row, dict) or _is_inactive(row.get("status")):
             continue
+        first_registered = int(row.get("first_registered_turn", 0) or 0)
         last_appearance = int(row.get("last_appearance_turn", 0) or 0)
         last_activity = _last_activity_turn(row)
         inactive_for = max(0, current_turn - last_activity) if last_activity else current_turn
-        since_appearance = max(0, current_turn - last_appearance) if last_appearance else current_turn
+        appearance_baseline = last_appearance or first_registered
+        since_appearance = max(0, current_turn - appearance_baseline) if appearance_baseline else current_turn
         origin = str(row.get("origin") or "story_created")
         relation = _relation_strength(state, cid)
         has_intent = _has_open_intent(state, cid)
@@ -284,9 +286,6 @@ def _rewrite_packet(session_id: str, base_result: Dict[str, Any]) -> Dict[str, A
             ),
         }
 
-        # All earlier runtime wrappers have already consumed the richer cast_index.
-        # Keep the legacy key for transport compatibility, but avoid sending a
-        # second full cast catalogue beside character_registry.
         cast_index = context.get("cast_index")
         if isinstance(cast_index, list):
             context["cast_index"] = [
