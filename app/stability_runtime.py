@@ -238,17 +238,16 @@ def _atomic_commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, A
         )
 
         audit_due = turn_number % 15 == 0
-        handoff_due = turn_number % 60 == 0
         meta["turn_number"] = turn_number
         meta["audit_required"] = bool(audit_due)
-        meta["handoff_required"] = bool(handoff_due)
+        meta["handoff_required"] = False
 
         result = {
             "ok": True,
             "turn_number": turn_number,
             "audit_due": audit_due,
             "audit_range": [max(1, turn_number - 14), turn_number] if audit_due else None,
-            "handoff_required": handoff_due,
+            "handoff_required": False,
             "transactional_commit": True,
             "relationship_snapshots_atomic": True,
         }
@@ -264,9 +263,6 @@ def _atomic_commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, A
             "meta.json": json_text(meta),
             SNAPSHOT_FILE: json_text(pre_turn_snapshot),
         }
-        if handoff_due:
-            values["handoff_tail.json"] = json_text(turns[-6:])
-
         receipt_meta = payload.get("_operation_receipt") if isinstance(payload.get("_operation_receipt"), dict) else None
         if receipt_meta:
             receipt = make_receipt(
@@ -337,11 +333,12 @@ def _atomic_commit_audit(session_id: str, payload: Dict[str, Any]) -> Dict[str, 
 
         meta["last_audit_turn"] = payload["end_turn"]
         meta["audit_required"] = False
+        meta["handoff_required"] = False
 
         result = {
             "ok": True,
             "audited_through": payload["end_turn"],
-            "handoff_required": bool(meta.get("handoff_required")),
+            "handoff_required": False,
             "transactional_commit": True,
             "relationship_snapshots_atomic": True,
         }
