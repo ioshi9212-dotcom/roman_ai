@@ -14,6 +14,13 @@ def _setup_storage(tmp: str):
     storage.ensure_dirs()
 
 
+def _read_working_draft_fully(draft_id: str):
+    manifest = prepare_draft_read(draft_id)
+    for index in range(manifest["chunk_count"]):
+        get_novel_read_chunk(manifest["read_id"], index)
+    return manifest
+
+
 def test_intake_merge_is_additive_and_raw_source_is_immutable():
     first = {"blocks": [{"block_id": "b1", "stage": "pov", "raw_text": "Она не любит молоко и боится темноты.", "fact_ids": ["f1"], "reviewed_against_raw": False}]}
     second = {"blocks": [
@@ -90,6 +97,9 @@ def test_finalized_session_keeps_raw_intake_in_draft_archive_only():
             "block_id": "pov-1", "stage": "pov", "raw_text": raw, "fact_ids": ["f1"], "reviewed_against_raw": True,
         }]}, ensure_ascii=False))
 
+        _read_working_draft_fully(draft_id)
+        status = novel_drafts.draft_status(draft_id)
+        assert status["intake_coverage"]["full_read_current"] is True
         result = finalize_draft(draft_id)
         assert result["intake_archived_in_draft_only"] is True
         draft = novel_drafts._read(draft_id)
@@ -196,6 +206,7 @@ def test_finalized_draft_can_reopen_for_pre_game_correction_and_new_session_keep
             "fact_ids": ["f1"], "reviewed_against_raw": True,
         }]}, ensure_ascii=False))
 
+        _read_working_draft_fully(draft_id)
         finalize_draft(draft_id)
         reopened = save_section(draft_id, "starting_state", json.dumps({
             "pov": {"character_id": "pov"},
@@ -205,6 +216,10 @@ def test_finalized_draft_can_reopen_for_pre_game_correction_and_new_session_keep
         assert reopened["finalized"] is False
         assert "finalized_template" not in novel_drafts._read(draft_id)
 
+        blocked = novel_drafts.draft_status(draft_id)
+        assert blocked["ready_to_finalize"] is False
+        assert blocked["finalize_blocker"] == "INTAKE_FINAL_READ_REQUIRED"
+        _read_working_draft_fully(draft_id)
         finalize_draft(draft_id)
         meta = create_session_from_draft(draft_id)
         assert meta["source_draft_id"] == draft_id
