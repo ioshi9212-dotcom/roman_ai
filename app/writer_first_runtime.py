@@ -104,13 +104,26 @@ def _priority(value: Any) -> int:
     return {"critical": 100, "high": 75, "medium": 50, "normal": 50, "low": 25}.get(str(raw or "").casefold(), 0)
 
 
+def _compact_thread(item: Any) -> Any:
+    result = deepcopy(item)
+    if not isinstance(result, dict):
+        return result
+    # Keep all structural thread fields, but do not let old free-form notes dominate every turn packet.
+    # Full persistent thread state remains in Railway.
+    notes = result.get("notes")
+    if isinstance(notes, str) and len(notes) > 800:
+        result["notes"] = notes[:800]
+        result["notes_truncated_in_writer_context"] = True
+    return result
+
+
 def _active_threads(value: Any) -> Any:
     if isinstance(value, dict):
-        rows = [(str(key), deepcopy(item)) for key, item in value.items() if _status(item) not in _TERMINAL]
+        rows = [(str(key), _compact_thread(item)) for key, item in value.items() if _status(item) not in _TERMINAL]
         rows.sort(key=lambda pair: _priority(pair[1]), reverse=True)
         return {key: item for key, item in rows[:MAX_ACTIVE_THREADS]}
     if isinstance(value, list):
-        rows = [deepcopy(item) for item in value if _status(item) not in _TERMINAL]
+        rows = [_compact_thread(item) for item in value if _status(item) not in _TERMINAL]
         rows.sort(key=_priority, reverse=True)
         return rows[:MAX_ACTIVE_THREADS]
     return deepcopy(value)
