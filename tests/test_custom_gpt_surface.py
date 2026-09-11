@@ -54,3 +54,6 @@ def test_custom_gpt_instruction_stays_small_and_matches_writer_first_transport()
     assert "тот же pending packet" in text
     assert "опечат" in text
     assert "future_guidance" in text
+    assert "сверяй циклом до 0 пропусков" in text
+    assert "После ЛЮБОЙ записи прежняя сверка недействительна" in text
+    assert "не говори, что draft нельзя исправить" in text
