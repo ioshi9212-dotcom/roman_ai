@@ -174,3 +174,49 @@ def test_create_session_from_draft_normalises_flexible_starting_state():
         preview = get_session_preview(sid)
         assert preview["pov"]["name"] == "Елена"
         assert preview["start"]["present_characters"] == ["Елена", "Эйден"]
+
+
+
+def test_create_session_from_same_finalized_draft_revision_is_idempotent():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        draft = create_draft("idem_draft", "Idempotent Draft", 1)
+        draft_id = draft["draft_id"]
+        sections = {
+            "novel": {"pov_character": "pov"},
+            "characters": [{"character_id": "pov", "name": "POV", "is_pov": True}],
+            "lore": {},
+            "starting_state": {
+                "pov": {"character_id": "pov"},
+                "current": {
+                    "date": "01.09.2026",
+                    "time": "10:00",
+                    "location": "room",
+                    "present_characters": ["pov"],
+                },
+            },
+        }
+        for name, value in sections.items():
+            save_section(draft_id, name, json.dumps(value, ensure_ascii=False))
+        finalize_draft(draft_id)
+
+        first = create_session_from_draft(draft_id)
+        second = create_session_from_draft(draft_id)
+        assert first["session_id"] == second["session_id"]
+        assert first["already_created"] is False
+        assert second["already_created"] is True
+        assert second["idempotent_replay"] is True
+
+        save_section(draft_id, "starting_state", json.dumps({
+            "pov": {"character_id": "pov"},
+            "current": {
+                "date": "01.09.2026",
+                "time": "10:05",
+                "location": "gate",
+                "present_characters": ["pov"],
+            },
+        }, ensure_ascii=False))
+        finalize_draft(draft_id)
+        replacement = create_session_from_draft(draft_id)
+        assert replacement["session_id"] != first["session_id"]
+        assert replacement["already_created"] is False
