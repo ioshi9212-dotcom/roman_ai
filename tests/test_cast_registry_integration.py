@@ -79,6 +79,46 @@ def test_new_named_npc_is_story_created_inside_saved_registry_patch():
         assert registry["mark"]["first_registered_turn"] == 1
 
 
+def test_legacy_dynamic_card_bootstraps_as_story_created_before_first_registry_commit():
+    with tempfile.TemporaryDirectory() as tmp:
+        _setup(tmp)
+        sid = storage.create_session(_novel())["session_id"]
+        root = storage.SESSIONS_DIR / sid
+        cards = storage._read_json(root / "characters.json", [])
+        cards.append({"character_id": "mark", "name": "Марк", "role": "doctor"})
+        storage._write_json(root / "characters.json", cards)
+        source = storage._read_json(root / "source.json", {})
+        source_ids = {storage._card_id(card) for card in source["characters"]}
+        state = storage._read_json(root / "state.json", {})
+
+        registry = cast_registry_runtime._ensure_registry(
+            state, cards, current_turn=20, source_character_ids=source_ids
+        )
+        assert registry["liam"]["origin"] == "player_created"
+        assert registry["mark"]["origin"] == "story_created"
+
+
+def test_registry_uses_canonical_presence_contract_for_direct_roster_patch():
+    with tempfile.TemporaryDirectory() as tmp:
+        _setup(tmp)
+        sid = storage.create_session(_novel())["session_id"]
+        payload = {
+            "user_input": "Лиам входит.",
+            "scene_output": "Лиам вошёл.",
+            "extracted": {
+                "chronology": [],
+                "state_patch": {"current": {"present_characters": ["pov", "liam"]}},
+            },
+        }
+        prepared = cast_registry_runtime._with_registry_patch(sid, payload)
+        current_patch = prepared["extracted"]["state_patch"]["current"]
+        assert current_patch["present_characters"] == ["pov", "liam"]
+        assert "liam" in current_patch["entered_characters"]
+        registry = prepared["extracted"]["state_patch"]["world"]["cast_registry"]
+        assert registry["liam"]["last_appearance_turn"] == 1
+        assert registry["liam"]["last_contact_turn"] == 1
+
+
 def test_historical_replay_reconstructs_cast_registry_from_saved_turn_patch():
     with tempfile.TemporaryDirectory() as tmp:
         _setup(tmp)
