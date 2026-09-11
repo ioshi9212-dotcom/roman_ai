@@ -462,6 +462,7 @@ def create_draft(novel_id: str, title: str, version: int = 1) -> Dict[str, Any]:
         "novel_id": novel_id,
         "title": title,
         "version": version,
+        "revision": 0,
         "sections": {},
         "finalized": False,
         "published_to_library": False,
@@ -484,6 +485,7 @@ def save_section(draft_id: str, section_name: str, section_json: str) -> Dict[st
     if section_name == "foundation" and not isinstance(parsed, dict):
         raise TypeError("foundation must be a JSON object")
     draft["sections"][section_name] = parsed
+    draft["revision"] = int(draft.get("revision", 0) or 0) + 1
     draft["finalized"] = False
     draft.pop("finalized_template", None)
     _write(_draft_path(draft_id), draft)
@@ -515,6 +517,7 @@ def draft_status(draft_id: str) -> Dict[str, Any]:
         "novel_id": draft["novel_id"],
         "title": draft["title"],
         "version": draft.get("version", 1),
+        "revision": int(draft.get("revision", 0) or 0),
         "saved_sections": sorted(sections.keys()),
         "missing_required_sections": missing,
         "character_count": len(characters) if isinstance(characters, list) else 0,
