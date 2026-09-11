@@ -265,7 +265,9 @@ def _clean_relationship_policy(context: Dict[str, Any]) -> None:
     if not isinstance(policy, dict):
         return
     policy = deepcopy(policy)
-    policy["source_of_truth"] = "relationship_lens"
+    source = str(policy.get("source_of_truth") or "")
+    if not source or "relationship_contract" in source:
+        policy["source_of_truth"] = "relationship_lens"
     for key in ("instruction", "authoritative_start_snapshot_note"):
         value = policy.get(key)
         if isinstance(value, str):
