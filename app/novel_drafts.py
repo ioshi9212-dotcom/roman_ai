@@ -472,6 +472,7 @@ def create_draft(novel_id: str, title: str, version: int = 1) -> Dict[str, Any]:
 
 def save_section(draft_id: str, section_name: str, section_json: str) -> Dict[str, Any]:
     draft = _read(draft_id)
+    was_finalized = bool(draft.get("finalized"))
     section_name = section_name.strip()
     if section_name not in ALLOWED_SECTIONS:
         raise KeyError(section_name)
@@ -486,7 +487,9 @@ def save_section(draft_id: str, section_name: str, section_json: str) -> Dict[st
     draft["finalized"] = False
     draft.pop("finalized_template", None)
     _write(_draft_path(draft_id), draft)
-    return draft_status(draft_id)
+    result = dict(draft_status(draft_id))
+    result["reopened_from_finalized"] = was_finalized
+    return result
 
 
 def draft_status(draft_id: str) -> Dict[str, Any]:
@@ -541,7 +544,7 @@ def finalize_draft(draft_id: str) -> Dict[str, Any]:
         "verification": verification,
         "foundation_coverage": coverage,
         "saved_to_library": False,
-        "instruction": "Draft is verified but NOT added to the library. Read it with prepareDraftRead, then createSessionFromDraft. Publish only on explicit user request.",
+        "instruction": "Draft is verified but NOT added to the library. Read it with prepareDraftRead, then createSessionFromDraft. If setup omissions are found before the first gameplay turn, save corrected sections to this same draft_id to reopen it, re-read, re-verify and re-finalize before creating a replacement session.",
     }
 
 
@@ -560,8 +563,17 @@ def prepare_draft_read(draft_id: str) -> Dict[str, Any]:
 def create_session_from_draft(draft_id: str) -> Dict[str, Any]:
     template, coverage = _validate_template(_finalized_template(draft_id))
     meta = storage.create_session(template)
-    meta["source_type"] = "session_draft"
-    meta["foundation_coverage"] = coverage
+    root = storage.SESSIONS_DIR / meta["session_id"]
+    stored_meta = storage._read_json(root / "meta.json", {})
+    stored_meta["source_type"] = "session_draft"
+    stored_meta["source_draft_id"] = draft_id
+    stored_meta["foundation_coverage"] = coverage
+    storage._write_json(root / "meta.json", stored_meta)
+    meta.update({
+        "source_type": "session_draft",
+        "source_draft_id": draft_id,
+        "foundation_coverage": coverage,
+    })
     return meta
 
 
