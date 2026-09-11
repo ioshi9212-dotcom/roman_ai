@@ -88,14 +88,8 @@ def _validate_labels(owner_id: str, dimensions: Any, state: Dict[str, Any]) -> N
     if not isinstance(dimensions, list):
         return
     saved = _existing_metrics(state, owner_id)
-    incoming = _incoming_label_set(dimensions)
-
-    # Preserve the established validator's more useful "saved dimensions missing" error.
-    # The vocabulary check only runs after the footer has kept all old non-zero labels.
-    missing_nonzero = {label for label, value in saved.items() if value != 0} - incoming
-    if missing_nonzero:
-        return
-
+    # relationship_updates are patches, so omitted saved labels are expected and remain persistent.
+    # Validate only labels that are actually being introduced by this update.
     legacy = set(saved)
     for item in dimensions:
         if not isinstance(item, dict):
