@@ -9,7 +9,8 @@ from . import novel_drafts
 _ORIGINAL_SAVE_SECTION = None
 _ORIGINAL_DRAFT_STATUS = None
 _ORIGINAL_FINALIZE = None
-_VERSION = 1
+_ORIGINAL_PREPARE_READ = None
+_VERSION = 2
 
 
 def _normalise_intake(value: Any) -> Dict[str, Any]:
@@ -125,14 +126,35 @@ def _finalize_draft(draft_id: str) -> Dict[str, Any]:
     return result
 
 
+def _prepare_draft_read(draft_id: str) -> Dict[str, Any]:
+    draft = novel_drafts._read(draft_id)
+    if draft.get("finalized"):
+        return _ORIGINAL_PREPARE_READ(draft_id)
+    snapshot = {
+        "draft_id": draft.get("draft_id"),
+        "novel_id": draft.get("novel_id"),
+        "title": draft.get("title"),
+        "version": draft.get("version", 1),
+        "finalized": False,
+        "sections": deepcopy(draft.get("sections", {})),
+        "intake_coverage": _coverage(draft),
+    }
+    result = novel_drafts.prepare_template_read(snapshot, "draft_working", draft_id)
+    result["working_draft"] = True
+    result["instruction"] = "Read every chunk in order. This is the current unfinalized draft, including immutable intake raw blocks; use it to reconstruct/check all setup facts before finalization."
+    return result
+
+
 def install() -> None:
-    global _ORIGINAL_SAVE_SECTION, _ORIGINAL_DRAFT_STATUS, _ORIGINAL_FINALIZE
+    global _ORIGINAL_SAVE_SECTION, _ORIGINAL_DRAFT_STATUS, _ORIGINAL_FINALIZE, _ORIGINAL_PREPARE_READ
     if _ORIGINAL_SAVE_SECTION is not None:
         return
     novel_drafts.ALLOWED_SECTIONS.add("intake")
     _ORIGINAL_SAVE_SECTION = novel_drafts.save_section
     _ORIGINAL_DRAFT_STATUS = novel_drafts.draft_status
     _ORIGINAL_FINALIZE = novel_drafts.finalize_draft
+    _ORIGINAL_PREPARE_READ = novel_drafts.prepare_draft_read
     novel_drafts.save_section = _save_section
     novel_drafts.draft_status = _draft_status
     novel_drafts.finalize_draft = _finalize_draft
+    novel_drafts.prepare_draft_read = _prepare_draft_read
