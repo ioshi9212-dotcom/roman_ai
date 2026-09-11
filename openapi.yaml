@@ -1,8 +1,8 @@
 openapi: 3.1.0
 info:
   title: Roman AI
-  version: 1.11.1
-  description: Persistent isolated novel sessions with bounded writer-first context, transactional memory, living NPC relationships, NPC intents, story threads, recovery, rollback and fast 15-turn audits.
+  version: 1.12.0
+  description: Persistent isolated novel sessions with bounded writer-first context, transactional memory, living NPC relationships, NPC intents, story threads, recovery, rollback, cast rotation and additive setup intake.
 servers:
   - url: https://romanai-production-0fdb.up.railway.app
 components:
@@ -20,7 +20,7 @@ components:
       properties:
         section_name:
           type: string
-          enum: [novel, characters, lore, rules, hidden_lore, world, starting_state, story_direction, foundation]
+          enum: [novel, characters, lore, rules, hidden_lore, world, starting_state, story_direction, foundation, intake]
         section_json: {type: string}
     SessionCreate:
       type: object
@@ -236,7 +236,7 @@ paths:
   /novel-drafts/{draft_id}/sections:
     post:
       operationId: saveNovelDraftSection
-      summary: Save or replace one complete draft section
+      summary: Save or replace one complete draft section; intake blocks are merged additively and their raw source text is immutable
       parameters:
         - {in: path, name: draft_id, required: true, schema: {type: string}}
       requestBody:
@@ -245,7 +245,7 @@ paths:
           application/json:
             schema: {$ref: '#/components/schemas/NovelDraftSection'}
       responses:
-        '200': {description: Updated draft status}
+        '200': {description: Updated draft status including intake_coverage when intake exists}
   /novel-drafts/{draft_id}:
     get:
       operationId: getNovelDraftStatus
