@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Roman AI
-  version: 1.12.1
+  version: 1.13.0
   description: Persistent isolated novel sessions with bounded writer-first context, transactional memory, living NPC relationships, NPC intents, story threads, recovery, rollback, cast rotation and additive setup intake.
 servers:
   - url: https://romanai-production-0fdb.up.railway.app
@@ -34,9 +34,10 @@ components:
         user_input: {type: string}
     RollbackLastTurn:
       type: object
-      required: [expected_turn_number, confirm]
+      required: [expected_turn_number, expected_turn_id, confirm]
       properties:
         expected_turn_number: {type: integer, minimum: 1}
+        expected_turn_id: {type: string, minLength: 1}
         confirm: {type: boolean, const: true}
       additionalProperties: false
     PresenceUpdate:
@@ -144,8 +145,9 @@ components:
       additionalProperties: true
     TurnCommit:
       type: object
-      required: [user_input, scene_output, extracted]
+      required: [packet_id, user_input, scene_output, extracted]
       properties:
+        packet_id: {type: string, minLength: 1}
         user_input: {type: string}
         scene_output: {type: string}
         extracted:
@@ -191,8 +193,9 @@ components:
           additionalProperties: true
     AuditCommit:
       type: object
-      required: [start_turn, end_turn]
+      required: [audit_id, start_turn, end_turn]
       properties:
+        audit_id: {type: string, minLength: 1}
         start_turn: {type: integer}
         end_turn: {type: integer}
         repairs: {type: object, additionalProperties: true}
@@ -274,7 +277,7 @@ paths:
   /novel-drafts/{draft_id}/session:
     post:
       operationId: createSessionFromDraft
-      summary: Create an isolated session from a finalized draft
+      summary: Create or safely replay the isolated session for this finalized draft revision
       parameters:
         - {in: path, name: draft_id, required: true, schema: {type: string}}
       responses:
@@ -354,7 +357,7 @@ paths:
     post:
       operationId: rollbackLastTurn
       summary: Roll back only the latest saved canonical turn after explicit user request
-      description: Requires the exact current turn number and confirm=true. Restores persistent canon transactionally or refuses without mutation.
+      description: Resume first and pass exact current turn number plus current_turn_id with confirm=true. Exact retries are safe; a replacement turn has a different identity.
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
       requestBody:
@@ -370,7 +373,7 @@ paths:
     get:
       operationId: getAuditSnapshot
       summary: Prepare a fast 15-turn persisted audit backup
-      description: Visible committed chat scenes are primary evidence. Response includes audit chunk 0 when first_chunk_included=true; do not fetch chunk 0 again.
+      description: Response includes audit_id and may include chunk 0. Read all remaining chunks, then echo the exact audit_id to commitAudit.
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
       responses:
@@ -393,7 +396,7 @@ paths:
     post:
       operationId: prepareTurn
       summary: Build or reuse bounded writer-first context from complete persistent canon
-      description: New packet response includes chunk 0 when first_chunk_included=true. Repeating the same pending user_input reuses the packet; never create a duplicate turn.
+      description: Response includes packet_id and may include chunk 0. Repeating the same pending input reuses it; commitTurn must echo the exact packet_id.
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
       requestBody:
@@ -455,7 +458,7 @@ paths:
     post:
       operationId: commitTurn
       summary: Save one complete turn after required writer chunks were read
-      description: Transactionally persists turn, state, cards, personal memory, chronology, relationships, NPC intents and persistent story-thread state. After three consecutive static turns a fourth static commit is rejected.
+      description: Echo packet_id from prepareTurn. Canon and durable retry receipt commit atomically; exact retries return prior success without another turn.
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
       requestBody:
@@ -469,7 +472,7 @@ paths:
   /sessions/{session_id}/audit:
     post:
       operationId: commitAudit
-      summary: Finish one fast 15-turn reconciliation after required audit chunks were read
+      summary: Finish one prepared audit idempotently after all required chunks were read
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
       requestBody:
