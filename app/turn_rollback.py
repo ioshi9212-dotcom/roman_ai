@@ -9,6 +9,14 @@ from .character_registry import refresh_pov_familiarity
 from .game_day import sync_game_day
 from .relationship_runtime import repair_relationship_state
 from .rollback_snapshot_runtime import SNAPSHOT_FILE
+from .operation_receipts import (
+    RECEIPTS_FILE,
+    add_receipt,
+    current_turn_identity,
+    load_ledger,
+    make_receipt,
+    prune_after_turn,
+)
 from .session_runtime import _canonicalize_state_character_refs, _resolve_character_id
 from .stability_runtime import (
     _clean_scene_pointer,
@@ -334,19 +342,22 @@ def _write_restored_state(
     chronology: Any,
     audits: List[Dict[str, Any]],
     meta: Dict[str, Any],
+    operation_receipt: Dict[str, Any] | None = None,
 ) -> None:
-    write_batch(
-        root,
-        {
-            "turns.jsonl": _turns_text(turns),
-            "characters.json": json_text(characters),
-            "state.json": json_text(state),
-            "memory.json": json_text(memory),
-            "chronology.json": json_text(chronology),
-            "audits.json": json_text(audits),
-            "meta.json": json_text(meta),
-        },
-    )
+    values = {
+        "turns.jsonl": _turns_text(turns),
+        "characters.json": json_text(characters),
+        "state.json": json_text(state),
+        "memory.json": json_text(memory),
+        "chronology.json": json_text(chronology),
+        "audits.json": json_text(audits),
+        "meta.json": json_text(meta),
+    }
+    ledger = prune_after_turn(load_ledger(root), target_turn)
+    if operation_receipt:
+        ledger = add_receipt(ledger, operation_receipt)
+    values[RECEIPTS_FILE] = json_text(ledger)
+    write_batch(root, values)
     for name in (
         "turn_packet.json",
         "audit_packet.json",
@@ -356,7 +367,14 @@ def _write_restored_state(
         (root / name).unlink(missing_ok=True)
 
 
-def rollback_last_turn(session_id: str, expected_turn_number: int, confirm: bool) -> Dict[str, Any]:
+def rollback_last_turn(
+    session_id: str,
+    expected_turn_number: int,
+    confirm: bool,
+    *,
+    expected_turn_id: str | None = None,
+    operation_receipt: Dict[str, Any] | None = None,
+) -> Dict[str, Any]:
     if confirm is not True:
         raise RollbackError("ROLLBACK_CONFIRMATION_REQUIRED")
     expected_turn_number = int(expected_turn_number)
@@ -376,6 +394,10 @@ def rollback_last_turn(session_id: str, expected_turn_number: int, confirm: bool
         turns = storage._read_turns(root)
         if not turns or int(turns[-1].get("turn_number", 0) or 0) != expected_turn_number:
             raise RollbackError("ROLLBACK_LAST_TURN_NOT_FOUND")
+        if expected_turn_id is not None:
+            current_id = current_turn_identity(root)
+            if not current_id or current_id != expected_turn_id:
+                raise RollbackError("ROLLBACK_EXPECTED_TURN_ID_MISMATCH")
         target_turn = expected_turn_number - 1
         remaining_turns = turns[:-1]
 
@@ -388,6 +410,22 @@ def rollback_last_turn(session_id: str, expected_turn_number: int, confirm: bool
         ):
             previous_meta = deepcopy(snapshot.get("meta") if isinstance(snapshot.get("meta"), dict) else {})
             previous_meta["last_rollback_at"] = datetime.now(timezone.utc).isoformat()
+            result = {
+                "ok": True,
+                "rolled_back_turn": expected_turn_number,
+                "turn_number": target_turn,
+                "method": "exact_pre_turn_snapshot",
+                "ready_to_retry_turn": expected_turn_number,
+            }
+            receipt = None
+            if operation_receipt:
+                receipt = make_receipt(
+                    operation=str(operation_receipt.get("operation") or "rollback_last_turn"),
+                    identity=str(operation_receipt.get("identity") or expected_turn_id or expected_turn_number),
+                    fingerprint=str(operation_receipt.get("request_fingerprint") or ""),
+                    result=result,
+                    target_turn_after=target_turn,
+                )
             _write_restored_state(
                 root,
                 target_turn=target_turn,
@@ -398,15 +436,10 @@ def rollback_last_turn(session_id: str, expected_turn_number: int, confirm: bool
                 chronology=deepcopy(snapshot.get("chronology", [])),
                 audits=deepcopy(snapshot.get("audits", [])),
                 meta=previous_meta,
+                operation_receipt=receipt,
             )
             (root / SNAPSHOT_FILE).unlink(missing_ok=True)
-            return {
-                "ok": True,
-                "rolled_back_turn": expected_turn_number,
-                "turn_number": target_turn,
-                "method": "exact_pre_turn_snapshot",
-                "ready_to_retry_turn": expected_turn_number,
-            }
+            return result
 
         source = storage._read_json(root / "source.json", {})
         audits = storage._read_json(root / "audits.json", [])
@@ -430,6 +463,23 @@ def rollback_last_turn(session_id: str, expected_turn_number: int, confirm: bool
 
         target_audits = replay_previous["audits"]
         restored_meta = _restored_meta(meta, target_turn, target_audits)
+        result = {
+            "ok": True,
+            "rolled_back_turn": expected_turn_number,
+            "turn_number": target_turn,
+            "method": method,
+            "preserved_state_paths": preserved_state_paths,
+            "ready_to_retry_turn": expected_turn_number,
+        }
+        receipt = None
+        if operation_receipt:
+            receipt = make_receipt(
+                operation=str(operation_receipt.get("operation") or "rollback_last_turn"),
+                identity=str(operation_receipt.get("identity") or expected_turn_id or expected_turn_number),
+                fingerprint=str(operation_receipt.get("request_fingerprint") or ""),
+                result=result,
+                target_turn_after=target_turn,
+            )
         _write_restored_state(
             root,
             target_turn=target_turn,
@@ -440,13 +490,7 @@ def rollback_last_turn(session_id: str, expected_turn_number: int, confirm: bool
             chronology=replay_previous["chronology"],
             audits=target_audits,
             meta=restored_meta,
+            operation_receipt=receipt,
         )
         (root / SNAPSHOT_FILE).unlink(missing_ok=True)
-        return {
-            "ok": True,
-            "rolled_back_turn": expected_turn_number,
-            "turn_number": target_turn,
-            "method": method,
-            "preserved_state_paths": preserved_state_paths,
-            "ready_to_retry_turn": expected_turn_number,
-        }
+        return result
