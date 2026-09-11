@@ -13,6 +13,7 @@ from .relationship_runtime import (
     validate_relationship_footer,
 )
 from .turn_context import inject_required_turn_context
+from .operation_receipts import current_turn_identity
 
 
 RECENT_CHRONOLOGY_EVENTS = 12
@@ -78,6 +79,34 @@ def _canonicalize_state_character_refs(cards, state: Dict[str, Any]) -> Dict[str
     current["present_characters"] = list(dict.fromkeys(canonical))
     result["current"] = current
     return result
+
+
+def _finalize_persisted_state(
+    *,
+    source: Dict[str, Any],
+    cards,
+    state: Dict[str, Any],
+    memory: Dict[str, Any],
+    chronology,
+    turns,
+    turn_number: int,
+) -> Dict[str, Any]:
+    canonical = _canonicalize_state_character_refs(cards, state)
+    canonical = repair_relationship_state(
+        canonical,
+        source=source,
+        turns=turns,
+        cards=cards,
+        resolve_character_id=_resolve_character_id,
+    )
+    return refresh_pov_familiarity(
+        cards,
+        canonical,
+        memory,
+        chronology,
+        turns,
+        int(turn_number),
+    )
 
 
 def _refresh_session_familiarity(session_id: str) -> Dict[str, Any]:
@@ -549,7 +578,6 @@ def commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     if not root.exists():
         raise FileNotFoundError(session_id)
     meta = storage._read_json(root / "meta.json", {})
-    _clear_legacy_handoff(root, meta)
     turn_number = int(meta.get("turn_number", 0)) + 1
     payload = deepcopy(payload)
     payload["extracted"] = _prepare_extracted_for_commit(payload, root=root, turn_number=turn_number)
@@ -561,15 +589,7 @@ def commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
             for key in ("relationships", "relationship_documents")
             if key in state_patch
         }
-    result = storage.commit_turn(session_id, payload)
-    if relationship_patch:
-        persisted_state = storage._read_json(root / "state.json", {})
-        persisted_state = overwrite_relationship_snapshots(persisted_state, relationship_patch)
-        storage._write_json(root / "state.json", persisted_state)
-    meta = storage._read_json(root / "meta.json", {})
-    _clear_legacy_handoff(root, meta)
-    _refresh_session_familiarity(session_id)
-    result = dict(result)
+    result = dict(storage.commit_turn(session_id, payload))
     result["handoff_required"] = False
     result["saved_chronology_events"] = len(payload["extracted"].get("chronology", []))
     result["relationships_persisted_from_footer"] = bool(relationship_patch.get("relationships"))
@@ -581,7 +601,6 @@ def commit_audit(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     if not root.exists():
         raise FileNotFoundError(session_id)
     meta = storage._read_json(root / "meta.json", {})
-    _clear_legacy_handoff(root, meta)
 
     payload = deepcopy(payload)
     repairs = payload.get("repairs") if isinstance(payload.get("repairs"), dict) else {}
@@ -599,11 +618,7 @@ def commit_audit(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         )
         payload["repairs"] = repairs
 
-    result = storage.commit_audit(session_id, payload)
-    meta = storage._read_json(root / "meta.json", {})
-    _clear_legacy_handoff(root, meta)
-    _refresh_session_familiarity(session_id)
-    result = dict(result)
+    result = dict(storage.commit_audit(session_id, payload))
     result["handoff_required"] = False
     return result
 
@@ -624,6 +639,7 @@ def continue_session(session_id: str) -> Dict[str, Any]:
         "session_id": session_id,
         "source_draft_id": meta.get("source_draft_id"),
         "turn_number": int(meta.get("turn_number", 0)),
+        "current_turn_id": current_turn_identity(root),
         "last_audit_turn": int(meta.get("last_audit_turn", 0) or 0),
         "audit_required": bool(meta.get("audit_required")),
         "current": {
