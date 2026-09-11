@@ -69,14 +69,16 @@ def test_turn_packet_uses_one_relationship_model():
         packet = read_turn_packet(sid, "test")
 
         policy = packet["relationship_policy"]
-        assert policy["source_of_truth"] == "relationship_lens"
+        assert policy["source_of_truth"] == "persistent relationship state + causal relationship_updates"
         assert "relationship_contract" not in str(policy)
         assert "metric_names_locked" not in policy
         assert policy["authoritative_start_snapshot"]["adrian"]["metrics"] == {
             "симпатия": 10
         }
         assert policy["footer_is_transaction_gate"] is False
+        assert policy["footer_is_display_only"] is True
         assert "relationship_updates" in packet["persistence_contract"]
+        assert "saved baseline" in packet["persistence_contract"]["relationship_updates"]["instruction"]
 
 
 def test_new_character_upsert_can_persist_first_relationship_same_turn():
