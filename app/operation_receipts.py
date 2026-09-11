@@ -116,8 +116,8 @@ def make_receipt(
     return row
 
 
-def ledger_with_receipt(root: Path, receipt: Dict[str, Any]) -> Dict[str, Any]:
-    ledger = load_ledger(root)
+def add_receipt(ledger: Dict[str, Any], receipt: Dict[str, Any]) -> Dict[str, Any]:
+    ledger = _normalise_ledger(ledger)
     operation = str(receipt.get("operation") or "")
     identity = str(receipt.get("identity") or "")
     if not operation or not identity:
@@ -135,6 +135,10 @@ def ledger_with_receipt(root: Path, receipt: Dict[str, Any]) -> Dict[str, Any]:
         removed = ledger["order"].pop(0)
         ledger["receipts"].pop(removed, None)
     return ledger
+
+
+def ledger_with_receipt(root: Path, receipt: Dict[str, Any]) -> Dict[str, Any]:
+    return add_receipt(load_ledger(root), receipt)
 
 
 def prune_after_turn(ledger: Dict[str, Any], target_turn: int) -> Dict[str, Any]:
