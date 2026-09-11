@@ -328,10 +328,18 @@ def get_audit_snapshot_chunk(session_id: str, audit_id: str, chunk_index: int) -
     }
 
 
-def require_complete_audit_read(session_id: str, start_turn: int, end_turn: int) -> None:
+def require_complete_audit_read(
+    session_id: str,
+    start_turn: int,
+    end_turn: int,
+    *,
+    audit_id: str | None = None,
+) -> None:
     root = storage.SESSIONS_DIR / session_id
     packet = storage._read_json(_packet_path(root), {})
     if not packet or packet.get("audit_range") != [int(start_turn), int(end_turn)]:
+        raise RuntimeError("AUDIT_PACKET_REQUIRED")
+    if audit_id is not None and str(packet.get("audit_id") or "") != str(audit_id):
         raise RuntimeError("AUDIT_PACKET_REQUIRED")
     chunks = packet.get("chunks", [])
     if len(set(packet.get("read_chunks", []))) < len(chunks):
