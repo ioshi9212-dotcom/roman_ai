@@ -73,14 +73,15 @@ def test_scene_format_rejects_missing_exact_option_count():
 def test_turn_commit_model_enforces_scene_builder_and_story_review_at_api_boundary():
     broken = VALID_SCENE.replace("Что я могу подумать:", "Мысли:")
     with pytest.raises(ValidationError, match="SCENE_FORMAT_INVALID"):
-        TurnCommit(user_input="тест", scene_output=broken, extracted=REVIEWED_EMPTY)
+        TurnCommit(packet_id="packet", user_input="тест", scene_output=broken, extracted=REVIEWED_EMPTY)
     with pytest.raises(ValidationError, match="story_thread_updates"):
         TurnCommit(
+            packet_id="packet",
             user_input="тест",
             scene_output=VALID_SCENE,
             extracted={key: value for key, value in REVIEWED_EMPTY.items() if key != "story_thread_updates"},
         )
-    model = TurnCommit(user_input="тест", scene_output=VALID_SCENE, extracted=REVIEWED_EMPTY)
+    model = TurnCommit(packet_id="packet", user_input="тест", scene_output=VALID_SCENE, extracted=REVIEWED_EMPTY)
     assert model.scene_output == VALID_SCENE
     assert model.extracted.story_thread_updates == []
 
