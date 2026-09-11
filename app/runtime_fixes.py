@@ -11,16 +11,14 @@ from . import audit_runtime, session_runtime as legacy_runtime, storage
 from .relationship_runtime import (
     _norm as _relationship_norm,
     _parse_footer,
-    overwrite_relationship_snapshots,
     relationship_patch_from_scene,
     repair_relationship_state,
 )
+from .relationship_metadata import apply_relationship_metadata, metadata_rows_from_payload
 from .session_runtime import (
     _canonicalize_state_character_refs,
-    _clear_legacy_handoff,
     _normalise_chronology_events,
     _normalise_memory_event_ids,
-    _refresh_session_familiarity,
     _resolve_character_id,
 )
 
@@ -448,6 +446,12 @@ def _prepare_extracted_for_commit(
         )
         working_state = storage._deep_merge(working_state, hidden_patch) if hidden_patch else working_state
 
+    working_state, _metadata_changed = apply_relationship_metadata(
+        working_state,
+        metadata_rows_from_payload(payload),
+        turn_number=turn_number,
+    )
+
     relationship_patch: Dict[str, Any] = {}
     for key in ("relationships", "relationship_documents"):
         if working_state.get(key) != state_after.get(key):
@@ -474,30 +478,17 @@ def commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         if not root.exists():
             raise FileNotFoundError(session_id)
         meta = storage._read_json(root / "meta.json", {})
-        _clear_legacy_handoff(root, meta)
         turn_number = int(meta.get("turn_number", 0)) + 1
 
-        payload = deepcopy(payload)
+        prepared_payload = deepcopy(payload)
         prepared, relationship_patch = _prepare_extracted_for_commit(
-            payload,
+            prepared_payload,
             root=root,
             turn_number=turn_number,
         )
-        payload["extracted"] = prepared
+        prepared_payload["extracted"] = prepared
 
-        result = storage.commit_turn(session_id, payload)
-        if relationship_patch:
-            persisted_state = storage._read_json(root / "state.json", {})
-            persisted_state = overwrite_relationship_snapshots(
-                persisted_state, relationship_patch
-            )
-            storage._write_json(root / "state.json", persisted_state)
-
-        meta = storage._read_json(root / "meta.json", {})
-        _clear_legacy_handoff(root, meta)
-        _refresh_session_familiarity(session_id)
-
-        result = dict(result)
+        result = dict(storage.commit_turn(session_id, prepared_payload))
         result["handoff_required"] = False
         result["saved_chronology_events"] = len(prepared.get("chronology", []))
         result["relationships_persisted_from_footer"] = bool(
@@ -505,7 +496,6 @@ def commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         )
         result["relationship_runtime_fix"] = _FIX_VERSION
         return result
-
 
 def _repair_turn(
     raw: Dict[str, Any],
@@ -627,13 +617,18 @@ def commit_audit(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
             raise FileNotFoundError(session_id)
 
         meta = storage._read_json(root / "meta.json", {})
-        _clear_legacy_handoff(root, meta)
         if not meta.get("audit_required"):
             raise RuntimeError("AUDIT_NOT_REQUIRED")
 
         start_turn = int(payload.get("start_turn", 0))
         end_turn = int(payload.get("end_turn", 0))
-        _ORIGINAL_REQUIRE_AUDIT_READ(session_id, start_turn, end_turn)
+        audit_id = str(payload.get("audit_id") or "").strip() or None
+        _ORIGINAL_REQUIRE_AUDIT_READ(
+            session_id,
+            start_turn,
+            end_turn,
+            audit_id=audit_id,
+        )
 
         source = storage._read_json(root / "source.json", {})
         cards = storage._load_cards(root, source)
@@ -646,15 +641,10 @@ def commit_audit(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
             cards=cards,
         )
 
-        result = storage.commit_audit(session_id, prepared)
-        meta = storage._read_json(root / "meta.json", {})
-        _clear_legacy_handoff(root, meta)
-        _refresh_session_familiarity(session_id)
-        result = dict(result)
+        result = dict(storage.commit_audit(session_id, prepared))
         result["handoff_required"] = False
         result["audit_runtime_fix"] = _FIX_VERSION
         return result
-
 
 def _rewrite_audit_packet(session_id: str, manifest: Dict[str, Any]) -> Dict[str, Any]:
     root = storage.SESSIONS_DIR / session_id
@@ -715,9 +705,20 @@ def get_audit_snapshot_chunk(
         return _ORIGINAL_GET_AUDIT_CHUNK(session_id, audit_id, chunk_index)
 
 
-def require_complete_audit_read(session_id: str, start_turn: int, end_turn: int) -> None:
+def require_complete_audit_read(
+    session_id: str,
+    start_turn: int,
+    end_turn: int,
+    *,
+    audit_id: str | None = None,
+) -> None:
     with _session_lock(session_id):
-        _ORIGINAL_REQUIRE_AUDIT_READ(session_id, start_turn, end_turn)
+        _ORIGINAL_REQUIRE_AUDIT_READ(
+            session_id,
+            start_turn,
+            end_turn,
+            audit_id=audit_id,
+        )
 
 
 def clear_audit_packet(session_id: str) -> None:
