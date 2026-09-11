@@ -2,12 +2,7 @@ import json
 
 from fastapi import FastAPI, HTTPException
 
-from .audit_runtime import (
-    clear_audit_packet,
-    get_audit_snapshot,
-    get_audit_snapshot_chunk,
-    require_complete_audit_read,
-)
+from .audit_runtime import get_audit_snapshot, get_audit_snapshot_chunk
 from .character_access import get_character_bundle
 from .character_chunk_read import get_character_bundle_chunk, prepare_character_bundle_read
 from .context_stats import session_context_stats
@@ -25,7 +20,13 @@ from .novel_drafts import (
 from .runtime_access import runtime_chunk, runtime_manifest
 from .session_preview import get_session_preview
 from .session_recovery import recover_session_current
-from .session_runtime import commit_audit, commit_turn, continue_session, prepare_turn_packet
+from .session_runtime import continue_session, prepare_turn_packet
+from .operation_service import (
+    OperationReceiptConflict,
+    commit_audit_request,
+    commit_turn_request,
+    rollback_last_turn_request,
+)
 from .storage import (
     create_session,
     get_character_memory,
@@ -36,11 +37,11 @@ from .storage import (
     load_session,
     save_novel,
 )
-from .turn_rollback import RollbackError, rollback_last_turn
+from .turn_rollback import RollbackError
 
 app = FastAPI(
     title="Roman AI",
-    version="1.12.1",
+    version="1.13.0",
     description="Persistent isolated novel sessions with bounded writer-first context, staged setup intake, living cast rotation, memory, chronology, relationships, NPC intents, persistent story threads, recovery, rollback and audits.",
 )
 
@@ -235,15 +236,19 @@ def session_current_recover(session_id: str):
 @app.post("/sessions/{session_id}/rollback-last-turn", operation_id="rollbackLastTurn")
 def session_last_turn_rollback(session_id: str, body: RollbackLastTurn):
     try:
-        return rollback_last_turn(session_id, body.expected_turn_number, body.confirm)
+        return rollback_last_turn_request(session_id, body.model_dump())
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Session not found")
+    except OperationReceiptConflict:
+        raise HTTPException(status_code=409, detail="The rollback operation identity was reused with different data. Resume the session and use the current turn id.")
     except RollbackError as exc:
         code = str(exc)
         if code == "ROLLBACK_CONFIRMATION_REQUIRED":
             detail = "Explicit confirmation is required. Rollback is destructive and is allowed only for the latest saved turn."
         elif code == "ROLLBACK_EXPECTED_TURN_MISMATCH":
-            detail = "The session turn_number changed. Do not roll back blindly; resume the session and use its exact current turn number."
+            detail = "The session turn_number changed. Resume the session and use its exact current turn number and current_turn_id."
+        elif code in {"ROLLBACK_TURN_ID_REQUIRED", "ROLLBACK_EXPECTED_TURN_ID_MISMATCH"}:
+            detail = "The target turn identity changed or is missing. Resume the session and use the exact current_turn_id; no mutation was performed."
         elif code == "ROLLBACK_LAST_TURN_NOT_FOUND":
             detail = "The expected last turn was not found in persistent turns. No mutation was performed."
         elif code.startswith("ROLLBACK_REPLAY_MISMATCH:"):
@@ -354,13 +359,16 @@ def turns_get(session_id: str, start_turn: int, end_turn: int):
 @app.post("/sessions/{session_id}/turns", operation_id="commitTurn")
 def turns_commit(session_id: str, body: TurnCommit):
     try:
-        return commit_turn(session_id, body.model_dump())
+        return commit_turn_request(session_id, body.model_dump())
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Session not found")
+    except OperationReceiptConflict:
+        raise HTTPException(status_code=409, detail="The packet_id was already used with a different commit payload. Prepare a fresh turn packet; no mutation was performed.")
     except RuntimeError as exc:
         errors = {
             "AUDIT_REQUIRED": "Audit is required before the next turn",
-            "TURN_PACKET_REQUIRED": "prepareTurn must be called for this exact user input before commitTurn",
+            "TURN_PACKET_ID_REQUIRED": "commitTurn requires the exact packet_id returned by prepareTurn",
+            "TURN_PACKET_REQUIRED": "prepareTurn must be called for this exact user input and packet_id before commitTurn",
             "TURN_PACKET_INCOMPLETE": "Every turn packet chunk must be read before commitTurn",
             "PERSISTENCE_REVIEW_REQUIRED": "Before commitTurn explicitly review chronology and per-character memory. extracted must include persistence_reviewed=true plus chronology, knowledge_add, experiences_add and dialogue_memory_add arrays, even when empty.",
             "RELATIONSHIP_FOOTER_REQUIRED": "The Relationships footer is missing or empty for at least one NPC physically present in the scene. Rewrite the scene footer so EVERY present NPC has an NPC->POV relationship row. If that NPC has no saved dimensions yet, initialize 1-3 natural dimensions now; do not leave the block empty.",
@@ -374,16 +382,16 @@ def turns_commit(session_id: str, body: TurnCommit):
 @app.post("/sessions/{session_id}/audit", operation_id="commitAudit")
 def audit_commit(session_id: str, body: AuditCommit):
     try:
-        require_complete_audit_read(session_id, body.start_turn, body.end_turn)
-        result = commit_audit(session_id, body.model_dump())
-        clear_audit_packet(session_id)
-        return result
+        return commit_audit_request(session_id, body.model_dump())
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Session not found")
+    except OperationReceiptConflict:
+        raise HTTPException(status_code=409, detail="The audit_id was already used with different audit data. Read a fresh audit snapshot; no mutation was performed.")
     except RuntimeError as exc:
         errors = {
             "AUDIT_NOT_REQUIRED": "Audit is not currently required",
-            "AUDIT_PACKET_REQUIRED": "Call getAuditSnapshot first, then read every audit snapshot chunk before commitAudit",
+            "AUDIT_PACKET_ID_REQUIRED": "commitAudit requires the exact audit_id returned by getAuditSnapshot",
+            "AUDIT_PACKET_REQUIRED": "Call getAuditSnapshot, use its exact audit_id, then read every audit snapshot chunk before commitAudit",
             "AUDIT_PACKET_INCOMPLETE": "Every audit snapshot chunk must be read before commitAudit",
         }
         if str(exc) in errors:
