@@ -10,7 +10,7 @@ from .transactional_storage import session_transaction
 
 _ORIGINAL_PREPARE = None
 _ORIGINAL_COMMIT = None
-_VERSION = 1
+_VERSION = 2
 _TERMINAL = {"dead", "deceased", "inactive", "removed", "мертв", "мёртв", "погиб", "умер", "неактив"}
 
 
@@ -41,8 +41,10 @@ def _has_open_intent(state: Dict[str, Any], character_id: str) -> bool:
     elif isinstance(intents, list):
         rows = [row for row in intents if isinstance(row, dict) and str(row.get("character_id") or "") == character_id]
     if isinstance(rows, dict):
-        rows = rows.values()
-    for row in rows if isinstance(rows, (list, tuple, set)) else []:
+        rows = list(rows.values())
+    if not isinstance(rows, list):
+        return False
+    for row in rows:
         if isinstance(row, dict) and str(row.get("status") or "active").casefold() not in {"resolved", "closed", "done", "abandoned", "cancelled", "canceled"}:
             return True
     return False
@@ -70,13 +72,24 @@ def _ensure_registry(state: Dict[str, Any], cards: List[Dict[str, Any]], current
         if cid in present:
             row["last_appearance_turn"] = current_turn
             row["last_contact_turn"] = current_turn
-            row["appearance_count"] = int(row.get("appearance_count", 0) or 0) + (0 if row.get("_seen_this_turn") == current_turn else 1)
-            row["_seen_this_turn"] = current_turn
+            if row.get("_seen_this_turn") != current_turn:
+                row["appearance_count"] = int(row.get("appearance_count", 0) or 0) + 1
+                row["_seen_this_turn"] = current_turn
         registry[cid] = row
     world = deepcopy(world)
     world["cast_registry"] = registry
     state["world"] = world
     return registry
+
+
+def _last_activity_turn(row: Dict[str, Any]) -> int:
+    values = []
+    for key in ("last_appearance_turn", "last_contact_turn", "last_meaningful_turn"):
+        try:
+            values.append(int(row.get(key, 0) or 0))
+        except (TypeError, ValueError):
+            pass
+    return max(values or [0])
 
 
 def _rotation_pressure(state: Dict[str, Any], cards: List[Dict[str, Any]], current_turn: int) -> List[Dict[str, Any]]:
@@ -88,8 +101,10 @@ def _rotation_pressure(state: Dict[str, Any], cards: List[Dict[str, Any]], curre
     for cid, row in registry.items():
         if cid == pov_id or cid in present or not isinstance(row, dict) or _is_inactive(row.get("status")):
             continue
-        last = int(row.get("last_appearance_turn", 0) or 0)
-        absent = max(0, current_turn - last) if last else current_turn
+        last_appearance = int(row.get("last_appearance_turn", 0) or 0)
+        last_activity = _last_activity_turn(row)
+        absent = max(0, current_turn - last_activity) if last_activity else current_turn
+        since_appearance = max(0, current_turn - last_appearance) if last_appearance else current_turn
         origin = str(row.get("origin") or "story_created")
         relation = _relation_strength(state, cid)
         has_intent = _has_open_intent(state, cid)
@@ -103,7 +118,8 @@ def _rotation_pressure(state: Dict[str, Any], cards: List[Dict[str, Any]], curre
             "name": row.get("name"),
             "role": row.get("role"),
             "origin": origin,
-            "turns_since_appearance": absent,
+            "turns_since_activity": absent,
+            "turns_since_appearance": since_appearance,
             "relationship_salience": round(relation, 2),
             "open_intent": has_intent,
             "last_meaningful_event": row.get("last_meaningful_event"),
@@ -138,7 +154,7 @@ def _rewrite_packet(session_id: str, base_result: Dict[str, Any]) -> Dict[str, A
             "rotation_pressure": pressure,
             "rules": [
                 "All active player-created characters remain part of the living cast even with weak or undeveloped relationships.",
-                "Long absence creates re-entry pressure; strong relationships and open intents increase frequency but are not the only source of relevance.",
+                "Long inactivity creates re-entry pressure; strong relationships and open intents increase frequency but are not the only source of relevance.",
                 "Dead/inactive characters stay registered for references and consequences but are excluded from ordinary rotation.",
                 "A recurring named story-created NPC should have a role, independent goal/driver and story function before being upserted.",
                 "Never inject a due NPC randomly. Use a plausible message, work duty, location, shared contact, consequence, appointment, conflict or other causal channel.",
@@ -170,7 +186,7 @@ def _rewrite_packet(session_id: str, base_result: Dict[str, Any]) -> Dict[str, A
 
 
 def _event_summary_for(character_id: str, card: Dict[str, Any], chronology: Any) -> str | None:
-    names = [name.casefold() for name in storage._card_names(card) if str(name).strip()]
+    names = [str(name).casefold() for name in storage._card_names(card) if str(name).strip()]
     for event in reversed(chronology if isinstance(chronology, list) else []):
         if not isinstance(event, dict):
             continue
@@ -191,6 +207,7 @@ def _update_after_commit(session_id: str, payload: Dict[str, Any], result: Dict[
         state = storage._read_json(root / "state.json", {})
         source = storage._read_json(root / "source.json", {})
         cards = storage._load_cards(root, source)
+        source_ids = {storage._card_id(card) for card in storage._normalise_cards(source.get("characters", []))}
         turn_number = int(result.get("turn_number") or storage._read_json(root / "meta.json", {}).get("turn_number", 0) or 0)
         registry = _ensure_registry(state, cards, turn_number)
         extracted = payload.get("extracted") if isinstance(payload.get("extracted"), dict) else {}
@@ -199,9 +216,13 @@ def _update_after_commit(session_id: str, payload: Dict[str, Any], result: Dict[
         chronology = extracted.get("chronology") if isinstance(extracted.get("chronology"), list) else []
         card_map = {storage._card_id(card): card for card in cards}
         for cid, row in registry.items():
-            if cid in upsert_ids and int(row.get("first_registered_turn", 0) or 0) == 0 and row.get("origin") == "player_created" and turn_number > 0:
+            if cid in upsert_ids and cid not in source_ids:
                 row["origin"] = "story_created"
-                row["first_registered_turn"] = turn_number
+                if not int(row.get("first_registered_turn", 0) or 0):
+                    row["first_registered_turn"] = turn_number
+            elif cid in source_ids:
+                row["origin"] = "player_created"
+                row["first_registered_turn"] = 0
             if cid in present:
                 row["last_appearance_turn"] = turn_number
                 row["last_contact_turn"] = turn_number
@@ -209,6 +230,7 @@ def _update_after_commit(session_id: str, payload: Dict[str, Any], result: Dict[
             if summary:
                 row["last_meaningful_event"] = summary
                 row["last_meaningful_turn"] = turn_number
+                row["last_contact_turn"] = turn_number
         world = state.get("world") if isinstance(state.get("world"), dict) else {}
         world["cast_registry"] = registry
         state["world"] = world
