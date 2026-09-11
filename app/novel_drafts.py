@@ -7,6 +7,8 @@ from typing import Any, Dict
 
 from . import storage
 from .novel_access import prepare_template_read, verify_template
+from .operation_receipts import canonical_hash
+from .transactional_storage import session_transaction
 
 
 REQUIRED_SECTIONS = ("novel", "characters", "lore", "starting_state")
@@ -539,6 +541,7 @@ def finalize_draft(draft_id: str) -> Dict[str, Any]:
     if not verification["ok"]:
         raise RuntimeError("FINAL_VERIFICATION_FAILED")
     draft["finalized"] = True
+    draft["finalized_revision"] = int(draft.get("revision", 0) or 0)
     draft["finalized_template"] = template
     _write(_draft_path(draft_id), draft)
     return {
@@ -563,21 +566,86 @@ def prepare_draft_read(draft_id: str) -> Dict[str, Any]:
     return prepare_template_read(_finalized_template(draft_id), "draft", draft_id)
 
 
+def _existing_session_for_draft(draft_id: str, template: Dict[str, Any]) -> Dict[str, Any] | None:
+    if not storage.SESSIONS_DIR.exists():
+        return None
+    expected_hash = canonical_hash(template)
+    for root in storage.SESSIONS_DIR.iterdir():
+        if not root.is_dir():
+            continue
+        meta = storage._read_json(root / "meta.json", {})
+        if not isinstance(meta, dict) or str(meta.get("source_draft_id") or "") != draft_id:
+            continue
+        source = storage._read_json(root / "source.json", {})
+        if isinstance(source, dict) and canonical_hash(source) == expected_hash:
+            result = deepcopy(meta)
+            result["already_created"] = True
+            result["idempotent_replay"] = True
+            return result
+    return None
+
+
 def create_session_from_draft(draft_id: str) -> Dict[str, Any]:
-    template, coverage = _validate_template(_finalized_template(draft_id))
-    meta = storage.create_session(template)
-    root = storage.SESSIONS_DIR / meta["session_id"]
-    stored_meta = storage._read_json(root / "meta.json", {})
-    stored_meta["source_type"] = "session_draft"
-    stored_meta["source_draft_id"] = draft_id
-    stored_meta["foundation_coverage"] = coverage
-    storage._write_json(root / "meta.json", stored_meta)
-    meta.update({
-        "source_type": "session_draft",
-        "source_draft_id": draft_id,
-        "foundation_coverage": coverage,
-    })
-    return meta
+    with session_transaction(_drafts_dir()):
+        draft = _read(draft_id)
+        template = draft.get("finalized_template")
+        if not draft.get("finalized") or not isinstance(template, dict):
+            raise RuntimeError("DRAFT_NOT_FINALIZED")
+        template, coverage = _validate_template(template)
+        revision = int(draft.get("finalized_revision", draft.get("revision", 0)) or 0)
+        template_hash = canonical_hash(template)
+
+        receipt = draft.get("session_creation_receipt")
+        if isinstance(receipt, dict):
+            session_id = str(receipt.get("session_id") or "")
+            if (
+                int(receipt.get("draft_revision", -1) or -1) == revision
+                and str(receipt.get("template_hash") or "") == template_hash
+                and session_id
+                and (storage.SESSIONS_DIR / session_id).exists()
+            ):
+                existing = storage._read_json(storage.SESSIONS_DIR / session_id / "meta.json", {})
+                if isinstance(existing, dict) and existing.get("session_id") == session_id:
+                    result = deepcopy(existing)
+                    result["already_created"] = True
+                    result["idempotent_replay"] = True
+                    return result
+
+        existing = _existing_session_for_draft(draft_id, template)
+        if existing is not None:
+            draft["session_creation_receipt"] = {
+                "draft_revision": revision,
+                "template_hash": template_hash,
+                "session_id": existing["session_id"],
+            }
+            _write(_draft_path(draft_id), draft)
+            return existing
+
+        deterministic_id = uuid.uuid5(
+            uuid.NAMESPACE_URL,
+            f"roman-ai:draft:{draft_id}:revision:{revision}:template:{template_hash}",
+        ).hex
+        meta = storage.create_session(
+            template,
+            session_id=deterministic_id,
+            meta_patch={
+                "source_type": "session_draft",
+                "source_draft_id": draft_id,
+                "source_draft_revision": revision,
+                "source_draft_hash": template_hash,
+                "foundation_coverage": coverage,
+            },
+        )
+        draft["session_creation_receipt"] = {
+            "draft_revision": revision,
+            "template_hash": template_hash,
+            "session_id": meta["session_id"],
+        }
+        _write(_draft_path(draft_id), draft)
+        result = deepcopy(meta)
+        result["already_created"] = False
+        result["idempotent_replay"] = False
+        return result
 
 
 def publish_draft_to_library(draft_id: str) -> Dict[str, Any]:
