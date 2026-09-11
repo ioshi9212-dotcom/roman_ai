@@ -135,6 +135,8 @@ def _rewrite_packet(session_id: str, base_result: Dict[str, Any]) -> Dict[str, A
         packet = storage._read_json(root / "turn_packet.json", {})
         if not isinstance(packet, dict) or not packet.get("chunks"):
             return base_result
+        if packet.get("cast_registry_version") == _VERSION:
+            return base_result
         raw = "".join(str(chunk) for chunk in packet.get("chunks", []))
         try:
             context = json.loads(raw)
