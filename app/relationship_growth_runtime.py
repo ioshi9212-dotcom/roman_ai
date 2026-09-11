@@ -137,18 +137,23 @@ def _merge_footer_delta_fallbacks(
             # Legacy saved labels remain valid; genuinely new labels must come from the fixed vocabulary.
             if label_norm not in existing and label_norm not in _FIXED_NEW_LABELS:
                 continue
-            raw_delta = dim.get("delta")
-            if not _is_number(raw_delta):
-                continue
-            # Existing counters may move only by the scene-sized delta. A newly created counter uses
-            # its supplied initial value; its printed delta is only a backwards-compatible change marker.
-            delta = _bounded_scene_delta(raw_delta) if label_norm in existing else float(raw_delta)
-            if delta is None:
-                continue
             value = dim.get("value")
             if not _is_number(value):
                 continue
-            fallback.append({"label": label_text, "value": value, "delta": delta})
+            raw_delta = dim.get("delta")
+            if label_norm in existing:
+                # Existing counters need a small causal delta. An absolute snapshot alone is display.
+                delta = _bounded_scene_delta(raw_delta)
+                if delta is None:
+                    continue
+                fallback.append({"label": label_text, "value": value, "delta": delta})
+            else:
+                # A genuinely new fixed dimension has no prior value to roll back, so a first
+                # meaningful baseline may still be initialized from the visible footer for old GPTs.
+                item = {"label": label_text, "value": value}
+                if _is_number(raw_delta):
+                    item["delta"] = float(raw_delta)
+                fallback.append(item)
 
         if not fallback:
             continue
