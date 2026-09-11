@@ -1,11 +1,15 @@
-import json
 import tempfile
 from pathlib import Path
 
 import pytest
 
-from app import commit_idempotency_runtime, session_runtime, storage
-from app.turn_rollback import rollback_last_turn
+from app import audit_runtime, session_runtime, storage
+from app.operation_receipts import OperationReceiptConflict, RECEIPTS_FILE
+from app.operation_service import (
+    commit_audit_request,
+    commit_turn_request,
+    rollback_last_turn_request,
+)
 
 
 def setup_temp_storage(tmp: str):
@@ -37,12 +41,6 @@ def novel_fixture():
     }
 
 
-def mark_packet_read(root: Path):
-    packet = storage._read_json(root / "turn_packet.json", {})
-    packet["read_chunks"] = list(range(packet["chunk_count"]))
-    storage._write_json(root / "turn_packet.json", packet)
-
-
 def valid_payload(user_input: str = "Дождаться полуночи."):
     scene = (
         "🎭 Idempotency · осень\n"
@@ -70,110 +68,132 @@ def valid_payload(user_input: str = "Дождаться полуночи."):
     }
 
 
-def test_exact_duplicate_commit_returns_success_without_second_turn():
+def prepare_commit(sid: str, payload: dict) -> dict:
+    manifest = session_runtime.prepare_turn_packet(sid, payload["user_input"])
+    for index in range(manifest["chunk_count"]):
+        storage.get_turn_packet_chunk(sid, manifest["packet_id"], index)
+    prepared = dict(payload)
+    prepared["packet_id"] = manifest["packet_id"]
+    return prepared
+
+
+def commit_one(sid: str, user_input: str) -> tuple[dict, dict]:
+    payload = prepare_commit(sid, valid_payload(user_input))
+    return payload, commit_turn_request(sid, payload)
+
+
+def test_exact_duplicate_commit_replays_atomic_receipt_without_second_turn():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         sid = storage.create_session(novel_fixture())["session_id"]
         root = storage.SESSIONS_DIR / sid
-        payload = valid_payload()
+        payload = prepare_commit(sid, valid_payload())
 
-        session_runtime.prepare_turn_packet(sid, payload["user_input"])
-        mark_packet_read(root)
-        first = session_runtime.commit_turn(sid, payload)
+        first = commit_turn_request(sid, payload)
         assert first["turn_number"] == 1
         assert first["already_committed"] is False
         assert len(storage._read_turns(root)) == 1
-        assert not (root / "turn_packet.json").exists()
+        assert (root / RECEIPTS_FILE).exists()
 
-        second = session_runtime.commit_turn(sid, payload)
+        second = commit_turn_request(sid, payload)
         assert second["ok"] is True
         assert second["turn_number"] == 1
-        assert second["already_committed"] is True
+        assert second["already_completed"] is True
         assert second["idempotent_replay"] is True
         assert len(storage._read_turns(root)) == 1
         assert storage._read_json(root / "meta.json", {})["turn_number"] == 1
 
-        saved = storage._read_turns(root)[-1]
-        fingerprint = saved["extracted"].get("_commit_request_fingerprint")
-        assert fingerprint == commit_idempotency_runtime._request_fingerprint(payload)
 
-
-def test_changed_payload_after_success_is_not_treated_as_duplicate():
+def test_same_packet_id_with_changed_payload_is_rejected_without_mutation():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         sid = storage.create_session(novel_fixture())["session_id"]
         root = storage.SESSIONS_DIR / sid
-        payload = valid_payload()
+        payload = prepare_commit(sid, valid_payload())
+        commit_turn_request(sid, payload)
 
-        session_runtime.prepare_turn_packet(sid, payload["user_input"])
-        mark_packet_read(root)
-        session_runtime.commit_turn(sid, payload)
-
-        changed = valid_payload()
-        changed["scene_output"] = changed["scene_output"].replace("Тестовая сцена.", "Другая сцена.")
-        assert commit_idempotency_runtime._duplicate_result(
-            sid, commit_idempotency_runtime._request_fingerprint(changed)
-        ) is None
-        with pytest.raises(RuntimeError) as exc:
-            session_runtime.commit_turn(sid, changed)
-        assert str(exc.value) == "TURN_PACKET_REQUIRED"
+        changed = dict(payload)
+        changed["scene_output"] = payload["scene_output"].replace("Тестовая сцена.", "Другая сцена.")
+        with pytest.raises(OperationReceiptConflict):
+            commit_turn_request(sid, changed)
         assert len(storage._read_turns(root)) == 1
 
 
-def test_duplicate_commit_wins_over_post_commit_audit_gate():
+def test_duplicate_turn_replays_even_after_audit_gate_activates():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         sid = storage.create_session(novel_fixture())["session_id"]
-        root = storage.SESSIONS_DIR / sid
-        payload = valid_payload("Ход пятнадцать")
-        fingerprint = commit_idempotency_runtime._request_fingerprint(payload)
-
-        turns = []
+        last_payload = None
         for number in range(1, 16):
-            extracted = {}
-            if number == 15:
-                extracted["_commit_request_fingerprint"] = fingerprint
-            turns.append({
-                "turn_number": number,
-                "user_input": payload["user_input"] if number == 15 else f"turn-{number}",
-                "scene_output": payload["scene_output"] if number == 15 else "scene",
-                "extracted": extracted,
-            })
-        (root / "turns.jsonl").write_text(
-            "".join(json.dumps(turn, ensure_ascii=False) + "\n" for turn in turns),
-            encoding="utf-8",
-        )
-        meta = storage._read_json(root / "meta.json", {})
-        meta["turn_number"] = 15
-        meta["audit_required"] = True
-        storage._write_json(root / "meta.json", meta)
+            last_payload, result = commit_one(sid, f"Ход {number}")
+            assert result["turn_number"] == number
 
-        result = session_runtime.commit_turn(sid, payload)
-        assert result["ok"] is True
-        assert result["turn_number"] == 15
-        assert result["already_committed"] is True
-        assert result["audit_due"] is True
-        assert result["audit_range"] == [1, 15]
-        assert len(storage._read_turns(root)) == 15
+        assert last_payload is not None
+        assert storage._read_json(storage.SESSIONS_DIR / sid / "meta.json", {})["audit_required"] is True
+        replay = commit_turn_request(sid, last_payload)
+        assert replay["turn_number"] == 15
+        assert replay["idempotent_replay"] is True
+        assert len(storage._read_turns(storage.SESSIONS_DIR / sid)) == 15
 
 
-def test_rollback_removes_duplicate_identity_and_allows_same_turn_to_be_prepared_again():
+def test_audit_exact_retry_returns_prior_success_without_second_audit():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         sid = storage.create_session(novel_fixture())["session_id"]
         root = storage.SESSIONS_DIR / sid
-        payload = valid_payload()
-        fingerprint = commit_idempotency_runtime._request_fingerprint(payload)
+        for number in range(1, 16):
+            commit_one(sid, f"Ход {number}")
 
-        session_runtime.prepare_turn_packet(sid, payload["user_input"])
-        mark_packet_read(root)
-        session_runtime.commit_turn(sid, payload)
-        assert commit_idempotency_runtime._duplicate_result(sid, fingerprint) is not None
+        manifest = audit_runtime.get_audit_snapshot(sid)
+        for index in range(manifest["chunk_count"]):
+            audit_runtime.get_audit_snapshot_chunk(sid, manifest["audit_id"], index)
+        payload = {
+            "audit_id": manifest["audit_id"],
+            "start_turn": 1,
+            "end_turn": 15,
+            "repairs": {},
+            "notes": [],
+        }
+        first = commit_audit_request(sid, payload)
+        second = commit_audit_request(sid, payload)
+        assert first["audited_through"] == 15
+        assert second["audited_through"] == 15
+        assert second["idempotent_replay"] is True
+        assert len(storage._read_json(root / "audits.json", [])) == 1
 
-        rolled = rollback_last_turn(sid, expected_turn_number=1, confirm=True)
+
+def test_rollback_retry_cannot_remove_a_replacement_turn():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(novel_fixture())["session_id"]
+        root = storage.SESSIONS_DIR / sid
+        commit_one(sid, "Первый ход")
+        resume = session_runtime.continue_session(sid)
+        request = {
+            "expected_turn_number": 1,
+            "expected_turn_id": resume["current_turn_id"],
+            "confirm": True,
+        }
+
+        first = rollback_last_turn_request(sid, request)
+        second = rollback_last_turn_request(sid, request)
+        assert first["turn_number"] == 0
+        assert second["turn_number"] == 0
+        assert second["idempotent_replay"] is True
+
+        replacement_payload, replacement = commit_one(sid, "Новый первый ход")
+        assert replacement["turn_number"] == 1
+        stale = rollback_last_turn_request(sid, request)
+        assert stale["idempotent_replay"] is True
+        assert storage._read_json(root / "meta.json", {})["turn_number"] == 1
+        assert storage._read_turns(root)[-1]["user_input"] == replacement_payload["user_input"]
+
+        fresh = session_runtime.continue_session(sid)
+        fresh_request = {
+            "expected_turn_number": 1,
+            "expected_turn_id": fresh["current_turn_id"],
+            "confirm": True,
+        }
+        rolled = rollback_last_turn_request(sid, fresh_request)
         assert rolled["turn_number"] == 0
         assert storage._read_turns(root) == []
-        assert commit_idempotency_runtime._duplicate_result(sid, fingerprint) is None
-
-        manifest = session_runtime.prepare_turn_packet(sid, payload["user_input"])
-        assert manifest["prepared_for_turn"] == 1
