@@ -195,66 +195,6 @@ def _split_relationship_metadata(
     return result, metadata
 
 
-def _apply_relationship_metadata_to_state(
-    state: Dict[str, Any],
-    rows: List[Dict[str, Any]],
-    turn_number: int,
-) -> tuple[Dict[str, Any], bool]:
-    if not rows:
-        return state, False
-    result = deepcopy(state)
-    pov = result.get("pov") if isinstance(result.get("pov"), dict) else {}
-    pov_id = str(pov.get("character_id") or "")
-    docs = result.get("relationship_documents") if isinstance(result.get("relationship_documents"), dict) else {}
-    docs = deepcopy(docs)
-    changed = False
-
-    for raw in rows:
-        owner_id = str(raw.get("character_id") or "")
-        if not owner_id or not pov_id:
-            continue
-        doc = docs.setdefault(owner_id, {"owner_character_id": owner_id, "relations": []})
-        relations = doc.get("relations") if isinstance(doc.get("relations"), list) else []
-        relation = next(
-            (
-                row for row in relations
-                if isinstance(row, dict) and str(row.get("target_character_id") or "") == pov_id
-            ),
-            None,
-        )
-        if relation is None:
-            relation = {
-                "target_character_id": pov_id,
-                "relationship_type": "установленная связь",
-                "relationship_context": "",
-                "current_dynamic": "",
-                "dimensions": [],
-                "beliefs_about_target": [],
-                "unresolved_between_them": [],
-                "dynamic_constraints": [],
-                "change_reasons": [],
-                "last_changed_turn": 0,
-            }
-            relations.append(relation)
-            doc["relations"] = relations
-        before = deepcopy(relation)
-        if "opinion" in raw:
-            relation["current_dynamic"] = str(raw.get("opinion") or "").strip()
-        if "current_dynamic" in raw:
-            relation["current_dynamic"] = str(raw.get("current_dynamic") or "").strip()
-        for key in ("beliefs_about_target", "unresolved_between_them"):
-            if key in raw and isinstance(raw[key], list):
-                relation[key] = deepcopy(raw[key])
-        for key in ("relationship_type", "relationship_context"):
-            if key in raw:
-                relation[key] = str(raw.get(key) or "").strip()
-        relation["last_changed_turn"] = turn_number
-        changed = changed or relation != before
-
-    if changed:
-        result["relationship_documents"] = docs
-    return result, changed
-
 def _flatten(value: Any, path: str = "", depth: int = 0) -> Iterable[tuple[str, str]]:
     if depth > 3:
         return
@@ -719,15 +659,13 @@ def _with_atomic_state_effects(
     patch = deepcopy(patch)
     post_state = storage._deep_merge(state, patch)
 
-    post_state, relationship_changed = _apply_relationship_metadata_to_state(post_state, metadata, turn_number)
     post_state, world_changed = _apply_world_effects_to_state(root, post_state, extracted, turn_number)
-
-    if relationship_changed:
-        patch["relationship_documents"] = deepcopy(post_state.get("relationship_documents", {}))
     if world_changed:
         patch["world"] = deepcopy(post_state.get("world", {}))
     extracted["state_patch"] = patch
     result["extracted"] = extracted
+    if metadata:
+        result["_relationship_metadata"] = deepcopy(metadata)
     return result
 
 def _prepare_turn(session_id: str, user_input: str) -> Dict[str, Any]:
