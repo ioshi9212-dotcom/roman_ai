@@ -187,7 +187,6 @@ def _with_registry_patch(session_id: str, payload: Dict[str, Any]) -> Dict[str, 
 
             summary = _event_summary_for(cid, card_map.get(cid, {}), chronology)
             if summary:
-                row["last_meaning_event"] = summary
                 row["last_meaningful_event"] = summary
                 row["last_meaningful_turn"] = turn_number
                 row["last_contact_turn"] = turn_number
