@@ -111,8 +111,8 @@ def _compact_thread(item: Any) -> Any:
     # Keep all structural thread fields, but do not let old free-form notes dominate every turn packet.
     # Full persistent thread state remains in Railway.
     notes = result.get("notes")
-    if isinstance(notes, str) and len(notes) > 800:
-        result["notes"] = notes[:800]
+    if isinstance(notes, str) and len(notes) > 700:
+        result["notes"] = notes[:700]
         result["notes_truncated_in_writer_context"] = True
     return result
 
