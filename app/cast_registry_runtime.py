@@ -10,7 +10,7 @@ from .transactional_storage import session_transaction
 
 _ORIGINAL_PREPARE = None
 _ORIGINAL_COMMIT = None
-_VERSION = 5
+_VERSION = 6
 _TERMINAL = {"dead", "deceased", "inactive", "removed", "мертв", "мёртв", "погиб", "умер", "неактив"}
 
 
@@ -121,18 +121,20 @@ def _rotation_pressure(
         if not due:
             continue
         score = float(inactive_for) + (40.0 if player_created else 10.0) + relation * 30.0 + (35.0 if has_intent else 0.0)
-        scored.append((score, {
+        item: Dict[str, Any] = {
             "character_id": cid,
-            "name": row.get("name"),
-            "role": row.get("role"),
             "origin": origin,
             "turns_since_activity": inactive_for,
             "turns_since_appearance": since_appearance,
-            "relationship_salience": round(relation, 2),
-            "open_intent": has_intent,
-            "last_meaningful_event": row.get("last_meaningful_event"),
-            "guidance": "This active character is due for consideration. Reintroduce only through a natural causal channel; player-created cast must not disappear merely because current relationship values are low. Load the character bundle before participation.",
-        }))
+        }
+        if relation:
+            item["relationship_salience"] = round(relation, 2)
+        if has_intent:
+            item["open_intent"] = True
+        summary = row.get("last_meaningful_event")
+        if summary:
+            item["last_meaningful_event"] = str(summary)[:160]
+        scored.append((score, item))
     scored.sort(key=lambda pair: pair[0], reverse=True)
     return [row for _, row in scored[:8]]
 
@@ -250,17 +252,20 @@ def _rewrite_packet(session_id: str, base_result: Dict[str, Any]) -> Dict[str, A
         current_turn = int(storage._read_json(root / "meta.json", {}).get("turn_number", 0) or 0)
         registry = _ensure_registry(state, cards, current_turn, source_character_ids=source_ids)
         pressure = _rotation_pressure(state, cards, current_turn, source_character_ids=source_ids)
+        active_rows = [row for row in registry.values() if isinstance(row, dict) and not _is_inactive(row.get("status"))]
         context["cast_registry"] = {
             "version": _VERSION,
-            "characters": [{k: v for k, v in row.items() if not str(k).startswith("_")} for row in registry.values()],
+            "persistent": True,
+            "registry_index_path": "character_registry",
+            "active_count": len(active_rows),
+            "player_created_active_count": sum(1 for row in active_rows if row.get("origin") == "player_created"),
+            "story_created_active_count": sum(1 for row in active_rows if row.get("origin") == "story_created"),
             "rotation_pressure": pressure,
-            "rules": [
-                "All active player-created characters remain part of the living cast even with weak or undeveloped relationships.",
-                "Long inactivity creates re-entry pressure; strong relationships and open intents increase frequency but are not the only source of relevance.",
-                "Dead/inactive characters stay registered for references and consequences but are excluded from ordinary rotation.",
-                "A recurring named story-created NPC should have a role, independent goal/driver and story function before being upserted.",
-                "Never inject a due NPC randomly. Use a plausible message, work duty, location, shared contact, consequence, appointment, conflict or other causal channel.",
-            ],
+            "instruction": (
+                "Use character_registry for names/roles and this rotation_pressure only as anti-forgetting priority. "
+                "Active player-created cast remains eligible even with weak relationships; strong relationships/open intents increase frequency. "
+                "Reintroduce only through a causal channel and load the character bundle before participation. Dead/inactive cast does not rotate normally."
+            ),
         }
         living = context.get("living_world") if isinstance(context.get("living_world"), dict) else {}
         living["cast_rotation_pressure"] = pressure
