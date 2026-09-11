@@ -4,13 +4,13 @@ import json
 from copy import deepcopy
 from typing import Any, Dict, List
 
-from . import session_runtime, storage, writer_first_runtime
+from . import scene_presence_runtime, session_runtime, storage, writer_first_runtime
 from .transactional_storage import session_transaction
 
 
 _ORIGINAL_PREPARE = None
 _ORIGINAL_COMMIT = None
-_VERSION = 4
+_VERSION = 5
 _TERMINAL = {"dead", "deceased", "inactive", "removed", "мертв", "мёртв", "погиб", "умер", "неактив"}
 
 
@@ -138,6 +138,11 @@ def _rotation_pressure(
 
 
 def _post_turn_present(state: Dict[str, Any], extracted: Dict[str, Any]) -> set[str]:
+    patch = extracted.get("state_patch") if isinstance(extracted.get("state_patch"), dict) else {}
+    current_patch = patch.get("current") if isinstance(patch.get("current"), dict) else {}
+    normalized = current_patch.get("present_characters")
+    if isinstance(normalized, list):
+        return {str(value) for value in normalized if value}
     present = set(storage._present_character_ids(state))
     for row in extracted.get("presence_updates", []) if isinstance(extracted.get("presence_updates"), list) else []:
         if not isinstance(row, dict) or not row.get("character_id"):
@@ -177,7 +182,7 @@ def _with_registry_patch(session_id: str, payload: Dict[str, Any]) -> Dict[str, 
         current_cards = storage._load_cards(root, source)
         source_ids = {storage._card_id(card) for card in storage._normalise_cards(source.get("characters", []))}
 
-        prepared = deepcopy(payload)
+        prepared = scene_presence_runtime._apply_presence_contract(deepcopy(payload), root=root)
         extracted = prepared.get("extracted") if isinstance(prepared.get("extracted"), dict) else {}
         extracted = deepcopy(extracted)
         resulting_cards = storage._apply_character_upserts(current_cards, extracted)
