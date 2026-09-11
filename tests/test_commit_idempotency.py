@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from app import commit_idempotency_runtime, session_runtime, storage
+from app.turn_rollback import rollback_last_turn
 
 
 def setup_temp_storage(tmp: str):
@@ -154,3 +155,25 @@ def test_duplicate_commit_wins_over_post_commit_audit_gate():
         assert result["audit_due"] is True
         assert result["audit_range"] == [1, 15]
         assert len(storage._read_turns(root)) == 15
+
+
+def test_rollback_removes_duplicate_identity_and_allows_same_turn_to_be_prepared_again():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(novel_fixture())["session_id"]
+        root = storage.SESSIONS_DIR / sid
+        payload = valid_payload()
+        fingerprint = commit_idempotency_runtime._request_fingerprint(payload)
+
+        session_runtime.prepare_turn_packet(sid, payload["user_input"])
+        mark_packet_read(root)
+        session_runtime.commit_turn(sid, payload)
+        assert commit_idempotency_runtime._duplicate_result(sid, fingerprint) is not None
+
+        rolled = rollback_last_turn(sid, expected_turn_number=1, confirm=True)
+        assert rolled["turn_number"] == 0
+        assert storage._read_turns(root) == []
+        assert commit_idempotency_runtime._duplicate_result(sid, fingerprint) is None
+
+        manifest = session_runtime.prepare_turn_packet(sid, payload["user_input"])
+        assert manifest["prepared_for_turn"] == 1
