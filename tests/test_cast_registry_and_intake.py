@@ -199,7 +199,7 @@ def test_finalized_draft_can_reopen_for_pre_game_correction_and_new_session_keep
         save_section(draft_id, "foundation", json.dumps({
             "facts": [{"fact_id": "f1", "text": "Итан существует", "stored_in": ["characters"], "story_use": "continuity"}],
             "hooks": [],
-            "story_pillars": [],
+            "story_pillars": [{"pillar_id": "p1", "label": "Итан", "source_fact_ids": ["f1"]}],
         }, ensure_ascii=False))
         save_section(draft_id, "intake", json.dumps({"blocks": [{
             "block_id": "b1", "stage": "cast", "raw_text": "Итан уже находится в секторе под прикрытием.",
