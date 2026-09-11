@@ -9,6 +9,8 @@ from typing import Any, Dict
 from . import session_recovery, session_runtime, storage
 from .game_day import sync_game_day
 from .relationship_runtime import overwrite_relationship_snapshots
+from .operation_receipts import RECEIPTS_FILE, ledger_with_receipt, make_receipt
+from .rollback_snapshot_runtime import SNAPSHOT_FILE, build_pre_turn_snapshot
 from .transactional_storage import json_text, recover, session_transaction, write_batch
 
 
@@ -173,15 +175,21 @@ def _atomic_commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, A
         meta = storage._read_json(root / "meta.json", {})
         if meta.get("audit_required"):
             raise RuntimeError("AUDIT_REQUIRED")
-        if meta.get("handoff_required"):
-            raise RuntimeError("HANDOFF_REQUIRED")
+
         turn_number = int(meta.get("turn_number", 0)) + 1
         packet = storage._read_json(root / "turn_packet.json", {})
-        if not packet or packet.get("prepared_for_turn") != turn_number or packet.get("user_input") != payload.get("user_input"):
+        packet_id = str(payload.get("packet_id") or "").strip()
+        if (
+            not packet
+            or packet.get("prepared_for_turn") != turn_number
+            or packet.get("user_input") != payload.get("user_input")
+            or (packet_id and str(packet.get("packet_id") or "") != packet_id)
+        ):
             raise RuntimeError("TURN_PACKET_REQUIRED")
         if len(set(packet.get("read_chunks", []))) < int(packet.get("chunk_count", 0)):
             raise RuntimeError("TURN_PACKET_INCOMPLETE")
 
+        pre_turn_snapshot = build_pre_turn_snapshot(root, turn_number)
         extracted = payload.get("extracted", {}) if isinstance(payload.get("extracted"), dict) else {}
         entry = storage._template("turn.json", {})
         entry.update(
@@ -219,13 +227,32 @@ def _atomic_commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, A
 
         turns = storage._read_turns(root)
         turns.append(entry)
+        state = session_runtime._finalize_persisted_state(
+            source=source,
+            cards=cards,
+            state=state,
+            memory=memory,
+            chronology=chronology,
+            turns=turns,
+            turn_number=turn_number,
+        )
 
-        meta["turn_number"] = turn_number
         audit_due = turn_number % 15 == 0
-        handoff_due = turn_number % 60 == 0
+        meta["turn_number"] = turn_number
         meta["audit_required"] = bool(audit_due)
-        if handoff_due:
-            meta["handoff_required"] = True
+        meta["handoff_required"] = False
+
+        result = {
+            "ok": True,
+            "turn_number": turn_number,
+            "audit_due": audit_due,
+            "audit_range": [max(1, turn_number - 14), turn_number] if audit_due else None,
+            "handoff_required": False,
+            "transactional_commit": True,
+            "relationship_snapshots_atomic": True,
+        }
+        if packet_id:
+            result["packet_id"] = packet_id
 
         values = {
             "turns.jsonl": _turns_text(turns),
@@ -234,22 +261,23 @@ def _atomic_commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, A
             "memory.json": json_text(memory),
             "chronology.json": json_text(chronology),
             "meta.json": json_text(meta),
+            SNAPSHOT_FILE: json_text(pre_turn_snapshot),
         }
-        if handoff_due:
-            values["handoff_tail.json"] = json_text(turns[-6:])
+
+        receipt_meta = payload.get("_operation_receipt") if isinstance(payload.get("_operation_receipt"), dict) else None
+        if receipt_meta:
+            receipt = make_receipt(
+                operation=str(receipt_meta.get("operation") or "commit_turn"),
+                identity=str(receipt_meta.get("identity") or packet_id),
+                fingerprint=str(receipt_meta.get("request_fingerprint") or ""),
+                result=result,
+                turn_number=turn_number,
+            )
+            values[RECEIPTS_FILE] = json_text(ledger_with_receipt(root, receipt))
+
         write_batch(root, values)
         (root / "turn_packet.json").unlink(missing_ok=True)
-
-        return {
-            "ok": True,
-            "turn_number": turn_number,
-            "audit_due": audit_due,
-            "audit_range": [max(1, turn_number - 14), turn_number] if audit_due else None,
-            "handoff_required": handoff_due,
-            "transactional_commit": True,
-            "relationship_snapshots_atomic": True,
-        }
-
+        return result
 
 def _atomic_commit_audit(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     root = storage.SESSIONS_DIR / session_id
@@ -291,27 +319,55 @@ def _atomic_commit_audit(session_id: str, payload: Dict[str, Any]) -> Dict[str, 
                 "saved_at": datetime.now(timezone.utc).isoformat(),
             }
         )
+
+        cards = storage._load_cards(root, source)
+        turns = storage._read_turns(root)
+        state = session_runtime._finalize_persisted_state(
+            source=source,
+            cards=cards,
+            state=state,
+            memory=memory,
+            chronology=chronology,
+            turns=turns,
+            turn_number=expected_end,
+        )
+
         meta["last_audit_turn"] = payload["end_turn"]
         meta["audit_required"] = False
+        meta["handoff_required"] = False
 
-        write_batch(
-            root,
-            {
-                "state.json": json_text(state),
-                "memory.json": json_text(memory),
-                "chronology.json": json_text(chronology),
-                "audits.json": json_text(audits),
-                "meta.json": json_text(meta),
-            },
-        )
-        return {
+        result = {
             "ok": True,
             "audited_through": payload["end_turn"],
-            "handoff_required": bool(meta.get("handoff_required")),
+            "handoff_required": False,
             "transactional_commit": True,
             "relationship_snapshots_atomic": True,
         }
+        audit_id = str(payload.get("audit_id") or "").strip()
+        if audit_id:
+            result["audit_id"] = audit_id
 
+        values = {
+            "state.json": json_text(state),
+            "memory.json": json_text(memory),
+            "chronology.json": json_text(chronology),
+            "audits.json": json_text(audits),
+            "meta.json": json_text(meta),
+        }
+
+        receipt_meta = payload.get("_operation_receipt") if isinstance(payload.get("_operation_receipt"), dict) else None
+        if receipt_meta:
+            receipt = make_receipt(
+                operation=str(receipt_meta.get("operation") or "commit_audit"),
+                identity=str(receipt_meta.get("identity") or audit_id),
+                fingerprint=str(receipt_meta.get("request_fingerprint") or ""),
+                result=result,
+                audited_through=int(payload["end_turn"]),
+            )
+            values[RECEIPTS_FILE] = json_text(ledger_with_receipt(root, receipt))
+
+        write_batch(root, values)
+        return result
 
 def _recover_session(session_id: str) -> None:
     root = storage.SESSIONS_DIR / session_id
