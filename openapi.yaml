@@ -265,7 +265,8 @@ paths:
   /novel-drafts/{draft_id}/read:
     post:
       operationId: prepareDraftRead
-      summary: Prepare chunked reading of a finalized draft
+      summary: Prepare chunked reading of a working or finalized draft
+      description: Before finalize, returns the current working draft including immutable intake raw blocks. After finalize, returns the frozen normalized draft. Read every returned chunk in order.
       parameters:
         - {in: path, name: draft_id, required: true, schema: {type: string}}
       responses:
