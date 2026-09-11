@@ -1,11 +1,14 @@
 import json
 import os
 import secrets
+import shutil
 import uuid
 from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List
+
+from .transactional_storage import json_text, write_batch
 
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
@@ -371,45 +374,70 @@ def get_novel(novel_id: str) -> Dict[str, Any]:
     return _read_json(path, {})
 
 
-def create_session(novel: Dict[str, Any]) -> Dict[str, Any]:
+def create_session(
+    novel: Dict[str, Any],
+    *,
+    session_id: str | None = None,
+    meta_patch: Dict[str, Any] | None = None,
+) -> Dict[str, Any]:
     ensure_dirs()
-    session_id = uuid.uuid4().hex
+    session_id = str(session_id or uuid.uuid4().hex)
     root = SESSIONS_DIR / session_id
+    if root.exists():
+        existing = _read_json(root / "meta.json", {})
+        if isinstance(existing, dict) and existing.get("session_id") == session_id:
+            return existing
+        raise FileExistsError(session_id)
+
     root.mkdir(parents=True, exist_ok=False)
-    meta = _template("session_meta.json", {})
-    meta.update({"session_id": session_id, "source_novel_id": novel["novel_id"], "source_novel_version": novel.get("version", 1)})
+    try:
+        meta = _template("session_meta.json", {})
+        meta.update({
+            "session_id": session_id,
+            "source_novel_id": novel["novel_id"],
+            "source_novel_version": novel.get("version", 1),
+        })
+        if isinstance(meta_patch, dict):
+            meta.update(deepcopy(meta_patch))
 
-    cards = _normalise_cards(novel.get("characters", []))
-    state = _template("state.json", {"current": {}, "pov": {}, "characters": {}, "relationships": {}, "threads": {}, "world": {}})
-    starting_state = novel.get("starting_state") if isinstance(novel.get("starting_state"), dict) else {}
-    state = _deep_merge(state, starting_state)
-    pov_id = _find_pov_id(novel, cards)
-    if not isinstance(state.get("pov"), dict):
-        state["pov"] = {}
-    if pov_id and not state["pov"].get("character_id"):
-        state["pov"]["character_id"] = pov_id
-    if isinstance(novel.get("world"), dict):
-        state["world"] = _deep_merge(novel.get("world", {}), state.get("world", {}) if isinstance(state.get("world"), dict) else {})
+        cards = _normalise_cards(novel.get("characters", []))
+        state = _template("state.json", {"current": {}, "pov": {}, "characters": {}, "relationships": {}, "threads": {}, "world": {}})
+        starting_state = novel.get("starting_state") if isinstance(novel.get("starting_state"), dict) else {}
+        state = _deep_merge(state, starting_state)
+        pov_id = _find_pov_id(novel, cards)
+        if not isinstance(state.get("pov"), dict):
+            state["pov"] = {}
+        if pov_id and not state["pov"].get("character_id"):
+            state["pov"]["character_id"] = pov_id
+        if isinstance(novel.get("world"), dict):
+            state["world"] = _deep_merge(novel.get("world", {}), state.get("world", {}) if isinstance(state.get("world"), dict) else {})
 
-    memory = _template("memory.json", {"characters": {}})
-    memory = _normalise_memory(memory)
-    for card in cards:
-        _memory_bucket(memory, _card_id(card))
+        memory = _template("memory.json", {"characters": {}})
+        memory = _normalise_memory(memory)
+        for card in cards:
+            _memory_bucket(memory, _card_id(card))
 
-    chronology = _template("chronology.json", [])
-    audits = _template("audits.json", [])
-    state = _refresh_runtime_presence(state, cards, 0)
+        chronology = _template("chronology.json", [])
+        audits = _template("audits.json", [])
+        state = _refresh_runtime_presence(state, cards, 0)
 
-    _write_json(root / "meta.json", meta)
-    _write_json(root / "source.json", novel)
-    _write_json(root / "characters.json", cards)
-    _write_json(root / "state.json", state)
-    _write_json(root / "memory.json", memory)
-    _write_json(root / "chronology.json", chronology)
-    _write_json(root / "audits.json", audits)
-    (root / "turns.jsonl").write_text("", encoding="utf-8")
-    return meta
-
+        write_batch(
+            root,
+            {
+                "meta.json": json_text(meta),
+                "source.json": json_text(novel),
+                "characters.json": json_text(cards),
+                "state.json": json_text(state),
+                "memory.json": json_text(memory),
+                "chronology.json": json_text(chronology),
+                "audits.json": json_text(audits),
+                "turns.jsonl": "",
+            },
+        )
+        return meta
+    except Exception:
+        shutil.rmtree(root, ignore_errors=True)
+        raise
 
 def load_session(session_id: str, recent_limit: int = 6) -> Dict[str, Any]:
     root = SESSIONS_DIR / session_id
