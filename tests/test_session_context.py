@@ -77,7 +77,7 @@ def test_starting_state_canon_and_scene_relevant_cards_are_available_without_hea
 
         builder = context["scene_builder"]
         assert "Формат scene_builder обязателен" in builder
-        assert "🎭 {название новеллы} · {время года}" in builder
+        assert "🎭 {зафиксированное название новеллы} · {время года}" in builder
         assert "Что я могу сделать:" in builder
         assert "Что я могу сказать:" in builder
         assert "Что я могу подумать:" in builder
