@@ -10,7 +10,7 @@ _ORIGINAL_SAVE_SECTION = None
 _ORIGINAL_DRAFT_STATUS = None
 _ORIGINAL_FINALIZE = None
 _ORIGINAL_PREPARE_READ = None
-_VERSION = 2
+_VERSION = 3
 
 
 def _normalise_intake(value: Any) -> Dict[str, Any]:
@@ -122,14 +122,30 @@ def _finalize_draft(draft_id: str) -> Dict[str, Any]:
     if not status.get("ready_to_finalize"):
         raise ValueError(status.get("finalize_blocker") or "DRAFT_INCOMPLETE")
     result = dict(_ORIGINAL_FINALIZE(draft_id))
+
+    # Intake is an immutable setup audit trail, not gameplay canon transport.
+    # Keep it in draft.sections so it can be inspected later, but do not copy the
+    # potentially huge verbatim user history into source.json/library templates.
+    draft = novel_drafts._read(draft_id)
+    template = draft.get("finalized_template")
+    if isinstance(template, dict) and "intake" in template:
+        template = deepcopy(template)
+        template.pop("intake", None)
+        draft["finalized_template"] = template
+        novel_drafts._write(novel_drafts._draft_path(draft_id), draft)
+
     result["intake_coverage"] = status.get("intake_coverage")
+    result["intake_archived_in_draft_only"] = bool(status.get("intake_coverage", {}).get("required"))
     return result
 
 
 def _prepare_draft_read(draft_id: str) -> Dict[str, Any]:
     draft = novel_drafts._read(draft_id)
     if draft.get("finalized"):
-        return _ORIGINAL_PREPARE_READ(draft_id)
+        result = dict(_ORIGINAL_PREPARE_READ(draft_id))
+        result["working_draft"] = False
+        result["intake_archived_in_draft_only"] = isinstance(draft.get("sections", {}).get("intake"), dict)
+        return result
     snapshot = {
         "draft_id": draft.get("draft_id"),
         "novel_id": draft.get("novel_id"),
