@@ -91,7 +91,10 @@ def _merge_footer_delta_fallbacks(
         return result
 
     source = storage._read_json(root / "source.json", {})
-    cards = storage._load_cards(root, source)
+    cards = storage._apply_character_upserts(
+        storage._load_cards(root, source),
+        extracted,
+    )
     state = storage._read_json(root / "state.json", {})
     footer = compat._parse_footer_compat(
         str(result.get("scene_output") or ""),
