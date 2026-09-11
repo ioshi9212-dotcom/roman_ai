@@ -23,11 +23,14 @@ def test_knowledge_causality_requires_source_before_use_and_forbids_retroactive_
     assert rule["source_before_use"] is True
     assert rule["scene_order_is_causal"] is True
     assert rule["no_retroactive_justification"] is True
+    assert rule["character_knowledge_is_closed_world"] is True
     forbidden = " ".join(rule["forbidden"])
     assert "inventing the missing source afterwards" in forbidden
     assert "forgotten detail after the fact" in forbidden
+    assert "own questionnaire/card/backstory" in forbidden
     assert "before the line" in rule["missing_source_behavior"]
     assert "Cause/information must precede reaction/conclusion" in rule["pre_commit_check"]
+    assert "including that character's own questionnaire/card/backstory" in rule["questionnaire_rule"]
 
 
 def test_player_text_cleanup_corrects_errors_without_rewriting_voice():
@@ -69,9 +72,10 @@ def test_final_writer_packet_contains_scene_logic_guardrails():
         context = json.loads("".join(chunks))
 
         guards = context["scene_logic_guardrails"]
-        assert guards["version"] == 1
+        assert guards["version"] == 2
         assert guards["knowledge_causality"]["mandatory"] is True
         assert guards["knowledge_causality"]["source_before_use"] is True
+        assert guards["knowledge_causality"]["character_knowledge_is_closed_world"] is True
         assert guards["player_text_cleanup"]["mandatory"] is True
         assert packet["scene_logic_guardrails"] is True
 
