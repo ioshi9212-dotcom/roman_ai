@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Roman AI
-  version: 1.11.0
+  version: 1.11.1
   description: Persistent isolated novel sessions with bounded writer-first context, transactional memory, living NPC relationships, NPC intents, story threads, recovery, rollback and fast 15-turn audits.
 servers:
   - url: https://romanai-production-0fdb.up.railway.app
@@ -182,7 +182,7 @@ components:
               items: {$ref: '#/components/schemas/PresenceUpdate'}
             relationship_updates:
               type: array
-              description: Persist an NPC opinion/beliefs/unresolved dynamic when it changed; dimensions are used only when a participating NPC is absent at scene end.
+              description: Persist only real NPC->POV relationship changes. Numeric dimensions work for present or departed participating NPCs; for an established metric include delta and Railway computes the new canon from the saved baseline. Opinion/beliefs/unresolved dynamics may be included in the same row.
               items: {$ref: '#/components/schemas/RelationshipUpdate'}
             state_patch: {type: object, additionalProperties: true}
             character_upserts:
