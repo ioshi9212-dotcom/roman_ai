@@ -68,7 +68,9 @@ def _container_has_progress(container: Any, scene_output: str = "") -> bool:
         if isinstance(container.get(key), list) and container[key]:
             return True
     patch = container.get("state_patch") if isinstance(container.get("state_patch"), dict) else {}
-    if isinstance(patch.get("world"), dict) and patch["world"]:
+    world_patch = patch.get("world") if isinstance(patch.get("world"), dict) else {}
+    meaningful_world_patch = {key: value for key, value in world_patch.items() if key != "cast_registry"}
+    if meaningful_world_patch:
         return True
     return bool(_RELATIONSHIP_DELTA_RE.search(str(scene_output or "")))
 
@@ -239,9 +241,6 @@ def _with_story_patch(session_id: str, payload: Dict[str, Any], *, audit: bool =
     container = result.get(container_key) if isinstance(result.get(container_key), dict) else {}
     updates = container.get("story_thread_updates")
 
-    # Legacy saved turns and internal replay paths predate story_thread_updates.
-    # The public Actions contract always supplies the array (possibly empty), so
-    # hard stagnation enforcement applies to new gameplay without breaking replay.
     if not audit and isinstance(updates, list):
         streak = trailing_stagnant_turns(root)
         if streak >= _STAGNATION_LIMIT and not _container_has_progress(container, str(result.get("scene_output") or "")):
