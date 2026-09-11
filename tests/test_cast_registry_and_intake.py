@@ -2,9 +2,9 @@ import json
 import tempfile
 from pathlib import Path
 
-from app import cast_registry_runtime, draft_intake_runtime, storage
+from app import cast_registry_runtime, draft_intake_runtime, novel_drafts, storage
 from app.novel_access import get_novel_read_chunk
-from app.novel_drafts import create_draft, prepare_draft_read, save_section
+from app.novel_drafts import create_draft, create_session_from_draft, finalize_draft, prepare_draft_read, save_section
 
 
 def _setup_storage(tmp: str):
@@ -66,6 +66,40 @@ def test_unfinalized_large_draft_can_be_reread_in_chunks_without_losing_raw_inta
         snapshot = json.loads(text)
         assert snapshot["finalized"] is False
         assert snapshot["sections"]["intake"]["blocks"][0]["raw_text"] == raw
+
+
+def test_finalized_session_keeps_raw_intake_in_draft_archive_only():
+    with tempfile.TemporaryDirectory() as tmp:
+        _setup_storage(tmp)
+        draft_id = create_draft("archive_only", "Archive Only", version=2)["draft_id"]
+        save_section(draft_id, "novel", json.dumps({"pov_character": "pov"}, ensure_ascii=False))
+        save_section(draft_id, "characters", json.dumps([{"character_id": "pov", "name": "Елена", "is_pov": True}], ensure_ascii=False))
+        save_section(draft_id, "lore", json.dumps({}, ensure_ascii=False))
+        save_section(draft_id, "starting_state", json.dumps({
+            "pov": {"character_id": "pov"},
+            "current": {"date": "01.09.2026", "time": "10:00", "location": "room", "present_characters": ["pov"]},
+        }, ensure_ascii=False))
+        foundation = {
+            "facts": [{"fact_id": "f1", "text": "Елена любит кофе", "stored_in": ["pov"], "story_use": "reference"}],
+            "hooks": [],
+            "story_pillars": [{"pillar_id": "p1", "label": "Жизнь Елены", "source_fact_ids": ["f1"]}],
+        }
+        save_section(draft_id, "foundation", json.dumps(foundation, ensure_ascii=False))
+        raw = "Елена всегда пьёт кофе утром. " * 1000
+        save_section(draft_id, "intake", json.dumps({"blocks": [{
+            "block_id": "pov-1", "stage": "pov", "raw_text": raw, "fact_ids": ["f1"], "reviewed_against_raw": True,
+        }]}, ensure_ascii=False))
+
+        result = finalize_draft(draft_id)
+        assert result["intake_archived_in_draft_only"] is True
+        draft = novel_drafts._read(draft_id)
+        assert draft["sections"]["intake"]["blocks"][0]["raw_text"] == raw
+        assert "intake" not in draft["finalized_template"]
+
+        meta = create_session_from_draft(draft_id)
+        source = storage._read_json(storage.SESSIONS_DIR / meta["session_id"] / "source.json", {})
+        assert "intake" not in source
+        assert source["foundation"]["facts"][0]["fact_id"] == "f1"
 
 
 def test_player_created_cast_returns_even_with_low_relationship_and_dead_is_excluded():
