@@ -79,6 +79,38 @@ def test_new_named_npc_is_story_created_inside_saved_registry_patch():
         assert registry["mark"]["first_registered_turn"] == 1
 
 
+def test_story_created_rotation_age_starts_at_registration_not_turn_zero():
+    cards = [
+        {"character_id": "pov", "name": "POV", "is_pov": True},
+        {"character_id": "mark", "name": "Марк", "role": "doctor"},
+    ]
+    state = {
+        "pov": {"character_id": "pov"},
+        "current": {"present_characters": ["pov"]},
+        "relationships": {},
+        "world": {"cast_registry": {
+            "mark": {
+                "character_id": "mark",
+                "name": "Марк",
+                "origin": "story_created",
+                "status": "active",
+                "first_registered_turn": 12,
+                "appearance_count": 0,
+            }
+        }},
+    }
+    source_ids = {"pov"}
+    assert cast_registry_runtime._rotation_pressure(
+        state, cards, current_turn=20, source_character_ids=source_ids
+    ) == []
+    pressure = cast_registry_runtime._rotation_pressure(
+        state, cards, current_turn=27, source_character_ids=source_ids
+    )
+    row = next(item for item in pressure if item["character_id"] == "mark")
+    assert row["turns_since_activity"] == 15
+    assert row["turns_since_appearance"] == 15
+
+
 def test_legacy_dynamic_card_bootstraps_as_story_created_before_first_registry_commit():
     with tempfile.TemporaryDirectory() as tmp:
         _setup(tmp)
@@ -117,6 +149,33 @@ def test_registry_uses_canonical_presence_contract_for_direct_roster_patch():
         registry = prepared["extracted"]["state_patch"]["world"]["cast_registry"]
         assert registry["liam"]["last_appearance_turn"] == 1
         assert registry["liam"]["last_contact_turn"] == 1
+
+
+def test_existing_registry_persists_only_changed_rows_on_next_turn():
+    with tempfile.TemporaryDirectory() as tmp:
+        _setup(tmp)
+        sid = storage.create_session(_novel())["session_id"]
+        root = storage.SESSIONS_DIR / sid
+        first = cast_registry_runtime._with_registry_patch(sid, {
+            "user_input": "first",
+            "scene_output": "first",
+            "extracted": {"chronology": []},
+        })
+        state = storage._read_json(root / "state.json", {})
+        state.setdefault("world", {})["cast_registry"] = first["extracted"]["state_patch"]["world"]["cast_registry"]
+        storage._write_json(root / "state.json", state)
+        meta = storage._read_json(root / "meta.json", {})
+        meta["turn_number"] = 1
+        storage._write_json(root / "meta.json", meta)
+
+        second = cast_registry_runtime._with_registry_patch(sid, {
+            "user_input": "second",
+            "scene_output": "second",
+            "extracted": {"chronology": []},
+        })
+        delta = second["extracted"]["state_patch"]["world"]["cast_registry"]
+        assert set(delta) == {"pov"}
+        assert delta["pov"]["last_appearance_turn"] == 2
 
 
 def test_historical_replay_reconstructs_cast_registry_from_saved_turn_patch():
