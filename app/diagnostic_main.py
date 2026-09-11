@@ -46,8 +46,8 @@ def _log_rollback(session_id: str) -> dict:
     return result
 
 
-@app.get("/sessions/{session_id}/context-stats", operation_id="getSessionContextStats")
-def session_context_stats_get(session_id: str):
+@app.get("/diagnostics/sessions/{session_id}/context-stats", include_in_schema=False)
+def diagnostic_session_context_stats_get(session_id: str):
     try:
         stats = session_context_stats(session_id)
         _log_stats(session_id)
