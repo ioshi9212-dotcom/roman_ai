@@ -38,6 +38,7 @@ class TurnPrepare(BaseModel):
 
 class RollbackLastTurn(BaseModel):
     expected_turn_number: int = Field(ge=1)
+    expected_turn_id: str = Field(min_length=1)
     confirm: bool
 
 
@@ -129,6 +130,7 @@ class TurnExtracted(BaseModel):
 
 
 class TurnCommit(BaseModel):
+    packet_id: str = Field(min_length=1)
     user_input: str
     scene_output: str
     extracted: TurnExtracted
@@ -140,6 +142,7 @@ class TurnCommit(BaseModel):
 
 
 class AuditCommit(BaseModel):
+    audit_id: str = Field(min_length=1)
     start_turn: int
     end_turn: int
     repairs: Dict[str, Any] = Field(default_factory=dict)
