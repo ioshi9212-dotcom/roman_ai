@@ -566,7 +566,11 @@ def prepare_draft_read(draft_id: str) -> Dict[str, Any]:
     return prepare_template_read(_finalized_template(draft_id), "draft", draft_id)
 
 
-def _existing_session_for_draft(draft_id: str, template: Dict[str, Any]) -> Dict[str, Any] | None:
+def _existing_session_for_draft(
+    draft_id: str,
+    revision: int,
+    template: Dict[str, Any],
+) -> Dict[str, Any] | None:
     if not storage.SESSIONS_DIR.exists():
         return None
     expected_hash = canonical_hash(template)
@@ -575,6 +579,15 @@ def _existing_session_for_draft(draft_id: str, template: Dict[str, Any]) -> Dict
             continue
         meta = storage._read_json(root / "meta.json", {})
         if not isinstance(meta, dict) or str(meta.get("source_draft_id") or "") != draft_id:
+            continue
+        saved_revision = meta.get("source_draft_revision")
+        if saved_revision is not None:
+            try:
+                if int(saved_revision) != int(revision):
+                    continue
+            except (TypeError, ValueError):
+                continue
+        elif int(meta.get("turn_number", 0) or 0) != 0:
             continue
         source = storage._read_json(root / "source.json", {})
         if isinstance(source, dict) and canonical_hash(source) == expected_hash:
@@ -611,7 +624,7 @@ def create_session_from_draft(draft_id: str) -> Dict[str, Any]:
                     result["idempotent_replay"] = True
                     return result
 
-        existing = _existing_session_for_draft(draft_id, template)
+        existing = _existing_session_for_draft(draft_id, revision, template)
         if existing is not None:
             draft["session_creation_receipt"] = {
                 "draft_revision": revision,
