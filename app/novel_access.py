@@ -19,6 +19,18 @@ def _read_path(read_id: str) -> Path:
     return _reads_dir() / f"{read_id}.json"
 
 
+def _working_draft_receipt_path(draft_id: str) -> Path:
+    return _reads_dir() / f"draft_working_{draft_id}.receipt.json"
+
+
+def completed_working_draft_revision(draft_id: str) -> int | None:
+    payload = storage._read_json(_working_draft_receipt_path(draft_id), {})
+    try:
+        return int(payload.get("source_revision"))
+    except (TypeError, ValueError):
+        return None
+
+
 def _section_size(value: Any) -> int:
     return len(json.dumps(value, ensure_ascii=False, separators=(",", ":")))
 
@@ -51,7 +63,12 @@ def verify_novel(novel_id: str) -> Dict[str, Any]:
     return verify_template(storage.get_novel(novel_id))
 
 
-def prepare_template_read(template: Dict[str, Any], source_type: str, source_id: str) -> Dict[str, Any]:
+def prepare_template_read(
+    template: Dict[str, Any],
+    source_type: str,
+    source_id: str,
+    source_revision: int | None = None,
+) -> Dict[str, Any]:
     text = json.dumps(template, ensure_ascii=False, separators=(",", ":"))
     chunks = [text[i:i + NOVEL_READ_CHUNK_CHARS] for i in range(0, len(text), NOVEL_READ_CHUNK_CHARS)] or ["{}"]
     read_id = secrets.token_urlsafe(12)
@@ -59,6 +76,7 @@ def prepare_template_read(template: Dict[str, Any], source_type: str, source_id:
         "read_id": read_id,
         "source_type": source_type,
         "source_id": source_id,
+        "source_revision": source_revision,
         "chunk_count": len(chunks),
         "chunks": chunks,
         "read_chunks": [],
@@ -101,5 +119,19 @@ def get_novel_read_chunk(read_id: str, chunk_index: int) -> Dict[str, Any]:
         "all_chunks_read": all_read,
     }
     if all_read:
+        if payload.get("source_type") == "draft_working" and payload.get("source_revision") is not None:
+            receipt_path = _working_draft_receipt_path(str(payload.get("source_id") or ""))
+            previous = storage._read_json(receipt_path, {})
+            try:
+                previous_revision = int(previous.get("source_revision", -1))
+            except (TypeError, ValueError):
+                previous_revision = -1
+            current_revision = int(payload["source_revision"])
+            if current_revision >= previous_revision:
+                storage._write_json(receipt_path, {
+                    "source_id": payload.get("source_id"),
+                    "source_revision": current_revision,
+                    "read_id": read_id,
+                })
         path.unlink(missing_ok=True)
     return result
