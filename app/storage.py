@@ -709,8 +709,6 @@ def build_resume_package(session_id: str) -> Dict[str, Any]:
     meta = _read_json(root / "meta.json", {})
     if meta.get("audit_required"):
         raise RuntimeError("AUDIT_REQUIRED")
-    if not meta.get("handoff_required"):
-        raise RuntimeError("HANDOFF_NOT_REQUIRED")
     token = secrets.token_urlsafe(24)
     _write_json(root / "resume_token.json", {"token": token})
     source = _read_json(root / "source.json", {})
@@ -723,7 +721,7 @@ def build_resume_package(session_id: str) -> Dict[str, Any]:
         "state": _read_json(root / "state.json", {}),
         "memory": _normalise_memory(_read_json(root / "memory.json", {})),
         "chronology": _read_json(root / "chronology.json", []),
-        "handoff_tail": _read_json(root / "handoff_tail.json", []),
+        "handoff_tail": _read_json(root / "handoff_tail.json", get_turn_range(session_id, max(1, int(meta.get("turn_number", 0) or 0) - 5), int(meta.get("turn_number", 0) or 0))),
         "instruction": "Restore this exact session. Source is immutable starting canon; characters is the live card registry including NPCs created after start; state is current truth; memory is personal character memory; chronology is objective persistent history and never personal knowledge by itself; handoff_tail is exact recent scene continuity.",
     }
 
