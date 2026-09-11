@@ -24,6 +24,8 @@ def test_custom_gpt_schema_exposes_response_safe_single_context_character_and_ro
     rollback_schema = schema["components"]["schemas"]["RollbackLastTurn"]
     assert set(rollback_schema["required"]) == {"expected_turn_number", "expected_turn_id", "confirm"}
     assert rollback_schema["properties"]["confirm"]["const"] is True
+    assert "packet_id" in schema["components"]["schemas"]["TurnCommit"]["required"]
+    assert "audit_id" in schema["components"]["schemas"]["AuditCommit"]["required"]
 
     assert "/sessions/{session_id}/turn-packet-batch/{packet_id}" not in paths
     assert "/sessions/{session_id}/audit-snapshot-batch/{audit_id}" not in paths
