@@ -10,7 +10,7 @@ from .transactional_storage import session_transaction
 
 _ORIGINAL_PREPARE = None
 _ORIGINAL_COMMIT = None
-_VERSION = 6
+_VERSION = 7
 _TERMINAL = {"dead", "deceased", "inactive", "removed", "мертв", "мёртв", "погиб", "умер", "неактив"}
 
 
@@ -174,6 +174,15 @@ def _event_summary_for(character_id: str, card: Dict[str, Any], chronology: Any)
     return None
 
 
+def _registry_delta(before: Any, after: Dict[str, Any]) -> Dict[str, Any]:
+    before = before if isinstance(before, dict) else {}
+    return {
+        cid: deepcopy(row)
+        for cid, row in after.items()
+        if cid not in before or before.get(cid) != row
+    }
+
+
 def _with_registry_patch(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     root = storage.SESSIONS_DIR / session_id
     with session_transaction(root):
@@ -183,6 +192,8 @@ def _with_registry_patch(session_id: str, payload: Dict[str, Any]) -> Dict[str, 
         turn_number = int(meta.get("turn_number", 0) or 0) + 1
         current_cards = storage._load_cards(root, source)
         source_ids = {storage._card_id(card) for card in storage._normalise_cards(source.get("characters", []))}
+        world_before = state.get("world") if isinstance(state.get("world"), dict) else {}
+        registry_before = world_before.get("cast_registry") if isinstance(world_before.get("cast_registry"), dict) else {}
 
         prepared = scene_presence_runtime._apply_presence_contract(deepcopy(payload), root=root)
         extracted = prepared.get("extracted") if isinstance(prepared.get("extracted"), dict) else {}
@@ -221,13 +232,18 @@ def _with_registry_patch(session_id: str, payload: Dict[str, Any]) -> Dict[str, 
                 row["last_meaningful_turn"] = turn_number
                 row["last_contact_turn"] = turn_number
 
-        state_patch = extracted.get("state_patch") if isinstance(extracted.get("state_patch"), dict) else {}
-        state_patch = deepcopy(state_patch)
-        world_patch = state_patch.get("world") if isinstance(state_patch.get("world"), dict) else {}
-        world_patch = deepcopy(world_patch)
-        world_patch["cast_registry"] = registry
-        state_patch["world"] = world_patch
-        extracted["state_patch"] = state_patch
+        delta = _registry_delta(registry_before, registry)
+        if delta:
+            state_patch = extracted.get("state_patch") if isinstance(extracted.get("state_patch"), dict) else {}
+            state_patch = deepcopy(state_patch)
+            world_patch = state_patch.get("world") if isinstance(state_patch.get("world"), dict) else {}
+            world_patch = deepcopy(world_patch)
+            existing_registry_patch = world_patch.get("cast_registry") if isinstance(world_patch.get("cast_registry"), dict) else {}
+            merged_registry_patch = deepcopy(existing_registry_patch)
+            merged_registry_patch.update(delta)
+            world_patch["cast_registry"] = merged_registry_patch
+            state_patch["world"] = world_patch
+            extracted["state_patch"] = state_patch
         prepared["extracted"] = extracted
         return prepared
 
