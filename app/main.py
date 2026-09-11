@@ -40,8 +40,8 @@ from .turn_rollback import RollbackError, rollback_last_turn
 
 app = FastAPI(
     title="Roman AI",
-    version="1.11.1",
-    description="Persistent isolated novel sessions with bounded writer-first context, runtime rules, character cards, memory, chronology, relationships, NPC intents, persistent story threads, recovery, rollback and audits.",
+    version="1.12.0",
+    description="Persistent isolated novel sessions with bounded writer-first context, staged setup intake, living cast rotation, memory, chronology, relationships, NPC intents, persistent story threads, recovery, rollback and audits.",
 )
 
 
@@ -115,7 +115,7 @@ def novel_draft_read_prepare(draft_id: str):
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Draft not found")
     except RuntimeError:
-        raise HTTPException(status_code=409, detail="Draft must be finalized first")
+        raise HTTPException(status_code=409, detail="Draft read is not available")
 
 
 @app.post("/novel-drafts/{draft_id}/session", operation_id="createSessionFromDraft")
