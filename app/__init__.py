@@ -19,6 +19,7 @@ from .resume_compact_runtime import install as _install_resume_compact_runtime
 from .scene_logic_runtime import install as _install_scene_logic_runtime
 from .draft_intake_runtime import install as _install_draft_intake_runtime
 from .cast_registry_runtime import install as _install_cast_registry_runtime
+from .commit_idempotency_runtime import install as _install_commit_idempotency_runtime
 
 _install_runtime_fixes()
 _install_foundation_coverage_runtime()
@@ -41,6 +42,7 @@ _install_resume_compact_runtime()
 _install_scene_logic_runtime()
 _install_draft_intake_runtime()
 _install_cast_registry_runtime()
+_install_commit_idempotency_runtime()
 del _install_runtime_fixes
 del _install_foundation_coverage_runtime
 del _install_relationship_growth_runtime
@@ -62,3 +64,4 @@ del _install_resume_compact_runtime
 del _install_scene_logic_runtime
 del _install_draft_intake_runtime
 del _install_cast_registry_runtime
+del _install_commit_idempotency_runtime
