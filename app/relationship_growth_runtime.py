@@ -376,7 +376,7 @@ def _install_packet_policy_wrapper() -> None:
             "when": "Only on a real numeric or relationship-metadata change.",
             "format": '[{"character_id":"npc_id","dimensions":[{"label":"доверие","value":12,"delta":2}]}]',
             "instruction": (
-                "Existing metric: send delta; Railway applies saved+delta. Omit unchanged metrics. "
+                "Existing metric: send delta; Railway applies saved baseline + delta. Omit unchanged metrics. "
                 "Works if the participating NPC stays or leaves; metadata may share the row."
             ),
         }
