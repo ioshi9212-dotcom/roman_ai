@@ -6,18 +6,18 @@ def test_runtime_keeps_pov_agency_without_separate_contract_document():
     rules = docs["rules"]
     builder = docs["scene_builder"]
     assert "POV — живой участник, не камера" in rules
-    assert "Не превращай его в мебель" in builder
-    assert "Значимые решения оставляй игроку" in builder
+    assert "POV всегда присутствует как живой персонаж, а не камера" in builder
+    assert "реакция пов остается за игроком" in builder
     assert "pov_contract" not in runtime_payload()["documents"]
 
 
 def test_scene_builder_keeps_selective_cinematic_behavior_in_plain_language():
     builder = runtime_documents()["scene_builder"]
-    assert "Пиши конкретно и визуально" in builder
-    assert "Подробно только важное" in builder
-    assert "Сохраняй геометрию" in builder
-    assert "Важное показывай подробно" in builder
-    assert "Понятную дорогу, ожидание" in builder
+    assert "Пиши живо и кинематографично" in builder
+    assert "подробно только важное" in builder
+    assert "Видно всех персонажей в сцене" in builder
+    assert "Интимные, романтические, экшн, боевые, игровые сцены описываются подробно" in builder
+    assert "Не описывай всё подряд" in builder
 
 
 def test_runtime_version_marks_writer_first_two_document_runtime():
