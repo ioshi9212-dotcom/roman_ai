@@ -123,14 +123,8 @@ def _validate_relationship_vocabulary(session_id: str, payload: Dict[str, Any]) 
     state = storage._read_json(root / "state.json", {})
     source = storage._read_json(root / "source.json", {})
     cards = storage._load_cards(root, source)
-    footer = compat._parse_footer_compat(
-        str(payload.get("scene_output") or ""),
-        cards=cards,
-        resolve_character_id=base._resolve_character_id,
-    )
-    for owner_id, dimensions in footer.items():
-        _validate_labels(str(owner_id), dimensions, state)
-
+    # The visible footer is display-only. Invalid display labels must not block a gameplay commit.
+    # Canonical numeric writes are validated only from extracted.relationship_updates.
     extracted = payload.get("extracted") if isinstance(payload.get("extracted"), dict) else {}
     updates = extracted.get("relationship_updates") if isinstance(extracted.get("relationship_updates"), list) else []
     for raw in updates:
@@ -563,7 +557,8 @@ def _rewrite_packet(session_id: str, base_result: Dict[str, Any]) -> Dict[str, A
         persistence = context.get("persistence_contract") if isinstance(context.get("persistence_contract"), dict) else {}
         persistence["relationship_opinion"] = (
             "When opinion/beliefs/unresolved state changes, use relationship_updates with character_id plus opinion/current_dynamic "
-            "and/or full beliefs_about_target/unresolved_between_them. Present NPC numeric dimensions still come from the footer."
+            "and/or full beliefs_about_target/unresolved_between_them. Numeric relationship changes also use relationship_updates; "
+            "the visible footer is display-only."
         )
         persistence["social_effect"] = "Durable social reaction/rumor/reputation: put social_effect inside the relevant chronology event."
         persistence["foundation_fact_ids"] = "When a foundation fact is actually used, attach foundation_fact_ids to chronology or anchor_facts to the story thread."
