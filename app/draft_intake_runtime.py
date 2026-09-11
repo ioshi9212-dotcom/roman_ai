@@ -3,7 +3,7 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any, Dict
 
-from . import novel_drafts
+from . import novel_access, novel_drafts
 
 
 _ORIGINAL_SAVE_SECTION = None
@@ -102,6 +102,7 @@ def _save_section(draft_id: str, section_name: str, section_json: str) -> Dict[s
     parsed = novel_drafts._parse_one_json(section_json)
     merged = _merge_intake(draft.get("sections", {}).get("intake"), parsed)
     draft.setdefault("sections", {})["intake"] = merged
+    draft["revision"] = int(draft.get("revision", 0) or 0) + 1
     draft["finalized"] = False
     draft.pop("finalized_template", None)
     novel_drafts._write(novel_drafts._draft_path(draft_id), draft)
@@ -112,11 +113,21 @@ def _save_section(draft_id: str, section_name: str, section_json: str) -> Dict[s
 
 def _draft_status(draft_id: str) -> Dict[str, Any]:
     result = dict(_ORIGINAL_DRAFT_STATUS(draft_id))
-    coverage = _coverage(novel_drafts._read(draft_id))
+    draft = novel_drafts._read(draft_id)
+    coverage = _coverage(draft)
+    revision = int(draft.get("revision", 0) or 0)
+    last_full_read_revision = novel_access.completed_working_draft_revision(draft_id)
+    coverage = deepcopy(coverage)
+    coverage["draft_revision"] = revision
+    coverage["last_full_read_revision"] = last_full_read_revision
+    coverage["full_read_current"] = last_full_read_revision == revision
     result["intake_coverage"] = coverage
     if coverage["required"] and not coverage["ok"]:
         result["ready_to_finalize"] = False
         result["finalize_blocker"] = "INTAKE_COVERAGE_INCOMPLETE"
+    elif coverage["required"] and not coverage["full_read_current"]:
+        result["ready_to_finalize"] = False
+        result["finalize_blocker"] = "INTAKE_FINAL_READ_REQUIRED"
     return result
 
 
@@ -154,13 +165,19 @@ def _prepare_draft_read(draft_id: str) -> Dict[str, Any]:
         "novel_id": draft.get("novel_id"),
         "title": draft.get("title"),
         "version": draft.get("version", 1),
+        "revision": int(draft.get("revision", 0) or 0),
         "finalized": False,
         "sections": deepcopy(draft.get("sections", {})),
         "intake_coverage": _coverage(draft),
     }
-    result = novel_drafts.prepare_template_read(snapshot, "draft_working", draft_id)
+    result = novel_drafts.prepare_template_read(
+        snapshot,
+        "draft_working",
+        draft_id,
+        source_revision=int(draft.get("revision", 0) or 0),
+    )
     result["working_draft"] = True
-    result["instruction"] = "Read every chunk in order. This is the current unfinalized draft, including immutable intake raw blocks; use it to reconstruct/check all setup facts before finalization."
+    result["instruction"] = "Read every chunk in order. Finalization stays blocked until every chunk of the current draft revision is read. If this review finds any omission, save corrections and start a fresh full read of the new revision."
     return result
 
 
