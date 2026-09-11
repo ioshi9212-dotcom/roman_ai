@@ -2,7 +2,7 @@ import json
 import tempfile
 from pathlib import Path
 
-from app import cast_registry_runtime, draft_intake_runtime, novel_drafts, storage
+from app import cast_registry_runtime, draft_intake_runtime, novel_drafts, session_runtime, storage
 from app.novel_access import get_novel_read_chunk
 from app.novel_drafts import create_draft, create_session_from_draft, finalize_draft, prepare_draft_read, save_section
 
@@ -169,3 +169,46 @@ def test_new_story_npc_can_be_registered_without_replacing_original_cast():
     registry = cast_registry_runtime._ensure_registry(state, cards, current_turn=20)
     assert registry["original"]["origin"] == "player_created"
     assert registry["new_doc"]["origin"] == "story_created"
+
+
+
+def test_finalized_draft_can_reopen_for_pre_game_correction_and_new_session_keeps_draft_link():
+    with tempfile.TemporaryDirectory() as tmp:
+        _setup_storage(tmp)
+        draft_id = create_draft("repairable", "Repairable", version=2)["draft_id"]
+        save_section(draft_id, "novel", json.dumps({"pov_character": "pov"}, ensure_ascii=False))
+        save_section(draft_id, "characters", json.dumps([
+            {"character_id": "pov", "name": "Елена", "is_pov": True},
+            {"character_id": "itan", "name": "Итан"},
+        ], ensure_ascii=False))
+        save_section(draft_id, "lore", json.dumps({}, ensure_ascii=False))
+        save_section(draft_id, "starting_state", json.dumps({
+            "pov": {"character_id": "pov"},
+            "current": {"date": "01.09.2026", "time": "10:00", "location": "wrong", "present_characters": ["pov"]},
+        }, ensure_ascii=False))
+        save_section(draft_id, "foundation", json.dumps({
+            "facts": [{"fact_id": "f1", "text": "Итан существует", "stored_in": ["characters"], "story_use": "continuity"}],
+            "hooks": [],
+            "story_pillars": [],
+        }, ensure_ascii=False))
+        save_section(draft_id, "intake", json.dumps({"blocks": [{
+            "block_id": "b1", "stage": "cast", "raw_text": "Итан уже находится в секторе под прикрытием.",
+            "fact_ids": ["f1"], "reviewed_against_raw": True,
+        }]}, ensure_ascii=False))
+
+        finalize_draft(draft_id)
+        reopened = save_section(draft_id, "starting_state", json.dumps({
+            "pov": {"character_id": "pov"},
+            "current": {"date": "01.09.2026", "time": "10:00", "location": "Перед Восточным сектором", "present_characters": ["pov"]},
+        }, ensure_ascii=False))
+        assert reopened["reopened_from_finalized"] is True
+        assert reopened["finalized"] is False
+        assert "finalized_template" not in novel_drafts._read(draft_id)
+
+        finalize_draft(draft_id)
+        meta = create_session_from_draft(draft_id)
+        assert meta["source_draft_id"] == draft_id
+        root = storage.SESSIONS_DIR / meta["session_id"]
+        assert storage._read_json(root / "meta.json", {})["source_draft_id"] == draft_id
+        resumed = session_runtime.continue_session(meta["session_id"])
+        assert resumed["source_draft_id"] == draft_id
