@@ -177,7 +177,7 @@ def test_departed_npc_relationship_persists_without_visible_footer_line():
         assert relation["last_changed_turn"] == 1
 
 
-def test_absent_npc_in_visible_footer_is_ignored_for_relationship_persistence():
+def test_departing_npc_small_footer_delta_is_recovered_for_backward_compatibility():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         sid = storage.create_session(
@@ -209,11 +209,11 @@ def test_absent_npc_in_visible_footer_is_ignored_for_relationship_persistence():
             },
         )
         state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
-        assert state["relationships"]["adrian"]["симпатия"] == 10
+        assert state["relationships"]["adrian"]["симпатия"] == 11
         assert "adrian" not in state["current"]["present_characters"]
 
 
-def test_bad_relationship_delta_does_not_block_turn_and_final_value_wins():
+def test_bad_absolute_relationship_value_does_not_override_saved_baseline_plus_delta():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         sid = storage.create_session(
@@ -236,7 +236,7 @@ def test_bad_relationship_delta_does_not_block_turn_and_final_value_wins():
             },
         )
         state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
-        assert state["relationships"]["adrian"]["симпатия"] == 15
+        assert state["relationships"]["adrian"]["симпатия"] == 12
 
 
 def test_audit_repairs_keep_original_turns_and_generate_ids():
