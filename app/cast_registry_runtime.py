@@ -10,7 +10,7 @@ from .transactional_storage import session_transaction
 
 _ORIGINAL_PREPARE = None
 _ORIGINAL_COMMIT = None
-_VERSION = 3
+_VERSION = 4
 _TERMINAL = {"dead", "deceased", "inactive", "removed", "мертв", "мёртв", "погиб", "умер", "неактив"}
 
 
@@ -51,21 +51,33 @@ def _has_open_intent(state: Dict[str, Any], character_id: str) -> bool:
     )
 
 
-def _ensure_registry(state: Dict[str, Any], cards: List[Dict[str, Any]], current_turn: int) -> Dict[str, Any]:
+def _ensure_registry(
+    state: Dict[str, Any],
+    cards: List[Dict[str, Any]],
+    current_turn: int,
+    *,
+    source_character_ids: set[str] | None = None,
+) -> Dict[str, Any]:
     world = state.get("world") if isinstance(state.get("world"), dict) else {}
     registry = deepcopy(world.get("cast_registry") if isinstance(world.get("cast_registry"), dict) else {})
     runtime = state.get("characters") if isinstance(state.get("characters"), dict) else {}
+    source_character_ids = source_character_ids if source_character_ids is not None else {storage._card_id(card) for card in cards}
     for card in cards:
         cid = storage._card_id(card)
         if not cid:
             continue
         info = runtime.get(cid) if isinstance(runtime.get(cid), dict) else {}
-        row = deepcopy(registry.get(cid) if isinstance(registry.get(cid), dict) else {})
+        existed = isinstance(registry.get(cid), dict)
+        row = deepcopy(registry.get(cid) if existed else {})
         row.setdefault("character_id", cid)
         row.setdefault("name", storage._card_name(card))
         row.setdefault("role", storage._card_role(card))
-        row.setdefault("origin", "player_created")
-        row.setdefault("first_registered_turn", 0)
+        if not existed:
+            row["origin"] = "player_created" if cid in source_character_ids else "story_created"
+            row["first_registered_turn"] = 0 if cid in source_character_ids else max(0, current_turn)
+        else:
+            row.setdefault("origin", "player_created" if cid in source_character_ids else "story_created")
+            row.setdefault("first_registered_turn", 0 if cid in source_character_ids else max(0, current_turn))
         row.setdefault("appearance_count", 0)
         row["status"] = info.get("status") or card.get("status") or row.get("status") or "active"
         registry[cid] = row
@@ -82,8 +94,14 @@ def _last_activity_turn(row: Dict[str, Any]) -> int:
     return max(values or [0])
 
 
-def _rotation_pressure(state: Dict[str, Any], cards: List[Dict[str, Any]], current_turn: int) -> List[Dict[str, Any]]:
-    registry = _ensure_registry(state, cards, current_turn)
+def _rotation_pressure(
+    state: Dict[str, Any],
+    cards: List[Dict[str, Any]],
+    current_turn: int,
+    *,
+    source_character_ids: set[str] | None = None,
+) -> List[Dict[str, Any]]:
+    registry = _ensure_registry(state, cards, current_turn, source_character_ids=source_character_ids)
     pov = state.get("pov") if isinstance(state.get("pov"), dict) else {}
     pov_id = str(pov.get("character_id") or "")
     present = set(storage._present_character_ids(state))
@@ -164,7 +182,12 @@ def _with_registry_patch(session_id: str, payload: Dict[str, Any]) -> Dict[str, 
         extracted = deepcopy(extracted)
         resulting_cards = storage._apply_character_upserts(current_cards, extracted)
         upsert_ids = {storage._card_id(row) for row in extracted.get("character_upserts", []) if isinstance(row, dict) and storage._card_id(row)}
-        registry = _ensure_registry(state, resulting_cards, int(meta.get("turn_number", 0) or 0))
+        registry = _ensure_registry(
+            state,
+            resulting_cards,
+            int(meta.get("turn_number", 0) or 0),
+            source_character_ids=source_ids,
+        )
         post_present = _post_turn_present(state, extracted)
         chronology = extracted.get("chronology") if isinstance(extracted.get("chronology"), list) else []
         card_map = {storage._card_id(card): card for card in resulting_cards}
@@ -218,9 +241,10 @@ def _rewrite_packet(session_id: str, base_result: Dict[str, Any]) -> Dict[str, A
         state = storage._read_json(root / "state.json", {})
         source = storage._read_json(root / "source.json", {})
         cards = storage._load_cards(root, source)
+        source_ids = {storage._card_id(card) for card in storage._normalise_cards(source.get("characters", []))}
         current_turn = int(storage._read_json(root / "meta.json", {}).get("turn_number", 0) or 0)
-        registry = _ensure_registry(state, cards, current_turn)
-        pressure = _rotation_pressure(state, cards, current_turn)
+        registry = _ensure_registry(state, cards, current_turn, source_character_ids=source_ids)
+        pressure = _rotation_pressure(state, cards, current_turn, source_character_ids=source_ids)
         context["cast_registry"] = {
             "version": _VERSION,
             "characters": [{k: v for k, v in row.items() if not str(k).startswith("_")} for row in registry.values()],
