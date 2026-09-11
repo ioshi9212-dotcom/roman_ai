@@ -379,13 +379,14 @@ def _install_packet_policy_wrapper() -> None:
         context["relationship_policy"] = policy
 
         persistence = context.get("persistence_contract") if isinstance(context.get("persistence_contract"), dict) else {}
-        persistence["relationship_numeric_updates"] = {
+        persistence["relationship_updates"] = {
             "optional": True,
-            "when": "Only when an NPC->POV numeric relationship metric actually changed in this turn.",
+            "when": "Only when an NPC->POV numeric relationship metric or relationship metadata actually changed in this turn.",
             "format": '[{"character_id":"npc_id","dimensions":[{"label":"доверие","value":12,"delta":2}]}]',
             "instruction": (
-                "For an established metric, delta is the causal write and Railway computes it from the saved baseline. "
-                "Do not resend unchanged dimensions. Works for present and departed participating NPCs."
+                "For an established numeric metric, delta is the causal write and Railway computes it from the saved baseline. "
+                "Do not resend unchanged dimensions. The same update works for present and departed participating NPCs; "
+                "opinion/current_dynamic/beliefs/unresolved may be included in the same row."
             ),
         }
         context["persistence_contract"] = persistence
