@@ -195,14 +195,19 @@ def _split_relationship_metadata(
     return result, metadata
 
 
-def _apply_relationship_metadata(root, rows: List[Dict[str, Any]], turn_number: int) -> None:
+def _apply_relationship_metadata_to_state(
+    state: Dict[str, Any],
+    rows: List[Dict[str, Any]],
+    turn_number: int,
+) -> tuple[Dict[str, Any], bool]:
     if not rows:
-        return
-    state = storage._read_json(root / "state.json", {})
-    pov = state.get("pov") if isinstance(state.get("pov"), dict) else {}
+        return state, False
+    result = deepcopy(state)
+    pov = result.get("pov") if isinstance(result.get("pov"), dict) else {}
     pov_id = str(pov.get("character_id") or "")
-    docs = state.get("relationship_documents") if isinstance(state.get("relationship_documents"), dict) else {}
+    docs = result.get("relationship_documents") if isinstance(result.get("relationship_documents"), dict) else {}
     docs = deepcopy(docs)
+    changed = False
 
     for raw in rows:
         owner_id = str(raw.get("character_id") or "")
@@ -232,6 +237,7 @@ def _apply_relationship_metadata(root, rows: List[Dict[str, Any]], turn_number: 
             }
             relations.append(relation)
             doc["relations"] = relations
+        before = deepcopy(relation)
         if "opinion" in raw:
             relation["current_dynamic"] = str(raw.get("opinion") or "").strip()
         if "current_dynamic" in raw:
@@ -243,10 +249,11 @@ def _apply_relationship_metadata(root, rows: List[Dict[str, Any]], turn_number: 
             if key in raw:
                 relation[key] = str(raw.get(key) or "").strip()
         relation["last_changed_turn"] = turn_number
+        changed = changed or relation != before
 
-    state["relationship_documents"] = docs
-    storage._write_json(root / "state.json", state)
-
+    if changed:
+        result["relationship_documents"] = docs
+    return result, changed
 
 def _flatten(value: Any, path: str = "", depth: int = 0) -> Iterable[tuple[str, str]]:
     if depth > 3:
@@ -620,10 +627,14 @@ def _extract_pillar_ids(extracted: Dict[str, Any]) -> set[str]:
     return result
 
 
-def _persist_world_effects(root, payload: Dict[str, Any], turn_number: int) -> None:
-    extracted = payload.get("extracted") if isinstance(payload.get("extracted"), dict) else {}
-    state = storage._read_json(root / "state.json", {})
-    world = deepcopy(state.get("world") if isinstance(state.get("world"), dict) else {})
+def _apply_world_effects_to_state(
+    root,
+    state: Dict[str, Any],
+    extracted: Dict[str, Any],
+    turn_number: int,
+) -> tuple[Dict[str, Any], bool]:
+    result = deepcopy(state)
+    world = deepcopy(result.get("world") if isinstance(result.get("world"), dict) else {})
     changed = False
 
     social = deepcopy(world.get("social") if isinstance(world.get("social"), dict) else {})
@@ -688,9 +699,36 @@ def _persist_world_effects(root, payload: Dict[str, Any], turn_number: int) -> N
         changed = True
 
     if changed:
-        state["world"] = world
-        storage._write_json(root / "state.json", state)
+        result["world"] = world
+    return result, changed
 
+
+def _with_atomic_state_effects(
+    session_id: str,
+    payload: Dict[str, Any],
+    metadata: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    result = deepcopy(payload)
+    root = storage.SESSIONS_DIR / session_id
+    state = storage._read_json(root / "state.json", {})
+    meta = storage._read_json(root / "meta.json", {})
+    turn_number = int(meta.get("turn_number", 0) or 0) + 1
+    extracted = result.get("extracted") if isinstance(result.get("extracted"), dict) else {}
+    extracted = deepcopy(extracted)
+    patch = extracted.get("state_patch") if isinstance(extracted.get("state_patch"), dict) else {}
+    patch = deepcopy(patch)
+    post_state = storage._deep_merge(state, patch)
+
+    post_state, relationship_changed = _apply_relationship_metadata_to_state(post_state, metadata, turn_number)
+    post_state, world_changed = _apply_world_effects_to_state(root, post_state, extracted, turn_number)
+
+    if relationship_changed:
+        patch["relationship_documents"] = deepcopy(post_state.get("relationship_documents", {}))
+    if world_changed:
+        patch["world"] = deepcopy(post_state.get("world", {}))
+    extracted["state_patch"] = patch
+    result["extracted"] = extracted
+    return result
 
 def _prepare_turn(session_id: str, user_input: str) -> Dict[str, Any]:
     return _rewrite_packet(session_id, dict(_ORIGINAL_PREPARE(session_id, user_input)))
@@ -699,12 +737,8 @@ def _prepare_turn(session_id: str, user_input: str) -> Dict[str, Any]:
 def _commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     _validate_relationship_vocabulary(session_id, payload)
     prepared, metadata = _split_relationship_metadata(session_id, payload)
-    result = _ORIGINAL_COMMIT(session_id, prepared)
-    root = storage.SESSIONS_DIR / session_id
-    turn_number = int(result.get("turn_number", 0) or 0)
-    _apply_relationship_metadata(root, metadata, turn_number)
-    _persist_world_effects(root, payload, turn_number)
-    return result
+    prepared = _with_atomic_state_effects(session_id, prepared, metadata)
+    return _ORIGINAL_COMMIT(session_id, prepared)
 
 
 def install() -> None:
