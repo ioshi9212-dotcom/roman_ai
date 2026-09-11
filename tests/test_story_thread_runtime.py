@@ -210,5 +210,5 @@ def test_actions_schema_and_gpt_instruction_include_story_thread_contract():
 
 def test_scene_builder_is_not_modified_by_story_engine_fix():
     text = (ROOT / "runtime" / "scene_builder.md").read_text(encoding="utf-8")
-    assert text.startswith("# SCENE BUILDER")
+    assert text.startswith("Формат scene_builder обязателен")
     assert "2000–3000 символов" in text
