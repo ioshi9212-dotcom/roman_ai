@@ -75,13 +75,33 @@ def test_zero_dimensions_may_be_hidden_but_remain_persisted():
         assert state["relationships"]["adrian"] == {"ревность": 0, "доверие": 0}
 
 
-def test_unknown_new_relationship_dimension_is_rejected_but_legacy_label_survives():
+def test_unknown_visible_dimension_is_ignored_without_blocking_valid_saved_changes():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         sid = storage.create_session(novel({"доверие": 3, "настороженность": 4}))["session_id"]
         read_packet(sid, "conflict")
+        session_runtime.commit_turn(
+            sid,
+            {"user_input": "conflict", "scene_output": scene("доверие 1/-2; настороженность 5/+1; скепсис 6/+6"), "extracted": extracted()},
+        )
+        state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
+        assert state["relationships"]["adrian"] == {"доверие": 1, "настороженность": 5}
+
+
+def test_unknown_new_dimension_in_canonical_relationship_update_is_rejected():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(novel({"доверие": 3}))["session_id"]
+        read_packet(sid, "conflict")
+        payload = extracted()
+        payload["relationship_updates"] = [
+            {"character_id": "adrian", "dimensions": [{"label": "скепсис", "value": 6, "delta": 1}]}
+        ]
         with pytest.raises(HTTPException) as exc:
-            session_runtime.commit_turn(sid, {"user_input": "conflict", "scene_output": scene("доверие 1/-2; настороженность 5/+1; скепсис 6/+6"), "extracted": extracted()})
+            session_runtime.commit_turn(
+                sid,
+                {"user_input": "conflict", "scene_output": scene("доверие 3"), "extracted": payload},
+            )
         assert exc.value.status_code == 409
         assert exc.value.detail["code"] == "RELATIONSHIP_DIMENSION_UNKNOWN"
 
