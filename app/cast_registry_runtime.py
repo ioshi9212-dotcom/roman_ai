@@ -10,7 +10,7 @@ from .transactional_storage import session_transaction
 
 _ORIGINAL_PREPARE = None
 _ORIGINAL_COMMIT = None
-_VERSION = 7
+_VERSION = 8
 _TERMINAL = {"dead", "deceased", "inactive", "removed", "мертв", "мёртв", "погиб", "умер", "неактив"}
 
 
@@ -278,14 +278,23 @@ def _rewrite_packet(session_id: str, base_result: Dict[str, Any]) -> Dict[str, A
             "story_created_active_count": sum(1 for row in active_rows if row.get("origin") == "story_created"),
             "rotation_pressure": pressure,
             "instruction": (
-                "Use character_registry for names/roles and this rotation_pressure only as anti-forgetting priority. "
-                "Active player-created cast remains eligible even with weak relationships; strong relationships/open intents increase frequency. "
-                "Reintroduce only through a causal channel and load the character bundle before participation. Dead/inactive cast does not rotate normally."
+                "Use character_registry for names/roles and rotation_pressure as anti-forgetting priority. "
+                "Player-created cast stays eligible; strong relationships/open intents increase frequency. "
+                "Re-entry must be causal and offscreen participation requires the character bundle."
             ),
         }
-        living = context.get("living_world") if isinstance(context.get("living_world"), dict) else {}
-        living["cast_rotation_pressure"] = pressure
-        context["living_world"] = living
+
+        # All earlier runtime wrappers have already consumed the richer cast_index.
+        # Keep the legacy key for transport compatibility, but avoid sending a
+        # second full cast catalogue beside character_registry.
+        cast_index = context.get("cast_index")
+        if isinstance(cast_index, list):
+            context["cast_index"] = [
+                {"character_id": str(row.get("character_id"))}
+                for row in cast_index
+                if isinstance(row, dict) and row.get("character_id")
+            ]
+
         text = json.dumps(context, ensure_ascii=False, separators=(",", ":"))
         size = writer_first_runtime.WRITER_PACKET_CHARS
         chunks = [text[index:index + size] for index in range(0, len(text), size)] or ["{}"]
