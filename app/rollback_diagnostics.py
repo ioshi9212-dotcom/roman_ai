@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from typing import Any, Dict, List
 
 from . import storage
@@ -36,6 +37,22 @@ def _leaf_paths(value: Any, prefix: str = "") -> List[str]:
         else:
             result.append(path)
     return sorted(result)
+
+
+def _semantic_state_patch(state_patch: Any) -> tuple[Dict[str, Any], bool]:
+    if not isinstance(state_patch, dict):
+        return {}, False
+    result = deepcopy(state_patch)
+    world = result.get("world") if isinstance(result.get("world"), dict) else None
+    technical_cast_registry = bool(world is not None and "cast_registry" in world)
+    if world is not None:
+        world = deepcopy(world)
+        world.pop("cast_registry", None)
+        if world:
+            result["world"] = world
+        else:
+            result.pop("world", None)
+    return result, technical_cast_registry
 
 
 def _diff_paths(left: Any, right: Any, prefix: str = "") -> List[str]:
@@ -88,12 +105,14 @@ def _turn_structure(turn: Any) -> Dict[str, Any]:
     if not isinstance(turn, dict):
         return {}
     extracted = turn.get("extracted") if isinstance(turn.get("extracted"), dict) else {}
-    state_patch = extracted.get("state_patch") if isinstance(extracted.get("state_patch"), dict) else {}
+    raw_state_patch = extracted.get("state_patch") if isinstance(extracted.get("state_patch"), dict) else {}
+    state_patch, technical_cast_registry = _semantic_state_patch(raw_state_patch)
     return {
         "turn_number": int(turn.get("turn_number", 0) or 0),
         "keys": sorted(extracted.keys()),
         "state_patch_top_level_keys": sorted(state_patch.keys()),
         "state_patch_leaf_paths": _leaf_paths(state_patch),
+        "technical_cast_registry_patch": technical_cast_registry,
         "character_upserts_count": _count_list(extracted.get("character_upserts")),
         "character_upsert_ids": _ids_from_rows(extracted.get("character_upserts")),
         "chronology_count": _count_list(extracted.get("chronology")),
