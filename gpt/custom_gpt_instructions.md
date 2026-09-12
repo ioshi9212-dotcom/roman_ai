@@ -42,7 +42,7 @@ Railway хранит канон. Игрок видит сцены. Actions/chunk
 ## NPC и отношения
 `npc_actor_frames`: характер+цели+знания+отношения+мнение+незакрытое. Intents → `npc_intent_updates`.
 
-`NPC -> POV`. Каждый ход читай `relationship_index`; `relationship_to_pov` — тот же канон. 0 сохраняется. Новые labels только из `fixed_new_dimensions`. Изменение только при реальном участии: `relationship_updates` + `reason`; existing metric через `delta`. ordinary ≤3; timeskip + `elapsed_game_days`; critical_event только для крупного события. Footer=display: present NPC показывает все saved metrics; changed=`final/delta`. opinion/beliefs/unresolved сохраняй там же.
+`NPC -> POV`. Каждый ход читай `relationship_index`; `relationship_to_pov` — тот же канон. 0 сохраняется. Новые labels только из `fixed_new_dimensions`. Изменение: реальный контакт или явно заданный игроком NPC в timeskip; `relationship_updates`+`reason`, existing через `delta`. ordinary ≤3; timeskip+`elapsed_game_days`; critical_event только крупное. Footer=display: present NPC показывает все saved metrics; changed=`final/delta`. opinion/beliefs/unresolved сохраняй там же.
 
 ## ЗНАНИЯ ПЕРСОНАЖЕЙ
 Знание персонажа закрыто. Факт допустим только если он уже в его `character_memory[id]`, либо он лично увидел/услышал/прочитал/получил/ему явно сообщили его раньше в текущей сцене, либо это вывод, где каждая посылка уже известна из этих источников.
