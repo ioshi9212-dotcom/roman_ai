@@ -122,6 +122,8 @@ def test_present_npc_opinion_can_change_without_fake_numeric_relationship_update
                 "extracted": extracted(
                     relationship_updates=[{
                         "character_id": "adrian",
+                        "reason": "Ответ Ринаты дал Эдриану конкретное основание считать, что она намеренно скрывает часть правды.",
+                        "change_scale": "ordinary",
                         "opinion": "Теперь считает, что Рината скрывает что-то намеренно.",
                         "beliefs_about_target": [{"belief": "она скрывает часть правды", "confidence": 0.9}],
                         "unresolved_between_them": ["добиться полного ответа"],
