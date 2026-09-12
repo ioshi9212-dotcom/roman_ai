@@ -239,7 +239,7 @@ def _validate_update_rows(
         owner_id = str(owner_id)
 
         dimensions = raw.get("dimensions") if isinstance(raw.get("dimensions"), list) else []
-        metadata_change = any(key in raw for key in _META_KEYS)
+        metadata_change = any(raw.get(key) is not None for key in _META_KEYS)
         baseline = _numeric_baseline(state_before, owner_id)
         changed = metadata_change
         owner_dims: Dict[str, Dict[str, Any]] = {}
