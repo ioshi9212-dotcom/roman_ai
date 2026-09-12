@@ -1,3 +1,7 @@
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+
 from app.runtime_access import runtime_documents, runtime_manifest, runtime_payload
 
 
