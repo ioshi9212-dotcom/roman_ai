@@ -423,7 +423,8 @@ def _validate_relationship_commit(session_id: str, payload: Dict[str, Any]) -> N
     root = storage.SESSIONS_DIR / session_id
     state = storage._read_json(root / "state.json", {})
     source = storage._read_json(root / "source.json", {})
-    cards = storage._load_cards(root, source)
+    extracted = payload.get("extracted") if isinstance(payload.get("extracted"), dict) else {}
+    cards = storage._apply_character_upserts(storage._load_cards(root, source), extracted)
     explicit = _validate_update_rows(payload, cards=cards, state_before=state)
     _validate_footer(payload, cards=cards, state_before=state, explicit=explicit)
 
