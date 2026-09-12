@@ -467,7 +467,7 @@ def _install_packet_policy_wrapper() -> None:
         policy.update({
             "source_of_truth": "persistent relationship state + causal relationship_updates",
             "footer_is_display_only": True,
-            "footer_is_transaction_gate": True,
+            "footer_is_transaction_gate": False,
             "footer_required_for_every_present_npc": False,
             "fresh_baseline_required": False,
             "zero_dimensions_may_be_hidden": False,
