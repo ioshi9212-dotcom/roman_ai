@@ -395,11 +395,11 @@ def _validate_relationship_update_participants(
         owner_id = _resolve_character_id(cards, raw.get("character_id"))
         if not owner_id:
             _http_error(409, "RELATIONSHIP_UPDATES_INVALID", "Unknown character_id in relationship_updates.")
-        if str(owner_id) not in participant_ids:
+        if str(owner_id) not in participant_ids and str(raw.get("change_scale") or "").casefold() != "timeskip":
             _http_error(
                 409,
                 "RELATIONSHIP_UPDATE_FOR_UNSEEN_NPC",
-                "Relationship change is allowed only for an NPC who concretely participated in this turn.",
+                "Relationship change is allowed only for a concrete participant, except a validated aggregate timeskip.",
             )
 
 
@@ -490,6 +490,11 @@ def _prepare_extracted_for_commit(
         cards=cards,
         participant_ids=participant_ids,
     )
+    for raw in result.get("relationship_updates", []) if isinstance(result.get("relationship_updates"), list) else []:
+        if isinstance(raw, dict) and str(raw.get("change_scale") or "").casefold() == "timeskip":
+            owner_id = _resolve_character_id(cards, raw.get("character_id"))
+            if owner_id:
+                participant_ids.add(str(owner_id))
 
     current = state_after.get("current") if isinstance(state_after.get("current"), dict) else {}
     if isinstance(state_patch.get("current"), dict) and "present_characters" in state_patch["current"]:
