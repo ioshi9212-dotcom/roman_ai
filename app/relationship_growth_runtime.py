@@ -385,8 +385,8 @@ def _install_packet_policy_wrapper() -> None:
             "zero_dimensions_may_be_hidden": True,
             "new_dimensions_may_be_appended": True,
             "instruction": (
-                "Existing metrics: relationship_updates delta -3..+3, Railway applies saved+delta. "
-                "Omitted metrics persist; footer is display only."
+                "Existing metrics change only through relationship_updates delta -3..+3; "
+                "Railway applies saved baseline+delta. Omitted metrics persist; footer is display only."
             ),
         })
         context["relationship_policy"] = policy
@@ -397,7 +397,7 @@ def _install_packet_policy_wrapper() -> None:
             "when": "Only on a real numeric or relationship-metadata change.",
             "format": '[{"character_id":"npc_id","dimensions":[{"label":"доверие","value":12,"delta":2}]}]',
             "instruction": (
-                "Existing metric: delta -3..+3, saved+delta. Only concrete participants may change: "
+                "Existing metric: delta -3..+3; Railway applies saved baseline+delta. Only concrete participants: "
                 "presence/transition or direct current-turn contact; mention/thread/cast does not count."
             ),
         }
