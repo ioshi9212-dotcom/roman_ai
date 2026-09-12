@@ -21,7 +21,7 @@ def _read_packet(session_id: str, user_input: str):
     return manifest, json.loads("".join(chunks))
 
 
-def test_turn_packet_only_transports_full_cards_for_scene_or_current_communication():
+def test_turn_packet_only_transports_full_cards_for_physical_scene_and_not_mentions():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         huge = "H" * 80_000
@@ -86,12 +86,13 @@ def test_turn_packet_only_transports_full_cards_for_scene_or_current_communicati
         manifest, context = _read_packet(sid, "(написать Messenger: привет)")
 
         card_ids = {row["character_id"] for row in context["character_cards"]}
-        assert card_ids == {"pov", "present", "messenger"}
+        assert card_ids == {"pov", "present"}
+        assert "messenger" not in card_ids
         assert "thread_only" not in card_ids
         assert "away" not in card_ids
 
-        assert set(context["character_memory"]) == {"pov", "present", "messenger"}
-        assert set(context.get("scene_characters", {})) <= {"pov", "present", "messenger"}
+        assert set(context["character_memory"]) == {"pov", "present"}
+        assert set(context.get("scene_characters", {})) <= {"pov", "present"}
         assert "historical_knowledge_catalog" in context["character_memory"]["present"]
         assert context["character_memory"]["present"]["older_history_available"]["experience_records_not_full"] > 0
 
@@ -141,3 +142,29 @@ def test_thread_membership_alone_does_not_transport_full_dossier():
         assert {row["character_id"] for row in context["character_cards"]} == {"pov", "present"}
         assert "thread_only" not in context["character_memory"]
         assert any(row["character_id"] == "thread_only" for row in context["character_registry"])
+
+
+
+def test_plain_offscreen_name_mention_does_not_load_character_card_or_memory():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        novel = {
+            "novel_id": "mention_scope",
+            "title": "Mention Scope",
+            "novel": {"pov_character": "pov"},
+            "characters": [
+                {"character_id": "pov", "name": "POV", "is_pov": True},
+                {"character_id": "present", "name": "Present"},
+                {"character_id": "aiden", "name": "Эйден", "secret": "offscreen dossier"},
+            ],
+            "starting_state": {
+                "pov": {"character_id": "pov"},
+                "current": {"location": "room", "present_characters": ["pov", "present"]},
+            },
+        }
+        sid = storage.create_session(novel)["session_id"]
+        _, context = _read_packet(sid, "Интересно, где сейчас Эйден.")
+        ids = {row["character_id"] for row in context["character_cards"]}
+        assert ids == {"pov", "present"}
+        assert "aiden" not in context["character_memory"]
+        assert any(row["character_id"] == "aiden" for row in context["character_registry"])
