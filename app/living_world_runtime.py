@@ -207,7 +207,8 @@ def _split_relationship_metadata(
                     for item in dims
                     if isinstance(item, dict) and item.get("delta") is not None
                 ]
-            if not owner_id or owner_id not in allowed_ids:
+            aggregate_timeskip = str(raw.get("change_scale") or "").casefold() == "timeskip"
+            if not owner_id or (owner_id not in allowed_ids and not aggregate_timeskip):
                 raise HTTPException(
                     status_code=409,
                     detail={
