@@ -40,6 +40,21 @@ class NovelDraftIntakeMapping(BaseModel):
     fact_ids: List[str] = Field(default_factory=list)
     reviewed_against_raw: bool = False
     contains_no_facts: bool = False
+    replace: bool = False
+    expected_revision: Optional[int] = Field(default=None, ge=0)
+
+
+class NovelDraftReconciliation(BaseModel):
+    expected_revision: int = Field(ge=0)
+    confirmed_against_raw: bool
+    unresolved_conflicts: List[str] = Field(default_factory=list)
+    notes: Optional[str] = None
+
+
+class NovelDraftLaunchState(BaseModel):
+    expected_finalized_revision: int = Field(ge=0)
+    starting_state_json: str
+    launch_hint: Optional[str] = None
 
 
 class SessionCreate(BaseModel):
