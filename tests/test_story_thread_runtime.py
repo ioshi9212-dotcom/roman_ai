@@ -192,7 +192,7 @@ def test_story_drive_forces_movement_but_keeps_meaningful_pov_choice_with_player
 
 def test_actions_schema_and_gpt_instruction_include_story_thread_contract():
     schema = yaml.safe_load((ROOT / "openapi.yaml").read_text(encoding="utf-8"))
-    assert schema["info"]["version"] == "1.13.0"
+    assert schema["info"]["version"] == "1.14.0"
     extracted = schema["components"]["schemas"]["TurnCommit"]["properties"]["extracted"]
     assert "story_thread_updates" in extracted["required"]
     assert extracted["properties"]["story_thread_updates"]["items"]["$ref"].endswith("StoryThreadUpdate")
