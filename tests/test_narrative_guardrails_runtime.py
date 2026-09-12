@@ -147,7 +147,7 @@ def test_character_driven_behavior_has_no_psychology_or_boundary_filter():
     assert "оставил ей пространство" in forbidden
     assert "Не пропускай его решения через авторский фильтр" in instruction
     assert "игроку остаётся только значимая реакция-решение POV" in instruction
-    assert "не исчезают" in rule["player_boundary"]
+    assert "присутствие POV продолжаются автоматически" in rule["player_boundary"]
 
 
 def test_npc_intent_drive_treats_evasion_as_unresolved():
