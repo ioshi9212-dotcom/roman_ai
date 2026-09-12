@@ -333,10 +333,16 @@ def _validate_footer(
             continue
         baseline = _numeric_baseline(state_before, owner_id)
         explicit_dims = explicit.get(owner_id, {})
+        incoming = footer.get(owner_id)
+
         if not baseline and not explicit_dims:
+            if incoming:
+                _error(
+                    "RELATIONSHIP_CHANGE_REASON_REQUIRED",
+                    f"{owner_id}: a new relationship metric must be created through relationship_updates with reason.",
+                )
             continue
 
-        incoming = footer.get(owner_id)
         if not incoming:
             _error(
                 "RELATIONSHIP_FOOTER_INCOMPLETE",
@@ -347,6 +353,15 @@ def _validate_footer(
             for item in incoming
             if isinstance(item, dict)
         }
+
+        incoming_keys = set(incoming_by_norm)
+        unauthorized_new = incoming_keys - set(baseline) - set(explicit_dims)
+        if unauthorized_new:
+            labels = [str(incoming_by_norm[key].get("label") or key) for key in sorted(unauthorized_new)]
+            _error(
+                "RELATIONSHIP_CHANGE_REASON_REQUIRED",
+                f"{owner_id}: new footer metrics require causal relationship_updates with reason: {', '.join(labels)}.",
+            )
 
         required_keys = set(baseline) | set(explicit_dims)
         missing = [
