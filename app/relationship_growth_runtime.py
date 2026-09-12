@@ -252,8 +252,8 @@ def _hidden_relationship_scene(
     if not isinstance(updates, list):
         base._http_error(409, "RELATIONSHIP_UPDATES_INVALID", "relationship_updates must be an array.")
 
-    final_present = set(str(value) for value in compat._current_present_ids(state_after))
-    allowed = set(str(value) for value in start_present) | final_present | set(str(value) for value in upsert_ids)
+    # Participation is validated by relationship_policy_runtime using concrete current-turn evidence,
+    # including physical presence/transition and real remote dialogue/contact.
     lines: List[str] = []
 
     for raw in updates:
@@ -263,13 +263,6 @@ def _hidden_relationship_scene(
         if not owner_id:
             base._http_error(409, "RELATIONSHIP_UPDATES_INVALID", "Unknown character_id in relationship_updates.")
         owner_id = str(owner_id)
-        if owner_id not in allowed:
-            owner_name = compat._card_display_name(cards, owner_id)
-            base._http_error(
-                409,
-                "RELATIONSHIP_UPDATE_FOR_UNSEEN_NPC",
-                f"{owner_name}: relationship update is allowed only for an NPC who participated in this turn.",
-            )
 
         dimensions = raw.get("dimensions")
         if not isinstance(dimensions, list) or not dimensions:
