@@ -156,4 +156,4 @@ def test_packet_and_rules_agree_relationship_updates_are_canonical():
         assert packet["relationship_policy"]["footer_is_display_only"] is True
         assert "Existing metrics change only through relationship_updates delta" in packet["relationship_policy"]["instruction"]
         assert "`relationship_updates` — canonical для реальных изменений отношений" in packet["runtime_rules"]
-        assert "Footer только показывает актуальные числа" in packet["runtime_rules"]
+        assert "footer только display" in packet["runtime_rules"]
