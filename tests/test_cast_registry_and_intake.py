@@ -3,6 +3,9 @@ import tempfile
 from pathlib import Path
 
 from app import cast_registry_runtime, draft_intake_runtime, novel_drafts, session_runtime, storage
+from app.main import novel_draft_section_save
+from app.models import NovelDraftSection
+from fastapi import HTTPException
 from app.novel_access import get_novel_read_chunk
 from app.novel_drafts import create_draft, create_session_from_draft, finalize_draft, prepare_draft_read, save_section
 
@@ -39,6 +42,41 @@ def test_intake_merge_is_additive_and_raw_source_is_immutable():
         assert str(exc) == "INTAKE_BLOCK_SOURCE_IMMUTABLE"
     else:
         raise AssertionError("raw intake source must be immutable")
+
+
+def test_intake_source_conflict_returns_actionable_http_error():
+    with tempfile.TemporaryDirectory() as tmp:
+        _setup_storage(tmp)
+        draft_id = create_draft("conflict_help", "Conflict Help", version=2)["draft_id"]
+        save_section(draft_id, "intake", json.dumps({"blocks": [{
+            "block_id": "b1",
+            "stage": "pov",
+            "raw_text": "Исходный текст.",
+            "fact_ids": [],
+            "reviewed_against_raw": False,
+            "contains_no_facts": True,
+        }]}, ensure_ascii=False))
+
+        body = NovelDraftSection(
+            section_name="intake",
+            section_json=json.dumps({"blocks": [{
+                "block_id": "b1",
+                "stage": "pov",
+                "raw_text": "Изменённый текст.",
+                "fact_ids": [],
+                "reviewed_against_raw": False,
+                "contains_no_facts": True,
+            }]}, ensure_ascii=False),
+        )
+        try:
+            novel_draft_section_save(draft_id, body)
+        except HTTPException as exc:
+            assert exc.status_code == 409
+            assert "new unique block_id" in str(exc.detail)
+            assert "send only that new block" in str(exc.detail)
+            assert "never reconstruct them from memory" in str(exc.detail)
+        else:
+            raise AssertionError("immutable intake conflict must return an actionable 409")
 
 
 def test_intake_coverage_requires_raw_review_and_real_foundation_fact_ids():
