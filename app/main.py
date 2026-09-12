@@ -6,7 +6,7 @@ from .audit_runtime import get_audit_snapshot, get_audit_snapshot_chunk
 from .character_access import get_character_bundle
 from .character_chunk_read import get_character_bundle_chunk, prepare_character_bundle_read
 from .context_stats import session_context_stats
-from .models import AuditCommit, NovelDraftCreate, NovelDraftSection, NovelRawSave, NovelTemplate, RollbackLastTurn, SessionCreate, TurnCommit, TurnPrepare
+from .models import AuditCommit, NovelDraftCreate, NovelDraftIntakeChunk, NovelDraftIntakeMapping, NovelDraftSection, NovelRawSave, NovelTemplate, RollbackLastTurn, SessionCreate, TurnCommit, TurnPrepare
 from .novel_access import get_novel_read_chunk, prepare_novel_read, verify_novel
 from .novel_drafts import (
     create_draft,
@@ -17,6 +17,7 @@ from .novel_drafts import (
     publish_draft_to_library,
     save_section,
 )
+from .draft_intake_runtime import append_intake_chunk, update_intake_mapping
 from .runtime_access import runtime_chunk, runtime_manifest
 from .session_preview import get_session_preview
 from .session_recovery import recover_session_current
@@ -41,8 +42,8 @@ from .turn_rollback import RollbackError
 
 app = FastAPI(
     title="Roman AI",
-    version="1.13.0",
-    description="Persistent isolated novel sessions with bounded writer-first context, staged setup intake, living cast rotation, memory, chronology, relationships, NPC intents, persistent story threads, recovery, rollback and audits.",
+    version="1.14.0",
+    description="Persistent isolated novel sessions with bounded writer-first context, lossless chunked setup intake, living cast rotation, memory, chronology, relationships, NPC intents, persistent story threads, recovery, rollback and audits.",
 )
 
 
@@ -97,6 +98,63 @@ def novel_draft_section_save(draft_id: str, body: NovelDraftSection):
                 ),
             )
         raise HTTPException(status_code=422, detail=f"Invalid section_json: {exc}")
+
+
+@app.post("/novel-drafts/{draft_id}/intake/chunks", operation_id="appendDraftIntakeChunk")
+def novel_draft_intake_chunk_append(draft_id: str, body: NovelDraftIntakeChunk):
+    try:
+        return append_intake_chunk(
+            draft_id,
+            block_id=body.block_id,
+            stage=body.stage,
+            chunk_index=body.chunk_index,
+            raw_text=body.raw_text,
+            is_last=body.is_last,
+        )
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Draft not found")
+    except ValueError as exc:
+        code = str(exc)
+        if code == "INTAKE_PLACEHOLDER_FORBIDDEN":
+            raise HTTPException(
+                status_code=422,
+                detail="raw_text must contain the user's verbatim text, never a placeholder, summary, reference to another message, or '[full text]' marker.",
+            )
+        if code == "INTAKE_CHUNK_TOO_LARGE":
+            raise HTTPException(status_code=422, detail="raw_text chunk exceeds 12000 characters; split it into smaller consecutive chunks.")
+        messages = {
+            "INTAKE_UPLOAD_BLOCK_EXISTS": "This block_id already exists outside this upload. Use a new unique block_id.",
+            "INTAKE_UPLOAD_STAGE_IMMUTABLE": "stage changed during the same intake upload. Retry with the exact original stage.",
+            "INTAKE_UPLOAD_CHUNK_CONFLICT": "This chunk_index was already received with different content or is_last. Retry with the exact same chunk or continue with next_chunk_index.",
+            "INTAKE_UPLOAD_OUT_OF_ORDER": "Chunks must be sent in order starting at 0. Continue with next_chunk_index from the previous response.",
+            "INTAKE_UPLOAD_CORRUPT": "Stored intake upload state is inconsistent; do not reconstruct raw text from memory.",
+            "INTAKE_UPLOAD_INVALID": "block_id, stage and raw_text are required and chunk_index must be >= 0.",
+        }
+        raise HTTPException(status_code=409, detail=messages.get(code, code))
+
+
+@app.post("/novel-drafts/{draft_id}/intake/{block_id}/mapping", operation_id="updateDraftIntakeMapping")
+def novel_draft_intake_mapping_update(draft_id: str, block_id: str, body: NovelDraftIntakeMapping):
+    try:
+        return update_intake_mapping(
+            draft_id,
+            block_id,
+            fact_ids=body.fact_ids,
+            reviewed_against_raw=body.reviewed_against_raw,
+            contains_no_facts=body.contains_no_facts,
+        )
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Draft not found")
+    except ValueError as exc:
+        code = str(exc)
+        messages = {
+            "INTAKE_BLOCK_NOT_FOUND": "The intake block does not exist. Finish its chunked raw upload first.",
+            "INTAKE_FACT_ID_UNKNOWN": "One or more fact_ids do not exist in foundation yet. Save the foundation facts first, then map them.",
+            "INTAKE_FACT_IDS_REQUIRED": "A reviewed factual block must map to at least one existing foundation fact_id.",
+            "INTAKE_FACT_IDS_CONFLICT": "contains_no_facts cannot be combined with fact_ids.",
+            "INTAKE_BLOCK_INVALID": "block_id is required.",
+        }
+        raise HTTPException(status_code=409, detail=messages.get(code, code))
 
 
 @app.get("/novel-drafts/{draft_id}", operation_id="getNovelDraftStatus")
