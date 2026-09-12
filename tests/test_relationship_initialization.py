@@ -69,7 +69,7 @@ def test_first_meaningful_footer_persists_baseline():
         assert state["relationships"]["adrian"] == {"симпатия": 12, "настороженность": 8}
 
 
-def test_partial_footer_keeps_saved_dimensions_that_are_not_rendered():
+def test_partial_footer_is_rejected_when_saved_dimension_disappears():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         novel = fresh_novel()
@@ -77,6 +77,9 @@ def test_partial_footer_keeps_saved_dimensions_that_are_not_rendered():
         sid = storage.create_session(novel)["session_id"]
         read_packet(sid, "test")
         scene = "🎭 Fresh Relationship · осень\n\nСцена.\n\nСостояние: спокойно\nОтношения:\nЭдриан - симпатия 21/+1\n\nХод 1 · цикл 1/15"
-        session_runtime.commit_turn(sid, {"user_input": "test", "scene_output": scene, "extracted": extracted()})
+        with pytest.raises(HTTPException) as exc:
+            session_runtime.commit_turn(sid, {"user_input": "test", "scene_output": scene, "extracted": extracted()})
+        assert exc.value.status_code == 409
+        assert exc.value.detail["code"] == "RELATIONSHIP_FOOTER_INCOMPLETE"
         state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
-        assert state["relationships"]["adrian"] == {"симпатия": 21, "доверие": 9}
+        assert state["relationships"]["adrian"] == {"симпатия": 20, "доверие": 9}
