@@ -475,17 +475,12 @@ def _prepare_extracted_for_commit(
         upsert_ids=upsert_ids,
     )
     if hidden_scene:
-        scene_union = (
-            set(start_present)
-            | set(str(value) for value in storage._present_character_ids(state_after))
-            | upsert_ids
-        )
         hidden_patch = relationship_patch_from_scene(
             hidden_scene,
             cards=cards,
             state=working_state,
             resolve_character_id=_resolve_character_id,
-            present_character_ids=lambda _state: list(scene_union),
+            present_character_ids=lambda _state: list(participant_ids),
         )
         working_state = storage._deep_merge(working_state, hidden_patch) if hidden_patch else working_state
 
