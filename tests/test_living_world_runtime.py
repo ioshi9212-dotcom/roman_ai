@@ -2,6 +2,9 @@ import json
 import tempfile
 from pathlib import Path
 
+import pytest
+from fastapi import HTTPException
+
 from app import session_runtime, storage
 from app.living_world_runtime import RELATIONSHIP_DIMENSIONS
 
@@ -157,3 +160,83 @@ def test_social_effect_from_chronology_becomes_persistent_world_signal():
         signals = state["world"]["social"]["signals"]
         assert signals
         assert next(iter(signals.values()))["scope"] == "корпус"
+
+
+def test_absent_npc_name_mention_does_not_allow_opinion_change():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(novel(present=False))["session_id"]
+        read_packet(sid, "Подумать об Эдриане")
+        with pytest.raises(HTTPException) as exc:
+            session_runtime.commit_turn(
+                sid,
+                {
+                    "user_input": "Подумать об Эдриане",
+                    "scene_output": scene(),
+                    "extracted": extracted(relationship_updates=[{
+                        "character_id": "adrian",
+                        "opinion": "Почему-то передумал о Ринате, хотя контакта не было.",
+                    }]),
+                },
+            )
+        assert exc.value.status_code == 409
+        assert exc.value.detail["code"] == "RELATIONSHIP_OPINION_UNSEEN_NPC"
+        state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
+        relation = state["relationship_documents"]["adrian"]["relations"][0]
+        assert relation["current_dynamic"] == "Считает Ринату упрямой и склонной уходить от неудобных ответов."
+
+
+def test_absent_npc_name_mention_does_not_allow_numeric_change():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(novel(present=False))["session_id"]
+        read_packet(sid, "Вспомнить Эдриана")
+        with pytest.raises(HTTPException) as exc:
+            session_runtime.commit_turn(
+                sid,
+                {
+                    "user_input": "Вспомнить Эдриана",
+                    "scene_output": scene(),
+                    "extracted": extracted(relationship_updates=[{
+                        "character_id": "adrian",
+                        "dimensions": [{"label": "доверие", "value": 81, "delta": 1}],
+                    }]),
+                },
+            )
+        assert exc.value.status_code == 409
+        assert exc.value.detail["code"] == "RELATIONSHIP_UPDATE_FOR_UNSEEN_NPC"
+        state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
+        assert state["relationships"]["adrian"]["доверие"] == 80
+
+
+def test_remote_dialogue_is_concrete_participation_for_numeric_and_opinion_change():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(novel(present=False))["session_id"]
+        read_packet(sid, "Ответить на звонок Эдриана")
+        session_runtime.commit_turn(
+            sid,
+            {
+                "user_input": "Ответить на звонок Эдриана",
+                "scene_output": scene(),
+                "extracted": extracted(
+                    dialogue_memory_add=[{
+                        "participants": ["rina", "adrian"],
+                        "speaker": "adrian",
+                        "listener": "rina",
+                        "summary": "Короткий разговор по телефону.",
+                    }],
+                    relationship_updates=[{
+                        "character_id": "adrian",
+                        "dimensions": [{"label": "доверие", "value": 79, "delta": -1}],
+                        "opinion": "Считает, что Рината снова ушла от прямого ответа.",
+                        "unresolved_between_them": ["вернуться к вопросу позже"],
+                    }],
+                ),
+            },
+        )
+        state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
+        assert state["relationships"]["adrian"]["доверие"] == 79
+        relation = state["relationship_documents"]["adrian"]["relations"][0]
+        assert relation["current_dynamic"] == "Считает, что Рината снова ушла от прямого ответа."
+        assert relation["unresolved_between_them"] == ["вернуться к вопросу позже"]
