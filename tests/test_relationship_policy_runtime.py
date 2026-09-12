@@ -30,7 +30,7 @@ def novel():
             "current": {"location": "room", "present_characters": ["rina", "liam"]},
             "relationships": {
                 "liam": {"симпатия": 1, "доверие": 2, "привязанность": 10},
-                "aiden": {"симпатия": 4, "настороженность": 3},
+                "aiden": {"симпатия": 4, "настороженность": 3, "близость": 10},
             },
         },
     }
@@ -275,3 +275,30 @@ def test_remote_dialogue_counts_as_real_participation():
 
         state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
         assert state["relationships"]["aiden"]["настороженность"] == 2
+
+
+def test_player_directed_timeskip_can_change_explicitly_avoided_offscreen_npc():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(novel())["session_id"]
+        user_input = "(пропустить 5 дней, проводить с Лиамом больше времени, Эйдена избегать)"
+        read_packet(sid, user_input)
+
+        update = {
+            "character_id": "aiden",
+            "reason": "Пять дней Рината намеренно избегала Эйдена, и накопленная дистанция снизила близость.",
+            "change_scale": "timeskip",
+            "elapsed_game_days": 5,
+            "dimensions": [{"label": "близость", "value": 6, "delta": -4}],
+        }
+        session_runtime.commit_turn(
+            sid,
+            {
+                "user_input": user_input,
+                "scene_output": scene("симпатия 1; доверие 2; привязанность 10"),
+                "extracted": extracted(relationship_updates=[update]),
+            },
+        )
+
+        state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
+        assert state["relationships"]["aiden"]["близость"] == 6
