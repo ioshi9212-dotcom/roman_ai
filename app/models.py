@@ -74,6 +74,9 @@ class RelationshipDimensionUpdate(BaseModel):
 class RelationshipUpdate(BaseModel):
     character_id: str
     dimensions: Optional[List[RelationshipDimensionUpdate]] = None
+    reason: Optional[str] = None
+    change_scale: Optional[str] = None
+    elapsed_game_days: Optional[float] = Field(default=None, gt=0)
     opinion: Optional[str] = None
     current_dynamic: Optional[str] = None
     beliefs_about_target: Optional[List[Any]] = None
