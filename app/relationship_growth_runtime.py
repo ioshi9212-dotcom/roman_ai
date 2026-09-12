@@ -467,17 +467,14 @@ def _install_packet_policy_wrapper() -> None:
         policy.update({
             "source_of_truth": "persistent relationship state + causal relationship_updates",
             "footer_is_display_only": True,
-            "footer_is_transaction_gate": False,
-            "footer_continuity_gate": True,
+            "footer_is_transaction_gate": True,
             "footer_required_for_every_present_npc": False,
-            "established_dimensions_required_while_present": True,
             "fresh_baseline_required": False,
             "zero_dimensions_may_be_hidden": False,
             "new_dimensions_may_be_appended": True,
             "instruction": (
-                "Footer is display-only for canon, but every established metric of a present NPC must stay visible every turn, including value 0. "
-                "Unchanged metric: repeat the saved value. Changed metric: show final value and delta (for example 1 -> 0 as 0/-1). "
-                "Canonical changes still use relationship_updates; Railway applies saved+delta."
+                "Present NPC: show every saved metric, including 0. Unchanged=repeat value; changed=final/delta, e.g. 0/-1. "
+                "Canon still changes only through relationship_updates saved+delta."
             ),
         })
         context["relationship_policy"] = policy
