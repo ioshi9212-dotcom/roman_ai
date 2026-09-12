@@ -28,6 +28,20 @@ class NovelDraftSection(BaseModel):
     section_json: str
 
 
+class NovelDraftIntakeChunk(BaseModel):
+    block_id: str = Field(min_length=1, max_length=120)
+    stage: str = Field(min_length=1, max_length=120)
+    chunk_index: int = Field(ge=0)
+    raw_text: str = Field(min_length=1, max_length=12000)
+    is_last: bool = False
+
+
+class NovelDraftIntakeMapping(BaseModel):
+    fact_ids: List[str] = Field(default_factory=list)
+    reviewed_against_raw: bool = False
+    contains_no_facts: bool = False
+
+
 class SessionCreate(BaseModel):
     novel_id: str
 
