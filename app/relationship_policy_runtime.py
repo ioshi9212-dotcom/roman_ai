@@ -75,11 +75,13 @@ def _relationship_index(state: Dict[str, Any], cards: List[Dict[str, Any]]) -> D
         if not cid or cid == pov_id:
             continue
         row = flat.get(cid) if isinstance(flat.get(cid), dict) else {}
-        result[cid] = {
+        metrics = {
             str(label): value
             for label, value in row.items()
             if _is_number(value)
         }
+        if metrics:
+            result[cid] = metrics
     return result
 
 def _participant_ids(
@@ -453,75 +455,39 @@ def _rewrite_packet(session_id: str, base_result: Dict[str, Any]) -> Dict[str, A
         source = storage._read_json(root / "source.json", {})
         cards = storage._load_cards(root, source)
         context["relationship_index"] = {
-            "direction": "NPC->POV",
+            "direction": "NPC -> POV",
             "always_read": True,
             "characters": _relationship_index(state, cards),
-            "instruction": "Read every turn. 0 persists. Values affect behavior only through the specific NPC's character/context; never infer POV->NPC feelings.",
+            "instruction": "Read every turn; 0 persists; behavior still follows the specific NPC.",
         }
 
-        policy = context.get("relationship_policy") if isinstance(context.get("relationship_policy"), dict) else {}
-        policy.update(
-            {
-                "source_of_truth": "persistent relationship_documents synchronized to relationships",
-                "common_index_path": "relationship_index.characters",
-                "common_index_always_read": True,
-                "footer_is_display_only": True,
-                "unchanged_metrics_must_remain_visible_for_present_npc": True,
-                "zero_is_persistent_value": True,
-                "change_requires_reason": True,
-                "change_scales": {
-                    "ordinary": "normally up to +/-3 per metric for one ordinary turn",
-                    "timeskip": "up to 3 points per elapsed_game_day, capped at 30; elapsed_game_days is required",
-                    "critical_event": "up to +/-25 for a genuinely relationship-changing event",
-                },
-                "instruction": (
-                    "No reason = no relationship change. Most turns may change nothing, and a real scene may change only one metric. "
-                    "Reaction magnitude and direction depend on the individual NPC. For a changed existing metric, relationship_updates "
-                    "must contain delta and reason; visible footer shows final/delta. Large jumps require timeskip or critical_event."
-                ),
-            }
-        )
-        context["relationship_policy"] = policy
+        previous_policy = context.get("relationship_policy") if isinstance(context.get("relationship_policy"), dict) else {}
+        context["relationship_policy"] = {
+            "authoritative_start_snapshot": previous_policy.get("authoritative_start_snapshot", {}),
+            "source_of_truth": "persistent relationship_documents synchronized to relationships",
+            "common_index_path": "relationship_index.characters",
+            "footer_is_display_only": True,
+            "footer_is_transaction_gate": False,
+            "footer_required_for_every_present_npc": False,
+            "fresh_baseline_required": False,
+            "new_dimensions_may_be_appended": True,
+            "zero_dimensions_may_be_hidden": False,
+            "change_requires_reason": True,
+            "limits": {"ordinary": 3, "timeskip_per_day": 3, "timeskip_cap": 30, "critical_event": 25},
+        }
 
         persistence = context.get("persistence_contract") if isinstance(context.get("persistence_contract"), dict) else {}
         persistence["relationship_updates"] = {
             "optional": True,
-            "when": "Only when this turn causally changes numeric relationship state or relationship opinion/dynamic.",
-            "ordinary_example": {
-                "character_id": "npc_id",
-                "reason": "Concrete event and why this NPC reacted to it",
-                "change_scale": "ordinary",
-                "dimensions": [{"label": "доверие", "value": 12, "delta": 1}],
-            },
-            "timeskip_example": {
-                "character_id": "npc_id",
-                "reason": "Five days of repeated close contact",
-                "change_scale": "timeskip",
-                "elapsed_game_days": 5,
-                "dimensions": [{"label": "привязанность", "value": 20, "delta": 10}],
-            },
-            "critical_example": {
-                "character_id": "npc_id",
-                "reason": "Serious betrayal of a secret this NPC personally entrusted to POV",
-                "change_scale": "critical_event",
-                "dimensions": [{"label": "доверие", "value": 25, "delta": -15}],
-            },
-            "instruction": (
-                "Existing metric changes require delta; unchanged metrics are omitted from relationship_updates but remain persistent. "
-                "Every real change requires reason. Mere mention/thread/cast relevance is not participation. Direct current-turn contact "
-                "such as a real conversation, message or call counts when extracted evidence identifies that NPC. A timeskip may also aggregate "
-                "repeated contact or deliberate avoidance for an NPC explicitly named by the player."
-            ),
+            "when": "causal NPC->POV change only",
+            "fields": "character_id, reason, change_scale, elapsed_game_days(timeskip), dimensions[label,value,delta(existing)]",
+            "instruction": "Existing metric needs delta+reason. ordinary<=3; timeskip=3/day cap30; critical_event<=25. Mere mention is not contact.",
         }
         context["persistence_contract"] = persistence
 
         living = context.get("living_world") if isinstance(context.get("living_world"), dict) else {}
         model = living.get("relationship_model") if isinstance(living.get("relationship_model"), dict) else {}
-        model["behavior_rule"] = (
-            "Relationship values are behavioral inputs, not automatic actions. High attachment/closeness/sympathy may support seeking "
-            "contact; high resentment/jealousy/suspicion may support confrontation, testing, avoidance or interference depending on "
-            "character. Character personality decides which response is natural."
-        )
+        model["behavior_rule"] = "Use metrics through character/context: strong bonds may cause contact, avoidance, testing, help or conflict."
         living["relationship_model"] = model
         context["living_world"] = living
 
