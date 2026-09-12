@@ -315,8 +315,9 @@ def _prepare_extracted_for_commit(
 ) -> tuple[Dict[str, Any], Dict[str, Any]]:
     if _ORIGINAL_PREPARE_EXTRACTED_FOR_COMMIT is None:
         raise RuntimeError("RELATIONSHIP_GROWTH_RUNTIME_NOT_INSTALLED")
-    # Preserve old GPT installations: a valid small footer delta becomes a relationship_update fallback.
-    prepared_payload = _merge_footer_delta_fallbacks(payload, root=root)
+    # The visible footer is display-only. Canonical relationship changes must arrive explicitly
+    # through causal relationship_updates validated by relationship_policy_runtime.
+    prepared_payload = deepcopy(payload)
     # Never let the visible footer itself overwrite persistent numeric canon.
     prepared_payload["scene_output"] = _strip_relationship_footer(str(prepared_payload.get("scene_output") or ""))
     return _ORIGINAL_PREPARE_EXTRACTED_FOR_COMMIT(
