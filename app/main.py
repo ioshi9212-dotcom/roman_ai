@@ -86,6 +86,16 @@ def novel_draft_section_save(draft_id: str, body: NovelDraftSection):
     except KeyError:
         raise HTTPException(status_code=422, detail="Unknown section_name")
     except (ValueError, TypeError) as exc:
+        if str(exc) == "INTAKE_BLOCK_SOURCE_IMMUTABLE":
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "This intake block_id already exists with different raw_text or stage. "
+                    "For new material, create a new unique block_id and send only that new block. "
+                    "If you only need to add fact_ids to an existing block, reuse its exact raw_text "
+                    "and stage from the current draft; never reconstruct them from memory."
+                ),
+            )
         raise HTTPException(status_code=422, detail=f"Invalid section_json: {exc}")
 
 
