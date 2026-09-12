@@ -10,6 +10,7 @@ from . import runtime_fixes as base
 from . import runtime_fixes_compat as compat
 from . import session_runtime, storage, writer_first_runtime
 from .transactional_storage import session_transaction
+from .relationship_metadata import relationship_participant_ids
 
 
 _ORIGINAL_PREPARE = None
@@ -150,13 +151,12 @@ def _split_relationship_metadata(
     state = storage._read_json(root / "state.json", {})
     source = storage._read_json(root / "source.json", {})
     cards = storage._load_cards(root, source)
-    packet = storage._read_json(root / "turn_packet.json", {})
-    allowed_ids = {str(value) for value in storage._present_character_ids(state)}
-    allowed_ids.update(_packet_relevant_ids(packet))
-    allowed_ids.update(
-        storage._card_id(row)
-        for row in extracted.get("character_upserts", [])
-        if isinstance(row, dict) and storage._card_id(row)
+    allowed_ids = relationship_participant_ids(
+        cards,
+        state,
+        extracted,
+        resolve_character_id=base._resolve_character_id,
+        present_character_ids=storage._present_character_ids,
     )
 
     metadata: List[Dict[str, Any]] = []
