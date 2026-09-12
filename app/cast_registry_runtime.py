@@ -33,6 +33,18 @@ def _relation_strength(state: Dict[str, Any], character_id: str) -> float:
     return min(1.0, maximum / 10.0 if maximum <= 10 else maximum / 100.0)
 
 
+def _relationship_signals(state: Dict[str, Any], character_id: str) -> Dict[str, float]:
+    relationships = state.get("relationships") if isinstance(state.get("relationships"), dict) else {}
+    row = relationships.get(character_id) if isinstance(relationships.get(character_id), dict) else {}
+    values = {
+        str(label): float(value)
+        for label, value in row.items()
+        if isinstance(value, (int, float)) and not isinstance(value, bool) and float(value) != 0
+    }
+    ranked = sorted(values.items(), key=lambda item: abs(item[1]), reverse=True)[:4]
+    return {label: value for label, value in ranked}
+
+
 def _has_open_intent(state: Dict[str, Any], character_id: str) -> bool:
     intents = state.get("npc_intents")
     rows: Any = []
@@ -131,6 +143,13 @@ def _rotation_pressure(
         }
         if relation:
             item["relationship_salience"] = round(relation, 2)
+            signals = _relationship_signals(state, cid)
+            if signals:
+                item["relationship_signals"] = signals
+                item["relationship_behavior_note"] = (
+                    "Use these values through this NPC's character. Strong warm/attachment metrics may support contact; "
+                    "strong resentment/fear/suspicion may instead support avoidance, testing, confrontation or interference."
+                )
         if has_intent:
             item["open_intent"] = True
         summary = row.get("last_meaningful_event")
@@ -281,8 +300,9 @@ def _rewrite_packet(session_id: str, base_result: Dict[str, Any]) -> Dict[str, A
             "rotation_pressure": pressure,
             "instruction": (
                 "Use character_registry for names/roles and rotation_pressure as anti-forgetting priority. "
-                "Player-created cast stays eligible; strong relationships/open intents increase frequency. "
-                "Re-entry must be causal and offscreen participation requires the character bundle."
+                "Player-created cast stays eligible; strong relationships/open intents increase narrative salience. "
+                "Relationship type changes HOW initiative appears: contact, avoidance, testing, help, jealousy or conflict must follow "
+                "the specific NPC. Re-entry must be causal and offscreen participation requires the character bundle."
             ),
         }
 
