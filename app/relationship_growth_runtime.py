@@ -47,9 +47,9 @@ def _bounded_scene_delta(value: Any) -> float | None:
     if not _is_number(value):
         return None
     number = float(value)
-    # Scene builder allows small per-turn movement. An absurd old/stale footer delta is ignored,
-    # not turned into a destructive canonical jump and not rejected with a 409.
-    if abs(number) > 3:
+    # Canonical validation happens in relationship_policy_runtime and may permit larger
+    # time-skip or critical-event deltas. Keep only a hard corruption guard here.
+    if abs(number) > 30:
         return None
     return number
 
@@ -364,8 +364,8 @@ def _install_packet_policy_wrapper() -> None:
             "zero_dimensions_may_be_hidden": True,
             "new_dimensions_may_be_appended": True,
             "instruction": (
-                "Existing metrics change only through relationship_updates delta; Railway applies saved+delta. "
-                "Omitted metrics persist. Same rule if NPC stays or leaves. Footer is display only."
+                "Existing metrics change only through causal relationship_updates; Railway applies saved+delta. "
+                "Omitted metrics persist. Footer is display only; relationship_policy defines allowed change scale."
             ),
         })
         context["relationship_policy"] = policy
