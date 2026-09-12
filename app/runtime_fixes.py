@@ -14,7 +14,11 @@ from .relationship_runtime import (
     relationship_patch_from_scene,
     repair_relationship_state,
 )
-from .relationship_metadata import apply_relationship_metadata, metadata_rows_from_payload
+from .relationship_metadata import (
+    apply_relationship_metadata,
+    metadata_rows_from_payload,
+    relationship_participant_ids,
+)
 from .session_runtime import (
     _canonicalize_state_character_refs,
     _normalise_chronology_events,
@@ -325,6 +329,31 @@ def _hidden_relationship_scene(
     return "Отношения:\n" + "\n".join(lines) if lines else ""
 
 
+def _validate_relationship_update_participants(
+    updates: Any,
+    *,
+    cards: List[Dict[str, Any]],
+    participant_ids: set[str],
+) -> None:
+    if updates in (None, []):
+        return
+    if not isinstance(updates, list):
+        _http_error(409, "RELATIONSHIP_UPDATES_INVALID", "relationship_updates must be an array.")
+    for raw in updates:
+        if not isinstance(raw, dict):
+            _http_error(409, "RELATIONSHIP_UPDATES_INVALID", "Each relationship update must be an object.")
+        owner_id = _resolve_character_id(cards, raw.get("character_id"))
+        if not owner_id:
+            _http_error(409, "RELATIONSHIP_UPDATES_INVALID", "Unknown character_id in relationship_updates.")
+        if str(owner_id) not in participant_ids:
+            _http_error(
+                409,
+                "RELATIONSHIP_UPDATE_FOR_UNSEEN_NPC",
+                "Relationship change is allowed only for an NPC who concretely participated in this turn; "
+                "mere mention, thread membership or cast relevance is not participation.",
+            )
+
+
 def _mark_relationship_change_turn(
     patch: Dict[str, Any],
     *,
@@ -400,6 +429,20 @@ def _prepare_extracted_for_commit(
 
     state_after = storage._deep_merge(state_before, state_patch) if state_patch else deepcopy(state_before)
     state_after = _canonicalize_state_character_refs(cards, state_after)
+
+    participant_ids = relationship_participant_ids(
+        cards,
+        state_before,
+        result,
+        resolve_character_id=_resolve_character_id,
+        present_character_ids=storage._present_character_ids,
+        state_after=state_after,
+    )
+    _validate_relationship_update_participants(
+        result.get("relationship_updates"),
+        cards=cards,
+        participant_ids=participant_ids,
+    )
 
     current = state_after.get("current") if isinstance(state_after.get("current"), dict) else {}
     if isinstance(state_patch.get("current"), dict) and "present_characters" in state_patch["current"]:
