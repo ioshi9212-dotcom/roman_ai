@@ -146,7 +146,8 @@ def test_character_driven_behavior_has_no_psychology_or_boundary_filter():
     assert "он не коснулся её, хотя мог" in forbidden
     assert "оставил ей пространство" in forbidden
     assert "Не пропускай его решения через авторский фильтр" in instruction
-    assert "значимая реакция POV остаётся игроку" in instruction
+    assert "игроку остаётся только значимая реакция-решение POV" in instruction
+    assert "не исчезают" in rule["player_boundary"]
 
 
 def test_npc_intent_drive_treats_evasion_as_unresolved():
@@ -226,7 +227,7 @@ def test_prepare_turn_packet_contains_noncanonical_narrative_guardrails():
         context = json.loads("".join(parts))
 
         signals = context["narrative_guardrails"]
-        assert signals["version"] == 9
+        assert signals["version"] == 10
         assert signals["pov_activity"]["mandatory"] is True
         assert signals["pov_activity"]["ordinary_dialogue_required_when_natural"] is True
         assert signals["pov_activity"]["silence_requires_character_or_scene_reason"] is True
