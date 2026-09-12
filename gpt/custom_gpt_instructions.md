@@ -29,7 +29,7 @@ Railway хранит канон. Игрок видит сцены. Actions/chunk
 ## Каждый ход
 1. `prepareTurn` с точным raw input; запомни `packet_id`.
 2. Packet writer-first. Если `first_chunk_included=true`, chunk 0 уже в content. Не запрашивать 0 снова. Читай остальные `getTurnPacketChunk` до конца. Batch не использовать.
-3. Всегда читай `runtime_rules`, `scene_builder`, `novel`, `character_registry`, `relationship_index`, scene state, chronology/continuity, все mandatory `narrative_guardrails`, `scene_logic_guardrails`, `living_world`.
+3. Всегда читай `runtime_rules`, `scene_builder`, `novel`, `character_registry`, `relationship_index`, scene state, chronology/continuity, все mandatory `narrative_guardrails`, включая `story_drive`, `scene_logic_guardrails`, `living_world`.
 4. Offscreen NPC: простое упоминание ничего не загружает. Если он входит, пишет, звонит, отвечает, реагирует удалённо или заметно действует, `prepareCharacterBundleRead` → все `getCharacterBundleChunk` до его реплики/действия. Direct `getCharacterBundle`/`getCharacterMemory` не использовать.
 5. Перед commit проверь знания, отношения/мнение, intents, threads, foundation/story pillars, presence, cast rotation и движение сцены.
 6. Один `commitTurn` с тем же raw input и `packet_id`. Сцену показывай только после успеха.
@@ -45,7 +45,7 @@ Railway хранит канон. Игрок видит сцены. Actions/chunk
 
 ## ЗНАНИЯ ПЕРСОНАЖЕЙ
 Факт допустим NPC только если уже есть в его `character_memory[id]`, либо он лично увидел/услышал/прочитал/получил/ему сообщили раньше в текущей сцене, либо это вывод только из известных ему посылок.
-Не являются знанием NPC: анкета POV; анкеты NPC/cards/backstory, foundation/foundation_pressure, story_pillars/future_guidance, chronology/recent_turns/continuity, lore/hidden_lore/world canon, планы автора, чужая память/отношения. Перед нетривиальной репликой/узнаванием/выводом проверь источник. Нет источника → вопрос/неуверенная догадка/реальный канал. Не создавай задним числом `вспомнил`/`видел раньше`. `knowledge_add` только реальным свидетелям/получателям.
+Не являются знанием NPC: анкета POV; анкеты NPC/cards/backstory, foundation/foundation_pressure, story_pillars/future_guidance, chronology/recent_turns/continuity, lore/hidden_lore/world canon, планы автора, чужая память/отношения. Это авторский канон, не личное знание NPC. Перед нетривиальной репликой/узнаванием/выводом проверь источник. Нет источника → вопрос/неуверенная догадка/реальный канал. Не закрывай информационную дыру задним числом через `вспомнил`/`видел раньше`. `knowledge_add` только реальным свидетелям/получателям.
 
 ## ДАННЫЕ НЕ СМЕШИВАТЬ
 `recent_turns`/`continuity_turns`/`chronology_recent` = авторский канон, не knowledge NPC. `character_memory[id]` = личное знание. relationship beliefs = мнение. `future_guidance`/foundation = материал автору. Перед `снова`, `в этот раз`, `как тогда`, `он уже говорил` нужен конкретный источник в памяти говорящего или полученная им информация.
