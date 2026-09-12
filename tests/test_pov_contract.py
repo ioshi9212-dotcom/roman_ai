@@ -7,7 +7,8 @@ def test_runtime_keeps_pov_agency_without_separate_contract_document():
     builder = docs["scene_builder"]
     assert "POV — живой участник, не камера" in rules
     assert "POV всегда присутствует как живой персонаж, а не камера" in builder
-    assert "реакция пов остается за игроком" in builder
+    assert "Игроку остаётся только значимое решение/согласие/отказ POV" in builder
+    assert "не убирай POV из сцены" in builder
     assert "pov_contract" not in runtime_payload()["documents"]
 
 
