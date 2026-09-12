@@ -215,7 +215,7 @@ def test_departing_npc_small_footer_delta_is_recovered_for_backward_compatibilit
         assert "adrian" not in state["current"]["present_characters"]
 
 
-def test_bad_absolute_relationship_value_does_not_override_saved_baseline_plus_delta():
+def test_bad_visible_relationship_arithmetic_is_rejected_without_mutation():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         sid = storage.create_session(
@@ -223,22 +223,25 @@ def test_bad_absolute_relationship_value_does_not_override_saved_baseline_plus_d
         )["session_id"]
 
         read_turn_packet(sid, "test")
-        session_runtime.commit_turn(
-            sid,
-            {
-                "user_input": "test",
-                "scene_output": """🎭 Runtime fixes
+        with pytest.raises(HTTPException) as exc:
+            session_runtime.commit_turn(
+                sid,
+                {
+                    "user_input": "test",
+                    "scene_output": """🎭 Runtime fixes
 
 Состояние: вместе
 Отношения:
 Эдриан - симпатия 15/+2
 
 Ход 1 · цикл 1/15""",
-                "extracted": reviewed(),
-            },
-        )
+                    "extracted": reviewed(),
+                },
+            )
+        assert exc.value.status_code == 409
+        assert exc.value.detail["code"] == "RELATIONSHIP_ARITHMETIC_MISMATCH"
         state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
-        assert state["relationships"]["adrian"]["симпатия"] == 12
+        assert state["relationships"]["adrian"]["симпатия"] == 10
 
 
 def test_audit_repairs_keep_original_turns_and_generate_ids():
