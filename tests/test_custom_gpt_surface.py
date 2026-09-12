@@ -73,3 +73,5 @@ def test_custom_gpt_instruction_stays_small_and_matches_writer_first_transport()
     assert "updateDraftIntakeMapping" in text
     assert "[полный текст...]" in text
     assert "не проси повторить текст из-за размера" in text
+    assert "запускай первую сцену" in text
+    assert "не проси первый ход" in text
