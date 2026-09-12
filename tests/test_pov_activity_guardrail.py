@@ -42,7 +42,7 @@ def test_pov_activity_automates_minutiae_and_requires_natural_ordinary_dialogue(
     assert "несколько обычных обменов репликами" in instruction
     assert "Молчание допустимо" in instruction
     assert "не убирай POV из сцены" in instruction
-    assert "непосредственные не-решающие реакции" in automatic
+    assert "не являющаяся решением" in automatic
     assert "не убирай POV из сцены" in instruction
     assert "непосредственные не-решающие реакции" in automatic
 
