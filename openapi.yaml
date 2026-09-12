@@ -1,8 +1,8 @@
 openapi: 3.1.0
 info:
   title: Roman AI
-  version: 1.13.0
-  description: Persistent isolated novel sessions with bounded writer-first context, transactional memory, living NPC relationships, NPC intents, story threads, recovery, rollback, cast rotation and additive setup intake.
+  version: 1.14.0
+  description: Persistent isolated novel sessions with bounded writer-first context, transactional memory, living NPC relationships, NPC intents, story threads, recovery, rollback, cast rotation and lossless chunked setup intake.
 servers:
   - url: https://romanai-production-0fdb.up.railway.app
 components:
@@ -22,6 +22,25 @@ components:
           type: string
           enum: [novel, characters, lore, rules, hidden_lore, world, starting_state, story_direction, foundation, intake]
         section_json: {type: string}
+    NovelDraftIntakeChunk:
+      type: object
+      required: [block_id, stage, chunk_index, raw_text]
+      properties:
+        block_id: {type: string, minLength: 1, maxLength: 120}
+        stage: {type: string, minLength: 1, maxLength: 120}
+        chunk_index: {type: integer, minimum: 0}
+        raw_text: {type: string, minLength: 1, maxLength: 12000}
+        is_last: {type: boolean, default: false}
+      additionalProperties: false
+    NovelDraftIntakeMapping:
+      type: object
+      properties:
+        fact_ids:
+          type: array
+          items: {type: string}
+        reviewed_against_raw: {type: boolean, default: false}
+        contains_no_facts: {type: boolean, default: false}
+      additionalProperties: false
     SessionCreate:
       type: object
       required: [novel_id]
@@ -249,6 +268,35 @@ paths:
             schema: {$ref: '#/components/schemas/NovelDraftSection'}
       responses:
         '200': {description: Updated draft status including intake_coverage when intake exists}
+  /novel-drafts/{draft_id}/intake/chunks:
+    post:
+      operationId: appendDraftIntakeChunk
+      summary: Append one verbatim chunk of a large intake block
+      description: Send chunks in order from 0. Exact retries are idempotent. Set is_last only on the final chunk; Railway then assembles one immutable raw intake block.
+      parameters:
+        - {in: path, name: draft_id, required: true, schema: {type: string}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/NovelDraftIntakeChunk'}
+      responses:
+        '200': {description: Upload progress or completed immutable intake block}
+  /novel-drafts/{draft_id}/intake/{block_id}/mapping:
+    post:
+      operationId: updateDraftIntakeMapping
+      summary: Map a stored raw intake block to existing foundation facts
+      description: Add fact_ids and mark review state without resending raw_text. Unknown fact_ids are rejected; save foundation facts first.
+      parameters:
+        - {in: path, name: draft_id, required: true, schema: {type: string}}
+        - {in: path, name: block_id, required: true, schema: {type: string}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/NovelDraftIntakeMapping'}
+      responses:
+        '200': {description: Updated draft status and intake coverage}
   /novel-drafts/{draft_id}:
     get:
       operationId: getNovelDraftStatus
