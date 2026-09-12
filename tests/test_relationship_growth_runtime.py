@@ -65,14 +65,74 @@ def test_multiple_allowed_dimensions_can_accumulate_without_replacing_old_ones()
         assert state["relationships"]["adrian"] == {"симпатия": 10, "доверие": 5, "ревность": 3, "уважение": 7}
 
 
-def test_zero_dimensions_may_be_hidden_but_remain_persisted():
+def test_zero_dimensions_must_remain_visible_for_present_npc():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         sid = storage.create_session(novel({"ревность": 0, "доверие": 0}))["session_id"]
         read_packet(sid, "quiet")
-        session_runtime.commit_turn(sid, {"user_input": "quiet", "scene_output": scene(""), "extracted": extracted()})
+        with pytest.raises(HTTPException) as exc:
+            session_runtime.commit_turn(
+                sid,
+                {"user_input": "quiet", "scene_output": scene(""), "extracted": extracted()},
+            )
+        assert exc.value.status_code == 409
+        assert exc.value.detail["code"] == "RELATIONSHIP_FOOTER_INCOMPLETE"
         state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
         assert state["relationships"]["adrian"] == {"ревность": 0, "доверие": 0}
+
+
+def test_existing_positive_metric_cannot_disappear_from_next_visible_footer():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(novel({"симпатия": 1, "настороженность": 2}))["session_id"]
+        read_packet(sid, "next")
+        with pytest.raises(HTTPException) as exc:
+            session_runtime.commit_turn(
+                sid,
+                {
+                    "user_input": "next",
+                    "scene_output": scene("настороженность 2"),
+                    "extracted": extracted(),
+                },
+            )
+        assert exc.value.status_code == 409
+        assert exc.value.detail["code"] == "RELATIONSHIP_FOOTER_INCOMPLETE"
+
+
+def test_existing_metric_may_reach_zero_only_with_visible_delta():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(novel({"симпатия": 1, "настороженность": 2}))["session_id"]
+        read_packet(sid, "cooler")
+        session_runtime.commit_turn(
+            sid,
+            {
+                "user_input": "cooler",
+                "scene_output": scene("симпатия 0/-1; настороженность 2"),
+                "extracted": extracted(),
+            },
+        )
+        state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
+        assert state["relationships"]["adrian"]["симпатия"] == 0
+        assert state["relationships"]["adrian"]["настороженность"] == 2
+
+
+def test_existing_metric_absolute_change_without_delta_is_rejected():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(novel({"симпатия": 1}))["session_id"]
+        read_packet(sid, "cooler")
+        with pytest.raises(HTTPException) as exc:
+            session_runtime.commit_turn(
+                sid,
+                {
+                    "user_input": "cooler",
+                    "scene_output": scene("симпатия 0"),
+                    "extracted": extracted(),
+                },
+            )
+        assert exc.value.status_code == 409
+        assert exc.value.detail["code"] == "RELATIONSHIP_DELTA_REQUIRED"
 
 
 def test_unknown_visible_dimension_is_ignored_without_blocking_valid_saved_changes():
