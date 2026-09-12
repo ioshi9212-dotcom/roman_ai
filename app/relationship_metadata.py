@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from typing import Any, Dict, Iterable, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Tuple
 
 
 _METADATA_KEYS = (
@@ -12,6 +12,69 @@ _METADATA_KEYS = (
     "relationship_type",
     "relationship_context",
 )
+
+
+def relationship_participant_ids(
+    cards: List[Dict[str, Any]],
+    state_before: Dict[str, Any],
+    extracted: Dict[str, Any],
+    *,
+    resolve_character_id: Callable[[List[Dict[str, Any]], Any], str | None],
+    present_character_ids: Callable[[Dict[str, Any]], List[str]],
+    state_after: Dict[str, Any] | None = None,
+) -> set[str]:
+    """Return ids with concrete evidence of participation in this turn.
+
+    Mention in user input, cast pressure, active threads, or packet relevance is not participation.
+    Physical presence/transition and explicit current-turn memory ownership are.
+    """
+    result = {str(value) for value in present_character_ids(state_before) if value}
+    if isinstance(state_after, dict):
+        result.update(str(value) for value in present_character_ids(state_after) if value)
+
+    def add(raw: Any) -> None:
+        resolved = resolve_character_id(cards, raw)
+        if resolved:
+            result.add(str(resolved))
+
+    for row in extracted.get("presence_updates", []) if isinstance(extracted.get("presence_updates"), list) else []:
+        if isinstance(row, dict):
+            add(row.get("character_id") or row.get("id") or row.get("name"))
+
+    state_patch = extracted.get("state_patch")
+    current_patch = state_patch.get("current") if isinstance(state_patch, dict) and isinstance(state_patch.get("current"), dict) else {}
+    direct = current_patch.get("present_characters")
+    if isinstance(direct, list):
+        for value in direct:
+            add(value)
+    elif direct not in (None, "", {}, []):
+        add(direct)
+
+    for row in extracted.get("character_upserts", []) if isinstance(extracted.get("character_upserts"), list) else []:
+        if isinstance(row, dict):
+            add(row.get("character_id") or row.get("id") or row.get("name"))
+
+    dialogue_keys = (
+        "participants", "participant_ids", "character_id", "asked_by", "asked_to",
+        "speaker", "listener", "said_by", "heard_by",
+    )
+    for row in extracted.get("dialogue_memory_add", []) if isinstance(extracted.get("dialogue_memory_add"), list) else []:
+        if not isinstance(row, dict):
+            continue
+        for key in dialogue_keys:
+            value = row.get(key)
+            if isinstance(value, list):
+                for item in value:
+                    add(item)
+            elif value not in (None, ""):
+                add(value)
+
+    for field in ("knowledge_add", "experiences_add"):
+        for row in extracted.get(field, []) if isinstance(extracted.get(field), list) else []:
+            if isinstance(row, dict):
+                add(row.get("character_id") or row.get("owner_character_id"))
+
+    return result
 
 
 def apply_relationship_metadata(
