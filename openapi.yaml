@@ -40,6 +40,27 @@ components:
           items: {type: string}
         reviewed_against_raw: {type: boolean, default: false}
         contains_no_facts: {type: boolean, default: false}
+        replace: {type: boolean, default: false}
+        expected_revision: {type: integer, minimum: 0}
+      additionalProperties: false
+    NovelDraftReconciliation:
+      type: object
+      required: [expected_revision, confirmed_against_raw, unresolved_conflicts]
+      properties:
+        expected_revision: {type: integer, minimum: 0}
+        confirmed_against_raw: {type: boolean}
+        unresolved_conflicts:
+          type: array
+          items: {type: string}
+        notes: {type: string}
+      additionalProperties: false
+    NovelDraftLaunchState:
+      type: object
+      required: [expected_finalized_revision, starting_state_json]
+      properties:
+        expected_finalized_revision: {type: integer, minimum: 0}
+        starting_state_json: {type: string}
+        launch_hint: {type: string}
       additionalProperties: false
     SessionCreate:
       type: object
@@ -308,6 +329,38 @@ paths:
             schema: {$ref: '#/components/schemas/NovelDraftIntakeMapping'}
       responses:
         '200': {description: Updated draft status and intake coverage}
+  /novel-drafts/{draft_id}/reconciliation:
+    post:
+      operationId: confirmDraftReconciliation
+      summary: Confirm full raw-to-structured reconciliation for the current draft revision
+      description: Requires a complete read of the same revision. Any later write invalidates this reconciliation and requires another full read and confirmation.
+      parameters:
+        - {in: path, name: draft_id, required: true, schema: {type: string}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/NovelDraftReconciliation'}
+      responses:
+        '200': {description: Current revision reconciled}
+        '409': {description: Revision, full-read, coverage or conflict check failed}
+
+  /novel-drafts/{draft_id}/launch-state:
+    post:
+      operationId: setDraftLaunchState
+      summary: Set the first-scene starting state after setup content is finalized
+      description: v3 only. Stores launch state separately from setup content, so choosing a first scene does not invalidate the reconciled content revision.
+      parameters:
+        - {in: path, name: draft_id, required: true, schema: {type: string}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/NovelDraftLaunchState'}
+      responses:
+        '200': {description: Launch state validated and stored}
+        '409': {description: Draft or launch state is not valid}
+
   /novel-drafts/{draft_id}:
     get:
       operationId: getNovelDraftStatus
