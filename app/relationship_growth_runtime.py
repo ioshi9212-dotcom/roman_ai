@@ -385,8 +385,8 @@ def _install_packet_policy_wrapper() -> None:
             "zero_dimensions_may_be_hidden": True,
             "new_dimensions_may_be_appended": True,
             "instruction": (
-                "Existing metrics change only through relationship_updates delta; Railway applies saved+delta. "
-                "Omitted metrics persist. Same rule if NPC stays or leaves. Footer is display only."
+                "Existing metrics: relationship_updates delta -3..+3, Railway applies saved+delta. "
+                "Omitted metrics persist; footer is display only."
             ),
         })
         context["relationship_policy"] = policy
@@ -397,10 +397,8 @@ def _install_packet_policy_wrapper() -> None:
             "when": "Only on a real numeric or relationship-metadata change.",
             "format": '[{"character_id":"npc_id","dimensions":[{"label":"доверие","value":12,"delta":2}]}]',
             "instruction": (
-                "Existing metric: send delta within -3..+3; Railway applies saved baseline + delta. "
-                "Omit unchanged metrics. Relationship changes are allowed only for an NPC with concrete "
-                "current-turn participation: physical presence/transition or direct current-turn contact/memory; "
-                "mere mention, thread membership or cast relevance does not count."
+                "Existing metric: delta -3..+3, saved+delta. Only concrete participants may change: "
+                "presence/transition or direct current-turn contact; mention/thread/cast does not count."
             ),
         }
         context["persistence_contract"] = persistence
