@@ -34,8 +34,10 @@ def read_packet(sid, user_input):
     return json.loads(text)
 
 
-def extracted():
-    return {"persistence_reviewed": True, "chronology": [], "knowledge_add": [], "experiences_add": [], "dialogue_memory_add": []}
+def extracted(**extra):
+    result = {"persistence_reviewed": True, "chronology": [], "knowledge_add": [], "experiences_add": [], "dialogue_memory_add": []}
+    result.update(extra)
+    return result
 
 
 def scene(metrics, turn=1):
@@ -48,7 +50,20 @@ def test_new_dimension_is_appended_after_initial_schema():
         setup_temp_storage(tmp)
         sid = storage.create_session(novel({"симпатия": 10, "настороженность": 8}))["session_id"]
         read_packet(sid, "test")
-        session_runtime.commit_turn(sid, {"user_input": "test", "scene_output": scene("симпатия 11/+1; настороженность 7/-1; доверие 6/+6"), "extracted": extracted()})
+        updates = [{
+            "character_id": "adrian",
+            "reason": "Конкретное взаимодействие усилило симпатию и доверие, но немного снизило настороженность.",
+            "change_scale": "ordinary",
+            "dimensions": [
+                {"label": "симпатия", "value": 11, "delta": 1},
+                {"label": "настороженность", "value": 7, "delta": -1},
+                {"label": "доверие", "value": 6},
+            ],
+        }]
+        session_runtime.commit_turn(
+            sid,
+            {"user_input": "test", "scene_output": scene("симпатия 11/+1; настороженность 7/-1; доверие 6"), "extracted": extracted(relationship_updates=updates)},
+        )
         state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
         assert state["relationships"]["adrian"] == {"симпатия": 11, "настороженность": 7, "доверие": 6}
 
@@ -58,34 +73,68 @@ def test_multiple_allowed_dimensions_can_accumulate_without_replacing_old_ones()
         setup_temp_storage(tmp)
         sid = storage.create_session(novel({"симпатия": 10}))["session_id"]
         read_packet(sid, "one")
-        session_runtime.commit_turn(sid, {"user_input": "one", "scene_output": scene("симпатия 10; доверие 4/+4; ревность 3/+3"), "extracted": extracted()})
+        session_runtime.commit_turn(
+            sid,
+            {
+                "user_input": "one",
+                "scene_output": scene("симпатия 10; доверие 4; ревность 3"),
+                "extracted": extracted(relationship_updates=[{
+                    "character_id": "adrian",
+                    "reason": "Первый конфликт сформировал доверие и ревность как новые значимые оси.",
+                    "change_scale": "ordinary",
+                    "dimensions": [
+                        {"label": "доверие", "value": 4},
+                        {"label": "ревность", "value": 3},
+                    ],
+                }]),
+            },
+        )
         read_packet(sid, "two")
-        session_runtime.commit_turn(sid, {"user_input": "two", "scene_output": scene("симпатия 10; доверие 5/+1; ревность 3; уважение 7/+7", turn=2), "extracted": extracted()})
+        session_runtime.commit_turn(
+            sid,
+            {
+                "user_input": "two",
+                "scene_output": scene("симпатия 10; доверие 5/+1; ревность 3; уважение 7", turn=2),
+                "extracted": extracted(relationship_updates=[{
+                    "character_id": "adrian",
+                    "reason": "Следующий поступок немного укрепил доверие и впервые дал основание для уважения.",
+                    "change_scale": "ordinary",
+                    "dimensions": [
+                        {"label": "доверие", "value": 5, "delta": 1},
+                        {"label": "уважение", "value": 7},
+                    ],
+                }]),
+            },
+        )
         state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
         assert state["relationships"]["adrian"] == {"симпатия": 10, "доверие": 5, "ревность": 3, "уважение": 7}
 
 
-def test_zero_dimensions_may_be_hidden_but_remain_persisted():
+def test_zero_dimensions_must_remain_visible_for_present_npc():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         sid = storage.create_session(novel({"ревность": 0, "доверие": 0}))["session_id"]
         read_packet(sid, "quiet")
-        session_runtime.commit_turn(sid, {"user_input": "quiet", "scene_output": scene(""), "extracted": extracted()})
+        with pytest.raises(HTTPException) as exc:
+            session_runtime.commit_turn(sid, {"user_input": "quiet", "scene_output": scene(""), "extracted": extracted()})
+        assert exc.value.detail["code"] == "RELATIONSHIP_FOOTER_INCOMPLETE"
         state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
         assert state["relationships"]["adrian"] == {"ревность": 0, "доверие": 0}
 
 
-def test_unknown_visible_dimension_is_ignored_without_blocking_valid_saved_changes():
+def test_new_visible_dimension_cannot_write_canon_without_causal_update():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         sid = storage.create_session(novel({"доверие": 3, "настороженность": 4}))["session_id"]
         read_packet(sid, "conflict")
-        session_runtime.commit_turn(
-            sid,
-            {"user_input": "conflict", "scene_output": scene("доверие 1/-2; настороженность 5/+1; скепсис 6/+6"), "extracted": extracted()},
-        )
+        with pytest.raises(HTTPException) as exc:
+            session_runtime.commit_turn(
+                sid,
+                {"user_input": "conflict", "scene_output": scene("доверие 3; настороженность 4; скепсис 6"), "extracted": extracted()},
+            )
+        assert exc.value.detail["code"] == "RELATIONSHIP_CHANGE_REASON_REQUIRED"
         state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
-        assert state["relationships"]["adrian"] == {"доверие": 1, "настороженность": 5}
+        assert state["relationships"]["adrian"] == {"доверие": 3, "настороженность": 4}
 
 
 def test_unknown_new_dimension_in_canonical_relationship_update_is_rejected():
@@ -95,7 +144,12 @@ def test_unknown_new_dimension_in_canonical_relationship_update_is_rejected():
         read_packet(sid, "conflict")
         payload = extracted()
         payload["relationship_updates"] = [
-            {"character_id": "adrian", "dimensions": [{"label": "скепсис", "value": 6, "delta": 1}]}
+            {
+                "character_id": "adrian",
+                "reason": "Конфликт вызвал новую реакцию.",
+                "change_scale": "ordinary",
+                "dimensions": [{"label": "скепсис", "value": 6, "delta": 1}],
+            }
         ]
         with pytest.raises(HTTPException) as exc:
             session_runtime.commit_turn(
