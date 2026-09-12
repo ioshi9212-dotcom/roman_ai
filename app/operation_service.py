@@ -11,6 +11,7 @@ from .operation_receipts import (
     request_fingerprint,
 )
 from .turn_rollback import RollbackError, rollback_last_turn
+from .pov_participation_guard import validate_pov_participation
 
 
 def _session_root(session_id: str):
@@ -39,6 +40,8 @@ def commit_turn_request(session_id: str, payload: Dict[str, Any]) -> Dict[str, A
     packet = storage._read_json(root / "turn_packet.json", {})
     if not isinstance(packet, dict) or str(packet.get("packet_id") or "") != packet_id:
         raise RuntimeError("TURN_PACKET_REQUIRED")
+
+    validate_pov_participation(session_id, str(payload.get("scene_output") or ""))
 
     prepared = deepcopy(payload)
     prepared["_operation_receipt"] = {
