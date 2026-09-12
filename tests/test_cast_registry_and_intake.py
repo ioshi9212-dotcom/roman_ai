@@ -24,6 +24,124 @@ def _read_working_draft_fully(draft_id: str):
     return manifest
 
 
+def test_chunked_large_intake_reconstructs_exact_raw_without_placeholder_or_summary():
+    with tempfile.TemporaryDirectory() as tmp:
+        _setup_storage(tmp)
+        draft_id = create_draft("chunked_raw", "Chunked Raw", version=2)["draft_id"]
+        raw = ("Первая часть с пробелами и переносом.\n" * 400) + "ФИНАЛ БЕЗ ПОТЕРЬ."
+        chunks = [raw[index:index + 7000] for index in range(0, len(raw), 7000)]
+        for index, chunk in enumerate(chunks):
+            result = draft_intake_runtime.append_intake_chunk(
+                draft_id,
+                block_id="full_setup_001",
+                stage="large_questionnaire",
+                chunk_index=index,
+                raw_text=chunk,
+                is_last=index == len(chunks) - 1,
+            )
+        assert result["complete"] is True
+        assert result["char_count"] == len(raw)
+        draft = novel_drafts._read(draft_id)
+        block = draft["sections"]["intake"]["blocks"][0]
+        assert block["raw_text"] == raw
+        assert block["fact_ids"] == []
+        assert block["reviewed_against_raw"] is False
+        assert draft["intake_uploads"]["full_setup_001"]["completed"] is True
+        assert "chunks" not in draft["intake_uploads"]["full_setup_001"]
+
+
+def test_chunk_upload_exact_retry_is_idempotent_and_conflicting_retry_is_rejected():
+    with tempfile.TemporaryDirectory() as tmp:
+        _setup_storage(tmp)
+        draft_id = create_draft("chunk_retry", "Chunk Retry", version=2)["draft_id"]
+        first = draft_intake_runtime.append_intake_chunk(
+            draft_id, block_id="b1", stage="setup", chunk_index=0, raw_text="ABC", is_last=False
+        )
+        assert first["next_chunk_index"] == 1
+        retry = draft_intake_runtime.append_intake_chunk(
+            draft_id, block_id="b1", stage="setup", chunk_index=0, raw_text="ABC", is_last=False
+        )
+        assert retry["already_received"] is True
+        with pytest.raises(ValueError, match="INTAKE_UPLOAD_CHUNK_CONFLICT"):
+            draft_intake_runtime.append_intake_chunk(
+                draft_id, block_id="b1", stage="setup", chunk_index=0, raw_text="XYZ", is_last=False
+            )
+        done = draft_intake_runtime.append_intake_chunk(
+            draft_id, block_id="b1", stage="setup", chunk_index=1, raw_text="DEF", is_last=True
+        )
+        assert done["complete"] is True
+        replay = draft_intake_runtime.append_intake_chunk(
+            draft_id, block_id="b1", stage="setup", chunk_index=1, raw_text="DEF", is_last=True
+        )
+        assert replay["already_completed"] is True
+        assert novel_drafts._read(draft_id)["sections"]["intake"]["blocks"][0]["raw_text"] == "ABCDEF"
+
+
+def test_chunk_transport_rejects_placeholder_instead_of_storing_fake_full_text():
+    with tempfile.TemporaryDirectory() as tmp:
+        _setup_storage(tmp)
+        draft_id = create_draft("placeholder", "Placeholder", version=2)["draft_id"]
+        with pytest.raises(ValueError, match="INTAKE_PLACEHOLDER_FORBIDDEN"):
+            draft_intake_runtime.append_intake_chunk(
+                draft_id,
+                block_id="b1",
+                stage="setup",
+                chunk_index=0,
+                raw_text="САМА НОВЕЛЛА [полный текст анкеты пользователя сохранён дословно]",
+                is_last=True,
+            )
+        draft = novel_drafts._read(draft_id)
+        assert "intake" not in draft["sections"]
+
+
+def test_pending_chunk_upload_blocks_read_and_finalize_until_last_chunk():
+    with tempfile.TemporaryDirectory() as tmp:
+        _setup_storage(tmp)
+        draft_id = create_draft("pending", "Pending", version=2)["draft_id"]
+        draft_intake_runtime.append_intake_chunk(
+            draft_id, block_id="b1", stage="setup", chunk_index=0, raw_text="Первая половина.", is_last=False
+        )
+        status = novel_drafts.draft_status(draft_id)
+        assert status["ready_to_finalize"] is False
+        assert status["finalize_blocker"] == "INTAKE_UPLOAD_INCOMPLETE"
+        assert status["intake_uploads"]["pending_count"] == 1
+        with pytest.raises(RuntimeError, match="INTAKE_UPLOAD_INCOMPLETE"):
+            prepare_draft_read(draft_id)
+
+
+def test_mapping_adds_only_existing_fact_ids_without_resending_raw_text():
+    with tempfile.TemporaryDirectory() as tmp:
+        _setup_storage(tmp)
+        draft_id = create_draft("mapping", "Mapping", version=2)["draft_id"]
+        raw = "Елена боится воды и не умеет плавать."
+        draft_intake_runtime.append_intake_chunk(
+            draft_id, block_id="b1", stage="pov", chunk_index=0, raw_text=raw, is_last=True
+        )
+        save_section(draft_id, "foundation", json.dumps({
+            "facts": [
+                {"fact_id": "f_water", "text": "Елена панически боится воды", "source": "user_setup", "stored_in": ["characters"], "story_use": "continuity"},
+                {"fact_id": "f_swim", "text": "Елена не умеет плавать", "source": "user_setup", "stored_in": ["characters"], "story_use": "continuity"},
+            ],
+            "hooks": [],
+            "story_pillars": [],
+        }, ensure_ascii=False))
+        with pytest.raises(ValueError, match="INTAKE_FACT_ID_UNKNOWN"):
+            draft_intake_runtime.update_intake_mapping(
+                draft_id, "b1", fact_ids=["made_up"], reviewed_against_raw=True, contains_no_facts=False
+            )
+        draft_intake_runtime.update_intake_mapping(
+            draft_id,
+            "b1",
+            fact_ids=["f_water", "f_swim"],
+            reviewed_against_raw=True,
+            contains_no_facts=False,
+        )
+        block = novel_drafts._read(draft_id)["sections"]["intake"]["blocks"][0]
+        assert block["raw_text"] == raw
+        assert block["fact_ids"] == ["f_water", "f_swim"]
+        assert block["reviewed_against_raw"] is True
+
+
 def test_intake_merge_is_additive_and_raw_source_is_immutable():
     first = {"blocks": [{"block_id": "b1", "stage": "pov", "raw_text": "Она не любит молоко и боится темноты.", "fact_ids": ["f1"], "reviewed_against_raw": False}]}
     second = {"blocks": [
