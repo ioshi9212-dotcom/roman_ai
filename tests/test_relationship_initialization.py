@@ -2,6 +2,9 @@ import json
 import tempfile
 from pathlib import Path
 
+import pytest
+from fastapi import HTTPException
+
 from app import session_runtime, storage
 
 
@@ -18,8 +21,10 @@ def read_packet(session_id: str, user_input: str):
     return json.loads(text)
 
 
-def extracted():
-    return {"persistence_reviewed": True, "chronology": [], "knowledge_add": [], "experiences_add": [], "dialogue_memory_add": []}
+def extracted(**extra):
+    result = {"persistence_reviewed": True, "chronology": [], "knowledge_add": [], "experiences_add": [], "dialogue_memory_add": []}
+    result.update(extra)
+    return result
 
 
 def fresh_novel():
@@ -58,25 +63,39 @@ def test_fresh_relationship_may_stay_empty_until_story_creates_one():
         assert state.get("relationships", {}).get("adrian", {}) == {}
 
 
-def test_first_meaningful_footer_persists_baseline():
+def test_first_meaningful_relationship_persists_only_from_causal_update():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         sid = storage.create_session(fresh_novel())["session_id"]
         read_packet(sid, "test")
         scene = "🎭 Fresh Relationship · осень\n\nСцена.\n\nСостояние: спокойно\nОтношения:\nЭдриан - симпатия 12; настороженность 8\n\nХод 1 · цикл 1/15"
-        session_runtime.commit_turn(sid, {"user_input": "test", "scene_output": scene, "extracted": extracted()})
+        updates = [{
+            "character_id": "adrian",
+            "reason": "Первое содержательное взаимодействие сформировало тёплое, но осторожное впечатление.",
+            "change_scale": "ordinary",
+            "dimensions": [
+                {"label": "симпатия", "value": 12},
+                {"label": "настороженность", "value": 8},
+            ],
+        }]
+        session_runtime.commit_turn(
+            sid,
+            {"user_input": "test", "scene_output": scene, "extracted": extracted(relationship_updates=updates)},
+        )
         state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
         assert state["relationships"]["adrian"] == {"симпатия": 12, "настороженность": 8}
 
 
-def test_partial_footer_keeps_saved_dimensions_that_are_not_rendered():
+def test_partial_footer_is_rejected_when_saved_dimension_disappears():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         novel = fresh_novel()
         novel["starting_state"]["relationships"] = {"adrian": {"симпатия": 20, "доверие": 9}}
         sid = storage.create_session(novel)["session_id"]
         read_packet(sid, "test")
-        scene = "🎭 Fresh Relationship · осень\n\nСцена.\n\nСостояние: спокойно\nОтношения:\nЭдриан - симпатия 21/+1\n\nХод 1 · цикл 1/15"
-        session_runtime.commit_turn(sid, {"user_input": "test", "scene_output": scene, "extracted": extracted()})
+        scene = "🎭 Fresh Relationship · осень\n\nСцена.\n\nСостояние: спокойно\nОтношения:\nЭдриан - симпатия 20\n\nХод 1 · цикл 1/15"
+        with pytest.raises(HTTPException) as exc:
+            session_runtime.commit_turn(sid, {"user_input": "test", "scene_output": scene, "extracted": extracted()})
+        assert exc.value.detail["code"] == "RELATIONSHIP_FOOTER_INCOMPLETE"
         state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
-        assert state["relationships"]["adrian"] == {"симпатия": 21, "доверие": 9}
+        assert state["relationships"]["adrian"] == {"симпатия": 20, "доверие": 9}

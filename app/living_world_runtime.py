@@ -158,6 +158,25 @@ def _split_relationship_metadata(
         for row in extracted.get("character_upserts", [])
         if isinstance(row, dict) and storage._card_id(row)
     )
+    for field in ("dialogue_memory_add", "knowledge_add", "experiences_add", "presence_updates"):
+        for row in extracted.get(field, []) if isinstance(extracted.get(field), list) else []:
+            if not isinstance(row, dict):
+                continue
+            values = [
+                row.get("character_id"),
+                row.get("owner_character_id"),
+                row.get("speaker"),
+                row.get("listener"),
+                row.get("asked_by"),
+                row.get("asked_to"),
+            ]
+            participants = row.get("participants") or row.get("participant_ids")
+            if isinstance(participants, list):
+                values.extend(participants)
+            for value in values:
+                resolved = base._resolve_character_id(cards, value)
+                if resolved:
+                    allowed_ids.add(str(resolved))
 
     metadata: List[Dict[str, Any]] = []
     dimension_updates: List[Dict[str, Any]] = []
@@ -168,14 +187,28 @@ def _split_relationship_metadata(
         "unresolved_between_them",
         "relationship_type",
         "relationship_context",
+        "reason",
+        "change_scale",
+        "elapsed_game_days",
     )
     for raw in rows:
         if not isinstance(raw, dict):
             continue
         owner_id = base._resolve_character_id(cards, raw.get("character_id")) or str(raw.get("character_id") or "")
-        meta = {key: deepcopy(raw[key]) for key in meta_keys if key in raw}
+        dims = raw.get("dimensions")
+        meta = {key: deepcopy(raw[key]) for key in meta_keys if key in raw and raw.get(key) is not None}
         if meta:
-            if not owner_id or owner_id not in allowed_ids:
+            if isinstance(dims, list) and dims:
+                meta["_numeric_changes"] = [
+                    {
+                        "label": str(item.get("label") or item.get("key") or ""),
+                        "delta": item.get("delta"),
+                    }
+                    for item in dims
+                    if isinstance(item, dict) and item.get("delta") is not None
+                ]
+            aggregate_timeskip = str(raw.get("change_scale") or "").casefold() == "timeskip"
+            if not owner_id or (owner_id not in allowed_ids and not aggregate_timeskip):
                 raise HTTPException(
                     status_code=409,
                     detail={
@@ -185,9 +218,14 @@ def _split_relationship_metadata(
                 )
             meta["character_id"] = owner_id
             metadata.append(meta)
-        dims = raw.get("dimensions")
         if isinstance(dims, list) and dims:
-            dimension_updates.append({"character_id": owner_id, "dimensions": deepcopy(dims)})
+            dimension_updates.append({
+                "character_id": owner_id,
+                "dimensions": deepcopy(dims),
+                "reason": raw.get("reason"),
+                "change_scale": raw.get("change_scale"),
+                "elapsed_game_days": raw.get("elapsed_game_days"),
+            })
 
     extracted = deepcopy(extracted)
     extracted["relationship_updates"] = dimension_updates

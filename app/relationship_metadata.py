@@ -67,6 +67,22 @@ def apply_relationship_metadata(
             relations.append(relation)
 
         before = deepcopy(relation)
+        reason = str(raw.get("reason") or "").strip()
+        if reason:
+            reasons = relation.get("change_reasons")
+            reasons = deepcopy(reasons) if isinstance(reasons, list) else []
+            entry = {
+                "turn": int(turn_number),
+                "reason": reason,
+                "change_scale": str(raw.get("change_scale") or "ordinary"),
+            }
+            if raw.get("elapsed_game_days") is not None:
+                entry["elapsed_game_days"] = raw.get("elapsed_game_days")
+            numeric_changes = raw.get("_numeric_changes")
+            if isinstance(numeric_changes, list) and numeric_changes:
+                entry["changes"] = deepcopy(numeric_changes)
+            reasons.append(entry)
+            relation["change_reasons"] = reasons[-20:]
         if "opinion" in raw:
             relation["current_dynamic"] = str(raw.get("opinion") or "").strip()
         if "current_dynamic" in raw:

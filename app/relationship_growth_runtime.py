@@ -47,9 +47,9 @@ def _bounded_scene_delta(value: Any) -> float | None:
     if not _is_number(value):
         return None
     number = float(value)
-    # Scene builder allows small per-turn movement. An absurd old/stale footer delta is ignored,
-    # not turned into a destructive canonical jump and not rejected with a 409.
-    if abs(number) > 3:
+    # Canonical validation happens in relationship_policy_runtime and may permit larger
+    # time-skip or critical-event deltas. Keep only a hard corruption guard here.
+    if abs(number) > 30:
         return None
     return number
 
@@ -80,10 +80,10 @@ def _merge_footer_delta_fallbacks(
     *,
     root,
 ) -> Dict[str, Any]:
-    """Backward-compatible bridge for GPTs still treating the footer as the numeric update channel.
+    """Initialize only a character's first relationship baseline from the visible footer.
 
-    Only a bounded delta can become a fallback update. The displayed absolute number is never trusted
-    for an established metric. Explicit relationship_updates with a real delta win.
+    Once any numeric relationship metric exists for that NPC, the footer is display-only and can
+    never mutate or append canon. Existing relationships change only through causal relationship_updates.
     """
     result = deepcopy(payload)
     extracted = result.get("extracted")
@@ -91,10 +91,7 @@ def _merge_footer_delta_fallbacks(
         return result
 
     source = storage._read_json(root / "source.json", {})
-    cards = storage._apply_character_upserts(
-        storage._load_cards(root, source),
-        extracted,
-    )
+    cards = storage._apply_character_upserts(storage._load_cards(root, source), extracted)
     state = storage._read_json(root / "state.json", {})
     footer = compat._parse_footer_compat(
         str(result.get("scene_output") or ""),
@@ -107,93 +104,36 @@ def _merge_footer_delta_fallbacks(
     rows = deepcopy(extracted.get("relationship_updates"))
     if not isinstance(rows, list):
         rows = []
-
-    by_owner: Dict[str, Dict[str, Any]] = {}
-    explicit_delta_labels: Dict[str, set[str]] = {}
-    for raw in rows:
-        if not isinstance(raw, dict):
-            continue
-        owner_id = base._resolve_character_id(cards, raw.get("character_id")) or str(raw.get("character_id") or "")
-        if not owner_id:
-            continue
-        by_owner.setdefault(str(owner_id), raw)
-        for dim in raw.get("dimensions", []) if isinstance(raw.get("dimensions"), list) else []:
-            if not isinstance(dim, dict) or _bounded_scene_delta(dim.get("delta")) is None:
-                continue
-            label = base._relationship_norm(str(dim.get("label") or dim.get("key") or ""))
-            if label:
-                explicit_delta_labels.setdefault(str(owner_id), set()).add(label)
+    explicit_owners = {
+        str(base._resolve_character_id(cards, raw.get("character_id")) or raw.get("character_id") or "")
+        for raw in rows
+        if isinstance(raw, dict)
+    }
 
     for owner_id, dimensions in footer.items():
         owner_id = str(owner_id)
-        existing = _existing_label_norms(state, owner_id)
-        fallback: List[Dict[str, Any]] = []
+        if not owner_id or owner_id in explicit_owners or _existing_label_norms(state, owner_id):
+            continue
+        baseline: List[Dict[str, Any]] = []
         for dim in dimensions:
             if not isinstance(dim, dict):
                 continue
-            label_text = str(dim.get("label") or dim.get("key") or "").strip()
-            label_norm = base._relationship_norm(label_text)
-            if not label_norm:
-                continue
-            if label_norm in explicit_delta_labels.get(owner_id, set()):
-                continue
-            # Legacy saved labels remain valid; genuinely new labels must come from the fixed vocabulary.
-            if label_norm not in existing and label_norm not in _FIXED_NEW_LABELS:
-                continue
+            label = str(dim.get("label") or dim.get("key") or "").strip()
             value = dim.get("value")
-            if not _is_number(value):
+            if (
+                not label
+                or base._relationship_norm(label) not in _FIXED_NEW_LABELS
+                or not _is_number(value)
+            ):
                 continue
-            raw_delta = dim.get("delta")
-            if label_norm in existing:
-                # Existing counters need a small causal delta. An absolute snapshot alone is display.
-                delta = _bounded_scene_delta(raw_delta)
-                if delta is None:
-                    continue
-                fallback.append({"label": label_text, "value": value, "delta": delta})
-            else:
-                # A genuinely new fixed dimension has no prior value to roll back, so a first
-                # meaningful baseline may still be initialized from the visible footer for old GPTs.
-                item = {"label": label_text, "value": value}
-                if _is_number(raw_delta):
-                    item["delta"] = float(raw_delta)
-                fallback.append(item)
-
-        if not fallback:
-            continue
-        target = by_owner.get(owner_id)
-        if target is None:
-            target = {"character_id": owner_id, "dimensions": []}
-            rows.append(target)
-            by_owner[owner_id] = target
-        dims = target.get("dimensions")
-        if not isinstance(dims, list):
-            dims = []
-            target["dimensions"] = dims
-        for item in fallback:
-            label_norm = base._relationship_norm(str(item.get("label") or ""))
-            replaced = False
-            for index, existing_item in enumerate(dims):
-                if not isinstance(existing_item, dict):
-                    continue
-                existing_norm = base._relationship_norm(
-                    str(existing_item.get("label") or existing_item.get("key") or "")
-                )
-                if existing_norm != label_norm:
-                    continue
-                # A real explicit delta already won above. A snapshot-only duplicate must not
-                # suppress the safe footer-delta fallback during migration.
-                if _bounded_scene_delta(existing_item.get("delta")) is None:
-                    dims[index] = item
-                replaced = True
-                break
-            if not replaced:
-                dims.append(item)
+            baseline.append({"label": label, "value": value})
+        if baseline:
+            rows.append({"character_id": owner_id, "dimensions": baseline})
 
     extracted = deepcopy(extracted)
     extracted["relationship_updates"] = rows
     result["extracted"] = extracted
     return result
-
 
 def _merge_footer_dimensions(existing: List[Dict[str, Any]], incoming: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     result = relationship_runtime._normalise_dimensions(existing)
@@ -252,8 +192,8 @@ def _hidden_relationship_scene(
     if not isinstance(updates, list):
         base._http_error(409, "RELATIONSHIP_UPDATES_INVALID", "relationship_updates must be an array.")
 
-    final_present = set(str(value) for value in compat._current_present_ids(state_after))
-    allowed = set(str(value) for value in start_present) | final_present | set(str(value) for value in upsert_ids)
+    # Participation is validated by relationship_policy_runtime using concrete current-turn evidence,
+    # including physical presence/transition and real remote dialogue/contact.
     lines: List[str] = []
 
     for raw in updates:
@@ -263,13 +203,6 @@ def _hidden_relationship_scene(
         if not owner_id:
             base._http_error(409, "RELATIONSHIP_UPDATES_INVALID", "Unknown character_id in relationship_updates.")
         owner_id = str(owner_id)
-        if owner_id not in allowed:
-            owner_name = compat._card_display_name(cards, owner_id)
-            base._http_error(
-                409,
-                "RELATIONSHIP_UPDATE_FOR_UNSEEN_NPC",
-                f"{owner_name}: relationship update is allowed only for an NPC who participated in this turn.",
-            )
 
         dimensions = raw.get("dimensions")
         if not isinstance(dimensions, list) or not dimensions:
@@ -322,7 +255,8 @@ def _prepare_extracted_for_commit(
 ) -> tuple[Dict[str, Any], Dict[str, Any]]:
     if _ORIGINAL_PREPARE_EXTRACTED_FOR_COMMIT is None:
         raise RuntimeError("RELATIONSHIP_GROWTH_RUNTIME_NOT_INSTALLED")
-    # Preserve old GPT installations: a valid small footer delta becomes a relationship_update fallback.
+    # A first relationship baseline may be initialized from a new NPC's visible footer.
+    # After that, the footer is display-only and causal relationship_updates are required.
     prepared_payload = _merge_footer_delta_fallbacks(payload, root=root)
     # Never let the visible footer itself overwrite persistent numeric canon.
     prepared_payload["scene_output"] = _strip_relationship_footer(str(prepared_payload.get("scene_output") or ""))
@@ -364,8 +298,8 @@ def _install_packet_policy_wrapper() -> None:
             "zero_dimensions_may_be_hidden": True,
             "new_dimensions_may_be_appended": True,
             "instruction": (
-                "Existing metrics change only through relationship_updates delta; Railway applies saved+delta. "
-                "Omitted metrics persist. Same rule if NPC stays or leaves. Footer is display only."
+                "Existing metrics change only through causal relationship_updates; Railway applies saved+delta. "
+                "Omitted metrics persist. Footer is display only; relationship_policy defines allowed change scale."
             ),
         })
         context["relationship_policy"] = policy

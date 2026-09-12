@@ -89,6 +89,17 @@ components:
           type: array
           minItems: 1
           items: {$ref: '#/components/schemas/RelationshipDimensionUpdate'}
+        reason:
+          type: string
+          description: Concrete causal reason for every real relationship change; no reason means no change.
+        change_scale:
+          type: string
+          enum: [ordinary, timeskip, critical_event]
+          description: ordinary is normally bounded to +/-3; timeskip scales by elapsed_game_days; critical_event permits a justified large jump.
+        elapsed_game_days:
+          type: number
+          exclusiveMinimum: 0
+          description: Required when change_scale is timeskip.
         opinion: {type: string}
         current_dynamic: {type: string}
         beliefs_about_target:
@@ -203,7 +214,7 @@ components:
               items: {$ref: '#/components/schemas/PresenceUpdate'}
             relationship_updates:
               type: array
-              description: Persist only real NPC->POV relationship changes. Numeric dimensions work for present or departed participating NPCs; for an established metric include delta and Railway computes the new canon from the saved baseline. Opinion/beliefs/unresolved dynamics may be included in the same row.
+              description: Persist only causal NPC->POV relationship changes. Every real change needs reason. Existing numeric metrics require delta from saved canon. ordinary is normally +/-3; timeskip requires elapsed_game_days and may accumulate; critical_event permits a justified large jump. Mere mention is not participation.
               items: {$ref: '#/components/schemas/RelationshipUpdate'}
             state_patch: {type: object, additionalProperties: true}
             character_upserts:

@@ -325,6 +325,84 @@ def _hidden_relationship_scene(
     return "Отношения:\n" + "\n".join(lines) if lines else ""
 
 
+def _relationship_participant_ids(
+    cards: List[Dict[str, Any]],
+    state_before: Dict[str, Any],
+    extracted: Dict[str, Any],
+    *,
+    state_after: Dict[str, Any] | None = None,
+) -> set[str]:
+    result = {str(value) for value in storage._present_character_ids(state_before) if value}
+    if isinstance(state_after, dict):
+        result.update(str(value) for value in storage._present_character_ids(state_after) if value)
+
+    def add(raw: Any) -> None:
+        resolved = _resolve_character_id(cards, raw)
+        if resolved:
+            result.add(str(resolved))
+
+    for row in extracted.get("presence_updates", []) if isinstance(extracted.get("presence_updates"), list) else []:
+        if isinstance(row, dict):
+            add(row.get("character_id") or row.get("id") or row.get("name"))
+
+    state_patch = extracted.get("state_patch")
+    current_patch = state_patch.get("current") if isinstance(state_patch, dict) and isinstance(state_patch.get("current"), dict) else {}
+    direct = current_patch.get("present_characters")
+    if isinstance(direct, list):
+        for value in direct:
+            add(value)
+
+    for row in extracted.get("character_upserts", []) if isinstance(extracted.get("character_upserts"), list) else []:
+        if isinstance(row, dict):
+            add(row.get("character_id") or row.get("id") or row.get("name"))
+
+    dialogue_keys = (
+        "participants", "participant_ids", "character_id", "asked_by", "asked_to",
+        "speaker", "listener", "said_by", "heard_by",
+    )
+    for row in extracted.get("dialogue_memory_add", []) if isinstance(extracted.get("dialogue_memory_add"), list) else []:
+        if not isinstance(row, dict):
+            continue
+        for key in dialogue_keys:
+            value = row.get(key)
+            if isinstance(value, list):
+                for item in value:
+                    add(item)
+            elif value not in (None, ""):
+                add(value)
+
+    for field in ("knowledge_add", "experiences_add"):
+        for row in extracted.get(field, []) if isinstance(extracted.get(field), list) else []:
+            if isinstance(row, dict):
+                add(row.get("character_id") or row.get("owner_character_id"))
+
+    return result
+
+
+def _validate_relationship_update_participants(
+    updates: Any,
+    *,
+    cards: List[Dict[str, Any]],
+    participant_ids: set[str],
+) -> None:
+    if updates in (None, []):
+        return
+    if not isinstance(updates, list):
+        _http_error(409, "RELATIONSHIP_UPDATES_INVALID", "relationship_updates must be an array.")
+    for raw in updates:
+        if not isinstance(raw, dict):
+            _http_error(409, "RELATIONSHIP_UPDATES_INVALID", "Each relationship update must be an object.")
+        owner_id = _resolve_character_id(cards, raw.get("character_id"))
+        if not owner_id:
+            _http_error(409, "RELATIONSHIP_UPDATES_INVALID", "Unknown character_id in relationship_updates.")
+        if str(owner_id) not in participant_ids and str(raw.get("change_scale") or "").casefold() != "timeskip":
+            _http_error(
+                409,
+                "RELATIONSHIP_UPDATE_FOR_UNSEEN_NPC",
+                "Relationship change is allowed only for a concrete participant, except a validated aggregate timeskip.",
+            )
+
+
 def _mark_relationship_change_turn(
     patch: Dict[str, Any],
     *,
@@ -401,6 +479,23 @@ def _prepare_extracted_for_commit(
     state_after = storage._deep_merge(state_before, state_patch) if state_patch else deepcopy(state_before)
     state_after = _canonicalize_state_character_refs(cards, state_after)
 
+    participant_ids = _relationship_participant_ids(
+        cards,
+        state_before,
+        result,
+        state_after=state_after,
+    )
+    _validate_relationship_update_participants(
+        result.get("relationship_updates"),
+        cards=cards,
+        participant_ids=participant_ids,
+    )
+    for raw in result.get("relationship_updates", []) if isinstance(result.get("relationship_updates"), list) else []:
+        if isinstance(raw, dict) and str(raw.get("change_scale") or "").casefold() == "timeskip":
+            owner_id = _resolve_character_id(cards, raw.get("character_id"))
+            if owner_id:
+                participant_ids.add(str(owner_id))
+
     current = state_after.get("current") if isinstance(state_after.get("current"), dict) else {}
     if isinstance(state_patch.get("current"), dict) and "present_characters" in state_patch["current"]:
         state_patch.setdefault("current", {})["present_characters"] = deepcopy(
@@ -432,11 +527,7 @@ def _prepare_extracted_for_commit(
         upsert_ids=upsert_ids,
     )
     if hidden_scene:
-        scene_union = (
-            set(start_present)
-            | set(str(value) for value in storage._present_character_ids(state_after))
-            | upsert_ids
-        )
+        scene_union = set(participant_ids)
         hidden_patch = relationship_patch_from_scene(
             hidden_scene,
             cards=cards,

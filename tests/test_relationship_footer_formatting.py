@@ -33,14 +33,16 @@ def novel():
     }
 
 
-def extracted():
-    return {
+def extracted(**extra):
+    result = {
         "persistence_reviewed": True,
         "chronology": [],
         "knowledge_add": [],
         "experiences_add": [],
         "dialogue_memory_add": [],
     }
+    result.update(extra)
+    return result
 
 
 def read_packet(session_id: str, user_input: str):
@@ -105,7 +107,12 @@ def test_commit_accepts_bold_name_and_em_dash_footer_row():
             {
                 "user_input": "test",
                 "scene_output": scene("**Джейден** — симпатия 13/+1; настороженность 8/0"),
-                "extracted": extracted(),
+                "extracted": extracted(relationship_updates=[{
+                    "character_id": "jayden",
+                    "reason": "Взаимодействие немного усилило симпатию Джейдена.",
+                    "change_scale": "ordinary",
+                    "dimensions": [{"label": "симпатия", "value": 13, "delta": 1}],
+                }]),
             },
         )
         assert result["turn_number"] == 1
