@@ -381,7 +381,6 @@ def turns_commit(session_id: str, body: TurnCommit):
             "TURN_PACKET_REQUIRED": "prepareTurn must be called for this exact user input and packet_id before commitTurn",
             "TURN_PACKET_INCOMPLETE": "Every turn packet chunk must be read before commitTurn",
             "PERSISTENCE_REVIEW_REQUIRED": "Before commitTurn explicitly review chronology and per-character memory. extracted must include persistence_reviewed=true plus chronology, knowledge_add, experiences_add and dialogue_memory_add arrays, even when empty.",
-            "POV_PARTICIPATION_REQUIRED": "POV became passive or disappeared while the scene continued through multiple NPC beats. Rewrite this same turn with the same packet_id: keep consequential choice/consent/refusal with the player, but keep POV visibly present through ordinary dialogue, thoughts, immediate physical/emotional reactions and small actions up to that choice.",
             "RELATIONSHIP_FOOTER_REQUIRED": "The Relationships footer is missing or empty for at least one NPC physically present in the scene. Rewrite the scene footer so EVERY present NPC has an NPC->POV relationship row. If that NPC has no saved dimensions yet, initialize 1-3 natural dimensions now; do not leave the block empty.",
             "RELATIONSHIP_FOOTER_INCOMPLETE": "A present NPC has saved relationship dimensions, but the scene footer omitted or renamed one or more of them. Rewrite the footer using all saved labels from relationship_lens, preserving current values unless this scene genuinely changed them.",
         }
