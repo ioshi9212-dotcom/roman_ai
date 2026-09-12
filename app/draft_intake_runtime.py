@@ -392,7 +392,7 @@ def update_intake_mapping(
             novel_drafts._write(novel_drafts._draft_path(draft_id), draft)
         revision = int(draft.get("revision", 0) or 0)
 
-    result = dict(_draft_status(draft_id))
+    result = dict(novel_drafts.draft_status(draft_id))
     result.update({
         "block_id": block_id,
         "mapping_changed": changed,
@@ -422,7 +422,7 @@ def _save_section(draft_id: str, section_name: str, section_json: str) -> Dict[s
     draft["finalized"] = False
     draft.pop("finalized_template", None)
     novel_drafts._write(novel_drafts._draft_path(draft_id), draft)
-    result = dict(_draft_status(draft_id))
+    result = dict(novel_drafts.draft_status(draft_id))
     result["reopened_from_finalized"] = was_finalized
     return result
 
