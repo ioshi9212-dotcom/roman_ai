@@ -332,6 +332,8 @@ def update_intake_mapping(
     fact_ids: List[str],
     reviewed_against_raw: bool,
     contains_no_facts: bool,
+    replace: bool = False,
+    expected_revision: int | None = None,
 ) -> Dict[str, Any]:
     block_id = str(block_id or "").strip()
     clean_fact_ids = list(dict.fromkeys(str(item).strip() for item in fact_ids if str(item).strip()))
@@ -344,6 +346,9 @@ def update_intake_mapping(
 
     with session_transaction(novel_drafts._drafts_dir()):
         draft = novel_drafts._read(draft_id)
+        revision_before = int(draft.get("revision", 0) or 0)
+        if expected_revision is not None and int(expected_revision) != revision_before:
+            raise ValueError("INTAKE_MAPPING_REVISION_MISMATCH")
         sections = draft.get("sections") if isinstance(draft.get("sections"), dict) else {}
         intake = sections.get("intake")
         if not isinstance(intake, dict):
@@ -362,11 +367,16 @@ def update_intake_mapping(
             raise ValueError("INTAKE_FACT_ID_UNKNOWN")
 
         before = deepcopy(target)
-        if target.get("contains_no_facts") and clean_fact_ids:
-            raise ValueError("INTAKE_FACT_IDS_CONFLICT")
-        target["fact_ids"] = list(dict.fromkeys(target.get("fact_ids", []) + clean_fact_ids))
-        target["reviewed_against_raw"] = bool(target.get("reviewed_against_raw") or reviewed_against_raw)
-        target["contains_no_facts"] = bool(target.get("contains_no_facts") or contains_no_facts)
+        if replace:
+            target["fact_ids"] = clean_fact_ids
+            target["reviewed_against_raw"] = bool(reviewed_against_raw)
+            target["contains_no_facts"] = bool(contains_no_facts)
+        else:
+            if target.get("contains_no_facts") and clean_fact_ids:
+                raise ValueError("INTAKE_FACT_IDS_CONFLICT")
+            target["fact_ids"] = list(dict.fromkeys(target.get("fact_ids", []) + clean_fact_ids))
+            target["reviewed_against_raw"] = bool(target.get("reviewed_against_raw") or reviewed_against_raw)
+            target["contains_no_facts"] = bool(target.get("contains_no_facts") or contains_no_facts)
         if target["contains_no_facts"] and target["fact_ids"]:
             raise ValueError("INTAKE_FACT_IDS_CONFLICT")
 
@@ -387,6 +397,7 @@ def update_intake_mapping(
         "block_id": block_id,
         "mapping_changed": changed,
         "draft_revision": revision,
+        "replace": bool(replace),
     })
     return result
 
