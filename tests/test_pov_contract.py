@@ -16,7 +16,9 @@ def test_scene_builder_keeps_selective_cinematic_behavior_in_plain_language():
     assert "Пиши живо и кинематографично" in builder
     assert "подробно только важное" in builder
     assert "Видно всех персонажей в сцене" in builder
-    assert "Интимные, романтические, экшн, боевые, игровые сцены описываются подробно" in builder
+    assert "Важные сцены — романтические, чувственные, интимные, экшн, боевые, конфликтные" in builder
+    assert "Не делай монтажных скачков через важные микрошаги" in builder
+    assert "не раздувай сцену воздухом" in builder
     assert "Не описывай всё подряд" in builder
 
 
