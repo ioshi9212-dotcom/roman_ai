@@ -168,6 +168,9 @@ def _split_relationship_metadata(
         "unresolved_between_them",
         "relationship_type",
         "relationship_context",
+        "reason",
+        "change_scale",
+        "elapsed_game_days",
     )
     for raw in rows:
         if not isinstance(raw, dict):
@@ -175,6 +178,15 @@ def _split_relationship_metadata(
         owner_id = base._resolve_character_id(cards, raw.get("character_id")) or str(raw.get("character_id") or "")
         meta = {key: deepcopy(raw[key]) for key in meta_keys if key in raw}
         if meta:
+            if isinstance(dims, list) and dims:
+                meta["_numeric_changes"] = [
+                    {
+                        "label": str(item.get("label") or item.get("key") or ""),
+                        "delta": item.get("delta"),
+                    }
+                    for item in dims
+                    if isinstance(item, dict) and item.get("delta") is not None
+                ]
             if not owner_id or owner_id not in allowed_ids:
                 raise HTTPException(
                     status_code=409,
@@ -187,7 +199,13 @@ def _split_relationship_metadata(
             metadata.append(meta)
         dims = raw.get("dimensions")
         if isinstance(dims, list) and dims:
-            dimension_updates.append({"character_id": owner_id, "dimensions": deepcopy(dims)})
+            dimension_updates.append({
+                "character_id": owner_id,
+                "dimensions": deepcopy(dims),
+                "reason": raw.get("reason"),
+                "change_scale": raw.get("change_scale"),
+                "elapsed_game_days": raw.get("elapsed_game_days"),
+            })
 
     extracted = deepcopy(extracted)
     extracted["relationship_updates"] = dimension_updates
