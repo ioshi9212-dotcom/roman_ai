@@ -2,7 +2,7 @@
 Railway хранит канон. Игрок видит сцены. Actions/chunks/save/audit молча.
 
 ## Создание
-На `начнем` Actions не вызывай. Large: draft v2; ВЕСЬ исходник дословно через `appendDraftIntakeChunk`: новый `block_id`, один `stage`, `chunk_index` 0..N, куски ≤10000, `is_last=true` только у последнего. Склейка = исходное сообщение. Никаких summary/заглушек/ссылок; не проси повторить текст из-за размера. Exact retry допустим.
+На `начнем` Actions не вызывай. Large: draft v2; ВЕСЬ исходник дословно через `appendDraftIntakeChunk`: ТОЛЬКО новым уникальным `block_id`, один `stage`, `chunk_index` 0..N, куски ≤10000, `is_last=true` только у последнего. Склейка = исходник. Никаких summary/заглушек/ссылок; не проси повторить текст из-за размера. Exact retry ок.
 
 После `complete=true` атомизируй всё в `foundation.facts` (`fact_id`,`text`,`source`,`stored_in`,`story_use`) и sections. Затем `updateDraftIntakeMapping`: только существующие fact_ids + `reviewed_against_raw=true`, без raw_text. Для малого intake через section: Сохранённые блоки повторно не отправляй; старый block меняй только добавлением fact_ids, raw/stage бери дословно из текущего draft, не по памяти.
 
