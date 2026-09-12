@@ -490,6 +490,11 @@ def save_section(draft_id: str, section_name: str, section_json: str) -> Dict[st
     draft["revision"] = int(draft.get("revision", 0) or 0) + 1
     draft["finalized"] = False
     draft.pop("finalized_template", None)
+    if int(draft.get("version", 1) or 1) >= 3:
+        draft.pop("launch_state", None)
+        draft.pop("launch_state_hash", None)
+        draft.pop("launch_hint", None)
+        draft.pop("session_creation_receipt", None)
     _write(_draft_path(draft_id), draft)
     result = dict(draft_status(draft_id))
     result["reopened_from_finalized"] = was_finalized
