@@ -152,6 +152,21 @@ def _participant_ids(
     return result
 
 
+def _explicit_input_character_ids(cards: List[Dict[str, Any]], user_input: Any) -> set[str]:
+    text = _norm(user_input)
+    if not text:
+        return set()
+    result: set[str] = set()
+    for card in cards:
+        cid = storage._card_id(card)
+        if not cid:
+            continue
+        aliases = [cid, *storage._card_names(card)]
+        if any(_norm(alias) and _norm(alias) in text for alias in aliases):
+            result.add(str(cid))
+    return result
+
+
 def _post_present_ids(
     cards: List[Dict[str, Any]],
     state_before: Dict[str, Any],
@@ -228,6 +243,7 @@ def _validate_update_rows(
         _error("RELATIONSHIP_UPDATES_INVALID", "relationship_updates must be an array.")
 
     participants = _participant_ids(cards, state_before, extracted)
+    explicitly_named = _explicit_input_character_ids(cards, payload.get("user_input"))
     by_owner: Dict[str, Dict[str, Dict[str, Any]]] = {}
 
     for raw in updates:
@@ -282,13 +298,6 @@ def _validate_update_rows(
                 "is_new": key not in baseline,
             }
 
-        if changed and owner_id not in participants:
-            _error(
-                "RELATIONSHIP_UPDATE_FOR_UNSEEN_NPC",
-                "Relationship may change only for an NPC who concretely participated in this turn. "
-                "A mere name mention, thread or cast relevance is not participation.",
-            )
-
         if changed:
             reason = str(raw.get("reason") or "").strip()
             if not reason:
@@ -297,6 +306,13 @@ def _validate_update_rows(
                     f"{owner_id}: every real relationship change requires a concrete reason.",
                 )
             scope, max_delta = _update_scope(raw)
+            aggregate_timeskip = scope == "timeskip" and owner_id in explicitly_named
+            if owner_id not in participants and not aggregate_timeskip:
+                _error(
+                    "RELATIONSHIP_UPDATE_FOR_UNSEEN_NPC",
+                    "Relationship may change only for an NPC who concretely participated in this turn. "
+                    "Exception: a timeskip may aggregate repeated contact/avoidance for an NPC explicitly named by the player.",
+                )
             for dim in owner_dims.values():
                 delta_value = dim.get("delta")
                 if delta_value is not None and abs(float(delta_value)) > max_delta + 1e-9:
@@ -507,7 +523,8 @@ def _rewrite_packet(session_id: str, base_result: Dict[str, Any]) -> Dict[str, A
             "instruction": (
                 "Existing metric changes require delta; unchanged metrics are omitted from relationship_updates but remain persistent. "
                 "Every real change requires reason. Mere mention/thread/cast relevance is not participation. Direct current-turn contact "
-                "such as a real conversation, message or call counts when the extracted memory/participation evidence identifies that NPC."
+                "such as a real conversation, message or call counts when extracted evidence identifies that NPC. A timeskip may also aggregate "
+                "repeated contact or deliberate avoidance for an NPC explicitly named by the player."
             ),
         }
         context["persistence_contract"] = persistence
