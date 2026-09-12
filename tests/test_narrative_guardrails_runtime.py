@@ -64,6 +64,20 @@ def test_valid_scene_format_is_accepted():
     guardrails._validate_scene_output(VALID_SCENE)
 
 
+def test_valid_scene_format_accepts_exact_inline_header_from_scene_builder():
+    inline = VALID_SCENE.replace(
+        "🕒 День 1 · вторник, 08.09.2026, 12:00 · 📍 база\n🌦️ Погода: прохладно",
+        "🕒 День 1 · вторник, 08.09.2026, 12:00 ·\n📍 база 🌦️ Погода: прохладно",
+    ).replace(
+        "✦ Елена\n🧥 Одежда, волосы: куртка, волосы собраны",
+        "✦ Елена 🧥 Одежда, волосы: куртка, волосы собраны ◈ Инвентарь: телефон",
+    )
+    guardrails._validate_scene_output(inline)
+    model = TurnCommit(packet_id="packet", user_input="test", scene_output=inline, extracted=REVIEWED_EMPTY)
+    assert "📍 база 🌦️ Погода: прохладно" in model.scene_output
+    assert "✦ Елена 🧥 Одежда, волосы:" in model.scene_output
+
+
 def test_scene_format_rejects_missing_exact_option_count():
     broken = VALID_SCENE.replace("3. Остаться на месте.\n", "")
     with pytest.raises(ValueError, match="SCENE_FORMAT_INVALID"):
