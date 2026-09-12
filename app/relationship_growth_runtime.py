@@ -12,7 +12,7 @@ from . import storage
 
 
 MAX_RELATIONSHIP_DIMENSIONS = 12
-_RELATIONSHIP_GROWTH_VERSION = 3
+_RELATIONSHIP_GROWTH_VERSION = 4
 _ORIGINAL_PREPARE_EXTRACTED_FOR_COMMIT = None
 
 # New labels are intentionally small and stable. Existing legacy labels remain valid.
@@ -213,8 +213,115 @@ def _merge_footer_dimensions(existing: List[Dict[str, Any]], incoming: List[Dict
 
 
 def _validate_dimensions(incoming: List[Dict[str, Any]], baseline: Dict[str, int | float], *, owner_name: str = "NPC") -> None:
-    # The visible footer is display-only. Canonical relationship writes are reconciled separately.
+    # Internal canonical writes do not trust the visible footer.
     return None
+
+
+def _validate_display_dimensions(
+    incoming: List[Dict[str, Any]],
+    baseline: Dict[str, int | float],
+    *,
+    owner_name: str,
+) -> None:
+    baseline_by_norm = {
+        base._relationship_norm(label): (str(label), float(value))
+        for label, value in baseline.items()
+        if _is_number(value)
+    }
+    incoming_by_norm: Dict[str, Dict[str, Any]] = {}
+    for item in incoming:
+        if not isinstance(item, dict):
+            continue
+        label = str(item.get("label") or item.get("key") or "").strip()
+        normalized = base._relationship_norm(label)
+        if not normalized:
+            continue
+        incoming_by_norm.setdefault(normalized, item)
+
+    missing = [saved_label for norm, (saved_label, _) in baseline_by_norm.items() if norm not in incoming_by_norm]
+    if missing:
+        base._http_error(
+            409,
+            "RELATIONSHIP_FOOTER_INCOMPLETE",
+            f"{owner_name}: visible footer omitted established relationship dimensions: {', '.join(missing)}.",
+        )
+
+    for normalized, (saved_label, old_value) in baseline_by_norm.items():
+        item = incoming_by_norm.get(normalized)
+        if not item:
+            continue
+        value = item.get("value")
+        if not _is_number(value):
+            base._http_error(
+                409,
+                "RELATIONSHIP_FOOTER_INCOMPLETE",
+                f"{owner_name}: {saved_label} must have a numeric visible value.",
+            )
+        delta_raw = item.get("delta")
+        if delta_raw is None:
+            if abs(float(value) - old_value) > 1e-9:
+                base._http_error(
+                    409,
+                    "RELATIONSHIP_DELTA_REQUIRED",
+                    f"{owner_name}: {saved_label} changed from {old_value:g} to {float(value):g}; show the causal delta in the footer.",
+                )
+            continue
+        if not _is_number(delta_raw):
+            base._http_error(
+                409,
+                "RELATIONSHIP_DELTA_INVALID",
+                f"{owner_name}: {saved_label} delta must be numeric.",
+            )
+        delta = float(delta_raw)
+        if abs(delta) > 3:
+            base._http_error(
+                409,
+                "RELATIONSHIP_DELTA_OUT_OF_RANGE",
+                f"{owner_name}: {saved_label} per-turn delta must stay within -3..+3.",
+            )
+        expected = _clamp_relationship_value(old_value + delta)
+        if abs(float(value) - expected) > 1e-9:
+            base._http_error(
+                409,
+                "RELATIONSHIP_ARITHMETIC_MISMATCH",
+                f"{owner_name}: {saved_label} must display saved value + delta ({old_value:g}{delta:+g} = {expected:g}).",
+            )
+
+
+def _validate_visible_footer_continuity(payload: Dict[str, Any], *, root) -> None:
+    extracted = payload.get("extracted") if isinstance(payload.get("extracted"), dict) else {}
+    source = storage._read_json(root / "source.json", {})
+    cards = storage._apply_character_upserts(storage._load_cards(root, source), extracted)
+    state_before = storage._read_json(root / "state.json", {})
+    state_before = base._canonicalize_state_character_refs(cards, state_before)
+    state_patch = extracted.get("state_patch") if isinstance(extracted.get("state_patch"), dict) else {}
+    state_after = storage._deep_merge(state_before, state_patch) if state_patch else deepcopy(state_before)
+    state_after = base._canonicalize_state_character_refs(cards, state_after)
+
+    footer = compat._parse_footer_compat(
+        str(payload.get("scene_output") or ""),
+        cards=cards,
+        resolve_character_id=base._resolve_character_id,
+    )
+    pov = state_after.get("pov") if isinstance(state_after.get("pov"), dict) else {}
+    pov_id = str(base._resolve_character_id(cards, pov.get("character_id")) or pov.get("character_id") or "")
+    final_present = {str(value) for value in compat._current_present_ids(state_after)}
+
+    for owner_id in final_present:
+        if not owner_id or owner_id == pov_id:
+            continue
+        baseline = base._numeric_relationships(state_before, owner_id)
+        if not baseline:
+            continue
+        incoming = footer.get(owner_id)
+        owner_name = compat._card_display_name(cards, owner_id)
+        if not incoming:
+            base._http_error(
+                409,
+                "RELATIONSHIP_FOOTER_INCOMPLETE",
+                f"{owner_name}: visible footer must carry every established relationship dimension while the NPC remains present.",
+            )
+        _validate_display_dimensions(incoming, baseline, owner_name=owner_name)
 
 
 def _validate_visible_footer(
@@ -322,6 +429,8 @@ def _prepare_extracted_for_commit(
 ) -> tuple[Dict[str, Any], Dict[str, Any]]:
     if _ORIGINAL_PREPARE_EXTRACTED_FOR_COMMIT is None:
         raise RuntimeError("RELATIONSHIP_GROWTH_RUNTIME_NOT_INSTALLED")
+    # The footer is display-only for canon, but established dimensions must remain visibly continuous.
+    _validate_visible_footer_continuity(payload, root=root)
     # Preserve old GPT installations: a valid small footer delta becomes a relationship_update fallback.
     prepared_payload = _merge_footer_delta_fallbacks(payload, root=root)
     # Never let the visible footer itself overwrite persistent numeric canon.
@@ -359,13 +468,16 @@ def _install_packet_policy_wrapper() -> None:
             "source_of_truth": "persistent relationship state + causal relationship_updates",
             "footer_is_display_only": True,
             "footer_is_transaction_gate": False,
+            "footer_continuity_gate": True,
             "footer_required_for_every_present_npc": False,
+            "established_dimensions_required_while_present": True,
             "fresh_baseline_required": False,
-            "zero_dimensions_may_be_hidden": True,
+            "zero_dimensions_may_be_hidden": False,
             "new_dimensions_may_be_appended": True,
             "instruction": (
-                "Existing metrics change only through relationship_updates delta; Railway applies saved+delta. "
-                "Omitted metrics persist. Same rule if NPC stays or leaves. Footer is display only."
+                "Footer is display-only for canon, but every established metric of a present NPC must stay visible every turn, including value 0. "
+                "Unchanged metric: repeat the saved value. Changed metric: show final value and delta (for example 1 -> 0 as 0/-1). "
+                "Canonical changes still use relationship_updates; Railway applies saved+delta."
             ),
         })
         context["relationship_policy"] = policy
