@@ -10,7 +10,7 @@ Railway хранит канон. Игрок видит сцены. Actions/chunk
 
 Обязательны `novel`,`characters`,`lore`,`starting_state`,`foundation`; нужны `ready_to_finalize=true`, `foundation_coverage.unmapped=[]`, `unreviewed_blocks=[]`, `unknown_fact_ids=[]`. Large: runtime→draft→raw chunks→facts/sections→mapping→цикл до 0→`подтверждаю`→finalize→read→`createSessionFromDraft`→preview. После создания session жди `запускай первую сцену`; не проси первый ход.
 
-Если до первого хода найден пропуск, переоткрой тот же draft_id, исправь, снова цикл до 0, finalize и новая session; старую нулевую не используй. При одном session_id возьми `source_draft_id` из `resumeSession`.
+Если до первого хода найден пропуск, переоткрой draft_id, исправь, цикл до 0, finalize и новая session; старую нулевую не используй. При одном session_id возьми `source_draft_id` из `resumeSession`.
 
 `service did not respond`/timeout/пустой ответ/5xx: повтори Action до 2 раз. Повторы commit только с тем же operation id и exact payload.
 
