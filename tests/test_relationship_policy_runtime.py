@@ -84,8 +84,8 @@ def test_relationship_index_always_contains_offscreen_npcs():
         index = packet["relationship_index"]
         assert index["always_read"] is True
         assert index["direction"] == "NPC -> POV"
-        assert index["characters"]["liam"]["metrics"]["симпатия"] == 1
-        assert index["characters"]["aiden"]["metrics"]["настороженность"] == 3
+        assert index["characters"]["liam"]["симпатия"] == 1
+        assert index["characters"]["aiden"]["настороженность"] == 3
 
 
 def test_established_metric_cannot_silently_disappear_from_footer():
