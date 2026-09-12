@@ -196,7 +196,7 @@ def _split_relationship_metadata(
             continue
         owner_id = base._resolve_character_id(cards, raw.get("character_id")) or str(raw.get("character_id") or "")
         dims = raw.get("dimensions")
-        meta = {key: deepcopy(raw[key]) for key in meta_keys if key in raw}
+        meta = {key: deepcopy(raw[key]) for key in meta_keys if key in raw and raw.get(key) is not None}
         if meta:
             if isinstance(dims, list) and dims:
                 meta["_numeric_changes"] = [
