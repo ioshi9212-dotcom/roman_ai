@@ -54,6 +54,30 @@ def _bounded_scene_delta(value: Any) -> float | None:
     return number
 
 
+def _validate_explicit_relationship_deltas(payload: Dict[str, Any]) -> None:
+    extracted = payload.get("extracted") if isinstance(payload.get("extracted"), dict) else {}
+    rows = extracted.get("relationship_updates")
+    if rows in (None, []):
+        return
+    if not isinstance(rows, list):
+        base._http_error(409, "RELATIONSHIP_UPDATES_INVALID", "relationship_updates must be an array.")
+    for raw in rows:
+        if not isinstance(raw, dict):
+            base._http_error(409, "RELATIONSHIP_UPDATES_INVALID", "Each relationship update must be an object.")
+        for dim in raw.get("dimensions", []) if isinstance(raw.get("dimensions"), list) else []:
+            if not isinstance(dim, dict) or "delta" not in dim or dim.get("delta") is None:
+                continue
+            delta = dim.get("delta")
+            if not _is_number(delta):
+                base._http_error(409, "RELATIONSHIP_UPDATES_INVALID", "Relationship delta must be numeric.")
+            if abs(float(delta)) > 3:
+                base._http_error(
+                    409,
+                    "RELATIONSHIP_DELTA_OUT_OF_RANGE",
+                    "Explicit relationship_updates delta must stay within -3..+3 for one turn.",
+                )
+
+
 def _clamp_relationship_value(value: Any) -> float:
     return max(0.0, min(100.0, float(value)))
 
@@ -118,7 +142,7 @@ def _merge_footer_delta_fallbacks(
             continue
         by_owner.setdefault(str(owner_id), raw)
         for dim in raw.get("dimensions", []) if isinstance(raw.get("dimensions"), list) else []:
-            if not isinstance(dim, dict) or _bounded_scene_delta(dim.get("delta")) is None:
+            if not isinstance(dim, dict) or dim.get("delta") is None:
                 continue
             label = base._relationship_norm(str(dim.get("label") or dim.get("key") or ""))
             if label:
@@ -252,8 +276,9 @@ def _hidden_relationship_scene(
     if not isinstance(updates, list):
         base._http_error(409, "RELATIONSHIP_UPDATES_INVALID", "relationship_updates must be an array.")
 
-    final_present = set(str(value) for value in compat._current_present_ids(state_after))
-    allowed = set(str(value) for value in start_present) | final_present | set(str(value) for value in upsert_ids)
+    # Participation is validated once in runtime_fixes using concrete current-turn evidence
+    # (presence/transition or current-turn memory ownership). Do not re-derive it here from a
+    # narrower physical-roster heuristic, or remote calls/messages would be rejected inconsistently.
     lines: List[str] = []
 
     for raw in updates:
@@ -263,13 +288,6 @@ def _hidden_relationship_scene(
         if not owner_id:
             base._http_error(409, "RELATIONSHIP_UPDATES_INVALID", "Unknown character_id in relationship_updates.")
         owner_id = str(owner_id)
-        if owner_id not in allowed:
-            owner_name = compat._card_display_name(cards, owner_id)
-            base._http_error(
-                409,
-                "RELATIONSHIP_UPDATE_FOR_UNSEEN_NPC",
-                f"{owner_name}: relationship update is allowed only for an NPC who participated in this turn.",
-            )
 
         dimensions = raw.get("dimensions")
         if not isinstance(dimensions, list) or not dimensions:
@@ -297,7 +315,8 @@ def _hidden_relationship_scene(
             if normalized in baseline_by_norm:
                 saved_label, old_value = baseline_by_norm[normalized]
                 delta = _bounded_scene_delta(item.get("delta"))
-                # No delta means "snapshot/display", not permission to replace canonical history.
+                # Explicit out-of-range deltas are rejected before this function. No delta means
+                # snapshot/display only, not permission to replace canonical history.
                 final_value = old_value if delta is None else _clamp_relationship_value(old_value + delta)
                 label = saved_label
             else:
@@ -322,6 +341,8 @@ def _prepare_extracted_for_commit(
 ) -> tuple[Dict[str, Any], Dict[str, Any]]:
     if _ORIGINAL_PREPARE_EXTRACTED_FOR_COMMIT is None:
         raise RuntimeError("RELATIONSHIP_GROWTH_RUNTIME_NOT_INSTALLED")
+    # Explicit canonical deltas are strict. Legacy footer deltas stay tolerant for compatibility.
+    _validate_explicit_relationship_deltas(payload)
     # Preserve old GPT installations: a valid small footer delta becomes a relationship_update fallback.
     prepared_payload = _merge_footer_delta_fallbacks(payload, root=root)
     # Never let the visible footer itself overwrite persistent numeric canon.
@@ -376,8 +397,10 @@ def _install_packet_policy_wrapper() -> None:
             "when": "Only on a real numeric or relationship-metadata change.",
             "format": '[{"character_id":"npc_id","dimensions":[{"label":"доверие","value":12,"delta":2}]}]',
             "instruction": (
-                "Existing metric: send delta; Railway applies saved baseline + delta. Omit unchanged metrics. "
-                "Works if the participating NPC stays or leaves; metadata may share the row."
+                "Existing metric: send delta within -3..+3; Railway applies saved baseline + delta. "
+                "Omit unchanged metrics. Relationship changes are allowed only for an NPC with concrete "
+                "current-turn participation: physical presence/transition or direct current-turn contact/memory; "
+                "mere mention, thread membership or cast relevance does not count."
             ),
         }
         context["persistence_contract"] = persistence
