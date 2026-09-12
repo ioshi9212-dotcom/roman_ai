@@ -278,16 +278,6 @@ def inject_required_turn_context(context: Dict[str, Any], cards: List[Dict[str, 
         "rules": "runtime_rules",
         "scene_builder": "scene_builder",
     }
-    context["always_read_context"] = [
-        "runtime_rules",
-        "scene_builder",
-        "novel",
-        "character_registry",
-        "relationship_index",
-        "scene_state",
-        "chronology_recent",
-        "recent_turns",
-    ]
     context["scene_builder_instruction"] = (
         "MANDATORY. Read scene_builder completely before writing and follow its FORMAT exactly. "
         "Do not shorten, reorder, omit or replace its blocks."
