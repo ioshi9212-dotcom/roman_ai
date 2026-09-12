@@ -61,3 +61,6 @@ def test_custom_gpt_instruction_stays_small_and_matches_writer_first_transport()
     assert "сверяй циклом до 0 пропусков" in text
     assert "После ЛЮБОЙ записи прежняя сверка недействительна" in text
     assert "не говори, что draft нельзя исправить" in text
+    assert "ТОЛЬКО новым уникальным `block_id`" in text
+    assert "Сохранённые блоки повторно не отправляй" in text
+    assert "бери дословно из текущего draft, не по памяти" in text
