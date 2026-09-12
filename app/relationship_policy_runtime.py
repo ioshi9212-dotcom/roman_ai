@@ -8,6 +8,7 @@ from typing import Any, Dict, Iterable, List
 from fastapi import HTTPException
 
 from . import relationship_runtime, session_runtime, storage, writer_first_runtime
+from .living_world_runtime import RELATIONSHIP_DIMENSIONS
 from .transactional_storage import session_transaction
 
 
@@ -63,35 +64,23 @@ def _relation_for(state: Dict[str, Any], owner_id: str) -> Dict[str, Any] | None
     return None
 
 
-def _relationship_index(state: Dict[str, Any], cards: List[Dict[str, Any]]) -> Dict[str, Any]:
+def _relationship_index(state: Dict[str, Any], cards: List[Dict[str, Any]]) -> Dict[str, Dict[str, float]]:
+    """Tiny always-read NPC->POV numeric index. Names/dossiers stay in character_registry/bundles."""
     pov = state.get("pov") if isinstance(state.get("pov"), dict) else {}
     pov_id = str(pov.get("character_id") or "")
     flat = state.get("relationships") if isinstance(state.get("relationships"), dict) else {}
-    result: Dict[str, Any] = {}
+    result: Dict[str, Dict[str, float]] = {}
     for card in cards:
         cid = storage._card_id(card)
         if not cid or cid == pov_id:
             continue
         row = flat.get(cid) if isinstance(flat.get(cid), dict) else {}
-        metrics = {
+        result[cid] = {
             str(label): value
             for label, value in row.items()
             if _is_number(value)
         }
-        relation = _relation_for(state, cid) or {}
-        entry: Dict[str, Any] = {
-            "name": storage._card_name(card) or cid,
-            "metrics": metrics,
-        }
-        current_dynamic = str(relation.get("current_dynamic") or "").strip()
-        if current_dynamic:
-            entry["current_dynamic"] = current_dynamic[:240]
-        last_changed = int(relation.get("last_changed_turn", 0) or 0)
-        if last_changed:
-            entry["last_changed_turn"] = last_changed
-        result[cid] = entry
     return result
-
 
 def _participant_ids(
     cards: List[Dict[str, Any]],
@@ -257,6 +246,7 @@ def _validate_update_rows(
         dimensions = raw.get("dimensions") if isinstance(raw.get("dimensions"), list) else []
         metadata_change = any(raw.get(key) is not None for key in _META_KEYS)
         baseline = _numeric_baseline(state_before, owner_id)
+        allowed_new = {_norm(label) for label in RELATIONSHIP_DIMENSIONS}
         changed = metadata_change
         owner_dims: Dict[str, Dict[str, Any]] = {}
 
@@ -267,6 +257,11 @@ def _validate_update_rows(
             if not label:
                 _error("RELATIONSHIP_UPDATES_INVALID", "Relationship dimension requires label.")
             key = _norm(label)
+            if key not in baseline and key not in allowed_new:
+                _error(
+                    "RELATIONSHIP_DIMENSION_UNKNOWN",
+                    f"{owner_id}: unknown relationship metric {label!r}. Use the fixed relationship vocabulary.",
+                )
             value = dim.get("value")
             delta = dim.get("delta")
             if not _is_number(value):
@@ -352,11 +347,8 @@ def _validate_footer(
         incoming = footer.get(owner_id)
 
         if not baseline and not explicit_dims:
-            if incoming:
-                _error(
-                    "RELATIONSHIP_CHANGE_REASON_REQUIRED",
-                    f"{owner_id}: a new relationship metric must be created through relationship_updates with reason.",
-                )
+            # First-ever baseline is initialization, not a change from prior canon.
+            # relationship_growth_runtime may persist valid fixed-vocabulary footer metrics once.
             continue
 
         if not incoming:
@@ -370,15 +362,6 @@ def _validate_footer(
             if isinstance(item, dict)
         }
 
-        incoming_keys = set(incoming_by_norm)
-        unauthorized_new = incoming_keys - set(baseline) - set(explicit_dims)
-        if unauthorized_new:
-            labels = [str(incoming_by_norm[key].get("label") or key) for key in sorted(unauthorized_new)]
-            _error(
-                "RELATIONSHIP_CHANGE_REASON_REQUIRED",
-                f"{owner_id}: new footer metrics require causal relationship_updates with reason: {', '.join(labels)}.",
-            )
-
         required_keys = set(baseline) | set(explicit_dims)
         missing = [
             (baseline.get(key) or (explicit_dims[key]["label"], 0))[0]
@@ -389,6 +372,15 @@ def _validate_footer(
             _error(
                 "RELATIONSHIP_FOOTER_INCOMPLETE",
                 f"{owner_id}: visible footer omitted established metrics: {', '.join(missing)}.",
+            )
+
+        incoming_keys = set(incoming_by_norm)
+        unauthorized_new = incoming_keys - set(baseline) - set(explicit_dims)
+        if unauthorized_new:
+            labels = [str(incoming_by_norm[key].get("label") or key) for key in sorted(unauthorized_new)]
+            _error(
+                "RELATIONSHIP_CHANGE_REASON_REQUIRED",
+                f"{owner_id}: new footer metrics require causal relationship_updates with reason: {', '.join(labels)}.",
             )
 
         for key in required_keys:
@@ -461,16 +453,10 @@ def _rewrite_packet(session_id: str, base_result: Dict[str, Any]) -> Dict[str, A
         source = storage._read_json(root / "source.json", {})
         cards = storage._load_cards(root, source)
         context["relationship_index"] = {
-            "direction": "NPC -> POV",
+            "direction": "NPC->POV",
             "always_read": True,
             "characters": _relationship_index(state, cards),
-            "instruction": (
-                "MANDATORY EVERY TURN. This compact index is the current directed relationship baseline for every registered NPC, "
-                "including offscreen characters. Zero is a real saved value, not absence. Combine these values with that NPC's "
-                "character, knowledge, current opinion, goals and circumstances. Strong positive or conflictual bonds may increase "
-                "initiative/frequency, but the form of approach, avoidance, jealousy, suspicion, help or conflict must follow the "
-                "specific NPC rather than a universal table. Never infer POV->NPC feelings from this NPC->POV index."
-            ),
+            "instruction": "Read every turn. 0 persists. Values affect behavior only through the specific NPC's character/context; never infer POV->NPC feelings.",
         }
 
         policy = context.get("relationship_policy") if isinstance(context.get("relationship_policy"), dict) else {}
