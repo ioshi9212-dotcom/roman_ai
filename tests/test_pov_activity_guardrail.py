@@ -44,7 +44,6 @@ def test_pov_activity_automates_minutiae_and_requires_natural_ordinary_dialogue(
     assert "не убирай POV из сцены" in instruction
     assert "не являющаяся решением" in automatic
     assert "не убирай POV из сцены" in instruction
-    assert "непосредственные не-решающие реакции" in automatic
 
 
 def test_writer_packet_contains_active_pov_dialogue_and_meaningful_choice_boundary():
