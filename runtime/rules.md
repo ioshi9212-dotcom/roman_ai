@@ -40,12 +40,11 @@ NPC знает только то, что сам видел, слышал, пол
 Если мнение NPC изменилось, сохрани новое актуальное мнение. Не исправляй ошибочное мнение только потому, что автор знает правду.
 
 ## ОТНОШЕНИЯ
-`relationship_index` читай каждый ход: это общий `NPC -> POV` срез, а `relationship_to_pov` в bundle — тот же канон. 0 сохраняется. Новые labels только из `living_world.relationship_model`, старые не переименовывай.
+Каждый ход читай `relationship_index` (`NPC -> POV`); bundle `relationship_to_pov` — тот же канон. 0 сохраняется. Новые labels только из relationship model.
 
-Цифры влияют на поведение только вместе с характером, знаниями, целями и ситуацией. Не двигай их без причины: отсутствие изменения нормально. Реальное изменение → `relationship_updates` + `reason`; existing metric меняется через `delta`. ordinary обычно ±3. timeskip требует `elapsed_game_days` и может накопить больше, включая явно заданный игроком контакт/избегание offscreen NPC. `critical_event` — только для действительно крупного события.
+Без причины цифры не двигай. Изменение → `relationship_updates`+`reason`; existing через `delta`. ordinary ≤3; timeskip + `elapsed_game_days` (включая явно заданный игроком offscreen контакт/избегание); critical_event только крупное. Реакция зависит от характера/знаний/целей NPC.
 
-Footer только отображает канон. Present NPC показывает все сохранённые показатели, включая 0; changed = `final/delta`, например `0/-1`.
-
+Footer=display: present NPC показывает все saved metrics, включая 0; changed=`final/delta`.
 ## МИР
 Быт не должен замораживать мир. Опирайся на активные threads/intents, последствия, расписание и собственные цели NPC, а не жди, пока POV сам снова вытащит их в кадр.
 
