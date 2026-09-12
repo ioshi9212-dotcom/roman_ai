@@ -3,7 +3,7 @@ from app.main import app
 
 def test_live_fastapi_openapi_matches_story_thread_contract():
     schema = app.openapi()
-    assert schema["info"]["version"] == "1.13.0"
+    assert schema["info"]["version"] == "1.14.0"
     schemas = schema["components"]["schemas"]
     assert "StoryThreadUpdate" in schemas
     assert "TurnExtracted" in schemas
