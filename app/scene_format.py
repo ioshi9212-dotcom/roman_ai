@@ -11,9 +11,16 @@ NUMBERED_RE = re.compile(r"^\s*([1-3])\.\s+\S.*$", re.MULTILINE)
 REQUIRED_PREFIXES = ("🎭 ", "🕒 День ", "🌦️ Погода:", "⚙️ Сцена:", "✦ ", "🧥 Одежда, волосы:")
 
 
+INLINE_HEADER_PREFIXES = {"🌦️ Погода:", "🧥 Одежда, волосы:"}
+
+
 def _first_line_index(lines: List[str], prefix: str) -> int:
     for index, line in enumerate(lines):
-        if line.strip().startswith(prefix):
+        stripped = line.strip()
+        if prefix in INLINE_HEADER_PREFIXES:
+            if prefix in stripped:
+                return index
+        elif stripped.startswith(prefix):
             return index
     return -1
 
