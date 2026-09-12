@@ -114,3 +114,46 @@ def test_custom_gpt_retries_transient_transport_failures_without_advancing_turn(
     assert len(text) <= 8000
 
 # Relationship growth regression suite intentionally lives outside legacy schema-lock tests.
+
+def test_explicit_existing_delta_out_of_range_is_rejected_instead_of_silently_ignored():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(novel({"доверие": 3}))["session_id"]
+        read_packet(sid, "conflict")
+        payload = extracted()
+        payload["relationship_updates"] = [
+            {"character_id": "adrian", "dimensions": [{"label": "доверие", "value": 7, "delta": 4}]}
+        ]
+        with pytest.raises(HTTPException) as exc:
+            session_runtime.commit_turn(
+                sid,
+                {"user_input": "conflict", "scene_output": scene("доверие 3"), "extracted": payload},
+            )
+        assert exc.value.status_code == 409
+        assert exc.value.detail["code"] == "RELATIONSHIP_DELTA_OUT_OF_RANGE"
+        state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
+        assert state["relationships"]["adrian"]["доверие"] == 3
+
+
+def test_legacy_footer_out_of_range_delta_stays_non_destructive_and_non_blocking():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(novel({"доверие": 3}))["session_id"]
+        read_packet(sid, "legacy")
+        session_runtime.commit_turn(
+            sid,
+            {"user_input": "legacy", "scene_output": scene("доверие 7/+4"), "extracted": extracted()},
+        )
+        state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
+        assert state["relationships"]["adrian"]["доверие"] == 3
+
+
+def test_packet_and_rules_agree_relationship_updates_are_canonical():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(novel({"доверие": 3}))["session_id"]
+        packet = read_packet(sid, "quiet")
+        assert packet["relationship_policy"]["footer_is_display_only"] is True
+        assert "Existing metrics change only through relationship_updates delta" in packet["relationship_policy"]["instruction"]
+        assert "единственный canonical-канал" in packet["runtime_rules"]
+        assert "Footer только показывает актуальные числа" in packet["runtime_rules"]
