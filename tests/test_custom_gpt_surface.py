@@ -15,12 +15,17 @@ def test_custom_gpt_schema_exposes_response_safe_single_context_character_and_ro
     character_prepare = "/sessions/{session_id}/characters/{character_id}/read"
     character_chunk = "/sessions/{session_id}/characters/{character_id}/read/{read_id}/{chunk_index}"
     rollback_path = "/sessions/{session_id}/rollback-last-turn"
+    intake_chunk = "/novel-drafts/{draft_id}/intake/chunks"
+    intake_mapping = "/novel-drafts/{draft_id}/intake/{block_id}/mapping"
 
     assert paths[turn_path]["get"]["operationId"] == "getTurnPacketChunk"
     assert paths[audit_path]["get"]["operationId"] == "getAuditSnapshotChunk"
     assert paths[character_prepare]["post"]["operationId"] == "prepareCharacterBundleRead"
     assert paths[character_chunk]["get"]["operationId"] == "getCharacterBundleChunk"
     assert paths[rollback_path]["post"]["operationId"] == "rollbackLastTurn"
+    assert paths[intake_chunk]["post"]["operationId"] == "appendDraftIntakeChunk"
+    assert paths[intake_mapping]["post"]["operationId"] == "updateDraftIntakeMapping"
+    assert schema["components"]["schemas"]["NovelDraftIntakeChunk"]["properties"]["raw_text"]["maxLength"] == 12000
     rollback_schema = schema["components"]["schemas"]["RollbackLastTurn"]
     assert set(rollback_schema["required"]) == {"expected_turn_number", "expected_turn_id", "confirm"}
     assert rollback_schema["properties"]["confirm"]["const"] is True
@@ -64,3 +69,7 @@ def test_custom_gpt_instruction_stays_small_and_matches_writer_first_transport()
     assert "ТОЛЬКО новым уникальным `block_id`" in text
     assert "Сохранённые блоки повторно не отправляй" in text
     assert "бери дословно из текущего draft, не по памяти" in text
+    assert "appendDraftIntakeChunk" in text
+    assert "updateDraftIntakeMapping" in text
+    assert "[полный текст...]" in text
+    assert "не проси повторить текст из-за размера" in text
