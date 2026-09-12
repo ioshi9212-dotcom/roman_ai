@@ -107,7 +107,8 @@ def _scene_character_ids(context: Dict[str, Any], state: Dict[str, Any], cards: 
     if pov.get("character_id"):
         values.append(str(pov["character_id"]))
     values.extend(str(value) for value in storage._present_character_ids(state) if value)
-    values.extend(_explicit_input_character_ids(cards, context.get("user_input")))
+    # A name mention alone must not pull an offscreen dossier into the working set.
+    # Offscreen participation is loaded explicitly through prepareCharacterBundleRead.
     valid = {storage._card_id(card) for card in cards}
     return [value for value in dict.fromkeys(values) if value in valid]
 
@@ -277,6 +278,16 @@ def inject_required_turn_context(context: Dict[str, Any], cards: List[Dict[str, 
         "rules": "runtime_rules",
         "scene_builder": "scene_builder",
     }
+    context["always_read_context"] = [
+        "runtime_rules",
+        "scene_builder",
+        "novel",
+        "character_registry",
+        "relationship_index",
+        "scene_state",
+        "chronology_recent",
+        "recent_turns",
+    ]
     context["scene_builder_instruction"] = (
         "MANDATORY. Read scene_builder completely before writing and follow its FORMAT exactly. "
         "Do not shorten, reorder, omit or replace its blocks."
