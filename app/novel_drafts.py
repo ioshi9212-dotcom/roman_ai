@@ -473,29 +473,45 @@ def create_draft(novel_id: str, title: str, version: int = 1) -> Dict[str, Any]:
     return draft_status(draft_id)
 
 
-def save_section(draft_id: str, section_name: str, section_json: str) -> Dict[str, Any]:
-    draft = _read(draft_id)
-    was_finalized = bool(draft.get("finalized"))
-    section_name = section_name.strip()
-    if section_name not in ALLOWED_SECTIONS:
-        raise KeyError(section_name)
-    parsed = _parse_one_json(section_json)
-    if section_name == "characters" and not isinstance(parsed, list):
-        raise TypeError("characters must be a JSON array")
-    if section_name == "starting_state" and not isinstance(parsed, dict):
-        raise TypeError("starting_state must be a JSON object")
-    if section_name == "foundation" and not isinstance(parsed, dict):
-        raise TypeError("foundation must be a JSON object")
-    draft["sections"][section_name] = parsed
-    draft["revision"] = int(draft.get("revision", 0) or 0) + 1
-    draft["finalized"] = False
-    draft.pop("finalized_template", None)
-    if int(draft.get("version", 1) or 1) >= 3:
-        draft.pop("launch_state", None)
-        draft.pop("launch_state_hash", None)
-        draft.pop("launch_hint", None)
-        draft.pop("session_creation_receipt", None)
-    _write(_draft_path(draft_id), draft)
+def save_section(
+    draft_id: str,
+    section_name: str,
+    section_json: str,
+    expected_revision: int | None = None,
+) -> Dict[str, Any]:
+    with session_transaction(_drafts_dir()):
+        draft = _read(draft_id)
+        current_revision = int(draft.get("revision", 0) or 0)
+        if int(draft.get("version", 1) or 1) >= 3:
+            if expected_revision is None:
+                raise ValueError("DRAFT_SECTION_REVISION_REQUIRED")
+            if int(expected_revision) != current_revision:
+                raise ValueError("DRAFT_SECTION_REVISION_MISMATCH")
+        elif expected_revision is not None and int(expected_revision) != current_revision:
+            raise ValueError("DRAFT_SECTION_REVISION_MISMATCH")
+
+        was_finalized = bool(draft.get("finalized"))
+        section_name = section_name.strip()
+        if section_name not in ALLOWED_SECTIONS:
+            raise KeyError(section_name)
+        parsed = _parse_one_json(section_json)
+        if section_name == "characters" and not isinstance(parsed, list):
+            raise TypeError("characters must be a JSON array")
+        if section_name == "starting_state" and not isinstance(parsed, dict):
+            raise TypeError("starting_state must be a JSON object")
+        if section_name == "foundation" and not isinstance(parsed, dict):
+            raise TypeError("foundation must be a JSON object")
+        draft["sections"][section_name] = parsed
+        draft["revision"] = current_revision + 1
+        draft["finalized"] = False
+        draft.pop("finalized_template", None)
+        if int(draft.get("version", 1) or 1) >= 3:
+            draft.pop("launch_state", None)
+            draft.pop("launch_state_hash", None)
+            draft.pop("launch_hint", None)
+            draft.pop("session_creation_receipt", None)
+        _write(_draft_path(draft_id), draft)
+
     result = dict(draft_status(draft_id))
     result["reopened_from_finalized"] = was_finalized
     return result
