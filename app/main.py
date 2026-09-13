@@ -163,6 +163,7 @@ def novel_draft_intake_mapping_update(draft_id: str, block_id: str, body: NovelD
             "INTAKE_FACT_IDS_REQUIRED": "A reviewed factual block must map to at least one existing foundation fact_id.",
             "INTAKE_FACT_IDS_CONFLICT": "contains_no_facts cannot be combined with fact_ids.",
             "INTAKE_BLOCK_INVALID": "block_id is required.",
+            "INTAKE_MAPPING_REVISION_REQUIRED": "replace=true requires expected_revision so a stale correction cannot overwrite a newer mapping.",
             "INTAKE_MAPPING_REVISION_MISMATCH": "The draft changed since this mapping was prepared. Read the current draft revision before replacing mappings.",
         }
         raise HTTPException(status_code=409, detail=messages.get(code, code))
@@ -248,7 +249,9 @@ def novel_draft_publish(draft_id: str):
         return publish_draft_to_library(draft_id)
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Draft not found")
-    except RuntimeError:
+    except RuntimeError as exc:
+        if str(exc) == "LAUNCH_STATE_REQUIRED":
+            raise HTTPException(status_code=409, detail="Draft v3 must have a validated launch state before publishing to the reusable library.")
         raise HTTPException(status_code=409, detail="Draft must be finalized first")
 
 
