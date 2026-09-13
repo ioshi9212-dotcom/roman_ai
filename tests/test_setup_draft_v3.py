@@ -344,3 +344,23 @@ def test_v3_publish_requires_launch_state_and_publishes_playable_template_after_
         saved = storage.get_novel("v3_publish")
         assert saved["starting_state"]["current"]["location"] == "архив"
         assert saved["starting_state"]["current"]["present_characters"] == ["rina"]
+
+
+
+def test_large_raw_chunk_above_old_12k_limit_is_accepted_by_backend():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        draft_id = novel_drafts.create_draft("v3_large_raw", "V3 Large RAW", version=3)["draft_id"]
+        raw = "А" * 20000
+        result = draft_intake_runtime.append_intake_chunk(
+            draft_id,
+            block_id="large_001",
+            stage="setup_user_message",
+            chunk_index=0,
+            raw_text=raw,
+            is_last=True,
+        )
+        assert result["complete"] is True
+        assert result["char_count"] == 20000
+        block = novel_drafts._read(draft_id)["sections"]["intake"]["blocks"][0]
+        assert block["raw_text"] == raw
