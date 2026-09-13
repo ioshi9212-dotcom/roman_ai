@@ -13,6 +13,7 @@ from .transactional_storage import session_transaction
 _ORIGINAL_DRAFT_STATUS = None
 _ORIGINAL_FINALIZE = None
 _ORIGINAL_CREATE_SESSION = None
+_ORIGINAL_PUBLISH = None
 _VERSION = 3
 
 
@@ -369,13 +370,39 @@ def _create_session_from_draft(draft_id: str) -> Dict[str, Any]:
         return result
 
 
+def _publish_draft_to_library(draft_id: str) -> Dict[str, Any]:
+    draft = novel_drafts._read(draft_id)
+    if not _is_v3(draft):
+        return dict(_ORIGINAL_PUBLISH(draft_id))
+    if not draft.get("finalized") or not isinstance(draft.get("finalized_template"), dict):
+        raise RuntimeError("DRAFT_NOT_FINALIZED")
+    launch_state = draft.get("launch_state")
+    if not isinstance(launch_state, dict):
+        raise RuntimeError("LAUNCH_STATE_REQUIRED")
+
+    template = deepcopy(draft["finalized_template"])
+    template["starting_state"] = deepcopy(launch_state)
+    template, _coverage = novel_drafts._validate_template(template)
+    storage.save_novel(template)
+    draft["published_to_library"] = True
+    novel_drafts._write(novel_drafts._draft_path(draft_id), draft)
+    return {
+        "ok": True,
+        "novel_id": template["novel_id"],
+        "title": template["title"],
+        "published_to_library": True,
+    }
+
+
 def install() -> None:
-    global _ORIGINAL_DRAFT_STATUS, _ORIGINAL_FINALIZE, _ORIGINAL_CREATE_SESSION
+    global _ORIGINAL_DRAFT_STATUS, _ORIGINAL_FINALIZE, _ORIGINAL_CREATE_SESSION, _ORIGINAL_PUBLISH
     if _ORIGINAL_DRAFT_STATUS is not None:
         return
     _ORIGINAL_DRAFT_STATUS = novel_drafts.draft_status
     _ORIGINAL_FINALIZE = novel_drafts.finalize_draft
     _ORIGINAL_CREATE_SESSION = novel_drafts.create_session_from_draft
+    _ORIGINAL_PUBLISH = novel_drafts.publish_draft_to_library
     novel_drafts.draft_status = _draft_status
     novel_drafts.finalize_draft = _finalize_draft
     novel_drafts.create_session_from_draft = _create_session_from_draft
+    novel_drafts.publish_draft_to_library = _publish_draft_to_library
