@@ -22,6 +22,10 @@ components:
           type: string
           enum: [novel, characters, lore, rules, hidden_lore, world, starting_state, story_direction, foundation, intake]
         section_json: {type: string}
+        expected_revision:
+          type: integer
+          minimum: 0
+          description: Required for v3 writes; must equal the current draft revision.
     NovelDraftIntakeChunk:
       type: object
       required: [block_id, stage, chunk_index, raw_text]
@@ -40,7 +44,10 @@ components:
           items: {type: string}
         reviewed_against_raw: {type: boolean, default: false}
         contains_no_facts: {type: boolean, default: false}
-        replace: {type: boolean, default: false}
+        replace:
+          type: boolean
+          default: false
+          description: Replaces the block mapping instead of appending; requires expected_revision.
         expected_revision: {type: integer, minimum: 0}
       additionalProperties: false
     NovelDraftReconciliation:
