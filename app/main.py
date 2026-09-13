@@ -129,7 +129,7 @@ def novel_draft_intake_chunk_append(draft_id: str, body: NovelDraftIntakeChunk):
                 detail="raw_text must contain the user's verbatim text, never a placeholder, summary, reference to another message, or '[full text]' marker.",
             )
         if code == "INTAKE_CHUNK_TOO_LARGE":
-            raise HTTPException(status_code=422, detail="raw_text chunk exceeds 12000 characters; split it into smaller consecutive chunks.")
+            raise HTTPException(status_code=422, detail="raw_text chunk exceeds the 100000-character server safety ceiling. Split only the unsaved text into smaller consecutive chunks; do not resend already accepted chunks.")
         messages = {
             "INTAKE_UPLOAD_BLOCK_EXISTS": "This block_id already exists outside this upload. Use a new unique block_id.",
             "INTAKE_UPLOAD_STAGE_IMMUTABLE": "stage changed during the same intake upload. Retry with the exact original stage.",
