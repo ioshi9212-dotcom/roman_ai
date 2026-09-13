@@ -348,6 +348,8 @@ def update_intake_mapping(
         raise ValueError("INTAKE_FACT_IDS_CONFLICT")
     if reviewed_against_raw and not clean_fact_ids and not contains_no_facts:
         raise ValueError("INTAKE_FACT_IDS_REQUIRED")
+    if replace and expected_revision is None:
+        raise ValueError("INTAKE_MAPPING_REVISION_REQUIRED")
 
     with session_transaction(novel_drafts._drafts_dir()):
         draft = novel_drafts._read(draft_id)
@@ -394,6 +396,11 @@ def update_intake_mapping(
             draft["revision"] = int(draft.get("revision", 0) or 0) + 1
             draft["finalized"] = False
             draft.pop("finalized_template", None)
+            if int(draft.get("version", 1) or 1) >= 3:
+                draft.pop("launch_state", None)
+                draft.pop("launch_state_hash", None)
+                draft.pop("launch_hint", None)
+                draft.pop("session_creation_receipt", None)
             novel_drafts._write(novel_drafts._draft_path(draft_id), draft)
         revision = int(draft.get("revision", 0) or 0)
 
@@ -407,10 +414,28 @@ def update_intake_mapping(
     return result
 
 
-def _save_section(draft_id: str, section_name: str, section_json: str) -> Dict[str, Any]:
+def _save_section(
+    draft_id: str,
+    section_name: str,
+    section_json: str,
+    expected_revision: int | None = None,
+) -> Dict[str, Any]:
     if section_name.strip() != "intake":
-        return _ORIGINAL_SAVE_SECTION(draft_id, section_name, section_json)
+        return _ORIGINAL_SAVE_SECTION(
+            draft_id,
+            section_name,
+            section_json,
+            expected_revision=expected_revision,
+        )
     draft = novel_drafts._read(draft_id)
+    current_revision = int(draft.get("revision", 0) or 0)
+    if int(draft.get("version", 1) or 1) >= 3:
+        if expected_revision is None:
+            raise ValueError("DRAFT_SECTION_REVISION_REQUIRED")
+        if int(expected_revision) != current_revision:
+            raise ValueError("DRAFT_SECTION_REVISION_MISMATCH")
+    elif expected_revision is not None and int(expected_revision) != current_revision:
+        raise ValueError("DRAFT_SECTION_REVISION_MISMATCH")
     was_finalized = bool(draft.get("finalized"))
     parsed = novel_drafts._parse_one_json(section_json)
     incoming = _normalise_intake(parsed, reject_placeholders=True)
@@ -423,9 +448,14 @@ def _save_section(draft_id: str, section_name: str, section_json: str) -> Dict[s
 
     merged = _merge_intake(draft.get("sections", {}).get("intake"), incoming)
     draft.setdefault("sections", {})["intake"] = merged
-    draft["revision"] = int(draft.get("revision", 0) or 0) + 1
+    draft["revision"] = current_revision + 1
     draft["finalized"] = False
     draft.pop("finalized_template", None)
+    if int(draft.get("version", 1) or 1) >= 3:
+        draft.pop("launch_state", None)
+        draft.pop("launch_state_hash", None)
+        draft.pop("launch_hint", None)
+        draft.pop("session_creation_receipt", None)
     novel_drafts._write(novel_drafts._draft_path(draft_id), draft)
     result = dict(novel_drafts.draft_status(draft_id))
     result["reopened_from_finalized"] = was_finalized
