@@ -42,6 +42,19 @@ def test_custom_gpt_schema_exposes_response_safe_single_context_character_and_ro
     assert "/sessions/{session_id}/characters/{character_id}/memory" not in paths
 
 
+def test_custom_gpt_schema_stays_within_30_action_limit():
+    schema = yaml.safe_load((ROOT / "openapi.yaml").read_text(encoding="utf-8"))
+    methods = {"get", "post", "put", "patch", "delete"}
+    operations = [
+        operation
+        for path_item in schema["paths"].values()
+        for method, operation in path_item.items()
+        if method in methods
+    ]
+    assert len(operations) <= 30
+    assert all(operation.get("operationId") != "health" for operation in operations)
+
+
 def test_action_descriptions_stay_under_custom_gpt_limit():
     schema = yaml.safe_load((ROOT / "openapi.yaml").read_text(encoding="utf-8"))
     for path, methods in schema["paths"].items():
