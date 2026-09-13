@@ -29,7 +29,7 @@ def test_custom_gpt_schema_exposes_response_safe_single_context_character_and_ro
     assert paths[intake_mapping]["post"]["operationId"] == "updateDraftIntakeMapping"
     assert paths[reconciliation]["post"]["operationId"] == "confirmDraftReconciliation"
     assert paths[launch_state]["post"]["operationId"] == "setDraftLaunchState"
-    assert schema["components"]["schemas"]["NovelDraftIntakeChunk"]["properties"]["raw_text"]["maxLength"] == 12000
+    assert schema["components"]["schemas"]["NovelDraftIntakeChunk"]["properties"]["raw_text"]["maxLength"] == 6000
     rollback_schema = schema["components"]["schemas"]["RollbackLastTurn"]
     assert set(rollback_schema["required"]) == {"expected_turn_number", "expected_turn_id", "confirm"}
     assert rollback_schema["properties"]["confirm"]["const"] is True
@@ -40,6 +40,19 @@ def test_custom_gpt_schema_exposes_response_safe_single_context_character_and_ro
     assert "/sessions/{session_id}/audit-snapshot-batch/{audit_id}" not in paths
     assert "/sessions/{session_id}/characters/{character_id}" not in paths
     assert "/sessions/{session_id}/characters/{character_id}/memory" not in paths
+
+
+def test_custom_gpt_schema_stays_within_30_action_limit():
+    schema = yaml.safe_load((ROOT / "openapi.yaml").read_text(encoding="utf-8"))
+    methods = {"get", "post", "put", "patch", "delete"}
+    operations = [
+        operation
+        for path_item in schema["paths"].values()
+        for method, operation in path_item.items()
+        if method in methods
+    ]
+    assert len(operations) <= 30
+    assert all(operation.get("operationId") != "health" for operation in operations)
 
 
 def test_action_descriptions_stay_under_custom_gpt_limit():
@@ -81,5 +94,8 @@ def test_custom_gpt_instruction_stays_small_and_matches_writer_first_transport()
     assert "простое упоминание ничего не загружает" in text
     assert "[полный текст...]" in text
     assert "не проси повторить текст из-за размера" in text
+    assert "4000–6000" in text
+    assert "422 на intake тем же payload НЕ повторяй" in text
+    assert "пользователю сбой не показывай" in text
     assert "запускай первую сцену" in text
     assert "не проси первый ход" in text

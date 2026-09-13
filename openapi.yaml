@@ -33,7 +33,7 @@ components:
         block_id: {type: string, minLength: 1, maxLength: 120}
         stage: {type: string, minLength: 1, maxLength: 120}
         chunk_index: {type: integer, minimum: 0}
-        raw_text: {type: string, minLength: 1, maxLength: 12000}
+        raw_text: {type: string, minLength: 1, maxLength: 6000}
         is_last: {type: boolean, default: false}
       additionalProperties: false
     NovelDraftIntakeMapping:
@@ -261,12 +261,6 @@ components:
           type: array
           items: {type: string}
 paths:
-  /health:
-    get:
-      operationId: health
-      summary: Check service health
-      responses:
-        '200': {description: Healthy}
   /runtime:
     get:
       operationId: getRuntime
@@ -311,7 +305,7 @@ paths:
     post:
       operationId: appendDraftIntakeChunk
       summary: Append one verbatim chunk of a large intake block
-      description: Send chunks in order from 0. Exact retries are idempotent. Set is_last only on the final chunk; Railway then assembles one immutable raw intake block.
+      description: Send verbatim chunks in order from 0, preferably 4k-6k chars. Exact retries are idempotent. Set is_last only on the final chunk; Railway assembles one immutable RAW block.
       parameters:
         - {in: path, name: draft_id, required: true, schema: {type: string}}
       requestBody:
