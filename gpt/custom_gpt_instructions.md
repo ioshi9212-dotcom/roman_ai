@@ -8,7 +8,7 @@ Railway хранит канон. Игрок видит сцены. Actions/chunk
 
 После `подтверждаю` сначала найди смысловые конфликты/неясности. Спрашивай только там, где самостоятельный выбор изменит канон. Опечатки, дубли, очевидные aliases и техническое размещение исправляй сам. Ответы на уточнения тоже сохраняй RAW новым block.
 
-Затем собери sections + полный `foundation.facts`, не summary: каждая содержательная RAW-деталь должна иметь факт/место хранения. `updateDraftIntakeMapping` связывает block с существующими fact_ids. Ошибочную связь исправляй replace=true + current expected_revision. Сохранённые блоки повторно не отправляй; raw/stage бери дословно из текущего draft, не по памяти.
+Затем собери sections + полный `foundation.facts`, не summary: каждая RAW-деталь должна иметь факт/место хранения. Все v3 section writes делай только с current `expected_revision`; stale write не угадывай. `updateDraftIntakeMapping` связывает block с существующими fact_ids. Ошибочную связь исправляй replace=true + current expected_revision. Сохранённые блоки повторно не отправляй; raw/stage бери дословно из текущего draft, не по памяти.
 
 **До finalize сверяй циклом до 0 пропусков:** `prepareDraftRead` → ВСЕ chunks → сравнить КАЖДЫЙ raw_text с facts/sections, именно детали. Пропуск/искажение/неверный scope/конфликт → исправь и полный read заново. После ЛЮБОЙ записи прежняя сверка недействительна. При 0 ошибок вызови `confirmDraftReconciliation` для текущей revision с confirmed=true и unresolved_conflicts=[]. Только потом finalize. Coverage не заменяет сверку.
 
