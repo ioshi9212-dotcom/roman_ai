@@ -26,6 +26,7 @@ class NovelDraftCreate(BaseModel):
 class NovelDraftSection(BaseModel):
     section_name: str
     section_json: str
+    expected_revision: Optional[int] = Field(default=None, ge=0)
 
 
 class NovelDraftIntakeChunk(BaseModel):
