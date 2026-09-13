@@ -33,7 +33,7 @@ class NovelDraftIntakeChunk(BaseModel):
     block_id: str = Field(min_length=1, max_length=120)
     stage: str = Field(min_length=1, max_length=120)
     chunk_index: int = Field(ge=0)
-    raw_text: str = Field(min_length=1, max_length=12000)
+    raw_text: str = Field(min_length=1)
     is_last: bool = False
 
 
