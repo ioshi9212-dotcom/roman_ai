@@ -52,29 +52,36 @@ def foundation():
     }
 
 
+def save_v3_section(draft_id: str, section_name: str, value):
+    revision = novel_drafts.draft_status(draft_id)["revision"]
+    return novel_drafts.save_section(
+        draft_id,
+        section_name,
+        json.dumps(value, ensure_ascii=False),
+        expected_revision=revision,
+    )
+
+
 def save_content(draft_id: str):
-    novel_drafts.save_section(
+    save_v3_section(
         draft_id,
         "novel",
-        json.dumps({"pov_character": "rina", "genres": ["триллер"], "age_rating": "18+"}, ensure_ascii=False),
+        {"pov_character": "rina", "genres": ["триллер"], "age_rating": "18+"},
     )
-    novel_drafts.save_section(
+    save_v3_section(
         draft_id,
         "characters",
-        json.dumps(
-            [
-                {"character_id": "rina", "name": "Рина", "is_pov": True, "job": "архивист"},
-                {"character_id": "adrian", "name": "Адриан"},
-            ],
-            ensure_ascii=False,
-        ),
+        [
+            {"character_id": "rina", "name": "Рина", "is_pov": True, "job": "архивист"},
+            {"character_id": "adrian", "name": "Адриан"},
+        ],
     )
-    novel_drafts.save_section(
+    save_v3_section(
         draft_id,
         "lore",
-        json.dumps({"city": "Город живёт вокруг закрытого архива."}, ensure_ascii=False),
+        {"city": "Город живёт вокруг закрытого архива."},
     )
-    novel_drafts.save_section(draft_id, "foundation", json.dumps(foundation(), ensure_ascii=False))
+    save_v3_section(draft_id, "foundation", foundation())
 
 
 def read_current_revision(draft_id: str):
@@ -176,10 +183,10 @@ def test_v3_any_content_write_invalidates_full_read_and_reconciliation():
         before = novel_drafts.draft_status(draft_id)
         assert before["reconciliation_current"] is True
 
-        novel_drafts.save_section(
+        save_v3_section(
             draft_id,
             "novel",
-            json.dumps({"pov_character": "rina", "genres": ["триллер", "драма"], "age_rating": "18+"}, ensure_ascii=False),
+            {"pov_character": "rina", "genres": ["триллер", "драма"], "age_rating": "18+"},
         )
         after = novel_drafts.draft_status(draft_id)
         assert after["reconciliation_current"] is False
@@ -250,3 +257,90 @@ def test_reconciliation_rejects_unresolved_semantic_conflicts():
                 confirmed_against_raw=True,
                 unresolved_conflicts=["Возраст Рины противоречит другой части анкеты."],
             )
+
+
+
+def test_v3_section_writes_require_current_revision_and_reject_stale_replacement():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        draft_id = novel_drafts.create_draft("v3_guard", "V3 Guard", version=3)["draft_id"]
+
+        with pytest.raises(ValueError, match="DRAFT_SECTION_REVISION_REQUIRED"):
+            novel_drafts.save_section(
+                draft_id,
+                "novel",
+                json.dumps({"pov_character": "rina"}, ensure_ascii=False),
+            )
+
+        current = novel_drafts.draft_status(draft_id)["revision"]
+        novel_drafts.save_section(
+            draft_id,
+            "novel",
+            json.dumps({"pov_character": "rina"}, ensure_ascii=False),
+            expected_revision=current,
+        )
+        with pytest.raises(ValueError, match="DRAFT_SECTION_REVISION_MISMATCH"):
+            novel_drafts.save_section(
+                draft_id,
+                "lore",
+                json.dumps({"city": "stale"}, ensure_ascii=False),
+                expected_revision=current,
+            )
+
+
+def test_v3_mapping_replace_requires_expected_revision():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        draft_id = novel_drafts.create_draft("v3_map_guard", "V3 Map Guard", version=3)["draft_id"]
+        draft_intake_runtime.append_intake_chunk(
+            draft_id,
+            block_id="b1",
+            stage="setup_user_message",
+            chunk_index=0,
+            raw_text="Рина боится воды.",
+            is_last=True,
+        )
+        save_content(draft_id)
+
+        with pytest.raises(ValueError, match="INTAKE_MAPPING_REVISION_REQUIRED"):
+            draft_intake_runtime.update_intake_mapping(
+                draft_id,
+                "b1",
+                fact_ids=["f_pov"],
+                reviewed_against_raw=True,
+                contains_no_facts=False,
+                replace=True,
+            )
+
+
+def test_v3_publish_requires_launch_state_and_publishes_playable_template_after_launch():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        draft_id = novel_drafts.create_draft("v3_publish", "V3 Publish", version=3)["draft_id"]
+        prepare_reconciled_v3(draft_id)
+        novel_drafts.finalize_draft(draft_id)
+
+        with pytest.raises(RuntimeError, match="LAUNCH_STATE_REQUIRED"):
+            novel_drafts.publish_draft_to_library(draft_id)
+
+        status = novel_drafts.draft_status(draft_id)
+        set_launch_state(
+            draft_id,
+            expected_finalized_revision=status["revision"],
+            starting_state_json=json.dumps(
+                {
+                    "pov": "Рина",
+                    "current": {
+                        "location": "архив",
+                        "scene": "ночная смена",
+                        "present_characters": ["Рина"],
+                    },
+                },
+                ensure_ascii=False,
+            ),
+        )
+        published = novel_drafts.publish_draft_to_library(draft_id)
+        assert published["published_to_library"] is True
+        saved = storage.get_novel("v3_publish")
+        assert saved["starting_state"]["current"]["location"] == "архив"
+        assert saved["starting_state"]["current"]["present_characters"] == ["rina"]
