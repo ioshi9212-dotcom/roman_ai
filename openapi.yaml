@@ -261,12 +261,6 @@ components:
           type: array
           items: {type: string}
 paths:
-  /health:
-    get:
-      operationId: health
-      summary: Check service health
-      responses:
-        '200': {description: Healthy}
   /runtime:
     get:
       operationId: getRuntime
