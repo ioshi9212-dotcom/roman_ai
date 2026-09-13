@@ -82,12 +82,19 @@ def novel_draft_create(body: NovelDraftCreate):
 @app.post("/novel-drafts/{draft_id}/sections", operation_id="saveNovelDraftSection")
 def novel_draft_section_save(draft_id: str, body: NovelDraftSection):
     try:
-        return save_section(draft_id, body.section_name, body.section_json)
+        return save_section(
+            draft_id,
+            body.section_name,
+            body.section_json,
+            expected_revision=body.expected_revision,
+        )
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Draft not found")
     except KeyError:
         raise HTTPException(status_code=422, detail="Unknown section_name")
     except (ValueError, TypeError) as exc:
+        if str(exc) in {"DRAFT_SECTION_REVISION_REQUIRED", "DRAFT_SECTION_REVISION_MISMATCH"}:
+            raise HTTPException(status_code=409, detail=str(exc))
         if str(exc) == "INTAKE_BLOCK_SOURCE_IMMUTABLE":
             raise HTTPException(
                 status_code=409,
