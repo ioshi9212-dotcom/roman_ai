@@ -301,6 +301,11 @@ def append_intake_chunk(
         draft["revision"] = int(draft.get("revision", 0) or 0) + 1
         draft["finalized"] = False
         draft.pop("finalized_template", None)
+        if int(draft.get("version", 1) or 1) >= 3:
+            draft.pop("launch_state", None)
+            draft.pop("launch_state_hash", None)
+            draft.pop("launch_hint", None)
+            draft.pop("session_creation_receipt", None)
         uploads[block_id] = {
             "stage": stage,
             "completed": True,
@@ -332,6 +337,8 @@ def update_intake_mapping(
     fact_ids: List[str],
     reviewed_against_raw: bool,
     contains_no_facts: bool,
+    replace: bool = False,
+    expected_revision: int | None = None,
 ) -> Dict[str, Any]:
     block_id = str(block_id or "").strip()
     clean_fact_ids = list(dict.fromkeys(str(item).strip() for item in fact_ids if str(item).strip()))
@@ -341,9 +348,14 @@ def update_intake_mapping(
         raise ValueError("INTAKE_FACT_IDS_CONFLICT")
     if reviewed_against_raw and not clean_fact_ids and not contains_no_facts:
         raise ValueError("INTAKE_FACT_IDS_REQUIRED")
+    if replace and expected_revision is None:
+        raise ValueError("INTAKE_MAPPING_REVISION_REQUIRED")
 
     with session_transaction(novel_drafts._drafts_dir()):
         draft = novel_drafts._read(draft_id)
+        revision_before = int(draft.get("revision", 0) or 0)
+        if expected_revision is not None and int(expected_revision) != revision_before:
+            raise ValueError("INTAKE_MAPPING_REVISION_MISMATCH")
         sections = draft.get("sections") if isinstance(draft.get("sections"), dict) else {}
         intake = sections.get("intake")
         if not isinstance(intake, dict):
@@ -362,11 +374,16 @@ def update_intake_mapping(
             raise ValueError("INTAKE_FACT_ID_UNKNOWN")
 
         before = deepcopy(target)
-        if target.get("contains_no_facts") and clean_fact_ids:
-            raise ValueError("INTAKE_FACT_IDS_CONFLICT")
-        target["fact_ids"] = list(dict.fromkeys(target.get("fact_ids", []) + clean_fact_ids))
-        target["reviewed_against_raw"] = bool(target.get("reviewed_against_raw") or reviewed_against_raw)
-        target["contains_no_facts"] = bool(target.get("contains_no_facts") or contains_no_facts)
+        if replace:
+            target["fact_ids"] = clean_fact_ids
+            target["reviewed_against_raw"] = bool(reviewed_against_raw)
+            target["contains_no_facts"] = bool(contains_no_facts)
+        else:
+            if target.get("contains_no_facts") and clean_fact_ids:
+                raise ValueError("INTAKE_FACT_IDS_CONFLICT")
+            target["fact_ids"] = list(dict.fromkeys(target.get("fact_ids", []) + clean_fact_ids))
+            target["reviewed_against_raw"] = bool(target.get("reviewed_against_raw") or reviewed_against_raw)
+            target["contains_no_facts"] = bool(target.get("contains_no_facts") or contains_no_facts)
         if target["contains_no_facts"] and target["fact_ids"]:
             raise ValueError("INTAKE_FACT_IDS_CONFLICT")
 
@@ -379,39 +396,71 @@ def update_intake_mapping(
             draft["revision"] = int(draft.get("revision", 0) or 0) + 1
             draft["finalized"] = False
             draft.pop("finalized_template", None)
+            if int(draft.get("version", 1) or 1) >= 3:
+                draft.pop("launch_state", None)
+                draft.pop("launch_state_hash", None)
+                draft.pop("launch_hint", None)
+                draft.pop("session_creation_receipt", None)
             novel_drafts._write(novel_drafts._draft_path(draft_id), draft)
         revision = int(draft.get("revision", 0) or 0)
 
-    result = dict(_draft_status(draft_id))
+    result = dict(novel_drafts.draft_status(draft_id))
     result.update({
         "block_id": block_id,
         "mapping_changed": changed,
         "draft_revision": revision,
+        "replace": bool(replace),
     })
     return result
 
 
-def _save_section(draft_id: str, section_name: str, section_json: str) -> Dict[str, Any]:
+def _save_section(
+    draft_id: str,
+    section_name: str,
+    section_json: str,
+    expected_revision: int | None = None,
+) -> Dict[str, Any]:
     if section_name.strip() != "intake":
-        return _ORIGINAL_SAVE_SECTION(draft_id, section_name, section_json)
-    draft = novel_drafts._read(draft_id)
-    was_finalized = bool(draft.get("finalized"))
-    parsed = novel_drafts._parse_one_json(section_json)
-    incoming = _normalise_intake(parsed, reject_placeholders=True)
+        return _ORIGINAL_SAVE_SECTION(
+            draft_id,
+            section_name,
+            section_json,
+            expected_revision=expected_revision,
+        )
 
-    uploads = draft.get("intake_uploads") if isinstance(draft.get("intake_uploads"), dict) else {}
-    for row in incoming["blocks"]:
-        upload = uploads.get(row["block_id"])
-        if isinstance(upload, dict) and not upload.get("completed"):
-            raise ValueError("INTAKE_UPLOAD_IN_PROGRESS")
+    with session_transaction(novel_drafts._drafts_dir()):
+        draft = novel_drafts._read(draft_id)
+        current_revision = int(draft.get("revision", 0) or 0)
+        if int(draft.get("version", 1) or 1) >= 3:
+            if expected_revision is None:
+                raise ValueError("DRAFT_SECTION_REVISION_REQUIRED")
+            if int(expected_revision) != current_revision:
+                raise ValueError("DRAFT_SECTION_REVISION_MISMATCH")
+        elif expected_revision is not None and int(expected_revision) != current_revision:
+            raise ValueError("DRAFT_SECTION_REVISION_MISMATCH")
+        was_finalized = bool(draft.get("finalized"))
+        parsed = novel_drafts._parse_one_json(section_json)
+        incoming = _normalise_intake(parsed, reject_placeholders=True)
 
-    merged = _merge_intake(draft.get("sections", {}).get("intake"), incoming)
-    draft.setdefault("sections", {})["intake"] = merged
-    draft["revision"] = int(draft.get("revision", 0) or 0) + 1
-    draft["finalized"] = False
-    draft.pop("finalized_template", None)
-    novel_drafts._write(novel_drafts._draft_path(draft_id), draft)
-    result = dict(_draft_status(draft_id))
+        uploads = draft.get("intake_uploads") if isinstance(draft.get("intake_uploads"), dict) else {}
+        for row in incoming["blocks"]:
+            upload = uploads.get(row["block_id"])
+            if isinstance(upload, dict) and not upload.get("completed"):
+                raise ValueError("INTAKE_UPLOAD_IN_PROGRESS")
+
+        merged = _merge_intake(draft.get("sections", {}).get("intake"), incoming)
+        draft.setdefault("sections", {})["intake"] = merged
+        draft["revision"] = current_revision + 1
+        draft["finalized"] = False
+        draft.pop("finalized_template", None)
+        if int(draft.get("version", 1) or 1) >= 3:
+            draft.pop("launch_state", None)
+            draft.pop("launch_state_hash", None)
+            draft.pop("launch_hint", None)
+            draft.pop("session_creation_receipt", None)
+        novel_drafts._write(novel_drafts._draft_path(draft_id), draft)
+
+    result = dict(novel_drafts.draft_status(draft_id))
     result["reopened_from_finalized"] = was_finalized
     return result
 

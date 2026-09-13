@@ -215,7 +215,7 @@ def install() -> None:
     def wrapped(context, cards, state):
         result = _ORIGINAL_INJECT(context, cards, state)
         result["character_context_instruction"] = (
-            "Full character_cards travel only for POV, physically present characters and registered characters explicitly participating in current input/communication. "
+            "Full character_cards travel only for POV and physically present characters. A mere offscreen name mention never loads a dossier. "
             "character_memory is a bounded working copy while lifetime memory stays persistent. character_registry remains the compact registry for every registered character. "
             "Before any other offscreen registered character enters, speaks, sends or receives a message, calls, answers, reacts remotely or otherwise materially acts, call prepareCharacterBundleRead(character_id). Its response already includes chunk 0; read only remaining getCharacterBundleChunk indices before writing the character. "
             "Never call the oversized direct character bundle or direct memory Action."

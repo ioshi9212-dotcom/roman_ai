@@ -6,7 +6,7 @@ from .audit_runtime import get_audit_snapshot, get_audit_snapshot_chunk
 from .character_access import get_character_bundle
 from .character_chunk_read import get_character_bundle_chunk, prepare_character_bundle_read
 from .context_stats import session_context_stats
-from .models import AuditCommit, NovelDraftCreate, NovelDraftIntakeChunk, NovelDraftIntakeMapping, NovelDraftSection, NovelRawSave, NovelTemplate, RollbackLastTurn, SessionCreate, TurnCommit, TurnPrepare
+from .models import AuditCommit, NovelDraftCreate, NovelDraftIntakeChunk, NovelDraftIntakeMapping, NovelDraftLaunchState, NovelDraftReconciliation, NovelDraftSection, NovelRawSave, NovelTemplate, RollbackLastTurn, SessionCreate, TurnCommit, TurnPrepare
 from .novel_access import get_novel_read_chunk, prepare_novel_read, verify_novel
 from .novel_drafts import (
     create_draft,
@@ -18,6 +18,7 @@ from .novel_drafts import (
     save_section,
 )
 from .draft_intake_runtime import append_intake_chunk, update_intake_mapping
+from .setup_draft_v3_runtime import confirm_reconciliation, set_launch_state
 from .runtime_access import runtime_chunk, runtime_manifest
 from .session_preview import get_session_preview
 from .session_recovery import recover_session_current
@@ -81,12 +82,19 @@ def novel_draft_create(body: NovelDraftCreate):
 @app.post("/novel-drafts/{draft_id}/sections", operation_id="saveNovelDraftSection")
 def novel_draft_section_save(draft_id: str, body: NovelDraftSection):
     try:
-        return save_section(draft_id, body.section_name, body.section_json)
+        return save_section(
+            draft_id,
+            body.section_name,
+            body.section_json,
+            expected_revision=body.expected_revision,
+        )
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Draft not found")
     except KeyError:
         raise HTTPException(status_code=422, detail="Unknown section_name")
     except (ValueError, TypeError) as exc:
+        if str(exc) in {"DRAFT_SECTION_REVISION_REQUIRED", "DRAFT_SECTION_REVISION_MISMATCH"}:
+            raise HTTPException(status_code=409, detail=str(exc))
         if str(exc) == "INTAKE_BLOCK_SOURCE_IMMUTABLE":
             raise HTTPException(
                 status_code=409,
@@ -142,6 +150,8 @@ def novel_draft_intake_mapping_update(draft_id: str, block_id: str, body: NovelD
             fact_ids=body.fact_ids,
             reviewed_against_raw=body.reviewed_against_raw,
             contains_no_facts=body.contains_no_facts,
+            replace=body.replace,
+            expected_revision=body.expected_revision,
         )
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Draft not found")
@@ -153,6 +163,8 @@ def novel_draft_intake_mapping_update(draft_id: str, block_id: str, body: NovelD
             "INTAKE_FACT_IDS_REQUIRED": "A reviewed factual block must map to at least one existing foundation fact_id.",
             "INTAKE_FACT_IDS_CONFLICT": "contains_no_facts cannot be combined with fact_ids.",
             "INTAKE_BLOCK_INVALID": "block_id is required.",
+            "INTAKE_MAPPING_REVISION_REQUIRED": "replace=true requires expected_revision so a stale correction cannot overwrite a newer mapping.",
+            "INTAKE_MAPPING_REVISION_MISMATCH": "The draft changed since this mapping was prepared. Read the current draft revision before replacing mappings.",
         }
         raise HTTPException(status_code=409, detail=messages.get(code, code))
 
@@ -163,6 +175,37 @@ def novel_draft_status_get(draft_id: str):
         return draft_status(draft_id)
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Draft not found")
+
+
+@app.post("/novel-drafts/{draft_id}/reconciliation", operation_id="confirmDraftReconciliation")
+def novel_draft_reconciliation_confirm(draft_id: str, body: NovelDraftReconciliation):
+    try:
+        return confirm_reconciliation(
+            draft_id,
+            expected_revision=body.expected_revision,
+            confirmed_against_raw=body.confirmed_against_raw,
+            unresolved_conflicts=body.unresolved_conflicts,
+            notes=body.notes,
+        )
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Draft not found")
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+
+
+@app.post("/novel-drafts/{draft_id}/launch-state", operation_id="setDraftLaunchState")
+def novel_draft_launch_state_set(draft_id: str, body: NovelDraftLaunchState):
+    try:
+        return set_launch_state(
+            draft_id,
+            expected_finalized_revision=body.expected_finalized_revision,
+            starting_state_json=body.starting_state_json,
+            launch_hint=body.launch_hint,
+        )
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Draft not found")
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
 
 
 @app.post("/novel-drafts/{draft_id}/finalize", operation_id="finalizeNovelDraft")
@@ -193,7 +236,10 @@ def novel_draft_session_create(draft_id: str):
         return create_session_from_draft(draft_id)
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Draft not found")
-    except RuntimeError:
+    except RuntimeError as exc:
+        code = str(exc)
+        if code == "LAUNCH_STATE_REQUIRED":
+            raise HTTPException(status_code=409, detail="Draft content is finalized, but launch state is not set yet. Use setDraftLaunchState on the user's launch command.")
         raise HTTPException(status_code=409, detail="Draft must be finalized first")
 
 
@@ -203,7 +249,9 @@ def novel_draft_publish(draft_id: str):
         return publish_draft_to_library(draft_id)
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Draft not found")
-    except RuntimeError:
+    except RuntimeError as exc:
+        if str(exc) == "LAUNCH_STATE_REQUIRED":
+            raise HTTPException(status_code=409, detail="Draft v3 must have a validated launch state before publishing to the reusable library.")
         raise HTTPException(status_code=409, detail="Draft must be finalized first")
 
 
