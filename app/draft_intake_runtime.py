@@ -427,36 +427,39 @@ def _save_section(
             section_json,
             expected_revision=expected_revision,
         )
-    draft = novel_drafts._read(draft_id)
-    current_revision = int(draft.get("revision", 0) or 0)
-    if int(draft.get("version", 1) or 1) >= 3:
-        if expected_revision is None:
-            raise ValueError("DRAFT_SECTION_REVISION_REQUIRED")
-        if int(expected_revision) != current_revision:
+
+    with session_transaction(novel_drafts._drafts_dir()):
+        draft = novel_drafts._read(draft_id)
+        current_revision = int(draft.get("revision", 0) or 0)
+        if int(draft.get("version", 1) or 1) >= 3:
+            if expected_revision is None:
+                raise ValueError("DRAFT_SECTION_REVISION_REQUIRED")
+            if int(expected_revision) != current_revision:
+                raise ValueError("DRAFT_SECTION_REVISION_MISMATCH")
+        elif expected_revision is not None and int(expected_revision) != current_revision:
             raise ValueError("DRAFT_SECTION_REVISION_MISMATCH")
-    elif expected_revision is not None and int(expected_revision) != current_revision:
-        raise ValueError("DRAFT_SECTION_REVISION_MISMATCH")
-    was_finalized = bool(draft.get("finalized"))
-    parsed = novel_drafts._parse_one_json(section_json)
-    incoming = _normalise_intake(parsed, reject_placeholders=True)
+        was_finalized = bool(draft.get("finalized"))
+        parsed = novel_drafts._parse_one_json(section_json)
+        incoming = _normalise_intake(parsed, reject_placeholders=True)
 
-    uploads = draft.get("intake_uploads") if isinstance(draft.get("intake_uploads"), dict) else {}
-    for row in incoming["blocks"]:
-        upload = uploads.get(row["block_id"])
-        if isinstance(upload, dict) and not upload.get("completed"):
-            raise ValueError("INTAKE_UPLOAD_IN_PROGRESS")
+        uploads = draft.get("intake_uploads") if isinstance(draft.get("intake_uploads"), dict) else {}
+        for row in incoming["blocks"]:
+            upload = uploads.get(row["block_id"])
+            if isinstance(upload, dict) and not upload.get("completed"):
+                raise ValueError("INTAKE_UPLOAD_IN_PROGRESS")
 
-    merged = _merge_intake(draft.get("sections", {}).get("intake"), incoming)
-    draft.setdefault("sections", {})["intake"] = merged
-    draft["revision"] = current_revision + 1
-    draft["finalized"] = False
-    draft.pop("finalized_template", None)
-    if int(draft.get("version", 1) or 1) >= 3:
-        draft.pop("launch_state", None)
-        draft.pop("launch_state_hash", None)
-        draft.pop("launch_hint", None)
-        draft.pop("session_creation_receipt", None)
-    novel_drafts._write(novel_drafts._draft_path(draft_id), draft)
+        merged = _merge_intake(draft.get("sections", {}).get("intake"), incoming)
+        draft.setdefault("sections", {})["intake"] = merged
+        draft["revision"] = current_revision + 1
+        draft["finalized"] = False
+        draft.pop("finalized_template", None)
+        if int(draft.get("version", 1) or 1) >= 3:
+            draft.pop("launch_state", None)
+            draft.pop("launch_state_hash", None)
+            draft.pop("launch_hint", None)
+            draft.pop("session_creation_receipt", None)
+        novel_drafts._write(novel_drafts._draft_path(draft_id), draft)
+
     result = dict(novel_drafts.draft_status(draft_id))
     result["reopened_from_finalized"] = was_finalized
     return result
