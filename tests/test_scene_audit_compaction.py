@@ -276,3 +276,97 @@ def test_writer_packet_uses_scene_history_and_does_not_retransmit_full_state_sna
         assert "\"blob\"" not in recent_text
         assert "\"threads\"" not in recent_text
         assert len(recent_text) < 10_000
+
+
+def test_memory_compaction_rolls_previous_canonical_record_forward_with_new_duplicate():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(novel())["session_id"]
+        root = storage.SESSIONS_DIR / sid
+        memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
+        bucket = storage._memory_bucket(memory, "npc")
+        bucket["knowledge"].extend([
+            {"fact_id": "old-a", "character_id": "npc", "learned_turn": 2, "fact": "POV боится воды."},
+            {"fact_id": "old-b", "character_id": "npc", "learned_turn": 7, "fact": "POV не умеет плавать."},
+        ])
+
+        memory, chronology, store, _ = apply_audit_compactions(
+            root,
+            {
+                "scene_compactions": [one_scene(1, 15)],
+                "memory_compactions": [{
+                    "character_id": "npc",
+                    "memory_type": "knowledge",
+                    "source_ids": ["old-a", "old-b"],
+                    "summary": "NPC знает, что POV не умеет плавать и боится воды.",
+                }],
+            },
+            start_turn=1,
+            end_turn=15,
+            memory=memory,
+            chronology=[],
+        )
+        storage._write_json(root / SCENE_MEMORY_FILE, store)
+        first_active = active_memory_records(memory["characters"]["npc"]["knowledge"])
+        assert len(first_active) == 1
+        previous_canonical_id = first_active[0]["fact_id"]
+
+        # The same underlying truth appears again many turns later with a new detail.
+        memory["characters"]["npc"]["knowledge"].append({
+            "fact_id": "new-c",
+            "character_id": "npc",
+            "learned_turn": 22,
+            "fact": "POV в воде начинает паниковать.",
+        })
+        memory, chronology, store, _ = apply_audit_compactions(
+            root,
+            {
+                "scene_compactions": [one_scene(16, 30)],
+                "memory_compactions": [{
+                    "character_id": "npc",
+                    "memory_type": "knowledge",
+                    "source_ids": [previous_canonical_id, "new-c"],
+                    "summary": "NPC знает, что POV не умеет плавать, боится воды и в воде начинает паниковать.",
+                }],
+            },
+            start_turn=16,
+            end_turn=30,
+            memory=memory,
+            chronology=chronology,
+        )
+
+        active = active_memory_records(memory["characters"]["npc"]["knowledge"])
+        assert len(active) == 1
+        current = active[0]
+        assert set(current["merged_from"]) == {"old-a", "old-b", "new-c"}
+        assert set(current["source_turns"]) == {2, 7, 22}
+        assert "паниковать" in current["fact"]
+
+        all_rows = {row["fact_id"]: row for row in memory["characters"]["npc"]["knowledge"]}
+        assert all_rows["old-a"]["raw_evidence_preserved"] is True
+        assert all_rows["old-b"]["raw_evidence_preserved"] is True
+        assert all_rows["new-c"]["raw_evidence_preserved"] is True
+        assert all_rows[previous_canonical_id]["superseded_by"] == current["fact_id"]
+
+
+def test_only_last_scene_in_audit_may_remain_open():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(novel())["session_id"]
+        root = storage.SESSIONS_DIR / sid
+        memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
+
+        with pytest.raises(RuntimeError, match="SCENE_COMPACTION_INVALID"):
+            apply_audit_compactions(
+                root,
+                {
+                    "scene_compactions": [
+                        one_scene(1, 7, status="open"),
+                        one_scene(8, 15, status="closed"),
+                    ]
+                },
+                start_turn=1,
+                end_turn=15,
+                memory=memory,
+                chronology=[],
+            )
