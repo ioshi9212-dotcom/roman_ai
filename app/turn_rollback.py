@@ -18,6 +18,7 @@ from .operation_receipts import (
     prune_after_turn,
 )
 from .session_runtime import _canonicalize_state_character_refs, _resolve_character_id
+from .scene_compaction_runtime import SCENE_MEMORY_FILE, replay_audit_compactions, scene_store_from_audits
 from .stability_runtime import (
     _clean_scene_pointer,
     _merge_state_patch_exact_relationships,
@@ -137,6 +138,15 @@ def _apply_saved_audit(
     memory = storage._apply_memory_events(storage._normalise_memory(memory), repairs, end_turn)
     if isinstance(repairs.get("chronology_add"), list):
         chronology = [*chronology, *deepcopy(repairs["chronology_add"])]
+    if isinstance(repairs.get("scene_compactions"), list) and repairs.get("scene_compactions"):
+        start_turn = int(audit.get("start_turn", max(1, end_turn - 14)) or max(1, end_turn - 14))
+        memory, chronology = replay_audit_compactions(
+            memory,
+            chronology,
+            repairs,
+            start_turn=start_turn,
+            end_turn=end_turn,
+        )
     state = _refresh_derived_state(source, cards, state, memory, chronology, turns_so_far, end_turn)
     return state, memory, chronology
 
@@ -351,6 +361,7 @@ def _write_restored_state(
         "memory.json": json_text(memory),
         "chronology.json": json_text(chronology),
         "audits.json": json_text(audits),
+        SCENE_MEMORY_FILE: json_text(scene_store_from_audits(audits)),
         "meta.json": json_text(meta),
     }
     ledger = prune_after_turn(load_ledger(root), target_turn)
