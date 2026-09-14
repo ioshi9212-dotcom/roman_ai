@@ -18,6 +18,22 @@ def read_turn_packet(session_id: str, user_input: str):
     return manifest
 
 
+def scene_compaction(start_turn: int, end_turn: int):
+    return {
+        "scene_compactions": [{
+            "start_turn": start_turn,
+            "end_turn": end_turn,
+            "summary": (
+                f"Ходы {start_turn}–{end_turn} образовали одну непрерывную тестовую сцену, "
+                "в которой POV последовательно продолжал действие до конца диапазона без отдельной смены эпизода."
+            ),
+            "participants": ["pov"],
+            "location": "room",
+            "status": "closed",
+        }]
+    }
+
+
 def close_audit(session_id: str, expected_range):
     manifest = audit_runtime.get_audit_snapshot(session_id)
     assert manifest["audit_range"] == expected_range
@@ -25,7 +41,7 @@ def close_audit(session_id: str, expected_range):
         audit_runtime.get_audit_snapshot_chunk(session_id, manifest["audit_id"], index)
     result = session_runtime.commit_audit(
         session_id,
-        {"start_turn": expected_range[0], "end_turn": expected_range[1], "repairs": {}, "notes": []},
+        {"start_turn": expected_range[0], "end_turn": expected_range[1], "repairs": scene_compaction(*expected_range), "notes": []},
     )
     audit_runtime.clear_audit_packet(session_id)
     assert result["audited_through"] == expected_range[1]
