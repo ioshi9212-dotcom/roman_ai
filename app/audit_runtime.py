@@ -127,6 +127,11 @@ def _audit_chronology(
         if start_turn <= turn <= end_turn:
             in_range.append(event)
             continue
+        # Once an older raw chronology event is represented by a canonical
+        # scene summary, keep it as persistent evidence but do not retransmit
+        # it into every later audit packet.
+        if event.get("compacted_scene_id"):
+            continue
         importance = str(event.get("importance") or "").casefold()
         if importance in {"anchor", "critical"} or event.get("anchor") is True:
             durable_anchors.append(event)
