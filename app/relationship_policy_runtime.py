@@ -331,103 +331,13 @@ def _validate_footer(
     state_before: Dict[str, Any],
     explicit: Dict[str, Dict[str, Dict[str, Any]]],
 ) -> None:
-    extracted = payload.get("extracted") if isinstance(payload.get("extracted"), dict) else {}
-    final_present = _post_present_ids(cards, state_before, extracted)
-    pov = state_before.get("pov") if isinstance(state_before.get("pov"), dict) else {}
-    pov_id = str(pov.get("character_id") or "")
-    footer = relationship_runtime._parse_footer(
-        str(payload.get("scene_output") or ""),
-        cards=cards,
-        resolve_character_id=_resolve_character_id,
-    )
+    """Visible relationship footer is presentation only and never a commit gate.
 
-    for owner_id in final_present:
-        if not owner_id or owner_id == pov_id:
-            continue
-        baseline = _numeric_baseline(state_before, owner_id)
-        explicit_dims = explicit.get(owner_id, {})
-        incoming = footer.get(owner_id)
-
-        if not baseline and not explicit_dims:
-            # First-ever baseline is initialization, not a change from prior canon.
-            # relationship_growth_runtime may persist valid fixed-vocabulary footer metrics once.
-            continue
-
-        if not incoming:
-            _error(
-                "RELATIONSHIP_FOOTER_INCOMPLETE",
-                f"{owner_id}: visible footer must show every established relationship metric for a present NPC.",
-            )
-        incoming_by_norm = {
-            _norm(item.get("label") or item.get("key")): item
-            for item in incoming
-            if isinstance(item, dict)
-        }
-
-        required_keys = set(baseline) | set(explicit_dims)
-        missing = [
-            (baseline.get(key) or (explicit_dims[key]["label"], 0))[0]
-            for key in required_keys
-            if key not in incoming_by_norm
-        ]
-        if missing:
-            _error(
-                "RELATIONSHIP_FOOTER_INCOMPLETE",
-                f"{owner_id}: visible footer omitted established metrics: {', '.join(missing)}.",
-            )
-
-        incoming_keys = set(incoming_by_norm)
-        unauthorized_new = incoming_keys - set(baseline) - set(explicit_dims)
-        if unauthorized_new:
-            labels = [str(incoming_by_norm[key].get("label") or key) for key in sorted(unauthorized_new)]
-            _error(
-                "RELATIONSHIP_CHANGE_REASON_REQUIRED",
-                f"{owner_id}: new footer metrics require causal relationship_updates with reason: {', '.join(labels)}.",
-            )
-
-        for key in required_keys:
-            item = incoming_by_norm[key]
-            value = item.get("value")
-            if not _is_number(value):
-                _error("RELATIONSHIP_FOOTER_INCOMPLETE", f"{owner_id}: footer metric must be numeric.")
-            if key in baseline:
-                _, old_value = baseline[key]
-            else:
-                old_value = None
-            update = explicit_dims.get(key)
-            if update and update.get("delta") is not None and old_value is not None:
-                delta = float(update["delta"])
-                expected = max(0.0, min(100.0, old_value + delta))
-                visible_delta = item.get("delta")
-                if not _is_number(visible_delta) or abs(float(visible_delta) - delta) > 1e-9:
-                    _error(
-                        "RELATIONSHIP_DELTA_REQUIRED",
-                        f"{owner_id}: changed metric {update['label']} must show final/delta in the footer.",
-                    )
-                if abs(float(value) - expected) > 1e-9:
-                    _error(
-                        "RELATIONSHIP_ARITHMETIC_MISMATCH",
-                        f"{owner_id}: {update['label']} footer value must equal saved value + delta.",
-                    )
-            elif update and update.get("is_new"):
-                if abs(float(value) - float(update["value"])) > 1e-9:
-                    _error(
-                        "RELATIONSHIP_ARITHMETIC_MISMATCH",
-                        f"{owner_id}: new metric {update['label']} must match relationship_updates.",
-                    )
-            elif old_value is not None:
-                visible_delta = item.get("delta")
-                if visible_delta is not None and (not _is_number(visible_delta) or abs(float(visible_delta)) > 1e-9):
-                    _error(
-                        "RELATIONSHIP_CHANGE_REASON_REQUIRED",
-                        f"{owner_id}: footer cannot change {baseline[key][0]} without a causal relationship_updates row.",
-                    )
-                if abs(float(value) - old_value) > 1e-9:
-                    _error(
-                        "RELATIONSHIP_CHANGE_REASON_REQUIRED",
-                        f"{owner_id}: footer cannot change {baseline[key][0]} without a causal relationship_updates row.",
-                    )
-
+    Canonical NPC->POV numbers are validated from persistent state plus causal
+    relationship_updates. A stale, partial or cosmetically wrong footer must not
+    block a gameplay turn or mutate relationship canon.
+    """
+    return
 
 def _validate_relationship_commit(session_id: str, payload: Dict[str, Any]) -> None:
     root = storage.SESSIONS_DIR / session_id
