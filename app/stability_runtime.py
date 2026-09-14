@@ -251,7 +251,6 @@ def _atomic_commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, A
             "handoff_required": False,
             "transactional_commit": True,
             "relationship_snapshots_atomic": True,
-            "scene_compactions_saved": len(resolved_scene_rows),
         }
         if packet_id:
             result["packet_id"] = packet_id
