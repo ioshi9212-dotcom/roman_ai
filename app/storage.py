@@ -452,6 +452,7 @@ def load_session(session_id: str, recent_limit: int = 6) -> Dict[str, Any]:
         "state": _read_json(root / "state.json", {}),
         "memory": _normalise_memory(_read_json(root / "memory.json", {})),
         "chronology": _read_json(root / "chronology.json", []),
+        "scene_history": _read_json(root / "scene_memory.json", {"version": 1, "scenes": []}),
         "recent_turns": turns[-recent_limit:],
     }
 
