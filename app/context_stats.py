@@ -106,6 +106,7 @@ def session_context_stats(session_id: str) -> Dict[str, Any]:
     cards = storage._read_json(root / "characters.json", [])
     memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
     chronology = storage._read_json(root / "chronology.json", [])
+    scene_memory = storage._read_json(root / "scene_memory.json", {"version": 1, "scenes": []})
     meta = storage._read_json(root / "meta.json", {})
 
     by_character: Dict[str, Any] = {}
@@ -113,11 +114,16 @@ def session_context_stats(session_id: str) -> Dict[str, Any]:
     for character_id, bucket in memory_characters.items():
         if not isinstance(bucket, dict):
             continue
+        superseded = 0
+        for field in ("knowledge", "experiences", "dialogue_memory"):
+            values = bucket.get(field) if isinstance(bucket.get(field), list) else []
+            superseded += sum(1 for row in values if isinstance(row, dict) and row.get("superseded_by"))
         by_character[str(character_id)] = {
             "chars": _json_chars(bucket),
             "knowledge": _count(bucket.get("knowledge")),
             "experiences": _count(bucket.get("experiences")),
             "dialogue_memory": _count(bucket.get("dialogue_memory")),
+            "superseded_raw_records": superseded,
         }
     by_character = dict(sorted(by_character.items(), key=lambda item: item[1]["chars"], reverse=True))
 
@@ -143,6 +149,7 @@ def session_context_stats(session_id: str) -> Dict[str, Any]:
             "meta.json",
             "turn_packet.json",
             "audit_packet.json",
+            "scene_memory.json",
         )
     }
 
@@ -158,6 +165,7 @@ def session_context_stats(session_id: str) -> Dict[str, Any]:
             "characters": _json_chars(cards),
             "memory": _json_chars(memory),
             "chronology": _json_chars(chronology),
+            "scene_memory": _json_chars(scene_memory),
         },
         "chronology": {
             "events": len(chronology) if isinstance(chronology, list) else 0,
@@ -169,7 +177,12 @@ def session_context_stats(session_id: str) -> Dict[str, Any]:
         "memory": {
             "characters": len(by_character),
             "chars": _json_chars(memory),
+            "superseded_raw_records": sum(row["superseded_raw_records"] for row in by_character.values()),
             "by_character": by_character,
+        },
+        "scene_memory": {
+            "scenes": len(scene_memory.get("scenes", [])) if isinstance(scene_memory, dict) and isinstance(scene_memory.get("scenes"), list) else 0,
+            "chars": _json_chars(scene_memory),
         },
         "turn_packet": _packet_breakdown(root),
     }
