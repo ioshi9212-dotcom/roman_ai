@@ -110,29 +110,25 @@ def test_multiple_allowed_dimensions_can_accumulate_without_replacing_old_ones()
         assert state["relationships"]["adrian"] == {"симпатия": 10, "доверие": 5, "ревность": 3, "уважение": 7}
 
 
-def test_zero_dimensions_must_remain_visible_for_present_npc():
+def test_zero_dimensions_persist_even_when_display_footer_is_empty():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         sid = storage.create_session(novel({"ревность": 0, "доверие": 0}))["session_id"]
         read_packet(sid, "quiet")
-        with pytest.raises(HTTPException) as exc:
-            session_runtime.commit_turn(sid, {"user_input": "quiet", "scene_output": scene(""), "extracted": extracted()})
-        assert exc.value.detail["code"] == "RELATIONSHIP_FOOTER_INCOMPLETE"
+        session_runtime.commit_turn(sid, {"user_input": "quiet", "scene_output": scene(""), "extracted": extracted()})
         state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
         assert state["relationships"]["adrian"] == {"ревность": 0, "доверие": 0}
 
 
-def test_new_visible_dimension_cannot_write_canon_without_causal_update():
+def test_new_visible_dimension_is_ignored_without_causal_update():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         sid = storage.create_session(novel({"доверие": 3, "настороженность": 4}))["session_id"]
         read_packet(sid, "conflict")
-        with pytest.raises(HTTPException) as exc:
-            session_runtime.commit_turn(
-                sid,
-                {"user_input": "conflict", "scene_output": scene("доверие 3; настороженность 4; скепсис 6"), "extracted": extracted()},
-            )
-        assert exc.value.detail["code"] == "RELATIONSHIP_CHANGE_REASON_REQUIRED"
+        session_runtime.commit_turn(
+            sid,
+            {"user_input": "conflict", "scene_output": scene("доверие 3; настороженность 4; скепсис 6"), "extracted": extracted()},
+        )
         state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
         assert state["relationships"]["adrian"] == {"доверие": 3, "настороженность": 4}
 

@@ -88,25 +88,52 @@ def test_relationship_index_always_contains_offscreen_npcs():
         assert index["characters"]["aiden"]["настороженность"] == 3
 
 
-def test_established_metric_cannot_silently_disappear_from_footer():
+def test_partial_display_footer_cannot_block_or_delete_established_metric():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         sid = storage.create_session(novel())["session_id"]
         read_packet(sid, "дальше")
 
-        with pytest.raises(HTTPException) as exc:
-            session_runtime.commit_turn(
-                sid,
-                {
-                    "user_input": "дальше",
-                    "scene_output": scene("симпатия 1; привязанность 10"),
-                    "extracted": extracted(),
-                },
-            )
+        session_runtime.commit_turn(
+            sid,
+            {
+                "user_input": "дальше",
+                "scene_output": scene("симпатия 1; привязанность 10"),
+                "extracted": extracted(),
+            },
+        )
 
-        assert exc.value.detail["code"] == "RELATIONSHIP_FOOTER_INCOMPLETE"
         state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
-        assert state["relationships"]["liam"]["доверие"] == 2
+        assert state["relationships"]["liam"] == {"симпатия": 1, "доверие": 2, "привязанность": 10}
+
+
+def test_causal_update_succeeds_even_when_display_footer_omits_other_saved_metrics():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(novel())["session_id"]
+        read_packet(sid, "Лиам видит, что Рината сдержала обещание")
+
+        update = {
+            "character_id": "liam",
+            "reason": "Рината сдержала обещание.",
+            "change_scale": "ordinary",
+            "dimensions": [{"label": "доверие", "value": 3, "delta": 1}],
+        }
+        session_runtime.commit_turn(
+            sid,
+            {
+                "user_input": "Лиам видит, что Рината сдержала обещание",
+                "scene_output": scene("доверие 3/+1"),
+                "extracted": extracted(relationship_updates=[update]),
+            },
+        )
+
+        state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
+        assert state["relationships"]["liam"] == {
+            "симпатия": 1,
+            "доверие": 3,
+            "привязанность": 10,
+        }
 
 
 def test_ordinary_change_requires_reason_and_persists_reason():

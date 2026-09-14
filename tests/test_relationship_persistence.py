@@ -108,29 +108,25 @@ def test_causal_update_persists_while_footer_only_displays():
         assert state["relationships"]["adrian"] == {"симпатия": 12, "близость": 5}
 
 
-def test_wrong_visible_metric_words_are_rejected_when_saved_metrics_disappear():
+def test_wrong_visible_metric_words_do_not_mutate_saved_metrics():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         sid = storage.create_session(novel(starting_relationships={"adrian": {"симпатия": 35, "доверие": 18, "влечение": 42}}))["session_id"]
         read_all_packet_chunks(sid, "first")
-        with pytest.raises(HTTPException) as exc:
-            session_runtime.commit_turn(
-                sid,
-                {"user_input": "first", "scene_output": scene("интерес 70; нежность 55"), "extracted": extracted()},
-            )
-        assert exc.value.detail["code"] == "RELATIONSHIP_FOOTER_INCOMPLETE"
+        session_runtime.commit_turn(
+            sid,
+            {"user_input": "first", "scene_output": scene("интерес 70; нежность 55"), "extracted": extracted()},
+        )
         state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
         assert state["relationships"]["adrian"] == {"симпатия": 35, "доверие": 18, "влечение": 42}
 
 
-def test_partial_footer_is_rejected_instead_of_hiding_saved_dimensions():
+def test_partial_footer_does_not_hide_or_delete_saved_dimensions():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         sid = storage.create_session(novel(starting_relationships={"adrian": {"симпатия": 35, "доверие": 18, "влечение": 42}}))["session_id"]
         read_all_packet_chunks(sid, "test")
-        with pytest.raises(HTTPException) as exc:
-            session_runtime.commit_turn(sid, {"user_input": "test", "scene_output": scene("симпатия 35"), "extracted": extracted()})
-        assert exc.value.detail["code"] == "RELATIONSHIP_FOOTER_INCOMPLETE"
+        session_runtime.commit_turn(sid, {"user_input": "test", "scene_output": scene("симпатия 35"), "extracted": extracted()})
         state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
         assert state["relationships"]["adrian"] == {"симпатия": 35, "доверие": 18, "влечение": 42}
 
