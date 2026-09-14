@@ -66,7 +66,24 @@ def close_audit(sid: str, start_turn: int, end_turn: int):
         audit_runtime.get_audit_snapshot_chunk(sid, manifest["audit_id"], index)
     result = session_runtime.commit_audit(
         sid,
-        {"start_turn": start_turn, "end_turn": end_turn, "repairs": {}, "notes": []},
+        {
+            "start_turn": start_turn,
+            "end_turn": end_turn,
+            "repairs": {
+                "scene_compactions": [{
+                    "start_turn": start_turn,
+                    "end_turn": end_turn,
+                    "summary": (
+                        f"Ходы {start_turn}–{end_turn} составили одну тестовую сцену отката: "
+                        "POV последовательно продолжал действие в комнате до конца диапазона, не меняя основной эпизод."
+                    ),
+                    "participants": ["pov"],
+                    "location": "room",
+                    "status": "closed",
+                }]
+            },
+            "notes": [],
+        },
     )
     audit_runtime.clear_audit_packet(sid)
     return result
