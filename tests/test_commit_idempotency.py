@@ -151,7 +151,19 @@ def test_audit_exact_retry_returns_prior_success_without_second_audit():
             "audit_id": manifest["audit_id"],
             "start_turn": 1,
             "end_turn": 15,
-            "repairs": {},
+            "repairs": {
+                "scene_compactions": [{
+                    "start_turn": 1,
+                    "end_turn": 15,
+                    "summary": (
+                        "Ходы 1–15 составили одну непрерывную тестовую сцену: POV последовательно "
+                        "продолжал текущий эпизод, сохраняя все значимые действия и решения до конца диапазона."
+                    ),
+                    "participants": ["pov"],
+                    "location": "room",
+                    "status": "closed",
+                }]
+            },
             "notes": [],
         }
         first = commit_audit_request(sid, payload)
