@@ -227,7 +227,7 @@ def test_departing_npc_footer_delta_does_not_write_canon_without_causal_update()
         assert "adrian" not in state["current"]["present_characters"]
 
 
-def test_footer_change_without_causal_update_is_rejected():
+def test_footer_change_without_causal_update_is_display_only():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         sid = storage.create_session(
@@ -235,22 +235,20 @@ def test_footer_change_without_causal_update_is_rejected():
         )["session_id"]
 
         read_turn_packet(sid, "test")
-        with pytest.raises(HTTPException) as exc:
-            session_runtime.commit_turn(
-                sid,
-                {
-                    "user_input": "test",
-                    "scene_output": """🎭 Runtime fixes
+        session_runtime.commit_turn(
+            sid,
+            {
+                "user_input": "test",
+                "scene_output": """🎭 Runtime fixes
 
 Состояние: вместе
 Отношения:
 Эдриан - симпатия 15/+2
 
 Ход 1 · цикл 1/15""",
-                    "extracted": reviewed(),
-                },
-            )
-        assert exc.value.detail["code"] == "RELATIONSHIP_CHANGE_REASON_REQUIRED"
+                "extracted": reviewed(),
+            },
+        )
         state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
         assert state["relationships"]["adrian"]["симпатия"] == 10
 
