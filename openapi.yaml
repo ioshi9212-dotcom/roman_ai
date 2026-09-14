@@ -249,24 +249,92 @@ components:
               type: array
               items: {type: object, additionalProperties: true}
           additionalProperties: true
+    SceneCompaction:
+      type: object
+      required: [start_turn, end_turn, summary]
+      properties:
+        scene_id:
+          type: string
+          description: Reuse only when the previously open scene continues across audit boundaries; omit for a new scene.
+        start_turn: {type: integer, minimum: 1}
+        end_turn: {type: integer, minimum: 1}
+        summary:
+          type: string
+          minLength: 60
+          maxLength: 1200
+          description: One dense factual sentence preserving initiation, development, important dialogue/revelations/choices, and ending or pause.
+        participants:
+          type: array
+          items: {type: string}
+        location: {type: string}
+        status:
+          type: string
+          enum: [open, closed]
+      additionalProperties: false
+    MemoryCompaction:
+      type: object
+      required: [character_id, memory_type, source_ids, summary]
+      properties:
+        character_id: {type: string}
+        memory_type:
+          type: string
+          enum: [knowledge, experiences, dialogue_memory]
+        source_ids:
+          type: array
+          minItems: 1
+          items: {type: string}
+          description: Exact persisted record IDs being losslessly merged; may include one prior canonical record plus fresh records from this audit.
+        summary:
+          type: string
+          minLength: 1
+          maxLength: 900
+          description: Compact wording that preserves every distinct fact from all source records.
+      additionalProperties: false
+    AuditRepairs:
+      type: object
+      required: [scene_compactions]
+      properties:
+        scene_compactions:
+          type: array
+          minItems: 1
+          description: Required partition of the exact audit range by real scenes. Every audited turn must be covered exactly once with no gaps or overlap.
+          items: {$ref: '#/components/schemas/SceneCompaction'}
+        memory_compactions:
+          type: array
+          description: Optional lossless merging of repeated or fragmented character memory. Raw evidence remains persistent.
+          items: {$ref: '#/components/schemas/MemoryCompaction'}
+        chronology_add:
+          type: array
+          items: {type: object, additionalProperties: true}
+        knowledge_add:
+          type: array
+          items: {type: object, additionalProperties: true}
+        experiences_add:
+          type: array
+          items: {type: object, additionalProperties: true}
+        dialogue_memory_add:
+          type: array
+          items: {type: object, additionalProperties: true}
+        npc_intent_updates:
+          type: array
+          items: {$ref: '#/components/schemas/NPCIntentUpdate'}
+        story_thread_updates:
+          type: array
+          items: {$ref: '#/components/schemas/StoryThreadUpdate'}
+        state_patch: {type: object, additionalProperties: true}
+      additionalProperties: true
     AuditCommit:
       type: object
-      required: [audit_id, start_turn, end_turn]
+      required: [audit_id, start_turn, end_turn, repairs]
       properties:
         audit_id: {type: string, minLength: 1}
         start_turn: {type: integer}
         end_turn: {type: integer}
-        repairs: {type: object, additionalProperties: true}
+        repairs: {$ref: '#/components/schemas/AuditRepairs'}
         notes:
           type: array
           items: {type: string}
 paths:
-  /health:
-    get:
-      operationId: health
-      summary: Check service health
-      responses:
-        '200': {description: Healthy}
   /runtime:
     get:
       operationId: getRuntime
@@ -491,8 +559,8 @@ paths:
   /sessions/{session_id}/audit-snapshot:
     get:
       operationId: getAuditSnapshot
-      summary: Prepare a fast 15-turn persisted audit backup
-      description: Response includes audit_id and may include chunk 0. Read all remaining chunks, then echo the exact audit_id to commitAudit.
+      summary: Prepare the exact 15-turn evidence for reconciliation and scene compaction
+      description: Response includes audit_id and may include chunk 0. Read every remaining chunk. The payload contains full persisted scene text plus the mandatory scene-compaction contract.
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
       responses:
@@ -501,7 +569,7 @@ paths:
   /sessions/{session_id}/audit-snapshot/{audit_id}/{chunk_index}:
     get:
       operationId: getAuditSnapshotChunk
-      summary: Read one remaining fast-audit chunk
+      summary: Read one remaining audit and scene-compaction chunk
       description: If getAuditSnapshot included chunk 0, start at next_chunk_index and read only remaining indices. Do not batch Action responses.
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
@@ -591,7 +659,7 @@ paths:
   /sessions/{session_id}/audit:
     post:
       operationId: commitAudit
-      summary: Finish one prepared audit idempotently after all required chunks were read
+      summary: Finish one prepared audit with mandatory lossless scene compaction
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
       requestBody:
@@ -601,4 +669,4 @@ paths:
             schema: {$ref: '#/components/schemas/AuditCommit'}
       responses:
         '200': {description: Audit committed}
-        '409': {description: Audit manifest/chunk reading incomplete or audit range mismatch}
+        '409': {description: Audit read incomplete, range mismatch, invalid scene coverage, vague/invalid scene summary, or invalid memory compaction}
