@@ -164,6 +164,8 @@ def _normalise_scene_rows(
         status = str(raw.get("status") or ("open" if row_end == int(end_turn) else "closed")).casefold().strip()
         if status not in {"open", "closed"}:
             raise RuntimeError("SCENE_COMPACTION_INVALID")
+        if status == "open" and row_end != int(end_turn):
+            raise RuntimeError("SCENE_COMPACTION_INVALID")
 
         scene_id = str(raw.get("scene_id") or "").strip()
         if scene_id:
