@@ -6,10 +6,11 @@ from copy import deepcopy
 from typing import Any, Dict
 
 from . import audit_runtime, storage
+from .scene_compaction_runtime import audit_scene_context
 
 
 _ORIGINAL_GET_AUDIT = None
-FAST_AUDIT_PACKET_VERSION = 8
+FAST_AUDIT_PACKET_VERSION = 9
 AUDIT_PACKET_CHARS = 16000
 
 
@@ -21,7 +22,7 @@ def _turn_evidence(turn: Dict[str, Any]) -> Dict[str, Any]:
     }
     for key in (
         "chronology", "knowledge_add", "experiences_add", "dialogue_memory_add",
-        "presence_updates", "relationship_updates", "npc_intent_updates", "character_upserts",
+        "presence_updates", "relationship_updates", "npc_intent_updates", "story_thread_updates", "character_upserts",
     ):
         value = extracted.get(key)
         if isinstance(value, list) and value:
@@ -32,10 +33,7 @@ def _turn_evidence(turn: Dict[str, Any]) -> Dict[str, Any]:
         result["current_patch"] = deepcopy(current)
     scene = str(turn.get("scene_output") or "")
     if scene:
-        compact = " ".join(scene.split())
-        result["scene_opening"] = compact[:350]
-        if len(compact) > 350:
-            result["scene_ending"] = compact[-550:]
+        result["scene_output"] = scene
     return result
 
 
@@ -74,6 +72,7 @@ def _build_fast_payload(session_id: str) -> Dict[str, Any]:
         ],
         "memory_audit": audit_runtime._audit_memory(memory, character_ids, start_turn, end_turn),
         "chronology_audit": audit_runtime._audit_chronology(chronology, character_ids, start_turn, end_turn),
+        "scene_compaction_context": audit_scene_context(root),
         "audit_repair_policy": {
             "mandatory_original_turn": True,
             "chronology_add": "Each repair must carry turn_number/turn/source_turn from the exact audited turn where the event happened.",
@@ -81,6 +80,17 @@ def _build_fast_payload(session_id: str) -> Dict[str, Any]:
             "experiences_add": "Each repair must carry turn or turn_number/source_turn from the exact audited turn.",
             "dialogue_memory_add": "Each repair must carry turn or turn_number/source_turn from the exact audited turn.",
             "npc_intent_updates": "Create or repair an intent only when an audited turn proves the NPC formed, advanced, resolved or abandoned that future-facing motive.",
+            "scene_compactions": (
+                "REQUIRED. Partition the exact audit range into contiguous scenes with no gaps/overlap. "
+                "Each row: {scene_id?: existing open scene id only, start_turn, end_turn, summary, participants, location, status}. "
+                "summary is ONE dense factual sentence preserving who initiated what, development, important dialogue/revelations/choices, and the ending/pause. "
+                "If all 15 turns are one continuous scene, submit exactly one row. If the previous open scene continues, reuse its scene_id and rewrite one updated sentence covering old+new development."
+            ),
+            "memory_compactions": (
+                "OPTIONAL but expected for repeated/verbose memory from this audit range. "
+                "Each row: {character_id, memory_type: knowledge|experiences|dialogue_memory, source_ids:[...], summary}. "
+                "The summary must preserve every distinct fact contained in the source records. Sources remain raw evidence and are only superseded in working memory."
+            ),
         },
         "audit_contract": {
             "exact_range": [start_turn, end_turn],
@@ -93,14 +103,16 @@ def _build_fast_payload(session_id: str) -> Dict[str, Any]:
                 "missing or unsupported per-character knowledge/memory from these 15 turns",
                 "missing or stale NPC follow-up intents created/resolved/advanced in these 15 turns",
                 "obvious current-state or presence contradiction with the latest committed scene",
+                "scene-level compression of every audited turn without losing distinct facts",
+                "duplicate or needlessly fragmented character memory that can be losslessly merged",
             ],
         },
         "instruction": (
-            "FAST 15-TURN AUDIT. The committed scenes are normally already visible in the current chat and are the primary evidence. "
-            "Use turn_evidence_backup only as compact persisted backup. Do one reconciliation pass, not a second full novel reread. "
-            "Repair only durable omissions or contradictions supported by these exact 15 turns and preserve the original causal turn on every repair. "
-            "Include npc_intent_updates when an unresolved future-facing NPC motive was missed, advanced, resolved or abandoned. "
-            "Never give a character knowledge merely because chronology/source/card knows it. Commit the audit immediately after the single pass."
+            "15-TURN AUDIT + LOSSLESS COMPACTION. Read every persisted scene_output in turn_evidence_backup. "
+            "First repair genuine omissions/contradictions. Then group the exact audit range by real scene, not by turn count, and ALWAYS send repairs.scene_compactions covering every audited turn exactly once. "
+            "One continuous 15-turn scene becomes ONE dense sentence, not fifteen micro-events and not a vague label. Preserve initiation, development, important dialogue/revelations/choices and the ending/pause. "
+            "Use repairs.memory_compactions to merge repeated or fragmented knowledge/experience/dialogue records only when every distinct fact survives in the compact summary. Raw turns and raw source records remain evidence. "
+            "Never give a character knowledge merely because chronology/source/card knows it. Commit once after this pass."
         ),
     }
 
@@ -118,7 +130,7 @@ def _response(packet: Dict[str, Any], *, include_first: bool) -> Dict[str, Any]:
         "next_chunk_index": 1 if include_first and len(chunks) > 1 else None,
         "instruction": (
             "Chunk 0 is included in this response when first_chunk_included=true and is already counted as read. "
-            "Read only the remaining audit chunks individually, perform one fast reconciliation pass, then commitAudit once."
+            "Read only the remaining audit chunks individually, perform one reconciliation + scene compaction pass, then commitAudit once with required repairs.scene_compactions."
         ),
     }
     if include_first and chunks:
