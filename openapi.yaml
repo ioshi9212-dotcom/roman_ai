@@ -33,7 +33,7 @@ components:
         block_id: {type: string, minLength: 1, maxLength: 120}
         stage: {type: string, minLength: 1, maxLength: 120}
         chunk_index: {type: integer, minimum: 0}
-        raw_text: {type: string, minLength: 1, maxLength: 12000}
+        raw_text: {type: string, minLength: 1, maxLength: 6000}
         is_last: {type: boolean, default: false}
       additionalProperties: false
     NovelDraftIntakeMapping:
@@ -379,7 +379,7 @@ paths:
     post:
       operationId: appendDraftIntakeChunk
       summary: Append one verbatim chunk of a large intake block
-      description: Send chunks in order from 0. Exact retries are idempotent. Set is_last only on the final chunk; Railway then assembles one immutable raw intake block.
+      description: Prefer 4000-6000 verbatim characters per chunk, in order from 0. Exact successful retries are idempotent. On 422, do not resend the same payload; split only unsaved text and continue the same block_id/stage. Set is_last only on the final chunk.
       parameters:
         - {in: path, name: draft_id, required: true, schema: {type: string}}
       requestBody:
