@@ -7,6 +7,7 @@ from typing import Any, Dict, List
 
 from . import session_runtime, storage
 from .npc_intent import active_intents_for
+from .scene_compaction_runtime import active_memory_records, covered_turns, load_scene_history
 from .transactional_storage import session_transaction
 
 
@@ -144,7 +145,7 @@ def _active_guidance(value: Any) -> Any:
 
 
 def _tail(values: Any, limit: int) -> List[Dict[str, Any]]:
-    return [deepcopy(item) for item in values if isinstance(item, dict)][-limit:] if isinstance(values, list) else []
+    return active_memory_records(values)[-limit:]
 
 
 def _compact_memory(context: Dict[str, Any]) -> None:
@@ -209,7 +210,10 @@ def _is_anchor(event: Dict[str, Any]) -> bool:
 
 
 def _anchor_catalog(value: Any) -> List[Dict[str, Any]]:
-    events = [item for item in value if isinstance(item, dict)] if isinstance(value, list) else []
+    events = [
+        item for item in value
+        if isinstance(item, dict) and not item.get("compacted_scene_id")
+    ] if isinstance(value, list) else []
     result: List[Dict[str, Any]] = []
     for event in events:
         if not _is_anchor(event):
@@ -227,7 +231,10 @@ def _anchor_catalog(value: Any) -> List[Dict[str, Any]]:
 
 
 def _compact_chronology(value: Any, character_ids: List[str], location: Any) -> List[Dict[str, Any]]:
-    events = [deepcopy(item) for item in value if isinstance(item, dict)] if isinstance(value, list) else []
+    events = [
+        deepcopy(item) for item in value
+        if isinstance(item, dict) and not item.get("compacted_scene_id")
+    ] if isinstance(value, list) else []
     selected: Dict[str, Dict[str, Any]] = {}
 
     def keep(event: Dict[str, Any], index: int) -> None:
@@ -274,10 +281,30 @@ def _strip_relationship_display(scene_output: Any) -> str:
     return text[:marker] + "\nОтношения:\n\n" + tail[footer.start():]
 
 
+def _compact_turn_extracted(turn: Dict[str, Any]) -> Dict[str, Any]:
+    extracted = turn.get("extracted") if isinstance(turn.get("extracted"), dict) else {}
+    result: Dict[str, Any] = {}
+    for key in (
+        "chronology", "knowledge_add", "experiences_add", "dialogue_memory_add",
+        "presence_updates", "relationship_updates", "npc_intent_updates",
+        "story_thread_updates", "character_upserts",
+    ):
+        value = extracted.get(key)
+        if isinstance(value, list) and value:
+            result[key] = deepcopy(value[:8])
+    current = extracted.get("state_patch", {}).get("current") if isinstance(extracted.get("state_patch"), dict) else None
+    if isinstance(current, dict) and current:
+        result["current_patch"] = deepcopy(current)
+    return result
+
+
 def _compact_full_turn(turn: Dict[str, Any]) -> Dict[str, Any]:
-    result = {key: deepcopy(turn[key]) for key in ("turn_number", "user_input", "scene_output", "extracted") if key in turn}
+    result = {key: deepcopy(turn[key]) for key in ("turn_number", "user_input", "scene_output") if key in turn}
     if "scene_output" in result:
         result["scene_output"] = _strip_relationship_display(result["scene_output"])
+    extracted = _compact_turn_extracted(turn)
+    if extracted:
+        result["extracted"] = extracted
     return result
 
 
@@ -301,8 +328,16 @@ def _compact_continuity_turn(turn: Dict[str, Any]) -> Dict[str, Any]:
 
 def _rolling_turn_context(root) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     turns = storage._read_turns(root)
-    window = turns[-CONTINUITY_WINDOW:]
-    return ([_compact_full_turn(turn) for turn in window[-RECENT_FULL_TURNS:]], [_compact_continuity_turn(turn) for turn in window[:-RECENT_FULL_TURNS]])
+    compacted = covered_turns(root)
+    working_turns = [
+        turn for turn in turns
+        if int(turn.get("turn_number", 0) or 0) not in compacted
+    ]
+    window = working_turns[-CONTINUITY_WINDOW:]
+    return (
+        [_compact_full_turn(turn) for turn in window[-RECENT_FULL_TURNS:]],
+        [_compact_continuity_turn(turn) for turn in window[:-RECENT_FULL_TURNS]],
+    )
 
 
 def _scene_ids(context: Dict[str, Any]) -> List[str]:
@@ -369,6 +404,7 @@ def _rewrite_context(session_id: str, context: Dict[str, Any]) -> Dict[str, Any]
     recent, continuity = _rolling_turn_context(root)
     result["recent_turns"] = recent
     result["continuity_turns"] = continuity
+    result["scene_history"] = load_scene_history(root)
     result["active_threads"] = _active_threads(result.get("active_threads"))
     result["cast_index"] = _compact_cast_index(result.get("cast_index"))
     _compact_memory(result)
@@ -386,7 +422,8 @@ def _rewrite_context(session_id: str, context: Dict[str, Any]) -> Dict[str, Any]
         "writer_first_version": WRITER_FIRST_VERSION,
         "recent_full_turns": RECENT_FULL_TURNS,
         "continuity_window": CONTINUITY_WINDOW,
-        "chronology_selection": {"recent": 12, "per_character": 4, "location": 4, "full_recent_anchors": 12, "all_anchor_catalog": True},
+        "chronology_selection": {"recent": 12, "per_character": 4, "location": 4, "full_recent_anchors": 12, "audited_scene_events_replaced_by_scene_history": True},
+        "scene_history": {"one_dense_sentence_per_audited_scene": True, "raw_turns_remain_persistent": True},
         "working_memory_caps": {"knowledge": MAX_WORKING_KNOWLEDGE, "experiences": MAX_WORKING_EXPERIENCES, "dialogue_memory": MAX_WORKING_DIALOGUE, "historical_knowledge_catalog": MAX_HISTORICAL_KNOWLEDGE_CATALOG},
         "active_thread_cap": MAX_ACTIVE_THREADS,
         "runtime_documents_per_turn": ["runtime_rules", "scene_builder"],
