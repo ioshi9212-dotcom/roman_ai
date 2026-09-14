@@ -95,7 +95,7 @@ def _build_fast_payload(session_id: str) -> Dict[str, Any]:
         "audit_contract": {
             "exact_range": [start_turn, end_turn],
             "visible_chat_is_primary": True,
-            "backup_is_compact": True,
+            "persisted_scene_text_is_complete": True,
             "persistent_storage_is_complete": True,
             "do_not_reaudit_entire_novel": True,
             "check": [
