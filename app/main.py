@@ -509,6 +509,15 @@ def audit_commit(session_id: str, body: AuditCommit):
             "AUDIT_PACKET_ID_REQUIRED": "commitAudit requires the exact audit_id returned by getAuditSnapshot",
             "AUDIT_PACKET_REQUIRED": "Call getAuditSnapshot, use its exact audit_id, then read every audit snapshot chunk before commitAudit",
             "AUDIT_PACKET_INCOMPLETE": "Every audit snapshot chunk must be read before commitAudit",
+            "SCENE_COMPACTION_REQUIRED": "Audit must include repairs.scene_compactions covering the complete 15-turn range.",
+            "SCENE_COMPACTION_INVALID": "scene_compactions is malformed. Use contiguous scene ranges with one dense summary per scene.",
+            "SCENE_COMPACTION_COVERAGE_INVALID": "scene_compactions must cover every audited turn exactly once, with no gaps or overlaps.",
+            "SCENE_COMPACTION_SUMMARY_INVALID": "Each scene summary must be one dense factual sentence between 60 and 1200 characters.",
+            "SCENE_COMPACTION_SCENE_ID_INVALID": "A supplied scene_id must refer to the one previously open scene; new scenes should omit scene_id.",
+            "MEMORY_COMPACTION_INVALID": "memory_compactions is malformed.",
+            "MEMORY_COMPACTION_SOURCE_REUSED": "One source memory record cannot be compacted into multiple canonical records in the same audit.",
+            "MEMORY_COMPACTION_SOURCE_UNKNOWN": "A memory_compaction referenced a missing or already superseded source record.",
+            "MEMORY_COMPACTION_SOURCE_OUT_OF_RANGE": "memory_compactions may only supersede records created inside this exact audit range.",
         }
         if str(exc) in errors:
             raise HTTPException(status_code=409, detail=errors[str(exc)])
