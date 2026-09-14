@@ -447,4 +447,46 @@ def apply_audit_compactions(
         scene_rows,
         audit_end_turn=end_turn,
     )
-    return compacted_memory, compacted_chronology, store
+    return compacted_memory, compacted_chronology, store, scene_rows
+
+
+def replay_audit_compactions(
+    memory: Dict[str, Any],
+    chronology: Any,
+    repairs: Dict[str, Any],
+    *,
+    start_turn: int,
+    end_turn: int,
+) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
+    scene_rows = repairs.get("scene_compactions")
+    scene_rows = [deepcopy(row) for row in scene_rows if isinstance(row, dict)] if isinstance(scene_rows, list) else []
+    replayed_memory = _apply_memory_compactions(
+        memory,
+        repairs.get("memory_compactions"),
+        start_turn=start_turn,
+        end_turn=end_turn,
+    )
+    replayed_chronology = _compact_chronology(
+        chronology,
+        scene_rows,
+        audit_end_turn=end_turn,
+    )
+    return replayed_memory, replayed_chronology
+
+
+def scene_store_from_audits(audits: Any) -> Dict[str, Any]:
+    store: Dict[str, Any] = {"version": SCENE_MEMORY_VERSION, "scenes": []}
+    values = [row for row in audits if isinstance(row, dict)] if isinstance(audits, list) else []
+    values.sort(key=lambda row: int(row.get("end_turn", 0) or 0))
+    for audit in values:
+        repairs = audit.get("repairs") if isinstance(audit.get("repairs"), dict) else {}
+        rows = repairs.get("scene_compactions")
+        rows = [deepcopy(row) for row in rows if isinstance(row, dict)] if isinstance(rows, list) else []
+        if not rows:
+            continue
+        store = _merge_scene_rows(
+            store,
+            rows,
+            audit_end_turn=int(audit.get("end_turn", 0) or 0),
+        )
+    return store
