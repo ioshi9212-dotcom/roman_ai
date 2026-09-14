@@ -282,6 +282,17 @@ def test_audit_repairs_keep_original_turns_and_generate_ids():
                 "start_turn": 1,
                 "end_turn": 15,
                 "repairs": {
+                    "scene_compactions": [{
+                        "start_turn": 1,
+                        "end_turn": 15,
+                        "summary": (
+                            "В тестовом диапазоне 1–15 Эдриан и Рината прошли одну непрерывную сцену, "
+                            "в которой произошла передача ключа и закрепилось знание Эдриана о том, что Рината его сохранила."
+                        ),
+                        "participants": ["rina", "adrian"],
+                        "location": "room",
+                        "status": "closed",
+                    }],
                     "chronology_add": [
                         {
                             "turn_number": 4,
