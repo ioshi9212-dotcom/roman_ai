@@ -11,6 +11,7 @@ from .game_day import sync_game_day
 from .relationship_runtime import overwrite_relationship_snapshots
 from .operation_receipts import RECEIPTS_FILE, ledger_with_receipt, make_receipt
 from .rollback_snapshot_runtime import SNAPSHOT_FILE, build_pre_turn_snapshot
+from .scene_compaction_runtime import SCENE_MEMORY_FILE, apply_audit_compactions
 from .transactional_storage import json_text, recover, session_transaction, write_batch
 
 
@@ -306,6 +307,17 @@ def _atomic_commit_audit(session_id: str, payload: Dict[str, Any]) -> Dict[str, 
         if isinstance(repairs.get("chronology_add"), list):
             chronology = [*chronology, *deepcopy(repairs["chronology_add"])]
 
+        memory, chronology, scene_store, resolved_scene_rows = apply_audit_compactions(
+            root,
+            repairs,
+            start_turn=int(payload["start_turn"]),
+            end_turn=int(payload["end_turn"]),
+            memory=memory,
+            chronology=chronology,
+        )
+        repairs = deepcopy(repairs)
+        repairs["scene_compactions"] = resolved_scene_rows
+
         audits = storage._read_json(root / "audits.json", [])
         if not isinstance(audits, list):
             audits = []
@@ -341,6 +353,7 @@ def _atomic_commit_audit(session_id: str, payload: Dict[str, Any]) -> Dict[str, 
             "handoff_required": False,
             "transactional_commit": True,
             "relationship_snapshots_atomic": True,
+            "scene_compactions_saved": len(resolved_scene_rows),
         }
         audit_id = str(payload.get("audit_id") or "").strip()
         if audit_id:
@@ -350,6 +363,7 @@ def _atomic_commit_audit(session_id: str, payload: Dict[str, Any]) -> Dict[str, 
             "state.json": json_text(state),
             "memory.json": json_text(memory),
             "chronology.json": json_text(chronology),
+            SCENE_MEMORY_FILE: json_text(scene_store),
             "audits.json": json_text(audits),
             "meta.json": json_text(meta),
         }

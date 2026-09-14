@@ -44,6 +44,7 @@ def _select_chronology_context(
         deepcopy(event)
         for event in events
         if isinstance(event, dict)
+        and not event.get("compacted_scene_id")
         and (
             event.get("anchor") is True
             or str(event.get("importance") or "").casefold() in {"anchor", "critical"}

@@ -6,6 +6,7 @@ from copy import deepcopy
 from typing import Any, Dict, List
 
 from .character_access import get_character_bundle
+from .scene_compaction_runtime import active_memory_records
 
 
 CHARACTER_CHUNK_CHARS = 12000
@@ -65,7 +66,7 @@ def _bound_memory_value(value: Any) -> Any:
 
 
 def _tail(values: Any, limit: int) -> List[Dict[str, Any]]:
-    rows = [deepcopy(item) for item in values if isinstance(item, dict)] if isinstance(values, list) else []
+    rows = active_memory_records(values)
     rows.sort(key=_turn)
     return rows[-limit:]
 
@@ -86,7 +87,7 @@ def _intent_source_ids(bundle: Dict[str, Any]) -> set[str]:
 
 def _working_memory(bundle: Dict[str, Any]) -> Dict[str, Any]:
     memory = bundle.get("personal_memory") if isinstance(bundle.get("personal_memory"), dict) else {}
-    all_knowledge = [deepcopy(item) for item in memory.get("knowledge", []) if isinstance(item, dict)] if isinstance(memory.get("knowledge"), list) else []
+    all_knowledge = active_memory_records(memory.get("knowledge"))
     recent_knowledge = _tail(all_knowledge, CHARACTER_WORKING_KNOWLEDGE)
     selected_ids = {_id(item) for item in recent_knowledge if _id(item)}
 
@@ -122,9 +123,14 @@ def _working_memory(bundle: Dict[str, Any]) -> Dict[str, Any]:
             for row in catalog
         ],
         "persistent_counts": {
-            "knowledge": len(all_knowledge),
+            "knowledge": len(memory.get("knowledge", [])) if isinstance(memory.get("knowledge"), list) else 0,
             "experiences": len(memory.get("experiences", [])) if isinstance(memory.get("experiences"), list) else 0,
             "dialogue_memory": len(memory.get("dialogue_memory", [])) if isinstance(memory.get("dialogue_memory"), list) else 0,
+        },
+        "canonical_active_counts": {
+            "knowledge": len(all_knowledge),
+            "experiences": len(active_memory_records(memory.get("experiences"))),
+            "dialogue_memory": len(active_memory_records(memory.get("dialogue_memory"))),
         },
         "older_history_available": True,
         "oversized_record_text_bounded_in_transport": True,
