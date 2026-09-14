@@ -427,7 +427,7 @@ def apply_audit_compactions(
     end_turn: int,
     memory: Dict[str, Any],
     chronology: Any,
-) -> Tuple[Dict[str, Any], List[Dict[str, Any]], Dict[str, Any]]:
+) -> Tuple[Dict[str, Any], List[Dict[str, Any]], Dict[str, Any], List[Dict[str, Any]]]:
     store = _load_store(root)
     scene_rows = _normalise_scene_rows(
         repairs.get("scene_compactions"),
