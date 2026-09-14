@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 from app import cast_registry_runtime, draft_intake_runtime, novel_drafts, session_runtime, storage
 from app.main import novel_draft_section_save
-from app.models import NovelDraftSection
+from app.models import NovelDraftIntakeChunk, NovelDraftSection
 from fastapi import HTTPException
 from app.novel_access import get_novel_read_chunk
 from app.novel_drafts import create_draft, create_session_from_draft, finalize_draft, prepare_draft_read, save_section
@@ -23,6 +23,35 @@ def _read_working_draft_fully(draft_id: str):
     for index in range(manifest["chunk_count"]):
         get_novel_read_chunk(manifest["read_id"], index)
     return manifest
+
+
+def test_backend_accepts_accidental_20k_intake_chunk_even_though_gpt_schema_targets_6k():
+    raw = "Большой исходный блок. " * 1000
+    assert len(raw) > 20_000
+    body = NovelDraftIntakeChunk(
+        block_id="fallback-20k",
+        stage="setup",
+        chunk_index=0,
+        raw_text=raw[:20_000],
+        is_last=True,
+    )
+    assert len(body.raw_text) == 20_000
+
+    with tempfile.TemporaryDirectory() as tmp:
+        _setup_storage(tmp)
+        draft_id = create_draft("fallback_20k", "Fallback 20k", version=3)["draft_id"]
+        result = draft_intake_runtime.append_intake_chunk(
+            draft_id,
+            block_id=body.block_id,
+            stage=body.stage,
+            chunk_index=body.chunk_index,
+            raw_text=body.raw_text,
+            is_last=body.is_last,
+        )
+        assert result["complete"] is True
+        assert result["char_count"] == 20_000
+        saved = novel_drafts._read(draft_id)["sections"]["intake"]["blocks"][0]["raw_text"]
+        assert saved == body.raw_text
 
 
 def test_chunked_large_intake_reconstructs_exact_raw_without_placeholder_or_summary():
