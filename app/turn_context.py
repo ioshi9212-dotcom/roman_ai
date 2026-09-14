@@ -8,6 +8,7 @@ from typing import Any, Dict, List
 from . import storage
 from .relationship_runtime import build_relationship_lens
 from .runtime_access import runtime_documents
+from .scene_compaction_runtime import active_memory_records
 
 
 RECENT_MEMORY_TURNS = 30
@@ -163,7 +164,7 @@ def _record_id(item: Dict[str, Any]) -> str | None:
 
 
 def _working_records(records: Any, current_turn: int) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
-    values = [deepcopy(item) for item in records if isinstance(item, dict)] if isinstance(records, list) else []
+    values = active_memory_records(records)
     threshold = max(0, current_turn - RECENT_MEMORY_TURNS + 1)
     full_candidates = [
         item for item in values
