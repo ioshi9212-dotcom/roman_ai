@@ -299,15 +299,38 @@ def _canonical_memory_record(
     summary: str,
     audit_end_turn: int,
 ) -> Dict[str, Any]:
-    turns = sorted({turn for turn in (_record_turn(item) for item in source_rows) if turn > 0})
+    turns: set[int] = set()
+    provenance: List[str] = []
+    for item, source_id in zip(source_rows, source_ids):
+        raw_turns = item.get("source_turns")
+        if isinstance(raw_turns, list):
+            for raw_turn in raw_turns:
+                try:
+                    turn = int(raw_turn)
+                except (TypeError, ValueError):
+                    continue
+                if turn > 0:
+                    turns.add(turn)
+        turn = _record_turn(item)
+        if turn > 0:
+            turns.add(turn)
+
+        merged = item.get("merged_from")
+        if item.get("canonical_compaction") is True and isinstance(merged, list) and merged:
+            provenance.extend(str(value) for value in merged if value)
+        else:
+            provenance.append(source_id)
+
+    ordered_turns = sorted(turns)
+    provenance = list(dict.fromkeys(provenance))
     digest = hashlib.sha256(
-        f"{character_id}|{memory_type}|{'|'.join(source_ids)}|{summary}".encode("utf-8")
+        f"{character_id}|{memory_type}|{'|'.join(provenance)}|{summary}".encode("utf-8")
     ).hexdigest()[:12]
     canonical_id = f"cmp_{memory_type}_{digest}"
     common = {
         "character_id": character_id,
-        "source_turns": turns,
-        "merged_from": source_ids,
+        "source_turns": ordered_turns,
+        "merged_from": provenance,
         "canonical_compaction": True,
         "compacted_at_audit_turn": int(audit_end_turn),
     }
@@ -317,7 +340,7 @@ def _canonical_memory_record(
             **common,
             "fact_id": canonical_id,
             "fact": summary,
-            "learned_turn": min(turns) if turns else int(audit_end_turn),
+            "learned_turn": min(ordered_turns) if ordered_turns else int(audit_end_turn),
             "confidence": "certain",
         }
     if memory_type == "experiences":
@@ -325,7 +348,7 @@ def _canonical_memory_record(
             **common,
             "event_id": canonical_id,
             "summary": summary,
-            "turn": max(turns) if turns else int(audit_end_turn),
+            "turn": max(ordered_turns) if ordered_turns else int(audit_end_turn),
         }
 
     participants: List[str] = []
@@ -339,7 +362,7 @@ def _canonical_memory_record(
         **common,
         "topic_id": canonical_id,
         "summary": summary,
-        "turn": max(turns) if turns else int(audit_end_turn),
+        "turn": max(ordered_turns) if ordered_turns else int(audit_end_turn),
         "participants": list(dict.fromkeys(participants)),
     }
 
@@ -379,6 +402,7 @@ def _apply_memory_compactions(
         bucket = bucket if isinstance(bucket, dict) else {}
         lookup = _memory_source_lookup(bucket, memory_type)
         source_rows: List[Dict[str, Any]] = []
+        has_current_audit_evidence = False
         for source_id in source_ids:
             key = (character_id, memory_type, source_id)
             if key in used:
@@ -386,11 +410,33 @@ def _apply_memory_compactions(
             item = lookup.get(source_id)
             if item is None or item.get("superseded_by"):
                 raise RuntimeError("MEMORY_COMPACTION_SOURCE_UNKNOWN")
+
+            record_turns = set()
+            raw_source_turns = item.get("source_turns")
+            if isinstance(raw_source_turns, list):
+                for raw_turn in raw_source_turns:
+                    try:
+                        record_turns.add(int(raw_turn))
+                    except (TypeError, ValueError):
+                        pass
             turn = _record_turn(item)
-            if turn < int(start_turn) or turn > int(end_turn):
+            if turn > 0:
+                record_turns.add(turn)
+
+            current = any(int(start_turn) <= value <= int(end_turn) for value in record_turns)
+            if current:
+                has_current_audit_evidence = True
+            elif item.get("canonical_compaction") is not True:
+                # Old raw records are immutable evidence, not arbitrary rewrite targets.
+                # Cross-audit merging may roll a prior canonical record forward, but only
+                # together with fresh records from the current audit.
                 raise RuntimeError("MEMORY_COMPACTION_SOURCE_OUT_OF_RANGE")
+
             used.add(key)
             source_rows.append(item)
+
+        if not has_current_audit_evidence:
+            raise RuntimeError("MEMORY_COMPACTION_SOURCE_OUT_OF_RANGE")
 
         canonical = _canonical_memory_record(
             character_id=character_id,
