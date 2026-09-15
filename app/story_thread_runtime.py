@@ -195,7 +195,7 @@ def _story_drive(context: Dict[str, Any], root, current_turn: int, pressure: lis
         "force_progress_this_turn": force_progress,
         "active_thread_count": len(current_threads),
         "scene_progress_flag": (
-            "Set extracted.scene_progressed=true when this turn materially changes action, contact, position, emotion, risk, information or a character goal even if no separate durable canon field changed. Simple waiting/repetition is false; completion of a delegated routine may move time without inventing a durable event. Position/time/observation alone are not progress."
+            "Set extracted.scene_progressed=true when this turn materially changes action, contact, position, emotion, risk, information or a character goal even if no separate durable canon field changed. Simple waiting/repetition is false; completion of a delegated routine may move time without inventing a durable event."
         ),
         "story_thread_updates_required_in_persistence_review": True,
         "future_direction_cues": _future_direction_cues(context),
