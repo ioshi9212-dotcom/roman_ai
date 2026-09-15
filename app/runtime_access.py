@@ -8,8 +8,9 @@ from . import storage
 
 
 RUNTIME_DIR = Path(__file__).resolve().parent.parent / "runtime"
-RUNTIME_VERSION = "2.0.0-writer-first"
+RUNTIME_VERSION = "2.1.0-scene-purpose"
 PUBLIC_RUNTIME_FILES = ("rules.md", "scene_builder.md")
+SCENE_QUALITY_FILE = "scene_quality_rules.md"
 
 
 def runtime_documents() -> Dict[str, str]:
@@ -19,6 +20,13 @@ def runtime_documents() -> Dict[str, str]:
         if not path.exists():
             raise RuntimeError(f"RUNTIME_FILE_MISSING:{name}")
         result[name.removesuffix(".md")] = path.read_text(encoding="utf-8")
+
+    quality_path = RUNTIME_DIR / SCENE_QUALITY_FILE
+    if not quality_path.exists():
+        raise RuntimeError(f"RUNTIME_FILE_MISSING:{SCENE_QUALITY_FILE}")
+    quality_rules = quality_path.read_text(encoding="utf-8").strip()
+    if quality_rules:
+        result["rules"] = result["rules"].rstrip() + "\n\n" + quality_rules + "\n"
     return result
 
 
@@ -30,7 +38,7 @@ def runtime_payload() -> Dict[str, Any]:
             "rules": documents["rules"],
             "scene_builder": documents["scene_builder"],
         },
-        "instruction": "Read both documents. Rules define behavior; scene_builder defines the answer format and scene writing.",
+        "instruction": "Read both documents. Rules define behavior, scene purpose and choice boundaries; scene_builder defines the answer format and scene writing.",
     }
 
 
