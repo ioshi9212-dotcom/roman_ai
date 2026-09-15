@@ -8,7 +8,7 @@ from .transactional_storage import session_transaction
 
 
 _ORIGINAL_PREPARE = None
-_GUARD_VERSION = 3
+_GUARD_VERSION = 2
 
 
 def _knowledge_causality_rule() -> Dict[str, Any]:
