@@ -83,6 +83,7 @@ def commit_text_turn(sid: str, user_input: str, label: str):
                 "dialogue_memory_add": [],
                 "npc_intent_updates": [],
                 "story_thread_updates": [],
+                "scene_progressed": True,
             },
         },
     )
