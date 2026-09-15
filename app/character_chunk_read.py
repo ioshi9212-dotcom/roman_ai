@@ -19,6 +19,34 @@ MAX_INTENT_SOURCE_FACTS = 12
 _ORIGINAL_INJECT = None
 
 
+def _bundle_knowledge_firewall(character_id: str) -> Dict[str, Any]:
+    return {
+        "mandatory": True,
+        "character_id": character_id,
+        "personal_memory_path": "personal_memory",
+        "card_is_author_only": True,
+        "allowed_sources": [
+            "this bundle's personal_memory for this exact character",
+            "a fact personally perceived or explicitly received earlier in the current scene",
+            "an inference using only premises already available from those sources",
+        ],
+        "forbidden_sources": [
+            "card/backstory/questionnaire",
+            "chronology/recent turns/scene history",
+            "lore/foundation/future guidance",
+            "another character's memory or private information",
+        ],
+        "exact_detail_rule": (
+            "Exact or approximate ages, dates, durations, elapsed time, counts and biographical milestones are not safe just because CARD contains them. "
+            "They require the same personal source as every other factual claim."
+        ),
+        "instruction": (
+            "Read this firewall before CARD. CARD controls characterization and author truth only; PERSONAL_MEMORY controls what this character personally knows. "
+            "If a factual source is missing, do not state or act on the fact."
+        ),
+    }
+
+
 def _turn(item: Any) -> int:
     if not isinstance(item, dict):
         return 0
@@ -141,6 +169,7 @@ def _working_memory(bundle: Dict[str, Any]) -> Dict[str, Any]:
 def _participation_bundle(session_id: str, character_id: str) -> Dict[str, Any]:
     full = get_character_bundle(session_id, character_id)
     return {
+        "knowledge_firewall": _bundle_knowledge_firewall(character_id),
         "character_id": character_id,
         "card": deepcopy(full.get("card", {})),
         "current_state": deepcopy(full.get("current_state", {})),
@@ -151,9 +180,11 @@ def _participation_bundle(session_id: str, character_id: str) -> Dict[str, Any]:
         "working_bundle": True,
         "persistent_lifetime_memory_complete": True,
         "instruction": (
-            "Use this full card plus bounded personal working memory, relationship and active intents to write this character. "
-            "Knowledge supporting an active intent is included when source_fact_ids identify it. Complete lifetime memory remains persistent in Railway and is intentionally not retransmitted for every offscreen entrance/message/call. "
-            "Long prose inside memory records may be shortened in transport only; identifiers and persistent originals remain exact. Do not infer private current-scene facts from author context."
+            "KNOWLEDGE FIREWALL FIRST. CARD is objective author context for characterization, appearance, goals and hidden continuity; CARD is never evidence that this character personally knows a fact, including facts about their own past. "
+            "PERSONAL_MEMORY is the authoritative source for past factual awareness. Knowledge supporting an active intent is included when source_fact_ids identify it. "
+            "Complete lifetime memory remains persistent in Railway and is intentionally not retransmitted for every offscreen entrance/message/call. "
+            "Long prose inside memory records may be shortened in transport only; identifiers and persistent originals remain exact. "
+            "Do not infer private current-scene facts, exact dates, durations, ages, counts or biographical details from author context."
         ),
     }
 
