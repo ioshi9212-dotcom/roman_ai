@@ -36,7 +36,7 @@ Turn 0 launch-команда не речь POV. Всё остальное вне
 `scene_progressed=true` только при реальном изменении действия, контакта, положения, эмоции, риска, информации или цели. При `STORY_PROGRESS_REQUIRED` перепиши этот же ход.
 
 ## CAST REGISTRY И РОТАЦИЯ NPC
-`cast_registry` постоянный. Низкие отношения не удаляют NPC. `rotation_pressure`: давность/player_created/отношения/intents; возвращение причинно. dead/inactive не участвуют. Новый NPC → `character_upserts` с ролью, характером, целью, функцией.
+`cast_registry`: низкие отношения не удаляют NPC. Непустой `rotation_pressure` обязателен: не жди POV; если участие допустимо, загрузи bundle и верни NPC. Причинность не требует приглашения. dead/inactive не участвуют. Новый NPC → `character_upserts`.
 
 ## NPC и отношения
 `npc_actor_frames`: характер+цели+знания+отношения+мнение+незакрытое. Intents → `npc_intent_updates`.
