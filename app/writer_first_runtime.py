@@ -32,27 +32,19 @@ def _knowledge_firewall() -> Dict[str, Any]:
     return {
         "mandatory": True,
         "character_knowledge_is_closed_world": True,
-        "check_before_every_npc_line_or_action": True,
         "allowed_sources": [
-            "character_memory[EXACT_CHARACTER_ID] / that exact character's personal_memory",
-            "a fact that exact character personally saw, heard, read, received or was explicitly told earlier in the current scene",
-            "an inference whose every premise was already known to that exact character from the two sources above",
+            "this exact character's memory",
+            "personally perceived/received earlier in this scene",
+            "inference from premises already known to this exact character",
         ],
         "author_only_never_personal_knowledge": [
-            "character_cards, questionnaires and backstory fields, including the speaking character's own card",
-            "chronology_recent, recent_turns, continuity_turns and scene_history",
-            "foundation, story_pillars, future_guidance, lore, hidden_lore and world canon",
-            "another character's memory, relationship state, beliefs or private information",
+            "cards/questionnaires/backstory including own card",
+            "chronology/recent/continuity/scene_history",
+            "foundation/pillars/future/lore/world canon",
+            "other characters' memory/private information",
         ],
-        "exact_detail_rule": (
-            "Exact or approximate ages, dates, durations, elapsed-time references, counts, biographical milestones and other hidden factual details "
-            "are still facts. Never let an NPC say or rely on them merely because they appear in a card, questionnaire, chronology, lore or author context. "
-            "Examples of forbidden shape without a personal source include '400 years' or 'six months ago'."
-        ),
-        "missing_source_behavior": (
-            "If the source is not already present before the line/action, rewrite before output: remove the fact, turn it into an uncertain question/guess, "
-            "or first establish a real perception/communication channel. Never invent a forgotten memory after the fact."
-        ),
+        "exact_detail_rule": "Numbers, ages, dates, durations and counts are facts too; '400 years' or 'six months ago' require the same personal source.",
+        "missing_source_behavior": "Rewrite as unknown/question/uncertain guess or establish a real source before the line; never backfill memory afterwards.",
     }
 
 
