@@ -20,23 +20,21 @@ def test_scene_quality_rules_are_composed_into_runtime_rules_without_editing_sou
     assert runtime["scene_builder"] == builder
 
 
-def test_scene_quality_contract_blocks_empty_micro_choices_and_preserves_scene_types():
+def test_scene_quality_contract_blocks_empty_micro_choices_and_covers_scene_types():
     rules = runtime_access.runtime_documents()["rules"]
-
     required = (
-        "Если POV сейчас выберет любой разумный вариант следующего действия, изменится ли что-нибудь существенное?",
-        "Если ответ «нет», это не значимый выбор.",
-        "После этого хода история находится в содержательно другом состоянии, чем до него?",
-        "Само по себе физическое перемещение",
-        "## БЫТОВАЯ СЦЕНА",
-        "## РОМАНТИЧЕСКАЯ СЦЕНА",
-        "## ИНТИМНАЯ СЦЕНА",
-        "## ЭКШН, БОЙ, ВОЙНА, ОПАСНОСТЬ",
-        "## ТРИЛЛЕР И ТАЙНА",
-        "## СВЕРХЪЕСТЕСТВЕННОЕ",
-        "## КОНФЛИКТ И ДРАМА",
-        "Есть ли у читателя причина хотеть следующий ход именно сейчас?",
-        "Каждый ход должен либо приносить интересное содержательное изменение, либо сжимать путь до него.",
+        "если POV сейчас выберет любой разумный вариант следующего действия, изменится ли что-нибудь существенное?",
+        "Если нет, это не выбор",
+        "Каждый ход должен либо приносить содержательное изменение, либо сжимать путь до него.",
+        "Перемещение, ожидание, наблюдение, повторная проверка",
+        "бытовая раскрывает характер/отношения/юмор/новый вопрос",
+        "романтическая меняет эмоциональную дистанцию",
+        "интимная остаётся понятной, чувственной и непрерывной",
+        "экшн/война меняют риск, цель, тактическую ситуацию или цену ошибки",
+        "триллер меняет информацию, угрозу или подозрение",
+        "сверхъестественное нарушает известную нормальность причинно",
+        "конфликт меняет позиции или последствия",
+        "есть ли причина хотеть следующий ход именно сейчас?",
         "scene_progressed=true",
     )
     for phrase in required:
@@ -48,4 +46,4 @@ def test_runtime_surface_stays_two_documents_and_scene_quality_is_not_scene_buil
     assert set(payload["documents"]) == {"rules", "scene_builder"}
     assert "SCENE QUALITY RULES" in payload["documents"]["rules"]
     assert "SCENE QUALITY RULES" not in payload["documents"]["scene_builder"]
-    assert "scene purpose and choice boundaries" in payload["instruction"]
+    assert payload["runtime_version"] == "2.0.0-writer-first"
