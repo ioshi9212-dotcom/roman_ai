@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from app import scene_logic_runtime
+from app import character_chunk_read, scene_logic_runtime
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -21,6 +21,10 @@ def test_character_knowledge_contract_excludes_author_only_sources():
     assert "continuity_turns" in author_only
     assert "character cards" in author_only
     assert "another character's memory" in author_only
+    forbidden = " ".join(rule["forbidden"]).casefold()
+    assert "numbers" in forbidden
+    assert "ages" in forbidden
+    assert "durations" in forbidden
 
     allowed = " ".join(rule["allowed_sources"]).casefold()
     assert "character_memory" in allowed
@@ -37,3 +41,27 @@ def test_gpt_instruction_says_chronology_and_questionnaires_are_not_character_kn
     assert "не личное знание NPC" in instructions
     assert "foundation_pressure" in instructions
     assert "только как авторские сюжетные семена" in instructions
+
+
+
+def test_offscreen_bundle_frontloads_firewall_and_card_is_not_knowledge(monkeypatch):
+    monkeypatch.setattr(
+        character_chunk_read,
+        "get_character_bundle",
+        lambda session_id, character_id: {
+            "card": {"character_id": character_id, "secret_age": 400},
+            "current_state": {},
+            "pov_familiarity": "known",
+            "personal_memory": {"knowledge": [], "experiences": [], "dialogue_memory": []},
+            "relationship_to_pov": {},
+            "active_intents": [],
+        },
+    )
+
+    bundle = character_chunk_read._participation_bundle("session", "silas")
+
+    assert next(iter(bundle)) == "knowledge_firewall"
+    assert bundle["knowledge_firewall"]["card_is_author_only"] is True
+    assert bundle["knowledge_firewall"]["character_id"] == "silas"
+    assert "CARD is objective author context" in bundle["instruction"]
+    assert "never evidence" in bundle["instruction"]

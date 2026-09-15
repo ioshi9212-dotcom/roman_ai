@@ -39,6 +39,7 @@ def _knowledge_causality_rule() -> Dict[str, Any]:
             "an absent/late character knowing an exchange they missed",
             "writing a factual line first and inventing the missing source afterwards",
             "adding a convenient forgotten detail after the fact to justify a conclusion",
+            "using card-only numbers, ages, dates or durations as known facts",
         ],
         "questionnaire_rule": (
             "Neither the POV questionnaire nor any NPC questionnaire, including that character's own questionnaire/card/backstory, is personal knowledge. "
@@ -99,15 +100,18 @@ def _rewrite_packet(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
             return base
 
         existing = context.get("scene_logic_guardrails")
-        if isinstance(existing, dict) and existing.get("version") == _GUARD_VERSION:
+        already_front_loaded = bool(context) and next(iter(context)) == "scene_logic_guardrails"
+        if isinstance(existing, dict) and existing.get("version") == _GUARD_VERSION and already_front_loaded:
             return base
 
-        context["scene_logic_guardrails"] = {
+        guards = {
             "version": _GUARD_VERSION,
             "knowledge_causality": _knowledge_causality_rule(),
             "player_text_cleanup": _player_text_cleanup_rule(),
             "instruction": "Both rules are mandatory. Character knowledge is closed-world: author canon is not personal knowledge.",
         }
+        context.pop("scene_logic_guardrails", None)
+        context = {"scene_logic_guardrails": guards, **context}
 
         text = json.dumps(context, ensure_ascii=False, separators=(",", ":"))
         size = writer_first_runtime.WRITER_PACKET_CHARS
