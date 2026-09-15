@@ -335,10 +335,7 @@ def _enrich_cast_pressure(context: Dict[str, Any], state: Dict[str, Any]) -> Non
             "character_id": cid,
             "name": member.get("name") or member.get("full_name"),
             "relationship_salience": round(strength, 2),
-            "guidance": (
-                "This relationship is strong enough to affect initiative/frequency. "
-                "Treat this NPC as eligible for proactive contact or re-entry without POV prompting whenever current established circumstances permit it."
-            ),
+            "guidance": "Eligible for proactive contact/re-entry without POV prompting when current canon permits.",
         })
         existing.add(cid)
     guards["cast_pressure"] = rows[:8]
@@ -528,10 +525,7 @@ def _rewrite_packet(session_id: str, base_result: Dict[str, Any]) -> Dict[str, A
             "foundation_pressure": _foundation_pressure(source, state, context, cards, current_turn),
             "story_pillar_pressure": _story_pillars(source, state, current_turn),
             "social_reactivity": _social_world(state),
-            "instruction": (
-                "Before writing an NPC, use the actor frame: character + wants + knowledge + relationship + opinion + unresolved business. "
-                "NPCs and the social world must be allowed to create initiative and consequences without waiting for POV to request their presence."
-            ),
+            "instruction": "Use actor frames. NPCs/social world may initiate without POV requesting their presence.",
         }
         persistence = context.get("persistence_contract") if isinstance(context.get("persistence_contract"), dict) else {}
         persistence["relationship_opinion"] = (
