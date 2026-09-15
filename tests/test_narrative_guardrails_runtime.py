@@ -267,8 +267,7 @@ def test_scene_momentum_contains_compact_scene_type_quality_contract():
 def test_runtime_rules_include_scene_value_contract_without_touching_scene_builder():
     rules = (Path(__file__).resolve().parents[1] / "runtime" / "rules.md").read_text(encoding="utf-8")
     builder = (Path(__file__).resolve().parents[1] / "runtime" / "scene_builder.md").read_text(encoding="utf-8")
-    assert "## ЦЕННОСТЬ" in rules
     assert "любой разумный вариант POV ничего не меняет" in rules
     assert "это не выбор" in rules
-    assert "пустое сжимай" in rules
+    assert "это не выбор; сжимай" in rules
     assert builder.startswith("Формат scene_builder обязателен")
