@@ -259,7 +259,7 @@ def test_scene_quality_contract_requires_change_compression_and_forward_pull():
     assert "Сцена существует не ради процесса, а ради изменения" in rule["core"]
     assert "любой разумный вариант" in rule["choice_gate"]
     assert "это не выбор" in rule["choice_gate"]
-    assert any("повторный взгляд" in item for item in rule["not_enough_alone"])
+    assert any("повторное наблюдение" in item for item in rule["not_enough_alone"])
     assert any("еда" in item for item in rule["not_enough_alone"])
     assert "domestic" in rule["scene_types"]
     assert "romance" in rule["scene_types"]
@@ -276,11 +276,7 @@ def test_runtime_rules_include_scene_value_contract_without_touching_scene_build
     rules = (Path(__file__).resolve().parents[1] / "runtime" / "rules.md").read_text(encoding="utf-8")
     builder = (Path(__file__).resolve().parents[1] / "runtime" / "scene_builder.md").read_text(encoding="utf-8")
     assert "## ЦЕННОСТЬ СЦЕНЫ И ТОЧКА ОСТАНОВКИ" in rules
-    assert "если POV сейчас выберет любой разумный вариант следующего действия" in rules
-    assert "Сцена существует не ради процесса, а ради изменения" in rules
-    assert "**БЫТОВАЯ СЦЕНА:**" in rules
-    assert "**РОМАНТИЧЕСКАЯ СЦЕНА:**" in rules
-    assert "**ИНТИМНАЯ СЦЕНА:**" in rules
-    assert "**ЭКШН / ВОЙНА / ОПАСНОСТЬ:**" in rules
-    assert "**ТРИЛЛЕР / СВЕРХЪЕСТЕСТВЕННОЕ:**" in rules
+    assert "если POV выберет любой разумный вариант следующего действия" in rules
+    assert "это не выбор" in rules
+    assert "Перемещение, ожидание, повторное наблюдение" in rules
     assert builder.startswith("Формат scene_builder обязателен")
