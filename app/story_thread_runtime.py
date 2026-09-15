@@ -15,7 +15,7 @@ from .transactional_storage import session_transaction
 _ORIGINAL_PREPARE = None
 _ORIGINAL_COMMIT_TURN = None
 _ORIGINAL_COMMIT_AUDIT = None
-_STORY_ENGINE_VERSION = 4
+_STORY_ENGINE_VERSION = 5
 _STAGNATION_LIMIT = 3
 _THREAD_SOFT_AGE = 4
 _THREAD_HARD_AGE = 6
@@ -195,7 +195,7 @@ def _story_drive(context: Dict[str, Any], root, current_turn: int, pressure: lis
         "force_progress_this_turn": force_progress,
         "active_thread_count": len(current_threads),
         "scene_progress_flag": (
-            "Set extracted.scene_progressed=true when this turn materially changes action, contact, position, emotion, risk, information or a character goal even if no separate durable canon field changed. Simple waiting/repetition is false; completion of a delegated routine may move time without inventing a durable event."
+            "Set extracted.scene_progressed=true only for substantive change in risk, information, objective, relationship/emotional state, conflict, consequence or a character goal. Movement, position, observation, routine execution or elapsed time alone are not progress."
         ),
         "story_thread_updates_required_in_persistence_review": True,
         "future_direction_cues": _future_direction_cues(context),
@@ -206,10 +206,9 @@ def _story_drive(context: Dict[str, Any], root, current_turn: int, pressure: lis
             "close": "Resolve/abandon only when the event actually ends or is genuinely dropped; keep anchor_facts intact.",
         },
         "instruction": (
-            "The story may not idle indefinitely, but the control boundary is the next meaningful POV choice, not every small action. "
-            "Respect narrative_guardrails.scene_momentum.player_input_scope. If the player delegated ongoing ordinary activity, compress the uneventful part until its natural end, an interruption, or a meaningful choice. "
-            "Do not stop on technical trivia just to avoid a time skip. Do not use story pressure to choose consequential consent, disclosure, promise, allegiance, tactic or risk for POV. "
-            "A continuous important scene is movement while action, contact, position, emotion, risk, information or a character goal changes."
+            "Before ending ask: if POV chose any reasonable next action, would anything substantive change? If no, it is not a player choice; continue or compress until a real change, interruption, natural end or consequential choice. "
+            "A turn should change risk, information, goal, relationship/emotion, conflict, consequence or character goal, or compress the path to such a change. Movement, observation, rechecking, routine and time passing are not beats by themselves. "
+            "Keep consequential consent, disclosure, promise, allegiance, tactic and serious risk with the player. Important emotional, intimate, conflict and action scenes may continue while they produce genuinely new beats."
         ),
     }
 
@@ -220,9 +219,8 @@ def _progress_required_error(streak: int) -> None:
         detail={
             "code": "STORY_PROGRESS_REQUIRED",
             "message": (
-                "The previous turns formed a static streak. Do not commit another turn that only extends waiting or neutral repetition. "
-                "If a continuous important scene materially changes, mark scene_progressed=true. If the player delegated ordinary work/travel/waiting/routine, compress it to completion, interruption or the next meaningful choice. "
-                "Otherwise advance an existing thread/intent/consequence without choosing a consequential POV decision."
+                "The previous turns formed a static streak. Do not commit another turn that only extends movement, waiting, observation, rechecking or neutral routine. "
+                "Compress to a substantive change, interruption, natural end or meaningful POV choice; do not use scene_progressed=true for position/time/routine alone."
             ),
             "stagnant_turns_before_this_commit": streak,
             "maximum_consecutive_static_turns": _STAGNATION_LIMIT,

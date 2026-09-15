@@ -185,8 +185,8 @@ def test_story_drive_forces_movement_but_keeps_meaningful_pov_choice_with_player
         assert drive["force_progress_this_turn"] is True
         assert drive["future_direction_cues"]
         assert "scene_progressed=true" in drive["scene_progress_flag"]
-        assert "next meaningful POV choice" in drive["instruction"]
-        assert "compress the uneventful part" in drive["instruction"]
+        assert "it is not a player choice" in drive["instruction"]
+        assert "continue or compress" in drive["instruction"]
         assert "consent" in drive["instruction"]
 
 
