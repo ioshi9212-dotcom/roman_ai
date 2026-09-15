@@ -583,7 +583,7 @@ paths:
     post:
       operationId: prepareTurn
       summary: Build or reuse bounded writer-first context from complete persistent canon
-      description: Response includes packet_id and may include chunk 0. Repeating the same pending input reuses it; commitTurn must echo the exact packet_id.
+      description: Response normally includes packet_id and may include chunk 0. Repeating the same pending input reuses it. If the exact same user_input was already committed moments ago, returns already_committed_duplicate=true plus the saved scene_output instead of creating another turn.
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
       requestBody:
