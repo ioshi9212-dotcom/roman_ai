@@ -1,3 +1,4 @@
+import json
 import tempfile
 from pathlib import Path
 
@@ -54,6 +55,35 @@ def commit_simple_turn(sid: str, turn: int):
                 "knowledge_add": [],
                 "experiences_add": [],
                 "dialogue_memory_add": [],
+            },
+        },
+    )
+
+
+def commit_text_turn(sid: str, user_input: str, label: str):
+    manifest = session_runtime.prepare_turn_packet(sid, user_input)
+    first = 1 if manifest.get("first_chunk_included") else 0
+    for index in range(first, manifest["chunk_count"]):
+        storage.get_turn_packet_chunk(sid, manifest["packet_id"], index)
+    return session_runtime.commit_turn(
+        sid,
+        {
+            "packet_id": manifest["packet_id"],
+            "user_input": user_input,
+            "scene_output": (
+                "🎭 Rollback · осень\n"
+                "🕒 День 1 · вторник, 01.09.2026, 10:30 · 📍 room\n\n"
+                f"{label}.\n\nСостояние: нормально\nОтношения:\n\nХод test"
+            ),
+            "extracted": {
+                "persistence_reviewed": True,
+                "chronology": [],
+                "knowledge_add": [],
+                "experiences_add": [],
+                "dialogue_memory_add": [],
+                "npc_intent_updates": [],
+                "story_thread_updates": [],
+                "scene_progressed": True,
             },
         },
     )
@@ -226,3 +256,82 @@ def test_expected_turn_mismatch_and_missing_confirmation_are_non_mutating():
 
         assert (root / "turns.jsonl").read_bytes() == before
         assert storage._read_json(root / "meta.json", {})["turn_number"] == 1
+
+
+def test_chained_rollback_crosses_audit_after_exact_duplicate_turn():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = make_session()
+        root = storage.SESSIONS_DIR / sid
+
+        for turn in range(1, 14):
+            commit_simple_turn(sid, turn)
+
+        duplicate_input = "Потому что она лезет туда, куда её не звали. Я уже сказала. ( перейти дорогу и идти дальше )"
+        commit_text_turn(sid, duplicate_input, "Первое сохранение одинакового пользовательского ввода")
+        assert storage._read_json(root / "meta.json", {})["turn_number"] == 14
+
+        # Age the historical first save beyond the new live duplicate window so the
+        # test can reproduce a legacy duplicate already present in persistent canon.
+        legacy_turns = storage._read_turns(root)
+        legacy_turns[-1]["saved_at"] = "2000-01-01T00:00:00+00:00"
+        (root / "turns.jsonl").write_text(
+            "\n".join(json.dumps(row, ensure_ascii=False) for row in legacy_turns) + "\n",
+            encoding="utf-8",
+        )
+
+        # Simulate the historical UI/tool retry that created a second packet for the
+        # exact same user message before the duplicate guard existed.
+        commit_text_turn(sid, duplicate_input, "Ошибочный повтор того же пользовательского ввода")
+        assert storage._read_json(root / "meta.json", {})["turn_number"] == 15
+        close_audit(sid, 1, 15)
+
+        commit_text_turn(sid, "Лишний ход 16.", "Лишний следующий ход")
+        assert storage._read_json(root / "meta.json", {})["turn_number"] == 16
+
+        first = rollback_last_turn(sid, 16, True)
+        assert first["method"] == "exact_pre_turn_snapshot"
+        assert first["turn_number"] == 15
+        assert storage._read_json(root / SNAPSHOT_FILE, {})["committed_turn"] == 15
+
+        # Simulate the already-affected production session: turn 16 was rolled back
+        # by the old release, which deleted the snapshot and left turn 15 stuck.
+        (root / SNAPSHOT_FILE).unlink(missing_ok=True)
+
+        second = rollback_last_turn(sid, 15, True)
+        assert second["method"] == "verified_exact_duplicate_replay"
+        assert second["turn_number"] == 14
+        assert storage._read_json(root / SNAPSHOT_FILE, {})["committed_turn"] == 14
+        assert storage._read_json(root / "audits.json", []) == []
+        assert storage._read_json(root / "meta.json", {})["last_audit_turn"] == 0
+
+        third = rollback_last_turn(sid, 14, True)
+        assert third["method"] == "exact_pre_turn_snapshot"
+        assert third["turn_number"] == 13
+        assert storage._read_json(root / SNAPSHOT_FILE, {})["committed_turn"] == 13
+        assert len(storage._read_turns(root)) == 13
+        assert storage._read_json(root / "meta.json", {})["turn_number"] == 13
+
+
+def test_new_release_keeps_exact_snapshot_for_immediate_second_rollback():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = make_session()
+        root = storage.SESSIONS_DIR / sid
+
+        commit_simple_turn(sid, 1)
+        commit_simple_turn(sid, 2)
+        commit_simple_turn(sid, 3)
+
+        first = rollback_last_turn(sid, 3, True)
+        assert first["turn_number"] == 2
+        snapshot = storage._read_json(root / SNAPSHOT_FILE, {})
+        assert snapshot["committed_turn"] == 2
+        assert snapshot["previous_turn"] == 1
+
+        second = rollback_last_turn(sid, 2, True)
+        assert second["method"] == "exact_pre_turn_snapshot"
+        assert second["turn_number"] == 1
+        snapshot = storage._read_json(root / SNAPSHOT_FILE, {})
+        assert snapshot["committed_turn"] == 1
+        assert snapshot["previous_turn"] == 0

@@ -341,6 +341,33 @@ def _restored_meta(live_meta: Dict[str, Any], target_turn: int, audits: List[Dic
     return meta
 
 
+def _snapshot_for_current_turn(
+    source: Dict[str, Any],
+    turns: List[Dict[str, Any]],
+    audits: List[Dict[str, Any]],
+    *,
+    committed_turn: int,
+    meta_seed: Dict[str, Any],
+) -> Dict[str, Any] | None:
+    """Build the exact pre-turn snapshot needed to roll back committed_turn next."""
+    if committed_turn <= 0:
+        return None
+    previous_turn = committed_turn - 1
+    replay = _replay_through(source, turns, audits, previous_turn)
+    pre_meta = _restored_meta(meta_seed, previous_turn, replay["audits"])
+    return {
+        "version": 1,
+        "committed_turn": committed_turn,
+        "previous_turn": previous_turn,
+        "meta": pre_meta,
+        "characters": deepcopy(replay["characters"]),
+        "state": deepcopy(replay["state"]),
+        "memory": deepcopy(replay["memory"]),
+        "chronology": deepcopy(replay["chronology"]),
+        "audits": deepcopy(replay["audits"]),
+    }
+
+
 def _write_restored_state(
     root,
     *,
@@ -353,6 +380,7 @@ def _write_restored_state(
     audits: List[Dict[str, Any]],
     meta: Dict[str, Any],
     operation_receipt: Dict[str, Any] | None = None,
+    next_snapshot: Dict[str, Any] | None = None,
 ) -> None:
     values = {
         "turns.jsonl": _turns_text(turns),
@@ -364,11 +392,15 @@ def _write_restored_state(
         SCENE_MEMORY_FILE: json_text(scene_store_from_audits(audits)),
         "meta.json": json_text(meta),
     }
+    if isinstance(next_snapshot, dict):
+        values[SNAPSHOT_FILE] = json_text(next_snapshot)
     ledger = prune_after_turn(load_ledger(root), target_turn)
     if operation_receipt:
         ledger = add_receipt(ledger, operation_receipt)
     values[RECEIPTS_FILE] = json_text(ledger)
     write_batch(root, values)
+    if not isinstance(next_snapshot, dict):
+        (root / SNAPSHOT_FILE).unlink(missing_ok=True)
     for name in (
         "turn_packet.json",
         "audit_packet.json",
@@ -437,6 +469,15 @@ def rollback_last_turn(
                     result=result,
                     target_turn_after=target_turn,
                 )
+            source = storage._read_json(root / "source.json", {})
+            snapshot_audits = deepcopy(snapshot.get("audits", [])) if isinstance(snapshot.get("audits"), list) else []
+            next_snapshot = _snapshot_for_current_turn(
+                source,
+                remaining_turns,
+                snapshot_audits,
+                committed_turn=target_turn,
+                meta_seed=previous_meta,
+            )
             _write_restored_state(
                 root,
                 target_turn=target_turn,
@@ -445,32 +486,43 @@ def rollback_last_turn(
                 state=deepcopy(snapshot.get("state", {})),
                 memory=deepcopy(snapshot.get("memory", {})),
                 chronology=deepcopy(snapshot.get("chronology", [])),
-                audits=deepcopy(snapshot.get("audits", [])),
+                audits=snapshot_audits,
                 meta=previous_meta,
                 operation_receipt=receipt,
+                next_snapshot=next_snapshot,
             )
-            (root / SNAPSHOT_FILE).unlink(missing_ok=True)
             return result
 
         source = storage._read_json(root / "source.json", {})
         audits = storage._read_json(root / "audits.json", [])
         if not isinstance(audits, list):
             audits = []
-        replay_current = _replay_through(source, turns, audits, expected_turn_number)
-        mismatches = _mismatch_blocks(root, replay_current)
+        exact_duplicate_last = bool(
+            len(turns) >= 2
+            and str(turns[-1].get("user_input") or "") == str(turns[-2].get("user_input") or "")
+        )
         preserved_state_paths: List[str] = []
-        method = "verified_historical_replay"
-        if mismatches:
-            if mismatches != ["state"]:
-                raise RollbackError("ROLLBACK_REPLAY_MISMATCH:" + ",".join(mismatches))
-            replay_previous, preserved_state_paths = _legacy_previous_candidate(
-                root, source, turns, audits, replay_current, target_turn
-            )
-            if replay_previous is None:
-                raise RollbackError("ROLLBACK_REPLAY_MISMATCH:" + ",".join(mismatches))
-            method = "verified_historical_replay_preserving_unrelated_state_drift"
-        else:
+        if exact_duplicate_last:
+            # The user explicitly asked to remove a proven duplicate turn. Rebuild the
+            # previous canonical state from persisted evidence and discard any audit
+            # whose end_turn is the duplicate itself.
             replay_previous = _replay_through(source, remaining_turns, audits, target_turn)
+            method = "verified_exact_duplicate_replay"
+        else:
+            replay_current = _replay_through(source, turns, audits, expected_turn_number)
+            mismatches = _mismatch_blocks(root, replay_current)
+            method = "verified_historical_replay"
+            if mismatches:
+                if mismatches != ["state"]:
+                    raise RollbackError("ROLLBACK_REPLAY_MISMATCH:" + ",".join(mismatches))
+                replay_previous, preserved_state_paths = _legacy_previous_candidate(
+                    root, source, turns, audits, replay_current, target_turn
+                )
+                if replay_previous is None:
+                    raise RollbackError("ROLLBACK_REPLAY_MISMATCH:" + ",".join(mismatches))
+                method = "verified_historical_replay_preserving_unrelated_state_drift"
+            else:
+                replay_previous = _replay_through(source, remaining_turns, audits, target_turn)
 
         target_audits = replay_previous["audits"]
         restored_meta = _restored_meta(meta, target_turn, target_audits)
@@ -491,6 +543,13 @@ def rollback_last_turn(
                 result=result,
                 target_turn_after=target_turn,
             )
+        next_snapshot = _snapshot_for_current_turn(
+            source,
+            replay_previous["turns"],
+            target_audits,
+            committed_turn=target_turn,
+            meta_seed=restored_meta,
+        )
         _write_restored_state(
             root,
             target_turn=target_turn,
@@ -502,6 +561,6 @@ def rollback_last_turn(
             audits=target_audits,
             meta=restored_meta,
             operation_receipt=receipt,
+            next_snapshot=next_snapshot,
         )
-        (root / SNAPSHOT_FILE).unlink(missing_ok=True)
         return result
