@@ -8,7 +8,7 @@ from . import storage
 
 
 RUNTIME_DIR = Path(__file__).resolve().parent.parent / "runtime"
-RUNTIME_VERSION = "2.1.0-scene-purpose"
+RUNTIME_VERSION = "2.0.0-writer-first"
 PUBLIC_RUNTIME_FILES = ("rules.md", "scene_builder.md")
 SCENE_QUALITY_FILE = "scene_quality_rules.md"
 
@@ -38,7 +38,7 @@ def runtime_payload() -> Dict[str, Any]:
             "rules": documents["rules"],
             "scene_builder": documents["scene_builder"],
         },
-        "instruction": "Read both documents. Rules define behavior, scene purpose and choice boundaries; scene_builder defines the answer format and scene writing.",
+        "instruction": "Read both documents. Rules define behavior; scene_builder defines the answer format and scene writing.",
     }
 
 
