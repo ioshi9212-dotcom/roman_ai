@@ -195,7 +195,7 @@ def _story_drive(context: Dict[str, Any], root, current_turn: int, pressure: lis
         "force_progress_this_turn": force_progress,
         "active_thread_count": len(current_threads),
         "scene_progress_flag": (
-            "Set extracted.scene_progressed=true when this turn materially changes action, contact, position, emotion, risk, information or a character goal even if no separate durable canon field changed. Simple waiting/repetition is false; completion of a delegated routine may move time without inventing a durable event."
+            "Set extracted.scene_progressed=true when this turn materially changes action, contact, emotion, risk, information, a character goal or the meaning/consequence of position. Mere movement, position change, elapsed time, repeated observation or technical continuation is NOT progress by itself. Simple waiting/repetition is false; completion of a delegated routine may move time without inventing a durable event."
         ),
         "story_thread_updates_required_in_persistence_review": True,
         "future_direction_cues": _future_direction_cues(context),
@@ -209,7 +209,7 @@ def _story_drive(context: Dict[str, Any], root, current_turn: int, pressure: lis
             "The story may not idle indefinitely, but the control boundary is the next meaningful POV choice, not every small action. "
             "Respect narrative_guardrails.scene_momentum.player_input_scope. If the player delegated ongoing ordinary activity, compress the uneventful part until its natural end, an interruption, or a meaningful choice. "
             "Do not stop on technical trivia just to avoid a time skip. Do not use story pressure to choose consequential consent, disclosure, promise, allegiance, tactic or risk for POV. "
-            "A continuous important scene is movement while action, contact, position, emotion, risk, information or a character goal changes."
+            "A continuous important scene is movement while action, contact, emotion, risk, information, a character goal or the meaning/consequence of position changes. Position/time/observation alone do not justify another player turn."
         ),
     }
 
