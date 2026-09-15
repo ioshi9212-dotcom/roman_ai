@@ -113,7 +113,7 @@ def _turn_participant_ids(extracted: Dict[str, Any]) -> set[str]:
         "said_by", "heard_by", "asked_by", "asked_to",
     )
     list_keys = ("participants", "participant_ids")
-    for field in ("dialogue_memory_add", "knowledge_add", "experiences_add", "npc_intent_updates", "presence_updates"):
+    for field in ("dialogue_memory_add", "presence_updates"):
         rows = extracted.get(field, []) if isinstance(extracted.get(field), list) else []
         for row in rows:
             if not isinstance(row, dict):
@@ -327,12 +327,9 @@ def _rewrite_packet(session_id: str, base_result: Dict[str, Any]) -> Dict[str, A
             "rotation_pressure": pressure,
             "mandatory_rotation_consideration": bool(pressure),
             "instruction": (
-                "Use character_registry for names/roles and rotation_pressure as active anti-forgetting scheduling pressure. "
-                "When rotation_pressure is non-empty, do not wait for POV to name, search for or summon a candidate. "
-                "Reconsider the highest-priority candidates before writing the turn and, when current established circumstances permit participation, load the character bundle and let a candidate initiate or re-enter. "
-                "Causal means compatible with established world state; it does not require prior POV prompting or a pre-announced meeting. "
-                "Bundle loading is a procedural requirement, never a narrative reason to keep an eligible NPC absent. "
-                "Relationship and intent state determine how initiative manifests."
+                "Non-empty rotation_pressure requires active reconsideration without POV prompting. "
+                "If current canon permits participation, load the bundle and let a top candidate initiate or re-enter. "
+                "Bundle loading is procedural, not a reason for absence; relationships/intents shape initiative."
             ),
         }
 
