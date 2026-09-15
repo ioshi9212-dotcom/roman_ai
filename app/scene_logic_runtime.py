@@ -39,6 +39,7 @@ def _knowledge_causality_rule() -> Dict[str, Any]:
             "an absent/late character knowing an exchange they missed",
             "writing a factual line first and inventing the missing source afterwards",
             "adding a convenient forgotten detail after the fact to justify a conclusion",
+            "using card-only numbers, ages, dates or durations as known facts",
         ],
         "questionnaire_rule": (
             "Neither the POV questionnaire nor any NPC questionnaire, including that character's own questionnaire/card/backstory, is personal knowledge. "
@@ -50,11 +51,6 @@ def _knowledge_causality_rule() -> Dict[str, Any]:
             "For character dialogue or action, require that character's own memory or a current-scene perception/source."
         ),
         "inference_rule": "Every premise must already be known by this character before the inference; weak premises mean suspicion/question, not certainty.",
-        "exact_detail_rule": (
-            "Ages, dates, durations, elapsed-time references, counts and biographical milestones are factual claims too. "
-            "Never source a precise or approximate detail such as '400 years' or 'six months ago' from a card, questionnaire, chronology, lore or author context; "
-            "the same detail must already exist in this character's own memory or be acquired through a real in-story channel before use."
-        ),
         "missing_source_behavior": (
             "If the chain is missing before the line, rewrite before commit: remove the knowledge, make it a question/uncertain guess, "
             "or first show a real source the character perceives. Never justify it retroactively."
@@ -104,15 +100,18 @@ def _rewrite_packet(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
             return base
 
         existing = context.get("scene_logic_guardrails")
-        if isinstance(existing, dict) and existing.get("version") == _GUARD_VERSION:
+        already_front_loaded = bool(context) and next(iter(context)) == "scene_logic_guardrails"
+        if isinstance(existing, dict) and existing.get("version") == _GUARD_VERSION and already_front_loaded:
             return base
 
-        context["scene_logic_guardrails"] = {
+        guards = {
             "version": _GUARD_VERSION,
             "knowledge_causality": _knowledge_causality_rule(),
             "player_text_cleanup": _player_text_cleanup_rule(),
             "instruction": "Both rules are mandatory. Character knowledge is closed-world: author canon is not personal knowledge.",
         }
+        context.pop("scene_logic_guardrails", None)
+        context = {"scene_logic_guardrails": guards, **context}
 
         text = json.dumps(context, ensure_ascii=False, separators=(",", ":"))
         size = writer_first_runtime.WRITER_PACKET_CHARS
