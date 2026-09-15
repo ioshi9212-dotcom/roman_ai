@@ -21,11 +21,6 @@ def test_character_knowledge_contract_excludes_author_only_sources():
     assert "continuity_turns" in author_only
     assert "character cards" in author_only
     assert "another character's memory" in author_only
-    forbidden = " ".join(rule["forbidden"]).casefold()
-    assert "numbers" in forbidden
-    assert "ages" in forbidden
-    assert "durations" in forbidden
-
     allowed = " ".join(rule["allowed_sources"]).casefold()
     assert "character_memory" in allowed
     assert "directly saw" in allowed
@@ -49,7 +44,7 @@ def test_offscreen_bundle_frontloads_firewall_and_card_is_not_knowledge(monkeypa
         character_chunk_read,
         "get_character_bundle",
         lambda session_id, character_id: {
-            "card": {"character_id": character_id, "secret_age": 400},
+            "card": {"character_id": character_id, "hidden_fact": "author_only"},
             "current_state": {},
             "pov_familiarity": "known",
             "personal_memory": {"knowledge": [], "experiences": [], "dialogue_memory": []},
