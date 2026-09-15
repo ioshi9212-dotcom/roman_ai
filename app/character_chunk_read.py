@@ -26,7 +26,6 @@ def _bundle_knowledge_firewall(character_id: str) -> Dict[str, Any]:
         "card_is_author_only": True,
         "allowed_sources": ["personal_memory", "personally perceived/received in scene", "inference from already-known premises"],
         "forbidden_sources": ["card/backstory", "chronology/scene history", "lore/foundation/future", "other characters' private data"],
-        "exact_detail_rule": "Ages, dates, durations and counts in CARD still require a personal source.",
         "instruction": "Read before CARD. CARD shapes characterization/author truth; PERSONAL_MEMORY controls factual awareness. Missing source means do not use the fact.",
     }
 
@@ -168,7 +167,7 @@ def _participation_bundle(session_id: str, character_id: str) -> Dict[str, Any]:
             "PERSONAL_MEMORY is the authoritative source for past factual awareness. Knowledge supporting an active intent is included when source_fact_ids identify it. "
             "Complete lifetime memory remains persistent in Railway and is intentionally not retransmitted for every offscreen entrance/message/call. "
             "Long prose inside memory records may be shortened in transport only; identifiers and persistent originals remain exact. "
-            "Do not infer private current-scene facts, exact dates, durations, ages, counts or biographical details from author context."
+            "Do not infer factual awareness from author context."
         ),
     }
 

@@ -39,7 +39,6 @@ def _knowledge_causality_rule() -> Dict[str, Any]:
             "an absent/late character knowing an exchange they missed",
             "writing a factual line first and inventing the missing source afterwards",
             "adding a convenient forgotten detail after the fact to justify a conclusion",
-            "using card-only numbers, ages, dates or durations as known facts",
         ],
         "questionnaire_rule": (
             "Neither the POV questionnaire nor any NPC questionnaire, including that character's own questionnaire/card/backstory, is personal knowledge. "
