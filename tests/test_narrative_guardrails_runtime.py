@@ -240,11 +240,47 @@ def test_prepare_turn_packet_contains_noncanonical_narrative_guardrails():
         context = json.loads("".join(parts))
 
         signals = context["narrative_guardrails"]
-        assert signals["version"] == 9
+        assert signals["version"] == 10
         assert signals["pov_activity"]["mandatory"] is True
         assert signals["pov_activity"]["ordinary_dialogue_required_when_natural"] is True
         assert signals["pov_activity"]["silence_requires_character_or_scene_reason"] is True
         assert signals["scene_momentum"]["player_input_scope"]["boundary"] == "next_meaningful_pov_choice"
+        assert signals["scene_quality"]["mandatory"] is True
+        assert "любой разумный вариант" in signals["scene_quality"]["choice_gate"]
+        assert "сменой позиции" in signals["scene_quality"]["scene_progressed_semantics"]
+        assert "дом" not in signals["scene_quality"]["scene_types"]  # stable English keys, Russian instructions
         assert signals["story_drive"]["mandatory"] is True
         assert isinstance(signals["cast_pressure"], list)
         assert "not canon" in signals["instruction"]
+
+def test_scene_quality_contract_requires_change_compression_and_forward_pull():
+    rule = guardrails._scene_quality_rule()
+    assert rule["mandatory"] is True
+    assert "Сцена существует не ради процесса, а ради изменения" in rule["core"]
+    assert "любой разумный вариант" in rule["choice_gate"]
+    assert "это не выбор" in rule["choice_gate"]
+    assert any("повторный взгляд" in item for item in rule["not_enough_alone"])
+    assert any("еда" in item for item in rule["not_enough_alone"])
+    assert "domestic" in rule["scene_types"]
+    assert "romance" in rule["scene_types"]
+    assert "intimacy" in rule["scene_types"]
+    assert "action_war" in rule["scene_types"]
+    assert "thriller_supernatural" in rule["scene_types"]
+    assert "drama_conflict" in rule["scene_types"]
+    assert "тягу вперёд" in rule["ending_pull"]
+    assert "не оправдывается одной сменой позиции" in rule["scene_progressed_semantics"]
+    assert "меню микродействий" in rule["instruction"]
+
+
+def test_runtime_rules_include_scene_value_contract_without_touching_scene_builder():
+    rules = (Path(__file__).resolve().parents[1] / "runtime" / "rules.md").read_text(encoding="utf-8")
+    builder = (Path(__file__).resolve().parents[1] / "runtime" / "scene_builder.md").read_text(encoding="utf-8")
+    assert "## ЦЕННОСТЬ СЦЕНЫ И ТОЧКА ОСТАНОВКИ" in rules
+    assert "если POV сейчас выберет любой разумный вариант следующего действия" in rules
+    assert "Сцена существует не ради процесса, а ради изменения" in rules
+    assert "**БЫТОВАЯ СЦЕНА:**" in rules
+    assert "**РОМАНТИЧЕСКАЯ СЦЕНА:**" in rules
+    assert "**ИНТИМНАЯ СЦЕНА:**" in rules
+    assert "**ЭКШН / ВОЙНА / ОПАСНОСТЬ:**" in rules
+    assert "**ТРИЛЛЕР / СВЕРХЪЕСТЕСТВЕННОЕ:**" in rules
+    assert builder.startswith("Формат scene_builder обязателен")
