@@ -12,7 +12,7 @@ from .transactional_storage import session_transaction
 
 
 _ORIGINAL_PREPARE = None
-WRITER_FIRST_VERSION = 9
+WRITER_FIRST_VERSION = 8
 WRITER_PACKET_CHARS = 16000
 RECENT_FULL_TURNS = 2
 CONTINUITY_WINDOW = 15
@@ -26,32 +26,6 @@ MAX_CHARACTER_CHRONOLOGY = 4
 MAX_LOCATION_CHRONOLOGY = 4
 MAX_FULL_ANCHOR_CHRONOLOGY = 12
 MAX_ANCHOR_SUMMARY = 240
-
-
-def _knowledge_firewall() -> Dict[str, Any]:
-    return {
-        "mandatory": True,
-        "character_knowledge_is_closed_world": True,
-        "allowed_sources": [
-            "this exact character's memory",
-            "personally perceived/received earlier in this scene",
-            "inference from premises already known to this exact character",
-        ],
-        "author_only_never_personal_knowledge": [
-            "cards/questionnaires/backstory including own card",
-            "chronology/recent/continuity/scene_history",
-            "foundation/pillars/future/lore/world canon",
-            "other characters' memory/private information",
-        ],
-        "exact_detail_rule": "Numbers, ages, dates, durations and counts are facts too; '400 years' or 'six months ago' require the same personal source.",
-        "missing_source_behavior": "Rewrite as unknown/question/uncertain guess or establish a real source before the line; never backfill memory afterwards.",
-    }
-
-
-def _frontload_knowledge_firewall(context: Dict[str, Any]) -> Dict[str, Any]:
-    result = deepcopy(context)
-    result.pop("knowledge_firewall", None)
-    return {"knowledge_firewall": _knowledge_firewall(), **result}
 
 
 _TERMINAL = {"resolved", "closed", "expired", "cancelled", "canceled", "done", "abandoned"}
@@ -460,7 +434,7 @@ def _rewrite_context(session_id: str, context: Dict[str, Any]) -> Dict[str, Any]
         "first_packet_chunk_in_prepare_response": True,
     })
     result["working_context_contract"] = contract
-    return _frontload_knowledge_firewall(result)
+    return result
 
 
 def _next_unread(packet: Dict[str, Any]) -> int | None:
