@@ -402,18 +402,10 @@ def _scene_momentum_rule(context: Dict[str, Any]) -> Dict[str, Any]:
             "Граница хода — следующий значимый выбор POV, а не каждая мелкая операция. Выполняй бытовые/технические мелочи автоматически. "
             "Порученную работу, дорогу, ожидание, сон или повторяющуюся рутину сжимай до конца, естественного вмешательства или значимого выбора. "
             "Короткое содержательное действие доводи до результата и реакции, но не присваивай следующий самостоятельный этап POV. "
-            "Важную эмоциональную, интимную, конфликтную или экшн-сцену показывай ясно и визуально, пока в ней есть новые beats."
+            "Важную эмоциональную, интимную, конфликтную или экшн-сцену показывай ясно и визуально, пока в ней есть новые beats. "
+            "Сцена: изменение или сжатие. Быт→характер/отношения; романтика→дистанция; интим→ясно/чувственно; экшн→риск/цена; триллер→улика/угроза; драма→последствие. Нет изменения — не стоп на движении/ожидании/проверке/техшаге."
         ),
     }
-
-
-def _scene_quality_rule() -> str:
-    return (
-        "Сцена: изменение или сжатие. Быт→характер/отношения; романтика→дистанция/желание; интим→ясно/чувственно; "
-        "экшн/война→риск/цена; триллер/сверхъестественное→улика/угроза; драма→позиция/последствие. "
-        "Если любой разумный следующий шаг POV ничего не меняет, это не выбор. Перемещение/ожидание/повторная проверка/техшаг сами по себе не scene_progressed. "
-        "Конец должен тянуть дальше без случайного клиффхэнгера."
-    )
 
 
 def _rewrite_packet(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
@@ -439,12 +431,11 @@ def _rewrite_packet(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
             "character_driven_behavior": _character_driven_behavior_rule(),
             "npc_intent_drive": _npc_intent_drive_rule(context),
             "scene_momentum": _scene_momentum_rule(context),
-            "scene_quality": _scene_quality_rule(),
             "cast_pressure": _cast_pressure(context, state if isinstance(state, dict) else {}, current_turn),
             "story_pressure": _story_pressure(context, current_turn),
             "character_relevance": _character_relevance(context),
             "instruction": (
-                "pov_activity, character_driven_behavior, npc_intent_drive, scene_momentum and scene_quality are mandatory behavior rules. "
+                "pov_activity, character_driven_behavior, npc_intent_drive and scene_momentum are mandatory behavior rules. "
                 "cast_pressure, story_pressure and character_relevance are soft anti-forgetting signals, not canon or mandatory beats. "
                 "Prefer causal, natural use and never invent past events."
             ),
