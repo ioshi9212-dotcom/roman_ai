@@ -12,7 +12,7 @@ from .transactional_storage import session_transaction
 
 
 _ORIGINAL_PREPARE = None
-WRITER_FIRST_VERSION = 8
+WRITER_FIRST_VERSION = 9
 WRITER_PACKET_CHARS = 16000
 RECENT_FULL_TURNS = 2
 CONTINUITY_WINDOW = 15
@@ -26,6 +26,41 @@ MAX_CHARACTER_CHRONOLOGY = 4
 MAX_LOCATION_CHRONOLOGY = 4
 MAX_FULL_ANCHOR_CHRONOLOGY = 12
 MAX_ANCHOR_SUMMARY = 240
+
+
+def _knowledge_firewall() -> Dict[str, Any]:
+    return {
+        "mandatory": True,
+        "character_knowledge_is_closed_world": True,
+        "check_before_every_npc_line_or_action": True,
+        "allowed_sources": [
+            "character_memory[EXACT_CHARACTER_ID] / that exact character's personal_memory",
+            "a fact that exact character personally saw, heard, read, received or was explicitly told earlier in the current scene",
+            "an inference whose every premise was already known to that exact character from the two sources above",
+        ],
+        "author_only_never_personal_knowledge": [
+            "character_cards, questionnaires and backstory fields, including the speaking character's own card",
+            "chronology_recent, recent_turns, continuity_turns and scene_history",
+            "foundation, story_pillars, future_guidance, lore, hidden_lore and world canon",
+            "another character's memory, relationship state, beliefs or private information",
+        ],
+        "exact_detail_rule": (
+            "Exact or approximate ages, dates, durations, elapsed-time references, counts, biographical milestones and other hidden factual details "
+            "are still facts. Never let an NPC say or rely on them merely because they appear in a card, questionnaire, chronology, lore or author context. "
+            "Examples of forbidden shape without a personal source include '400 years' or 'six months ago'."
+        ),
+        "missing_source_behavior": (
+            "If the source is not already present before the line/action, rewrite before output: remove the fact, turn it into an uncertain question/guess, "
+            "or first establish a real perception/communication channel. Never invent a forgotten memory after the fact."
+        ),
+    }
+
+
+def _frontload_knowledge_firewall(context: Dict[str, Any]) -> Dict[str, Any]:
+    result = deepcopy(context)
+    result.pop("knowledge_firewall", None)
+    return {"knowledge_firewall": _knowledge_firewall(), **result}
+
 
 _TERMINAL = {"resolved", "closed", "expired", "cancelled", "canceled", "done", "abandoned"}
 _RUNTIME_DROP_KEYS = (
@@ -433,7 +468,7 @@ def _rewrite_context(session_id: str, context: Dict[str, Any]) -> Dict[str, Any]
         "first_packet_chunk_in_prepare_response": True,
     })
     result["working_context_contract"] = contract
-    return result
+    return _frontload_knowledge_firewall(result)
 
 
 def _next_unread(packet: Dict[str, Any]) -> int | None:
