@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from app import scene_logic_runtime
+from app import character_chunk_read, scene_logic_runtime, writer_first_runtime
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -37,3 +37,41 @@ def test_gpt_instruction_says_chronology_and_questionnaires_are_not_character_kn
     assert "не личное знание NPC" in instructions
     assert "foundation_pressure" in instructions
     assert "только как авторские сюжетные семена" in instructions
+
+
+
+def test_writer_packet_frontloads_firewall_before_author_only_material():
+    context = writer_first_runtime._frontload_knowledge_firewall({
+        "character_cards": [{"character_id": "npc_1", "secret": "author only"}],
+        "chronology_recent": [{"event": "author truth"}],
+    })
+
+    assert next(iter(context)) == "knowledge_firewall"
+    rule = context["knowledge_firewall"]
+    assert rule["mandatory"] is True
+    assert rule["character_knowledge_is_closed_world"] is True
+    assert "400 years" in rule["exact_detail_rule"]
+    assert "six months ago" in rule["exact_detail_rule"]
+
+
+def test_offscreen_bundle_frontloads_firewall_and_card_is_not_knowledge(monkeypatch):
+    monkeypatch.setattr(
+        character_chunk_read,
+        "get_character_bundle",
+        lambda session_id, character_id: {
+            "card": {"character_id": character_id, "secret_age": 400},
+            "current_state": {},
+            "pov_familiarity": "known",
+            "personal_memory": {"knowledge": [], "experiences": [], "dialogue_memory": []},
+            "relationship_to_pov": {},
+            "active_intents": [],
+        },
+    )
+
+    bundle = character_chunk_read._participation_bundle("session", "silas")
+
+    assert next(iter(bundle)) == "knowledge_firewall"
+    assert bundle["knowledge_firewall"]["card_is_author_only"] is True
+    assert bundle["knowledge_firewall"]["character_id"] == "silas"
+    assert "CARD is objective author context" in bundle["instruction"]
+    assert "never evidence" in bundle["instruction"]
