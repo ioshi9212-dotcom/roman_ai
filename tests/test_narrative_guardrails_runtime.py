@@ -249,4 +249,4 @@ def test_prepare_turn_packet_contains_noncanonical_narrative_guardrails():
         assert signals["story_drive"]["mandatory"] is True
         assert isinstance(signals["cast_pressure"], list)
         assert "cast_pressure" in signals["instruction"]
-        assert "must be reconsidered without POV prompting" in signals["instruction"]
+        assert "requires active reconsideration without POV prompting" in signals["instruction"]
