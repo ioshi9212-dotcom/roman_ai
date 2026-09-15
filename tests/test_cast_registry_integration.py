@@ -188,6 +188,11 @@ def test_historical_replay_reconstructs_cast_registry_from_saved_turn_patch():
             "scene_output": "Сцена без смены места.",
             "extracted": {
                 "chronology": [{"event": "Лиам прислал сообщение", "character_ids": ["liam"]}],
+                "dialogue_memory_add": [{
+                    "topic_id": "contact",
+                    "participants": ["pov", "liam"],
+                    "summary": "Контакт состоялся.",
+                }],
                 "character_upserts": [],
             },
         }
@@ -207,3 +212,41 @@ def test_historical_replay_reconstructs_cast_registry_from_saved_turn_patch():
         assert registry["liam"]["origin"] == "player_created"
         assert registry["liam"]["last_contact_turn"] == 1
         assert "Лиам прислал сообщение" in registry["liam"]["last_meaningful_event"]
+
+
+
+def test_chronology_mention_does_not_reset_rotation_contact_age():
+    with tempfile.TemporaryDirectory() as tmp:
+        _setup(tmp)
+        sid = storage.create_session(_novel())["session_id"]
+        root = storage.SESSIONS_DIR / sid
+        state = storage._read_json(root / "state.json", {})
+        state.setdefault("world", {})["cast_registry"] = {
+            "liam": {
+                "character_id": "liam",
+                "name": "Лиам",
+                "origin": "player_created",
+                "status": "active",
+                "first_registered_turn": 0,
+                "last_appearance_turn": 2,
+                "last_contact_turn": 2,
+                "appearance_count": 1,
+            }
+        }
+        storage._write_json(root / "state.json", state)
+        meta = storage._read_json(root / "meta.json", {})
+        meta["turn_number"] = 20
+        storage._write_json(root / "meta.json", meta)
+
+        prepared = cast_registry_runtime._with_registry_patch(sid, {
+            "user_input": "test",
+            "scene_output": "test",
+            "extracted": {
+                "chronology": [{"event": "POV вспомнила Лиама", "character_ids": ["liam"]}],
+            },
+        })
+        row = prepared["extracted"]["state_patch"]["world"]["cast_registry"]["liam"]
+
+        assert row["last_meaningful_turn"] == 21
+        assert row["last_contact_turn"] == 2
+        assert cast_registry_runtime._last_activity_turn(row) == 2

@@ -9,7 +9,7 @@ from .transactional_storage import session_transaction
 
 
 _ORIGINAL_PREPARE = None
-_GUARDRAIL_VERSION = 9
+_GUARDRAIL_VERSION = 10
 _TERMINAL = {"resolved", "closed", "expired", "cancelled", "canceled", "done", "abandoned"}
 _HOOK_KEYS = (
     "fear", "страх", "weak", "слаб", "past", "прошл", "history", "истор",
@@ -77,7 +77,8 @@ def _cast_pressure(context: Dict[str, Any], state: Dict[str, Any], current_turn:
             "turns_since_seen": absent,
             "active_intent": has_intent,
             "important_role": important,
-            "guidance": "Consider a natural re-entry/contact only if causally appropriate; load the character bundle before offscreen participation.",
+            "must_reconsider": True,
+            "guidance": "Reconsider without POV prompting; if current canon permits participation, load bundle and let this NPC initiate or re-enter, otherwise keep pending.",
         }
         scored.append((score, {k: v for k, v in item.items() if v not in (None, "", False)}))
     scored.sort(key=lambda pair: pair[0], reverse=True)
@@ -434,9 +435,9 @@ def _rewrite_packet(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
             "story_pressure": _story_pressure(context, current_turn),
             "character_relevance": _character_relevance(context),
             "instruction": (
-                "pov_activity, character_driven_behavior, npc_intent_drive and scene_momentum are mandatory behavior rules. "
-                "cast_pressure, story_pressure and character_relevance are soft anti-forgetting signals, not canon or mandatory beats. "
-                "Prefer causal, natural use and never invent past events."
+                "pov_activity, character_driven_behavior, npc_intent_drive and scene_momentum are mandatory. "
+                "Non-empty cast_pressure must be reconsidered without POV prompting; use a candidate when current canon permits, otherwise keep pending. "
+                "story_pressure and character_relevance are guidance. Never invent past events."
             ),
         }
 

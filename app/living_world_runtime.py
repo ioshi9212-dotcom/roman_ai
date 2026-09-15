@@ -14,7 +14,7 @@ from .transactional_storage import session_transaction
 
 _ORIGINAL_PREPARE = None
 _ORIGINAL_COMMIT = None
-_VERSION = 1
+_VERSION = 2
 
 # New labels come from one small shared vocabulary. Existing labels in old sessions remain valid.
 RELATIONSHIP_DIMENSIONS: Dict[str, str] = {
@@ -335,10 +335,7 @@ def _enrich_cast_pressure(context: Dict[str, Any], state: Dict[str, Any]) -> Non
             "character_id": cid,
             "name": member.get("name") or member.get("full_name"),
             "relationship_salience": round(strength, 2),
-            "guidance": (
-                "This relationship is strong enough to affect initiative/frequency. "
-                "Let the NPC contact, appear, avoid or interfere only when character and circumstances give a reason."
-            ),
+            "guidance": "Eligible for proactive contact/re-entry without POV prompting when current canon permits.",
         })
         existing.add(cid)
     guards["cast_pressure"] = rows[:8]
@@ -528,10 +525,7 @@ def _rewrite_packet(session_id: str, base_result: Dict[str, Any]) -> Dict[str, A
             "foundation_pressure": _foundation_pressure(source, state, context, cards, current_turn),
             "story_pillar_pressure": _story_pillars(source, state, current_turn),
             "social_reactivity": _social_world(state),
-            "instruction": (
-                "Before writing an NPC, use the actor frame: character + wants + knowledge + relationship + opinion + unresolved business. "
-                "NPCs and the social world can create initiative and consequences instead of waiting for POV."
-            ),
+            "instruction": "Use actor frames. NPCs/social world may initiate without POV requesting their presence.",
         }
         persistence = context.get("persistence_contract") if isinstance(context.get("persistence_contract"), dict) else {}
         persistence["relationship_opinion"] = (

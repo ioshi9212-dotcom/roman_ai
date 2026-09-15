@@ -107,6 +107,7 @@ def test_strong_relationship_can_surface_absent_npc_in_cast_pressure():
         pressure = packet["narrative_guardrails"]["cast_pressure"]
         adrian = next(row for row in pressure if row.get("character_id") == "adrian")
         assert adrian["relationship_salience"] >= 0.6
+        assert "without POV prompting" in adrian["guidance"]
 
 
 def test_present_npc_opinion_can_change_without_fake_numeric_relationship_update():
