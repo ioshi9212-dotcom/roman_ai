@@ -23,27 +23,11 @@ def _bundle_knowledge_firewall(character_id: str) -> Dict[str, Any]:
     return {
         "mandatory": True,
         "character_id": character_id,
-        "personal_memory_path": "personal_memory",
         "card_is_author_only": True,
-        "allowed_sources": [
-            "this bundle's personal_memory for this exact character",
-            "a fact personally perceived or explicitly received earlier in the current scene",
-            "an inference using only premises already available from those sources",
-        ],
-        "forbidden_sources": [
-            "card/backstory/questionnaire",
-            "chronology/recent turns/scene history",
-            "lore/foundation/future guidance",
-            "another character's memory or private information",
-        ],
-        "exact_detail_rule": (
-            "Exact or approximate ages, dates, durations, elapsed time, counts and biographical milestones are not safe just because CARD contains them. "
-            "They require the same personal source as every other factual claim."
-        ),
-        "instruction": (
-            "Read this firewall before CARD. CARD controls characterization and author truth only; PERSONAL_MEMORY controls what this character personally knows. "
-            "If a factual source is missing, do not state or act on the fact."
-        ),
+        "allowed_sources": ["personal_memory", "personally perceived/received in scene", "inference from already-known premises"],
+        "forbidden_sources": ["card/backstory", "chronology/scene history", "lore/foundation/future", "other characters' private data"],
+        "exact_detail_rule": "Ages, dates, durations and counts in CARD still require a personal source.",
+        "instruction": "Read before CARD. CARD shapes characterization/author truth; PERSONAL_MEMORY controls factual awareness. Missing source means do not use the fact.",
     }
 
 
