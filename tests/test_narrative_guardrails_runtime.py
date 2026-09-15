@@ -245,32 +245,31 @@ def test_prepare_turn_packet_contains_noncanonical_narrative_guardrails():
         assert signals["pov_activity"]["ordinary_dialogue_required_when_natural"] is True
         assert signals["pov_activity"]["silence_requires_character_or_scene_reason"] is True
         assert signals["scene_momentum"]["player_input_scope"]["boundary"] == "next_meaningful_pov_choice"
-        assert "любой разумный следующий шаг POV" in signals["scene_quality"]
-        assert "экшн/война→риск/цена" in signals["scene_quality"]
-        assert "техшаг сами по себе не scene_progressed" in signals["scene_quality"]
+        momentum_instruction = signals["scene_momentum"]["instruction"]
+        assert "Сцена: изменение/сжатие" in momentum_instruction
+        assert "экшн→риск/цена" in momentum_instruction
+        assert "не стоп на рутине/проверке" in momentum_instruction
         assert signals["story_drive"]["mandatory"] is True
         assert isinstance(signals["cast_pressure"], list)
         assert "not canon" in signals["instruction"]
 
-def test_scene_quality_contract_requires_change_compression_and_forward_pull():
-    rule = guardrails._scene_quality_rule()
-    assert "Сцена: изменение или сжатие" in rule
-    assert "Быт→характер/отношения" in rule
-    assert "романтика→дистанция/желание" in rule
-    assert "интим→ясно/чувственно" in rule
-    assert "экшн/война→риск/цена" in rule
-    assert "триллер/сверхъестественное→улика/угроза" in rule
-    assert "драма→позиция/последствие" in rule
-    assert "это не выбор" in rule
-    assert "не scene_progressed" in rule
-    assert "без случайного клиффхэнгера" in rule
+def test_scene_momentum_contains_compact_scene_type_quality_contract():
+    instruction = guardrails._scene_momentum_rule({})["instruction"]
+    assert "Сцена: изменение/сжатие" in instruction
+    assert "Быт→отношения" in instruction
+    assert "романтика→дистанция" in instruction
+    assert "интим→ясно/чувственно" in instruction
+    assert "экшн→риск/цена" in instruction
+    assert "триллер→улика/угроза" in instruction
+    assert "драма→последствие" in instruction
+    assert "не стоп на рутине/проверке" in instruction
 
 
 def test_runtime_rules_include_scene_value_contract_without_touching_scene_builder():
     rules = (Path(__file__).resolve().parents[1] / "runtime" / "rules.md").read_text(encoding="utf-8")
     builder = (Path(__file__).resolve().parents[1] / "runtime" / "scene_builder.md").read_text(encoding="utf-8")
     assert "## ЦЕННОСТЬ СЦЕНЫ" in rules
-    assert "любой разумный следующий вариант POV ничего существенно не меняет" in rules
+    assert "любой разумный вариант POV ничего существенно не меняет" in rules
     assert "это не выбор" in rules
-    assert "повторную проверку" in rules
+    assert "пустое сжимай" in rules
     assert builder.startswith("Формат scene_builder обязателен")
