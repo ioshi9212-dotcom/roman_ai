@@ -293,6 +293,10 @@ def test_chained_rollback_crosses_audit_after_exact_duplicate_turn():
         assert first["turn_number"] == 15
         assert storage._read_json(root / SNAPSHOT_FILE, {})["committed_turn"] == 15
 
+        # Simulate the already-affected production session: turn 16 was rolled back
+        # by the old release, which deleted the snapshot and left turn 15 stuck.
+        (root / SNAPSHOT_FILE).unlink(missing_ok=True)
+
         second = rollback_last_turn(sid, 15, True)
         assert second["method"] == "verified_exact_duplicate_replay"
         assert second["turn_number"] == 14
@@ -306,3 +310,27 @@ def test_chained_rollback_crosses_audit_after_exact_duplicate_turn():
         assert storage._read_json(root / SNAPSHOT_FILE, {})["committed_turn"] == 13
         assert len(storage._read_turns(root)) == 13
         assert storage._read_json(root / "meta.json", {})["turn_number"] == 13
+
+
+def test_new_release_keeps_exact_snapshot_for_immediate_second_rollback():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = make_session()
+        root = storage.SESSIONS_DIR / sid
+
+        commit_simple_turn(sid, 1)
+        commit_simple_turn(sid, 2)
+        commit_simple_turn(sid, 3)
+
+        first = rollback_last_turn(sid, 3, True)
+        assert first["turn_number"] == 2
+        snapshot = storage._read_json(root / SNAPSHOT_FILE, {})
+        assert snapshot["committed_turn"] == 2
+        assert snapshot["previous_turn"] == 1
+
+        second = rollback_last_turn(sid, 2, True)
+        assert second["method"] == "exact_pre_turn_snapshot"
+        assert second["turn_number"] == 1
+        snapshot = storage._read_json(root / SNAPSHOT_FILE, {})
+        assert snapshot["committed_turn"] == 1
+        assert snapshot["previous_turn"] == 0
