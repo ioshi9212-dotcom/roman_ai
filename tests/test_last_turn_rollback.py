@@ -1,3 +1,4 @@
+import json
 import tempfile
 from pathlib import Path
 
@@ -268,6 +269,15 @@ def test_chained_rollback_crosses_audit_after_exact_duplicate_turn():
         duplicate_input = "Потому что она лезет туда, куда её не звали. Я уже сказала. ( перейти дорогу и идти дальше )"
         commit_text_turn(sid, duplicate_input, "Первое сохранение одинакового пользовательского ввода")
         assert storage._read_json(root / "meta.json", {})["turn_number"] == 14
+
+        # Age the historical first save beyond the new live duplicate window so the
+        # test can reproduce a legacy duplicate already present in persistent canon.
+        legacy_turns = storage._read_turns(root)
+        legacy_turns[-1]["saved_at"] = "2000-01-01T00:00:00+00:00"
+        (root / "turns.jsonl").write_text(
+            "\n".join(json.dumps(row, ensure_ascii=False) for row in legacy_turns) + "\n",
+            encoding="utf-8",
+        )
 
         # Simulate the historical UI/tool retry that created a second packet for the
         # exact same user message before the duplicate guard existed.
