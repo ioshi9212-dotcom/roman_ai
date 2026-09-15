@@ -4,6 +4,8 @@ from pathlib import Path
 import pytest
 
 from app import session_runtime, storage
+from app.main import turn_packet_prepare
+from app.models import TurnPrepare
 
 
 def setup_temp_storage(tmp: str):
@@ -62,3 +64,90 @@ def test_different_pending_input_replaces_packet_but_old_id_becomes_stale():
         assert second["reused_pending_packet"] is False
         with pytest.raises(PermissionError):
             storage.get_turn_packet_chunk(sid, first["packet_id"], 0)
+
+
+def _commit_one_turn(sid: str, user_input: str):
+    manifest = session_runtime.prepare_turn_packet(sid, user_input)
+    start = 1 if manifest.get("first_chunk_included") else 0
+    for index in range(start, manifest["chunk_count"]):
+        storage.get_turn_packet_chunk(sid, manifest["packet_id"], index)
+    return session_runtime.commit_turn(
+        sid,
+        {
+            "packet_id": manifest["packet_id"],
+            "user_input": user_input,
+            "scene_output": (
+                "🎭 Duplicate guard · осень\n"
+                "🕒 День 1 · вторник, 01.09.2026, 10:01 · 📍 room\n\n"
+                "Сохранённая сцена.\n\nСостояние: спокойно\nОтношения:\n\nХод 1"
+            ),
+            "extracted": {
+                "persistence_reviewed": True,
+                "chronology": [],
+                "knowledge_add": [],
+                "experiences_add": [],
+                "dialogue_memory_add": [],
+                "npc_intent_updates": [],
+                "story_thread_updates": [],
+            },
+        },
+    )
+
+
+def test_recent_exact_committed_input_is_replayed_instead_of_creating_new_packet():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = make_session()
+        text = "Один и тот же пользовательский ход."
+        _commit_one_turn(sid, text)
+
+        root = storage.SESSIONS_DIR / sid
+        assert storage._read_json(root / "meta.json", {})["turn_number"] == 1
+
+        response = turn_packet_prepare(sid, TurnPrepare(user_input=text))
+        assert response["already_committed_duplicate"] is True
+        assert response["duplicate_guard"] is True
+        assert response["turn_number"] == 1
+        assert response["scene_output"].startswith("🎭 Duplicate guard")
+        assert not (root / "turn_packet.json").exists()
+        assert storage._read_json(root / "meta.json", {})["turn_number"] == 1
+
+
+def test_commit_boundary_rejects_recent_duplicate_even_if_internal_prepare_is_called_directly():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = make_session()
+        text = "Повторить дословно."
+        _commit_one_turn(sid, text)
+
+        # Bypass the public prepare endpoint to model a race or stale internal caller.
+        manifest = session_runtime.prepare_turn_packet(sid, text)
+        start = 1 if manifest.get("first_chunk_included") else 0
+        for index in range(start, manifest["chunk_count"]):
+            storage.get_turn_packet_chunk(sid, manifest["packet_id"], index)
+
+        with pytest.raises(RuntimeError, match="RECENT_DUPLICATE_USER_INPUT"):
+            session_runtime.commit_turn(
+                sid,
+                {
+                    "packet_id": manifest["packet_id"],
+                    "user_input": text,
+                    "scene_output": (
+                        "🎭 Duplicate guard · осень\n"
+                        "🕒 День 1 · вторник, 01.09.2026, 10:02 · 📍 room\n\n"
+                        "Эта сцена не должна сохраниться.\n\nСостояние: спокойно\nОтношения:\n\nХод 2"
+                    ),
+                    "extracted": {
+                        "persistence_reviewed": True,
+                        "chronology": [],
+                        "knowledge_add": [],
+                        "experiences_add": [],
+                        "dialogue_memory_add": [],
+                        "npc_intent_updates": [],
+                        "story_thread_updates": [],
+                    },
+                },
+            )
+
+        assert storage._read_json(storage.SESSIONS_DIR / sid / "meta.json", {})["turn_number"] == 1
+        assert len(storage._read_turns(storage.SESSIONS_DIR / sid)) == 1
