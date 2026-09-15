@@ -295,13 +295,11 @@ def _rewrite_story_drive(session_id: str, base: Dict[str, Any]) -> Dict[str, Any
         guardrails["story_drive"] = _story_drive(context, root, current_turn, pressure)
         prior_instruction = str(guardrails.get("instruction") or "").strip()
         guardrails["instruction"] = (
-            "pov_activity, character_driven_behavior, npc_intent_drive, scene_momentum and story_drive are mandatory behavior rules. "
-            "story_pressure items marked must_advance_or_causally_pause are mandatory to address without taking a meaningful POV choice away from the player. "
-            "When cast_pressure is non-empty, actively reconsider its highest-priority absent NPCs this turn instead of waiting for POV prompting. "
-            "Use a candidate when current established circumstances permit participation; otherwise leave the pressure pending for later reconsideration. "
-            "character_relevance is non-canonical guidance. Prefer causal, natural use and never invent past events."
+            "pov_activity, character_driven_behavior, npc_intent_drive, scene_momentum and story_drive are mandatory. "
+            "Address story_pressure marked must_advance_or_causally_pause. Non-empty cast_pressure requires active reconsideration without POV prompting. "
+            "Keep meaningful POV choices with the player; never invent past events."
         ) if prior_instruction else (
-            "character_driven_behavior and story_drive are mandatory. Non-empty cast_pressure requires active reconsideration without taking meaningful POV choices away from the player."
+            "character_driven_behavior, story_drive and non-empty cast_pressure reconsideration are mandatory."
         )
         context["narrative_guardrails"] = guardrails
         _clean_relationship_policy(context)
