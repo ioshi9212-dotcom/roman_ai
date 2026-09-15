@@ -40,6 +40,7 @@ from .storage import (
     save_novel,
 )
 from .turn_rollback import RollbackError
+from .turn_duplicate_guard import duplicate_prepare_response, recent_duplicate_turn
 
 app = FastAPI(
     title="Roman AI",
@@ -401,6 +402,9 @@ def audit_snapshot_chunk_get(session_id: str, audit_id: str, chunk_index: int):
 @app.post("/sessions/{session_id}/turn-packet", operation_id="prepareTurn")
 def turn_packet_prepare(session_id: str, body: TurnPrepare):
     try:
+        duplicate = recent_duplicate_turn(session_id, body.user_input)
+        if duplicate:
+            return duplicate_prepare_response(duplicate)
         return prepare_turn_packet(session_id, body.user_input)
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Session not found")
