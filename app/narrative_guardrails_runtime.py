@@ -9,7 +9,7 @@ from .transactional_storage import session_transaction
 
 
 _ORIGINAL_PREPARE = None
-_GUARDRAIL_VERSION = 9
+_GUARDRAIL_VERSION = 10
 _TERMINAL = {"resolved", "closed", "expired", "cancelled", "canceled", "done", "abandoned"}
 _HOOK_KEYS = (
     "fear", "страх", "weak", "слаб", "past", "прошл", "history", "истор",
@@ -77,7 +77,8 @@ def _cast_pressure(context: Dict[str, Any], state: Dict[str, Any], current_turn:
             "turns_since_seen": absent,
             "active_intent": has_intent,
             "important_role": important,
-            "guidance": "Consider a natural re-entry/contact only if causally appropriate; load the character bundle before offscreen participation.",
+            "must_reconsider": True,
+            "guidance": "Do not wait for POV prompting. If current established circumstances permit participation, load the character bundle and let this NPC initiate or re-enter; otherwise keep the pressure pending.",
         }
         scored.append((score, {k: v for k, v in item.items() if v not in (None, "", False)}))
     scored.sort(key=lambda pair: pair[0], reverse=True)
@@ -435,8 +436,9 @@ def _rewrite_packet(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
             "character_relevance": _character_relevance(context),
             "instruction": (
                 "pov_activity, character_driven_behavior, npc_intent_drive and scene_momentum are mandatory behavior rules. "
-                "cast_pressure, story_pressure and character_relevance are soft anti-forgetting signals, not canon or mandatory beats. "
-                "Prefer causal, natural use and never invent past events."
+                "Non-empty cast_pressure is mandatory scheduling consideration: actively test its highest-priority absent NPCs against current established circumstances instead of waiting for POV prompting. "
+                "It does not force a specific beat when participation is currently incompatible, but it must not be ignored indefinitely. "
+                "story_pressure and character_relevance remain non-canonical guidance. Never invent past events."
             ),
         }
 
