@@ -113,7 +113,7 @@ def test_cast_pressure_surfaces_long_absent_important_npc_and_intent():
     ids = [row["character_id"] for row in pressure]
     assert "liam" in ids
     assert "june" in ids
-    assert next(row for row in pressure if row["character_id"] == "june")["active_intent"] is True
+    assert next(row for row in pressure if row["character_id"] == "june")["active_intent"] is True\n    assert all(row["must_reconsider"] is True for row in pressure)
 
 
 def test_story_pressure_surfaces_overdue_or_high_priority_threads():
@@ -240,11 +240,11 @@ def test_prepare_turn_packet_contains_noncanonical_narrative_guardrails():
         context = json.loads("".join(parts))
 
         signals = context["narrative_guardrails"]
-        assert signals["version"] == 9
+        assert signals["version"] == 10
         assert signals["pov_activity"]["mandatory"] is True
         assert signals["pov_activity"]["ordinary_dialogue_required_when_natural"] is True
         assert signals["pov_activity"]["silence_requires_character_or_scene_reason"] is True
         assert signals["scene_momentum"]["player_input_scope"]["boundary"] == "next_meaningful_pov_choice"
         assert signals["story_drive"]["mandatory"] is True
         assert isinstance(signals["cast_pressure"], list)
-        assert "not canon" in signals["instruction"]
+        assert "cast_pressure" in signals["instruction"]\n        assert "mandatory scheduling consideration" in signals["instruction"]
