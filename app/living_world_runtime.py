@@ -14,7 +14,7 @@ from .transactional_storage import session_transaction
 
 _ORIGINAL_PREPARE = None
 _ORIGINAL_COMMIT = None
-_VERSION = 1
+_VERSION = 2
 
 # New labels come from one small shared vocabulary. Existing labels in old sessions remain valid.
 RELATIONSHIP_DIMENSIONS: Dict[str, str] = {
@@ -337,7 +337,7 @@ def _enrich_cast_pressure(context: Dict[str, Any], state: Dict[str, Any]) -> Non
             "relationship_salience": round(strength, 2),
             "guidance": (
                 "This relationship is strong enough to affect initiative/frequency. "
-                "Let the NPC contact, appear, avoid or interfere only when character and circumstances give a reason."
+                "Treat this NPC as eligible for proactive contact or re-entry without POV prompting whenever current established circumstances permit it."
             ),
         })
         existing.add(cid)
@@ -530,7 +530,7 @@ def _rewrite_packet(session_id: str, base_result: Dict[str, Any]) -> Dict[str, A
             "social_reactivity": _social_world(state),
             "instruction": (
                 "Before writing an NPC, use the actor frame: character + wants + knowledge + relationship + opinion + unresolved business. "
-                "NPCs and the social world can create initiative and consequences instead of waiting for POV."
+                "NPCs and the social world must be allowed to create initiative and consequences without waiting for POV to request their presence."
             ),
         }
         persistence = context.get("persistence_contract") if isinstance(context.get("persistence_contract"), dict) else {}
