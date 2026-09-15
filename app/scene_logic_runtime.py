@@ -8,7 +8,7 @@ from .transactional_storage import session_transaction
 
 
 _ORIGINAL_PREPARE = None
-_GUARD_VERSION = 2
+_GUARD_VERSION = 3
 
 
 def _knowledge_causality_rule() -> Dict[str, Any]:
@@ -50,6 +50,11 @@ def _knowledge_causality_rule() -> Dict[str, Any]:
             "For character dialogue or action, require that character's own memory or a current-scene perception/source."
         ),
         "inference_rule": "Every premise must already be known by this character before the inference; weak premises mean suspicion/question, not certainty.",
+        "exact_detail_rule": (
+            "Ages, dates, durations, elapsed-time references, counts and biographical milestones are factual claims too. "
+            "Never source a precise or approximate detail such as '400 years' or 'six months ago' from a card, questionnaire, chronology, lore or author context; "
+            "the same detail must already exist in this character's own memory or be acquired through a real in-story channel before use."
+        ),
         "missing_source_behavior": (
             "If the chain is missing before the line, rewrite before commit: remove the knowledge, make it a question/uncertain guess, "
             "or first show a real source the character perceives. Never justify it retroactively."
