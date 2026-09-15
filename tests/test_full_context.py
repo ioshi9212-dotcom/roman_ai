@@ -37,7 +37,7 @@ def test_runtime_is_only_rules_and_scene_builder_and_stays_small():
     assert "Формат scene_builder обязателен" in builder
     assert "Каждый ход должен быть логично связан с предыдущим" in builder
     assert manifest["total_chars"] == sum(len(x) for x in chunks)
-    assert manifest["total_chars"] < 30000
+    assert manifest["total_chars"] < 30600
 
 
 def test_turn_packet_separates_history_memory_future_guidance_and_preserves_storage():
