@@ -27,7 +27,6 @@ MAX_LOCATION_CHRONOLOGY = 4
 MAX_FULL_ANCHOR_CHRONOLOGY = 12
 MAX_ANCHOR_SUMMARY = 240
 
-
 _TERMINAL = {"resolved", "closed", "expired", "cancelled", "canceled", "done", "abandoned"}
 _RUNTIME_DROP_KEYS = (
     "pov_participation_contract", "npc_agency_contract", "relationship_contract",
