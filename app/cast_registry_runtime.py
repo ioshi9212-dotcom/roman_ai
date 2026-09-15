@@ -10,7 +10,7 @@ from .transactional_storage import session_transaction
 
 _ORIGINAL_PREPARE = None
 _ORIGINAL_COMMIT = None
-_VERSION = 9
+_VERSION = 10
 _TERMINAL = {"dead", "deceased", "inactive", "removed", "мертв", "мёртв", "погиб", "умер", "неактив"}
 
 
@@ -98,12 +98,37 @@ def _ensure_registry(
 
 def _last_activity_turn(row: Dict[str, Any]) -> int:
     values = []
-    for key in ("last_appearance_turn", "last_contact_turn", "last_meaningful_turn", "first_registered_turn"):
+    for key in ("last_appearance_turn", "last_contact_turn", "first_registered_turn"):
         try:
             values.append(int(row.get(key, 0) or 0))
         except (TypeError, ValueError):
             pass
     return max(values or [0])
+
+
+def _turn_participant_ids(extracted: Dict[str, Any]) -> set[str]:
+    result: set[str] = set()
+    scalar_keys = (
+        "character_id", "owner_character_id", "speaker", "listener",
+        "said_by", "heard_by", "asked_by", "asked_to",
+    )
+    list_keys = ("participants", "participant_ids")
+    for field in ("dialogue_memory_add", "knowledge_add", "experiences_add", "npc_intent_updates", "presence_updates"):
+        rows = extracted.get(field, []) if isinstance(extracted.get(field), list) else []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            for key in scalar_keys:
+                value = row.get(key)
+                if value not in (None, ""):
+                    result.add(str(value))
+            for key in list_keys:
+                values = row.get(key)
+                if isinstance(values, str):
+                    values = [values]
+                if isinstance(values, list):
+                    result.update(str(value) for value in values if value not in (None, ""))
+    return result
 
 
 def _rotation_pressure(
@@ -228,6 +253,7 @@ def _with_registry_patch(session_id: str, payload: Dict[str, Any]) -> Dict[str, 
             source_character_ids=source_ids,
         )
         post_present = _post_turn_present(state, extracted)
+        turn_participants = _turn_participant_ids(extracted)
         chronology = extracted.get("chronology") if isinstance(extracted.get("chronology"), list) else []
         card_map = {storage._card_id(card): card for card in resulting_cards}
 
@@ -251,6 +277,7 @@ def _with_registry_patch(session_id: str, payload: Dict[str, Any]) -> Dict[str, 
             if summary:
                 row["last_meaningful_event"] = summary
                 row["last_meaningful_turn"] = turn_number
+            if cid in turn_participants:
                 row["last_contact_turn"] = turn_number
 
         delta = _registry_delta(registry_before, registry)
@@ -298,11 +325,14 @@ def _rewrite_packet(session_id: str, base_result: Dict[str, Any]) -> Dict[str, A
             "player_created_active_count": sum(1 for row in active_rows if row.get("origin") == "player_created"),
             "story_created_active_count": sum(1 for row in active_rows if row.get("origin") == "story_created"),
             "rotation_pressure": pressure,
+            "mandatory_rotation_consideration": bool(pressure),
             "instruction": (
-                "Use character_registry for names/roles and rotation_pressure as anti-forgetting priority. "
-                "Player-created cast stays eligible; strong relationships/open intents increase narrative salience. "
-                "Relationship type changes HOW initiative appears: contact, avoidance, testing, help, jealousy or conflict must follow "
-                "the specific NPC. Re-entry must be causal and offscreen participation requires the character bundle."
+                "Use character_registry for names/roles and rotation_pressure as active anti-forgetting scheduling pressure. "
+                "When rotation_pressure is non-empty, do not wait for POV to name, search for or summon a candidate. "
+                "Reconsider the highest-priority candidates before writing the turn and, when current established circumstances permit participation, load the character bundle and let a candidate initiate or re-enter. "
+                "Causal means compatible with established world state; it does not require prior POV prompting or a pre-announced meeting. "
+                "Bundle loading is a procedural requirement, never a narrative reason to keep an eligible NPC absent. "
+                "Relationship and intent state determine how initiative manifests."
             ),
         }
 
