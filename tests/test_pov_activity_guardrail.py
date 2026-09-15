@@ -73,4 +73,4 @@ def test_writer_packet_contains_active_pov_dialogue_and_meaningful_choice_bounda
         assert signals["pov_activity"]["ordinary_dialogue_required_when_natural"] is True
         assert signals["pov_activity"]["silence_requires_character_or_scene_reason"] is True
         assert signals["scene_momentum"]["player_input_scope"]["boundary"] == "next_meaningful_pov_choice"
-        assert "любой разумный следующий шаг POV" in signals["scene_quality"]
+        assert "Сцена: изменение/сжатие" in signals["scene_momentum"]["instruction"]
