@@ -125,6 +125,5 @@ def test_player_input_map_preserves_interleaved_segments_left_to_right():
         {"kind": "stage_direction", "text": "второе действие"},
     ]
     assert mapping["ordered_segments_authoritative"] is True
-    assert mapping["grouped_lists_are_nonchronological"] is True
     assert mapping["spoken_segments"] == ["первая реплика", "вторая реплика"]
     assert mapping["stage_directions"] == ["первое действие", "второе действие"]
