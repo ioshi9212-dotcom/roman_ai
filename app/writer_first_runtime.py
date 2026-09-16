@@ -12,7 +12,7 @@ from .transactional_storage import session_transaction
 
 
 _ORIGINAL_PREPARE = None
-WRITER_FIRST_VERSION = 8
+WRITER_FIRST_VERSION = 9
 WRITER_PACKET_CHARS = 16000
 RECENT_FULL_TURNS = 2
 CONTINUITY_WINDOW = 15
@@ -69,6 +69,7 @@ def _parse_player_input(text: str) -> Dict[str, Any]:
     flush("stage_direction" if depth else "spoken")
     return {
         "ordered_segments": ordered,
+        "ordered_segments_authoritative": True,
         "spoken_segments": [row["text"] for row in ordered if row["kind"] == "spoken"],
         "stage_directions": [row["text"] for row in ordered if row["kind"] == "stage_direction"],
         "unclosed_parenthesis": depth > 0,

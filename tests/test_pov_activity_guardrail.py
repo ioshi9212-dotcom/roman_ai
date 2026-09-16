@@ -68,7 +68,7 @@ def test_writer_packet_contains_active_pov_dialogue_and_meaningful_choice_bounda
         context = json.loads("".join(chunks))
 
         signals = context["narrative_guardrails"]
-        assert signals["version"] == 10
+        assert signals["version"] == 11
         assert signals["pov_activity"]["mandatory"] is True
         assert signals["pov_activity"]["ordinary_dialogue_required_when_natural"] is True
         assert signals["pov_activity"]["silence_requires_character_or_scene_reason"] is True

@@ -61,6 +61,16 @@ def _knowledge_causality_rule() -> Dict[str, Any]:
     }
 
 
+def _player_input_order_rule() -> Dict[str, Any]:
+    return {
+        "mandatory": True,
+        "source_path": "player_input_map.ordered_segments",
+        "left_to_right": True,
+        "no_reordering": True,
+        "instruction": "ordered_segments: left-to-right; no reordering by kind.",
+    }
+
+
 def _player_text_cleanup_rule() -> Dict[str, Any]:
     return {
         "mandatory": True,
@@ -106,8 +116,9 @@ def _rewrite_packet(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
         guards = {
             "version": _GUARD_VERSION,
             "knowledge_causality": _knowledge_causality_rule(),
+            "player_input_order": _player_input_order_rule(),
             "player_text_cleanup": _player_text_cleanup_rule(),
-            "instruction": "Both rules are mandatory. Character knowledge is closed-world: author canon is not personal knowledge.",
+            "instruction": "All rules are mandatory. Preserve player segment order; author canon is not personal character knowledge.",
         }
         context.pop("scene_logic_guardrails", None)
         context = {"scene_logic_guardrails": guards, **context}

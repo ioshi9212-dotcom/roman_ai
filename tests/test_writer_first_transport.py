@@ -8,6 +8,7 @@ from app.writer_first_runtime import (
     MAX_ACTIVE_THREADS,
     MAX_HISTORICAL_KNOWLEDGE_CATALOG,
     RECENT_FULL_TURNS,
+    _parse_player_input,
 )
 
 
@@ -111,3 +112,18 @@ def test_repeated_prepare_reuses_same_packet_and_replays_chunk_zero_for_lost_res
         assert first["first_chunk_included"] is True
         assert second["first_chunk_included"] is True
         assert second["content"] == first["content"]
+
+
+
+def test_player_input_map_preserves_interleaved_segments_left_to_right():
+    mapping = _parse_player_input("первая реплика (первое действие) вторая реплика (второе действие)")
+
+    assert mapping["ordered_segments"] == [
+        {"kind": "spoken", "text": "первая реплика"},
+        {"kind": "stage_direction", "text": "первое действие"},
+        {"kind": "spoken", "text": "вторая реплика"},
+        {"kind": "stage_direction", "text": "второе действие"},
+    ]
+    assert mapping["ordered_segments_authoritative"] is True
+    assert mapping["spoken_segments"] == ["первая реплика", "вторая реплика"]
+    assert mapping["stage_directions"] == ["первое действие", "второе действие"]
