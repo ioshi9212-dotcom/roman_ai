@@ -322,7 +322,6 @@ def _player_input_scope(context: Dict[str, Any]) -> Dict[str, Any]:
         "has_spoken": bool(spoken),
         "last_segment_kind": last.get("kind"),
         "last_segment_text": str(last.get("text") or "")[:500],
-        "ordered_execution_required": True,
         "boundary": "next_meaningful_pov_choice",
         "rule": (
             "Player input defines what POV has already chosen, not a mandatory stop after every literal action. "
