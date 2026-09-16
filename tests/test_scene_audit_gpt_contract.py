@@ -9,6 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_custom_gpt_instructions_include_scene_audit_compaction_and_fit_editor_limit():
     text = (ROOT / "gpt" / "custom_gpt_instructions.md").read_text(encoding="utf-8")
     assert len(text) <= 8000
+    assert len(text) + text.count("\n") <= 8000  # CRLF-safe editor budget
     for phrase in (
         "repairs.scene_compactions",
         "15 ходов одной сцены = ОДНА запись",
