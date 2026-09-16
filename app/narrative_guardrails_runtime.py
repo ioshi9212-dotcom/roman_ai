@@ -322,6 +322,11 @@ def _player_input_scope(context: Dict[str, Any]) -> Dict[str, Any]:
         "has_spoken": bool(spoken),
         "last_segment_kind": last.get("kind"),
         "last_segment_text": str(last.get("text") or "")[:500],
+        "ordered_execution_required": True,
+        "order_rule": (
+            "Execute player_input_map.ordered_segments strictly first-to-last. "
+            "Never reorder stage_direction and spoken segments or regroup them by kind; grouped lists are non-chronological indexes only."
+        ),
         "boundary": "next_meaningful_pov_choice",
         "rule": (
             "Player input defines what POV has already chosen, not a mandatory stop after every literal action. "
