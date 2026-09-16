@@ -67,7 +67,7 @@ def _player_input_order_rule() -> Dict[str, Any]:
         "source_path": "player_input_map.ordered_segments",
         "left_to_right": True,
         "no_reordering": True,
-        "instruction": "Execute ordered_segments left-to-right; never reorder segments by kind.",
+        "instruction": "ordered_segments: left-to-right; no reordering by kind.",
     }
 
 
