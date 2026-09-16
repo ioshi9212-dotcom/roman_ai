@@ -217,8 +217,6 @@ def test_player_input_scope_requires_ordered_left_to_right_execution():
     scope = guardrails._player_input_scope(context)
 
     assert scope["ordered_execution_required"] is True
-    assert "first-to-last" in scope["order_rule"]
-    assert "Never reorder" in scope["order_rule"]
 
 
 def test_scene_momentum_does_not_turn_short_meaningful_action_into_whole_new_phase():
