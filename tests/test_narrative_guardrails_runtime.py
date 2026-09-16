@@ -202,6 +202,25 @@ def test_scene_momentum_uses_meaningful_choice_not_literal_last_action_as_bounda
     assert "сжимай до конца" in rule["instruction"]
 
 
+def test_player_input_scope_requires_ordered_left_to_right_execution():
+    context = {
+        "player_input_map": {
+            "ordered_segments": [
+                {"kind": "spoken", "text": "a"},
+                {"kind": "stage_direction", "text": "b"},
+                {"kind": "spoken", "text": "c"},
+            ],
+            "spoken_segments": ["a", "c"],
+            "stage_directions": ["b"],
+        }
+    }
+    scope = guardrails._player_input_scope(context)
+
+    assert scope["ordered_execution_required"] is True
+    assert "first-to-last" in scope["order_rule"]
+    assert "Never reorder" in scope["order_rule"]
+
+
 def test_scene_momentum_does_not_turn_short_meaningful_action_into_whole_new_phase():
     context = {
         "player_input_map": {
@@ -241,7 +260,7 @@ def test_prepare_turn_packet_contains_noncanonical_narrative_guardrails():
         context = json.loads("".join(parts))
 
         signals = context["narrative_guardrails"]
-        assert signals["version"] == 10
+        assert signals["version"] == 11
         assert signals["pov_activity"]["mandatory"] is True
         assert signals["pov_activity"]["ordinary_dialogue_required_when_natural"] is True
         assert signals["pov_activity"]["silence_requires_character_or_scene_reason"] is True
