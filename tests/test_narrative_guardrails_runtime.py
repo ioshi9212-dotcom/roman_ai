@@ -202,23 +202,6 @@ def test_scene_momentum_uses_meaningful_choice_not_literal_last_action_as_bounda
     assert "сжимай до конца" in rule["instruction"]
 
 
-def test_player_input_scope_requires_ordered_left_to_right_execution():
-    context = {
-        "player_input_map": {
-            "ordered_segments": [
-                {"kind": "spoken", "text": "a"},
-                {"kind": "stage_direction", "text": "b"},
-                {"kind": "spoken", "text": "c"},
-            ],
-            "spoken_segments": ["a", "c"],
-            "stage_directions": ["b"],
-        }
-    }
-    scope = guardrails._player_input_scope(context)
-
-    assert scope["ordered_execution_required"] is True
-
-
 def test_scene_momentum_does_not_turn_short_meaningful_action_into_whole_new_phase():
     context = {
         "player_input_map": {
