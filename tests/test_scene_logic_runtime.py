@@ -33,6 +33,15 @@ def test_knowledge_causality_requires_source_before_use_and_forbids_retroactive_
     assert "including that character's own questionnaire/card/backstory" in rule["questionnaire_rule"]
 
 
+def test_player_input_order_rule_forbids_reordering_segments():
+    rule = scene_logic._player_input_order_rule()
+
+    assert rule["mandatory"] is True
+    assert rule["left_to_right"] is True
+    assert rule["no_reordering"] is True
+    assert rule["source_path"] == "player_input_map.ordered_segments"
+
+
 def test_player_text_cleanup_corrects_errors_without_rewriting_voice():
     rule = scene_logic._player_text_cleanup_rule()
 
@@ -77,6 +86,8 @@ def test_final_writer_packet_contains_scene_logic_guardrails():
         assert guards["knowledge_causality"]["mandatory"] is True
         assert guards["knowledge_causality"]["source_before_use"] is True
         assert guards["knowledge_causality"]["character_knowledge_is_closed_world"] is True
+        assert guards["player_input_order"]["mandatory"] is True
+        assert guards["player_input_order"]["no_reordering"] is True
         assert guards["player_text_cleanup"]["mandatory"] is True
         assert packet["scene_logic_guardrails"] is True
 
@@ -88,7 +99,10 @@ def test_runtime_and_custom_gpt_repeat_source_order_and_spelling_policy():
     assert "должны существовать ДО реплики" in rules
     assert "не придумывай задним числом" in rules
     assert "орфографические ошибки" in rules
+    assert "ordered_segments" in rules
+    assert "слева направо" in rules
     assert "scene_logic_guardrails" in instructions
+    assert "ordered_segments" in instructions
     assert "информационную дыру задним числом" in instructions
     assert "очевидную орфографию" in instructions
     assert len(instructions) <= 8000
