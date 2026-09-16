@@ -67,10 +67,7 @@ def _player_input_order_rule() -> Dict[str, Any]:
         "source_path": "player_input_map.ordered_segments",
         "left_to_right": True,
         "no_reordering": True,
-        "instruction": (
-            "Treat ordered_segments as the authoritative chronology of the player's current input. "
-            "Execute each segment in sequence and do not move speech across stage directions or stage directions across speech."
-        ),
+        "instruction": "Execute ordered_segments left-to-right; never reorder segments by kind.",
     }
 
 
