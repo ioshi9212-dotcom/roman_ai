@@ -69,8 +69,11 @@ def _parse_player_input(text: str) -> Dict[str, Any]:
     flush("stage_direction" if depth else "spoken")
     return {
         "ordered_segments": ordered,
+        "ordered_segments_authoritative": True,
         "spoken_segments": [row["text"] for row in ordered if row["kind"] == "spoken"],
         "stage_directions": [row["text"] for row in ordered if row["kind"] == "stage_direction"],
+        "grouped_lists_are_nonchronological": True,
+        "instruction": "Execute ordered_segments strictly first-to-last. Do not regroup or reorder segments by kind.",
         "unclosed_parenthesis": depth > 0,
     }
 
