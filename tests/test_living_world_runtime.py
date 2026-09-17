@@ -160,3 +160,32 @@ def test_social_effect_from_chronology_becomes_persistent_world_signal():
         signals = state["world"]["social"]["signals"]
         assert signals
         assert next(iter(signals.values()))["scope"] == "корпус"
+
+
+def test_social_reactivity_allows_grounded_ambient_people_to_intervene_without_upsert():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(novel())["session_id"]
+        packet = read_packet(sid, "Сесть за общий стол и продолжить разговор")
+        social = packet["living_world"]["social_reactivity"]
+
+        assert social["mandatory"] is True
+        assert social["ambient_actor_policy"]["one_scene_extra_needs_card"] is False
+        assert social["ambient_actor_policy"]["may_initiate_without_pov_prompt"] is True
+        assert "interrupt" in " ".join(social["ambient_actor_policy"]["allowed_local_actions"]).casefold()
+        assert "do not wait" in social["instruction"].casefold()
+        assert "wallpaper" in social["ambient_actor_policy"]["do_not_use_as_wallpaper"].casefold()
+
+
+def test_social_reactivity_allows_npc_to_npc_reports_without_turning_them_into_truth():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(novel())["session_id"]
+        packet = read_packet(sid, "Остаться рядом")
+        flow = packet["living_world"]["social_reactivity"]["knowledge_flow"]
+
+        assert flow["npc_to_npc_transfer_is_allowed"] is True
+        assert flow["may_happen_without_pov_prompt"] is True
+        assert "lie" in " ".join(flow["valid_channels"]).casefold()
+        assert "not automatic objective truth" in flow["epistemic_rule"].casefold()
+        assert "knowledge_add" in flow["epistemic_rule"]
