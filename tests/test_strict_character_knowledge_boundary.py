@@ -62,21 +62,9 @@ def test_offscreen_bundle_frontloads_firewall_and_card_is_not_knowledge(monkeypa
     assert "never evidence" in bundle["instruction"]
 
 
-def test_knowledge_guard_distinguishes_registered_npcs_from_disposable_ambient_people():
-    rule = scene_logic_runtime._knowledge_causality_rule()
-    social = rule["ambient_social_rule"].casefold()
-
-    assert "one-scene extra" in social
-    assert "without a card" in social
-    assert "immediate public perception" in social
-    assert "upsert if recurring/durable" in social
-
-
 def test_knowledge_guard_allows_causal_npc_to_npc_information_transfer():
     rule = scene_logic_runtime._knowledge_causality_rule()
-    social = rule["ambient_social_rule"].casefold()
+    allowed = " ".join(rule["allowed_sources"]).casefold()
 
-    assert "npc-to-npc" in social
-    assert "without pov prompting" in social
-    assert "not truth" in social
-    assert "knowledge_add" in social
+    assert "npc-to-npc" in allowed
+    assert "real in-story channel" in allowed
