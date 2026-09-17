@@ -485,9 +485,9 @@ def _social_world(state: Dict[str, Any]) -> Dict[str, Any]:
         "mandatory": True,
         "recent_social_signals": deepcopy(list(signals.values())[-12:]),
         "instruction": (
-            "Background people are people, not wallpaper. In shared/crowded scenes they may speak, interrupt, joke, flirt, help, object, take sides or gossip without POV asking to listen, "
-            "when grounded in current perception or an existing public/social signal. Do not replace plausible intervention with mute gestures just because no card exists; no quota. "
-            "Recurring/durable extra -> character_upserts. NPC-to-NPC reports may be wrong or lies; recipients learn the report, not truth. Rumors need real channels."
+            "Background people are people, not wallpaper: in shared/crowded scenes they may speak, interrupt, joke, flirt, object, take sides or gossip without POV asking. "
+            "A one-scene extra needs no card when acting only on what they can perceive now; do not replace plausible intervention with mute gestures just because no card exists. "
+            "Recurring/important extra gets character_upserts. NPC-to-NPC reports may be wrong or lies; rumors still need real channels."
         ),
     }
 
@@ -525,7 +525,7 @@ def _rewrite_packet(session_id: str, base_result: Dict[str, Any]) -> Dict[str, A
             "foundation_pressure": _foundation_pressure(source, state, context, cards, current_turn),
             "story_pillar_pressure": _story_pillars(source, state, current_turn),
             "social_reactivity": _social_world(state),
-            "instruction": "Use actor frames and social_reactivity; main cast is not the only source of initiative.",
+            "instruction": "Use actor frames. NPCs/social world may initiate without POV requesting their presence.",
         }
         persistence = context.get("persistence_contract") if isinstance(context.get("persistence_contract"), dict) else {}
         persistence["relationship_opinion"] = (
