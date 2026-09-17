@@ -74,6 +74,11 @@ def test_starting_state_canon_and_scene_relevant_cards_are_available_without_hea
         assert context["starting_state"]["current"] == novel["starting_state"]["current"]
         assert "relationships" not in context["starting_state"]
         assert context["relationship_policy"]["authoritative_start_snapshot"]["aiden"]["metrics"] == {"trust": 10}
+        assert "ambient_actor_rule" in context["knowledge_guard"]
+        assert "knowledge_transfer_rule" in context["knowledge_guard"]
+        assert "No character_upsert is required" in context["knowledge_guard"]["ambient_actor_rule"]
+        assert "Registered NPCs may voluntarily tell each other" in context["knowledge_guard"]["knowledge_transfer_rule"]
+        assert "A mere name mention does not load an offscreen dossier" in context["character_context_instruction"]
 
         builder = context["scene_builder"]
         assert "Формат scene_builder обязателен" in builder
