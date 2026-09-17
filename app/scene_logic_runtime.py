@@ -8,7 +8,7 @@ from .transactional_storage import session_transaction
 
 
 _ORIGINAL_PREPARE = None
-_GUARD_VERSION = 2
+_GUARD_VERSION = 3
 
 
 def _knowledge_causality_rule() -> Dict[str, Any]:
@@ -18,11 +18,24 @@ def _knowledge_causality_rule() -> Dict[str, Any]:
         "scene_order_is_causal": True,
         "no_retroactive_justification": True,
         "character_knowledge_is_closed_world": True,
+        "registered_character_rule": "Closed-world personal knowledge applies to registered characters with persistent identity/memory.",
         "allowed_sources": [
-            "this character's own personal_memory / character_memory",
-            "something this character directly saw, heard, read, received or was explicitly told earlier in the current scene while present",
+            "this registered character's own personal_memory / character_memory",
+            "something this character directly saw, heard, read, received or was explicitly told through a real in-story channel before use, including NPC-to-NPC conversation/message/call",
             "an inference whose every premise was already available to this character from the two sources above",
+            "for a disposable one-scene ambient person only: immediate public perception or an already-persisted public/social signal, with no private or retroactive facts",
         ],
+        "ambient_actor_exception": {
+            "needs_persistent_card_for_local_participation": False,
+            "may_speak_or_intervene": True,
+            "knowledge_limit": "Only what this person can perceive now plus already-circulating public/social signals. No author-only, private, hidden or invented past knowledge.",
+            "promote_when": "Use character_upserts when the person becomes named/recurring, needs durable personal history or knowledge, forms a persistent relationship/intent, or must be recognized later.",
+        },
+        "social_transmission_rule": (
+            "NPC-to-NPC information transfer is a valid causal source and may occur without POV prompting. "
+            "A speaker may transmit only what they know/believe or deliberately fabricate; the listener receives that report, not automatic objective truth. "
+            "Persist durable new knowledge for a registered listener with knowledge_add and preserve uncertainty/provenance when appropriate."
+        ),
         "author_only_not_character_knowledge": [
             "POV questionnaire, NPC questionnaire including that NPC's own questionnaire, character cards and character backstory fields",
             "foundation, foundation_pressure, story_pillars, future_guidance and author plans",
@@ -51,12 +64,14 @@ def _knowledge_causality_rule() -> Dict[str, Any]:
         ),
         "inference_rule": "Every premise must already be known by this character before the inference; weak premises mean suspicion/question, not certainty.",
         "missing_source_behavior": (
-            "If the chain is missing before the line, rewrite before commit: remove the knowledge, make it a question/uncertain guess, "
-            "or first show a real source the character perceives. Never justify it retroactively."
+            "If a registered character's chain is missing before the line, rewrite before commit: remove the knowledge, make it a question/uncertain guess, "
+            "or first show a real source the character perceives/receives. Never justify it retroactively. "
+            "For a disposable ambient person, either ground the line in immediate public perception/an existing social signal or remove the unsupported fact; lack of a card alone is not a reason to silence a plausible local intervention."
         ),
         "pre_commit_check": (
-            "Cause/information must precede reaction/conclusion. Trace every non-trivial factual statement, recognition, inference, question premise and deliberate action "
-            "to this character's own memory or a source they personally perceived before that exact moment. Do not cite chronology, questionnaire/card, foundation, lore or another character's memory."
+            "Cause/information must precede reaction/conclusion. For registered characters, trace every non-trivial factual statement, recognition, inference, question premise and deliberate action "
+            "to personal memory or a real source they perceived/received before that exact moment. For disposable ambient people, allow only immediate public perception or an existing public/social signal. "
+            "Do not cite chronology, questionnaire/card, foundation, lore or another character's memory as direct personal knowledge."
         ),
     }
 
