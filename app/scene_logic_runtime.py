@@ -23,10 +23,6 @@ def _knowledge_causality_rule() -> Dict[str, Any]:
             "something this character directly saw, heard, read, received or was told through a real in-story channel before use, including NPC-to-NPC contact",
             "an inference whose every premise was already available to this character from the two sources above",
         ],
-        "ambient_social_rule": (
-            "One-scene extra: may speak/intervene without a card only from immediate public perception or a persisted public/social signal; upsert if recurring/durable. "
-            "NPC-to-NPC contact may pass knowledge, belief or lies without POV prompting; recipient gets the report, not truth; durable registered recipient -> knowledge_add with source/uncertainty."
-        ),
         "author_only_not_character_knowledge": [
             "POV questionnaire, NPC questionnaire including that NPC's own questionnaire, character cards and character backstory fields",
             "foundation, foundation_pressure, story_pillars, future_guidance and author plans",
