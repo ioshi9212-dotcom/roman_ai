@@ -64,19 +64,19 @@ def test_offscreen_bundle_frontloads_firewall_and_card_is_not_knowledge(monkeypa
 
 def test_knowledge_guard_distinguishes_registered_npcs_from_disposable_ambient_people():
     rule = scene_logic_runtime._knowledge_causality_rule()
-    ambient = rule["ambient_actor_rule"].casefold()
+    social = rule["ambient_social_rule"].casefold()
 
-    assert "unregistered one-scene extra" in ambient
-    assert "without a card" in ambient
-    assert "immediate public perception" in ambient
-    assert "character_upserts" in ambient
+    assert "one-scene extra" in social
+    assert "without a card" in social
+    assert "immediate public perception" in social
+    assert "upsert if recurring/durable" in social
 
 
 def test_knowledge_guard_allows_causal_npc_to_npc_information_transfer():
     rule = scene_logic_runtime._knowledge_causality_rule()
-    transmission = rule["social_transmission_rule"].casefold()
+    social = rule["ambient_social_rule"].casefold()
 
-    assert "npc-to-npc" in transmission
-    assert "without pov prompting" in transmission
-    assert "not objective truth" in transmission
-    assert "knowledge_add" in transmission
+    assert "npc-to-npc" in social
+    assert "without pov prompting" in social
+    assert "not truth" in social
+    assert "knowledge_add" in social
