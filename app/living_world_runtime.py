@@ -14,7 +14,7 @@ from .transactional_storage import session_transaction
 
 _ORIGINAL_PREPARE = None
 _ORIGINAL_COMMIT = None
-_VERSION = 2
+_VERSION = 3
 
 # New labels come from one small shared vocabulary. Existing labels in old sessions remain valid.
 RELATIONSHIP_DIMENSIONS: Dict[str, str] = {
@@ -484,10 +484,42 @@ def _social_world(state: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "mandatory": True,
         "recent_social_signals": deepcopy(list(signals.values())[-12:]),
+        "ambient_actor_policy": {
+            "one_scene_extra_needs_card": False,
+            "may_initiate_without_pov_prompt": True,
+            "allowed_local_actions": [
+                "comment, joke, tease or answer",
+                "interrupt or join a nearby conversation",
+                "flirt, object, challenge, defend or take a side",
+                "ask a question, offer help, warn or report something",
+                "repeat an already-circulating public rumor or social signal",
+            ],
+            "do_not_use_as_wallpaper": (
+                "When a real person in a shared/public scene would plausibly say or do something, do not replace that intervention with only a glance, shoulder twitch, hidden smile, cough, plate-focus or similar noncommittal background reaction."
+            ),
+            "promotion_rule": (
+                "A disposable extra may stay unnamed/unregistered for a local beat. Use character_upserts when the person becomes named or recurring, needs durable personal memory/history, forms a persistent relationship or intent, or must be recognized later."
+            ),
+        },
+        "knowledge_flow": {
+            "npc_to_npc_transfer_is_allowed": True,
+            "may_happen_without_pov_prompt": True,
+            "valid_channels": [
+                "directly witnessed/heard event",
+                "conversation or message from a character who knows/believes it",
+                "persisted public rumor/social signal",
+                "inference from facts already available to that character",
+                "deliberate lie or distortion by a speaker with a motive",
+            ],
+            "epistemic_rule": (
+                "The listener receives what was actually communicated, not automatic objective truth. Hearsay, suspicion, mistakes and lies may remain wrong. Registered recipients with durable new knowledge should get knowledge_add with provenance and non-certain confidence when appropriate."
+            ),
+        },
         "instruction": (
-            "Background people are people, not wallpaper. Salient appearance, behavior, status, conflict or repeated presence "
-            "may be noticed, misread, discussed or remembered when plausible. A recurring/important extra gets character_upserts. "
-            "Durable social fallout belongs in chronology.social_effect. Rumors need real witnesses/channels."
+            "Background people are people, not wallpaper. In a shared/public/group scene, actively consider whether a plausible bystander, peer, coworker, guest, friend or other nearby person would speak, interrupt, joke, flirt, take sides, help, object, ask, gossip or otherwise change the beat; do not wait for POV to request 'listen to conversations'. "
+            "There is no reaction quota and no requirement to make every extra noisy. Use intervention when the place, visibility, relationship, personality or social stakes make it plausible. "
+            "A one-scene extra may speak from immediate perception or an already-circulating social signal without a persistent card. A recurring/important extra gets character_upserts. "
+            "Registered NPCs may pass information to each other through real channels, including gossip, mistakes and deliberate lies; the recipient learns the report, not omniscient truth. Durable social fallout belongs in chronology.social_effect."
         ),
     }
 
@@ -525,7 +557,11 @@ def _rewrite_packet(session_id: str, base_result: Dict[str, Any]) -> Dict[str, A
             "foundation_pressure": _foundation_pressure(source, state, context, cards, current_turn),
             "story_pillar_pressure": _story_pillars(source, state, current_turn),
             "social_reactivity": _social_world(state),
-            "instruction": "Use actor frames. NPCs/social world may initiate without POV requesting their presence.",
+            "instruction": (
+                "Use actor frames for registered NPCs and social_reactivity for the surrounding human world. "
+                "Registered NPCs and plausible ambient people may initiate, interrupt, contact, gossip and otherwise influence the scene without POV requesting it. "
+                "Do not treat only the main cast as actors while everyone else is scenery."
+            ),
         }
         persistence = context.get("persistence_contract") if isinstance(context.get("persistence_contract"), dict) else {}
         persistence["relationship_opinion"] = (
@@ -534,6 +570,12 @@ def _rewrite_packet(session_id: str, base_result: Dict[str, Any]) -> Dict[str, A
             "the visible footer is display-only."
         )
         persistence["social_effect"] = "Durable social reaction/rumor/reputation: put social_effect inside the relevant chronology event."
+        persistence["ambient_npc_promotion"] = (
+            "A one-scene extra needs no persistence. If the extra becomes named/recurring, gains durable personal knowledge/history, relationship or intent, persist with character_upserts in the same turn."
+        )
+        persistence["knowledge_transfer"] = (
+            "When a registered NPC durably learns something from another NPC, add knowledge_add for the recipient. Store what was communicated, not objective author truth; include source_character_id/source_fact_ids/source_type when available and non-certain confidence for hearsay/suspicion."
+        )
         persistence["foundation_fact_ids"] = "When a foundation fact is actually used, attach foundation_fact_ids to chronology or anchor_facts to the story thread."
         persistence["story_pillar_ids"] = "When a story pillar actually influences the turn, attach story_pillar_ids to chronology or pillar_ids to story_thread_updates."
         context["persistence_contract"] = persistence
