@@ -485,9 +485,9 @@ def _social_world(state: Dict[str, Any]) -> Dict[str, Any]:
         "mandatory": True,
         "recent_social_signals": deepcopy(list(signals.values())[-12:]),
         "instruction": (
-            "Background people are people, not wallpaper. In shared/crowded scenes they may speak, interrupt, flirt, object, take sides or gossip without POV asking. "
-            "A one-scene extra needs no card for what they perceive now; do not replace plausible speech with mute gestures because no card exists. "
-            "Recurring/important extra gets character_upserts. NPC-to-NPC reports may be wrong or lies and need real channels."
+            "Background people are people, not wallpaper. In shared/crowded scenes they may speak, intervene or gossip without POV prompting; "
+            "a one-scene extra needs no card for current perception. Recurring/important extra gets character_upserts. "
+            "NPC-to-NPC reports need real channels and may be wrong or lies."
         ),
     }
 
