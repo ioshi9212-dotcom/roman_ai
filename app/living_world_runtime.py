@@ -484,18 +484,10 @@ def _social_world(state: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "mandatory": True,
         "recent_social_signals": deepcopy(list(signals.values())[-12:]),
-        "ambient_actor_policy": (
-            "One-scene extras may speak, interrupt, joke, flirt, help, object, take sides or gossip without a card when grounded in what they can perceive now "
-            "or an existing public/social signal. Do not replace plausible intervention with wallpaper gestures merely because no card exists. "
-            "No quota: keep quiet people quiet when that is natural. Register recurring/durable extras."
-        ),
-        "knowledge_flow": (
-            "NPC-to-NPC information may move autonomously through real contact. Speakers can be mistaken or lie; recipients learn the report, not objective truth. "
-            "Durable registered recipient knowledge uses knowledge_add with uncertainty/provenance when appropriate."
-        ),
         "instruction": (
-            "In shared/crowded scenes, consider plausible human intervention without waiting for POV to ask to listen. "
-            "Rumors and knowledge still require real witnesses/channels; durable social fallout goes to chronology.social_effect."
+            "Background people are people, not wallpaper. In shared/crowded scenes they may speak, interrupt, joke, flirt, help, object, take sides or gossip without POV asking to listen, "
+            "when grounded in current perception or an existing public/social signal. Do not replace plausible intervention with mute gestures just because no card exists; no quota. "
+            "Recurring/durable extra -> character_upserts. NPC-to-NPC reports may be wrong or lies; recipients learn the report, not truth. Rumors need real channels."
         ),
     }
 
@@ -533,7 +525,7 @@ def _rewrite_packet(session_id: str, base_result: Dict[str, Any]) -> Dict[str, A
             "foundation_pressure": _foundation_pressure(source, state, context, cards, current_turn),
             "story_pillar_pressure": _story_pillars(source, state, current_turn),
             "social_reactivity": _social_world(state),
-            "instruction": "Use actor frames and social_reactivity. Registered NPCs and plausible ambient people may initiate without POV prompting.",
+            "instruction": "Use actor frames and social_reactivity; main cast is not the only source of initiative.",
         }
         persistence = context.get("persistence_contract") if isinstance(context.get("persistence_contract"), dict) else {}
         persistence["relationship_opinion"] = (
@@ -542,7 +534,6 @@ def _rewrite_packet(session_id: str, base_result: Dict[str, Any]) -> Dict[str, A
             "the visible footer is display-only."
         )
         persistence["social_effect"] = "Durable social reaction/rumor/reputation: put social_effect inside the relevant chronology event."
-        persistence["ambient_social"] = "One-scene extra: no card. Recurring/durable extra: character_upserts. Durable NPC-to-NPC report: recipient knowledge_add with source/uncertainty."
         persistence["foundation_fact_ids"] = "When a foundation fact is actually used, attach foundation_fact_ids to chronology or anchor_facts to the story thread."
         persistence["story_pillar_ids"] = "When a story pillar actually influences the turn, attach story_pillar_ids to chronology or pillar_ids to story_thread_updates."
         context["persistence_contract"] = persistence
