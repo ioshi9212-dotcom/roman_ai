@@ -170,8 +170,8 @@ def test_social_reactivity_allows_grounded_ambient_people_to_intervene_without_u
         instruction = packet["living_world"]["social_reactivity"]["instruction"].casefold()
 
         assert "speak" in instruction
-        assert "interrupt" in instruction
-        assert "without pov asking" in instruction
+        assert "intervene" in instruction
+        assert "without pov prompting" in instruction
         assert "one-scene extra needs no card" in instruction
 
 
