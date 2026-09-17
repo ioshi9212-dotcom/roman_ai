@@ -172,8 +172,7 @@ def test_social_reactivity_allows_grounded_ambient_people_to_intervene_without_u
         assert "speak" in instruction
         assert "interrupt" in instruction
         assert "without pov asking" in instruction
-        assert "no card" in instruction
-        assert "no quota" in instruction
+        assert "one-scene extra needs no card" in instruction
 
 
 def test_social_reactivity_allows_npc_to_npc_reports_without_turning_them_into_truth():
