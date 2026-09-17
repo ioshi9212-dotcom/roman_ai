@@ -167,14 +167,13 @@ def test_social_reactivity_allows_grounded_ambient_people_to_intervene_without_u
         setup_temp_storage(tmp)
         sid = storage.create_session(novel())["session_id"]
         packet = read_packet(sid, "Сесть за общий стол и продолжить разговор")
-        social = packet["living_world"]["social_reactivity"]
+        instruction = packet["living_world"]["social_reactivity"]["instruction"].casefold()
 
-        assert social["mandatory"] is True
-        policy = social["ambient_actor_policy"].casefold()
-        assert "without a card" in policy
-        assert "interrupt" in policy
-        assert "wallpaper" in policy
-        assert "without waiting for pov" in social["instruction"].casefold()
+        assert "speak" in instruction
+        assert "interrupt" in instruction
+        assert "without pov asking" in instruction
+        assert "no card" in instruction
+        assert "no quota" in instruction
 
 
 def test_social_reactivity_allows_npc_to_npc_reports_without_turning_them_into_truth():
@@ -182,10 +181,8 @@ def test_social_reactivity_allows_npc_to_npc_reports_without_turning_them_into_t
         setup_temp_storage(tmp)
         sid = storage.create_session(novel())["session_id"]
         packet = read_packet(sid, "Остаться рядом")
-        flow = packet["living_world"]["social_reactivity"]["knowledge_flow"]
+        instruction = packet["living_world"]["social_reactivity"]["instruction"].casefold()
 
-        flow = flow.casefold()
-        assert "npc-to-npc" in flow
-        assert "lie" in flow
-        assert "not objective truth" in flow
-        assert "knowledge_add" in flow
+        assert "npc-to-npc" in instruction
+        assert "wrong or lies" in instruction
+        assert "not truth" in instruction
