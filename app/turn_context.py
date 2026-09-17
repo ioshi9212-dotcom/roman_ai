@@ -293,8 +293,6 @@ def inject_required_turn_context(context: Dict[str, Any], cards: List[Dict[str, 
         "MANDATORY GLOBAL NPC AGENCY RULE. NPC behavior comes from that NPC's character, desires, goals, advantage, fears, relationships, knowledge, duties and current situation. "
         "Do not replace character logic with universal therapy, etiquette or author-approved psychological correctness. "
         "If the specific NPC would act, let them act without forcing a preliminary permission question. "
-        "This applies to registered NPCs and to plausible one-scene ambient people in shared/public spaces: a minor bystander, coworker, classmate, guest, server or stranger may speak, interrupt, joke, flirt, take a side, ask a question, help, object or otherwise affect the beat without first becoming a permanent character. "
-        "Do not downgrade a plausible verbal/social intervention into a generic glance, shoulder twitch, hidden smile or other wallpaper reaction merely because the person has no persistent card. "
         "Do not praise restraint or narrate omitted action merely to model healthy behavior. Consequential POV reactions and choices remain with the player."
     )
 
@@ -322,9 +320,9 @@ def inject_required_turn_context(context: Dict[str, Any], cards: List[Dict[str, 
     context["character_cards"] = scene_cards
     context["character_memory"] = scene_memory
     context["character_context_instruction"] = (
-        "Full character_cards are transported only for POV and registered characters physically present at turn start. The registry still contains every registered character. "
-        "A mere name mention does not load an offscreen dossier. If a registered offscreen character is about to speak, send/receive a message, call, enter, or materially act, load that character's full bundle with prepareCharacterBundleRead and every getCharacterBundleChunk BEFORE writing that participation. "
-        "One-scene ambient people are different: they may perform local, non-durable social participation without a persistent card when their knowledge comes only from what they can perceive now or from an already-established public/social signal. Promote them with character_upserts when they become named/recurring, gain durable personal history or knowledge, form a persistent relationship/intent, or otherwise matter beyond this local beat. "
+        "Full character_cards are transported only for POV, characters physically present at turn start, and registered characters explicitly named in the current player input. "
+        "This includes an offscreen person the player is explicitly messaging, calling or otherwise addressing. The registry still contains every registered character. "
+        "If any other offscreen character is about to speak, send/receive a message, call, enter, or materially act, load that character's full bundle with prepareCharacterBundleRead and every getCharacterBundleChunk BEFORE writing that character. "
         "character_memory is a bounded working copy: recent/durable records plus a compact catalog of older learned facts. Complete lifetime memory remains persistent and is available through the same character bundle read."
     )
     context["knowledge_guard"] = {
@@ -337,28 +335,17 @@ def inject_required_turn_context(context: Dict[str, Any], cards: List[Dict[str, 
             "chronology_recent", "recent_turns", "character_memory[OTHER_CHARACTER_ID]",
         ],
         "instruction": (
-            "MANDATORY KNOWLEDGE FIREWALL. For every registered NPC line, message, call, inference, recognition or deliberate action, identify that NPC and verify the source for every nontrivial referenced fact. "
-            "Past personal knowledge may come only from that NPC's own character_memory, including historical_knowledge_catalog. If an exact older detail is needed beyond the working copy, load that NPC's full character bundle first. "
-            "A fact created during the current turn may be used only after that NPC personally perceived it or received it through a real communication channel established before the use. NPC-to-NPC communication is a valid channel and may happen autonomously when character/social logic supports it. "
-            "Author context, recent turns, chronology, cards, registry, scene state, another character's memory, relationship values and narrative plausibility are never direct character knowledge sources. "
+            "MANDATORY KNOWLEDGE FIREWALL. Before every NPC line, message, call, inference, recognition or deliberate action, identify that NPC and verify the exact source for every referenced fact. "
+            "Past knowledge may come only from that NPC's own character_memory, including historical_knowledge_catalog. If an exact older detail is needed beyond the working copy, load that NPC's full character bundle first. "
+            "A fact created during the current turn may be used only after that NPC personally perceived it or received it through an explicit communication channel established in the scene. "
+            "Author context, recent turns, chronology, cards, registry, scene state, another character's memory, relationship values and narrative plausibility are never character knowledge sources. "
             "Private POV thoughts, phone screens, typed or received messages, calls not heard by the NPC, letters, photos, headphones and other private content remain unknown without established access. "
             "An NPC outside the physical scene does not know what is happening there merely because the author knows it. Before an offscreen NPC sends a message, calls or reacts to a current event, verify how that NPC learned the specific event first. "
             "Arrival after an event and departure before an event do not grant retroactive knowledge. Inference may use only premises already available to that NPC and may not reproduce an unavailable exact detail. "
-            "A one-scene ambient person with no card may still speak or intervene from immediate public perception or from a persisted social signal already circulating in this place/group; this exception never grants private history, hidden facts or retroactive knowledge. "
-            "If any drafted line or action uses a fact without a valid source, rewrite the fact use, create a real earlier communication/perception beat, or delete it before output. The leak is not canon and must not be persisted."
-        ),
-        "ambient_actor_rule": (
-            "An unregistered one-scene extra may speak, interrupt and react without a bundle when the content is grounded only in what that person can currently see/hear or in an already-persisted public social signal. "
-            "No character_upsert is required for disposable local participation. Use character_upserts before giving the person durable personal history/knowledge, a persistent relationship or intent, recurring identity, or later continuity."
-        ),
-        "knowledge_transfer_rule": (
-            "Registered NPCs may voluntarily tell each other facts, impressions, suspicions, gossip or lies without POV prompting when their relationship, motive and opportunity make it plausible. "
-            "The speaker may transmit only what they know/believe or deliberately fabricate. The recipient acquires the report they actually received, not automatic objective truth. "
-            "Persist a durable recipient update with knowledge_add; preserve provenance such as source_character_id/source_fact_ids/source_type when known, and use non-certain confidence for hearsay, suspicion or uncertain reports. "
-            "If the report is a deliberate lie, the listener may believe the lie while the engine still keeps objective truth separate."
+            "If any drafted line or action uses a fact without a valid source, rewrite or delete it before output. The leak is not canon and must not be persisted."
         ),
         "offscreen_contact_rule": (
-            "Remote communication counts as character participation. A registered offscreen sender/recipient needs a loaded full card before their authored dialogue or deliberate reaction, and may refer only to facts actually available to that character."
+            "Remote communication counts as character participation. An offscreen sender/recipient needs a loaded full card before their authored dialogue or deliberate reaction, and may refer only to facts actually available to that character."
         ),
     }
     context["working_context_contract"] = {
@@ -380,8 +367,7 @@ def inject_required_turn_context(context: Dict[str, Any], cards: List[Dict[str, 
     author_context["character_cards"] = scene_cards
     author_context["knowledge_quarantine"] = (
         "Everything in author_context is objective author/engine truth only. Never use it as a character knowledge source. "
-        "A registered character may use a fact only from that character's own personal memory or from a perception/communication channel that actually reached that character. "
-        "A disposable ambient person may use only immediate public perception or an already-established public/social signal; persistence beyond that requires registration."
+        "A character may use a fact only from that character's own personal memory or from a perception/communication channel that actually reached that character."
     )
     context["author_context"] = author_context
     return context
