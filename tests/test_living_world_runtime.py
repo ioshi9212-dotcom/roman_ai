@@ -170,11 +170,11 @@ def test_social_reactivity_allows_grounded_ambient_people_to_intervene_without_u
         social = packet["living_world"]["social_reactivity"]
 
         assert social["mandatory"] is True
-        assert social["ambient_actor_policy"]["one_scene_extra_needs_card"] is False
-        assert social["ambient_actor_policy"]["may_initiate_without_pov_prompt"] is True
-        assert "interrupt" in " ".join(social["ambient_actor_policy"]["allowed_local_actions"]).casefold()
-        assert "do not wait" in social["instruction"].casefold()
-        assert "wallpaper" in social["ambient_actor_policy"]["do_not_use_as_wallpaper"].casefold()
+        policy = social["ambient_actor_policy"].casefold()
+        assert "without a card" in policy
+        assert "interrupt" in policy
+        assert "wallpaper" in policy
+        assert "without waiting for pov" in social["instruction"].casefold()
 
 
 def test_social_reactivity_allows_npc_to_npc_reports_without_turning_them_into_truth():
@@ -184,8 +184,8 @@ def test_social_reactivity_allows_npc_to_npc_reports_without_turning_them_into_t
         packet = read_packet(sid, "Остаться рядом")
         flow = packet["living_world"]["social_reactivity"]["knowledge_flow"]
 
-        assert flow["npc_to_npc_transfer_is_allowed"] is True
-        assert flow["may_happen_without_pov_prompt"] is True
-        assert "lie" in " ".join(flow["valid_channels"]).casefold()
-        assert "not automatic objective truth" in flow["epistemic_rule"].casefold()
-        assert "knowledge_add" in flow["epistemic_rule"]
+        flow = flow.casefold()
+        assert "npc-to-npc" in flow
+        assert "lie" in flow
+        assert "not objective truth" in flow
+        assert "knowledge_add" in flow
