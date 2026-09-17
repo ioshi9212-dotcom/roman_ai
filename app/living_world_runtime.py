@@ -487,7 +487,7 @@ def _social_world(state: Dict[str, Any]) -> Dict[str, Any]:
         "instruction": (
             "Background people are people, not wallpaper. In shared/crowded scenes they may speak, intervene or gossip without POV prompting; "
             "a one-scene extra needs no card for current perception. Recurring/important extra gets character_upserts. "
-            "NPC-to-NPC reports need real channels and may be wrong or lies."
+            "NPC-to-NPC reports need real channels; wrong or lies are not truth."
         ),
     }
 
