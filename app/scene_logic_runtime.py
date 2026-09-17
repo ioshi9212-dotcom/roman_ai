@@ -19,17 +19,13 @@ def _knowledge_causality_rule() -> Dict[str, Any]:
         "no_retroactive_justification": True,
         "character_knowledge_is_closed_world": True,
         "allowed_sources": [
-            "this registered character's own personal_memory / character_memory",
+            "this character's own personal_memory / character_memory",
             "something this character directly saw, heard, read, received or was told through a real in-story channel before use, including NPC-to-NPC contact",
             "an inference whose every premise was already available to this character from the two sources above",
         ],
-        "ambient_actor_rule": (
-            "An unregistered one-scene extra may speak/intervene without a card from immediate public perception or an existing public/social signal only; "
-            "no private, hidden or invented past knowledge. Register with character_upserts if recurring or durable."
-        ),
-        "social_transmission_rule": (
-            "NPC-to-NPC transfer may happen without POV prompting. The speaker may pass what they know/believe or a deliberate lie; "
-            "the listener receives that report, not objective truth. Durable registered knowledge uses knowledge_add with uncertainty/provenance when appropriate."
+        "ambient_social_rule": (
+            "One-scene extra: may speak/intervene without a card only from immediate public perception or a persisted public/social signal; upsert if recurring/durable. "
+            "NPC-to-NPC contact may pass knowledge, belief or lies without POV prompting; recipient gets the report, not truth; durable registered recipient -> knowledge_add with source/uncertainty."
         ),
         "author_only_not_character_knowledge": [
             "POV questionnaire, NPC questionnaire including that NPC's own questionnaire, character cards and character backstory fields",
@@ -59,8 +55,8 @@ def _knowledge_causality_rule() -> Dict[str, Any]:
         ),
         "inference_rule": "Every premise must already be known by this character before the inference; weak premises mean suspicion/question, not certainty.",
         "missing_source_behavior": (
-            "If a registered character's chain is missing before the line, rewrite before commit: remove the knowledge, make it a question/uncertain guess, "
-            "or first show a real source the character perceives/receives. For an ambient extra, use only immediate public perception/social signal. Never justify it retroactively."
+            "If the chain is missing before the line, rewrite before commit: remove the knowledge, make it a question/uncertain guess, "
+            "or first show a real source the character perceives. Never justify it retroactively."
         ),
         "pre_commit_check": (
             "Cause/information must precede reaction/conclusion. Trace every non-trivial factual statement, recognition, inference, question premise and deliberate action "
