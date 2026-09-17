@@ -60,3 +60,11 @@ def test_offscreen_bundle_frontloads_firewall_and_card_is_not_knowledge(monkeypa
     assert bundle["knowledge_firewall"]["character_id"] == "silas"
     assert "CARD is objective author context" in bundle["instruction"]
     assert "never evidence" in bundle["instruction"]
+
+
+def test_knowledge_guard_allows_causal_npc_to_npc_information_transfer():
+    rule = scene_logic_runtime._knowledge_causality_rule()
+    allowed = " ".join(rule["allowed_sources"]).casefold()
+
+    assert "npc-to-npc" in allowed
+    assert "real in-story channel" in allowed

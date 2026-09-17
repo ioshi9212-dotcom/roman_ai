@@ -20,7 +20,7 @@ def _knowledge_causality_rule() -> Dict[str, Any]:
         "character_knowledge_is_closed_world": True,
         "allowed_sources": [
             "this character's own personal_memory / character_memory",
-            "something this character directly saw, heard, read, received or was explicitly told earlier in the current scene while present",
+            "something this character directly saw, heard, read, received or was told through a real in-story channel before use, including NPC-to-NPC contact",
             "an inference whose every premise was already available to this character from the two sources above",
         ],
         "author_only_not_character_knowledge": [

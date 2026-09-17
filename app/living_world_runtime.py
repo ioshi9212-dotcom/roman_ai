@@ -485,9 +485,9 @@ def _social_world(state: Dict[str, Any]) -> Dict[str, Any]:
         "mandatory": True,
         "recent_social_signals": deepcopy(list(signals.values())[-12:]),
         "instruction": (
-            "Background people are people, not wallpaper. Salient appearance, behavior, status, conflict or repeated presence "
-            "may be noticed, misread, discussed or remembered when plausible. A recurring/important extra gets character_upserts. "
-            "Durable social fallout belongs in chronology.social_effect. Rumors need real witnesses/channels."
+            "Background people are people, not wallpaper. In shared/crowded scenes they may speak, intervene or gossip without POV prompting; "
+            "a one-scene extra needs no card for current perception. Recurring/important extra gets character_upserts. "
+            "NPC-to-NPC reports need real channels; wrong or lies are not truth."
         ),
     }
 

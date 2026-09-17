@@ -160,3 +160,28 @@ def test_social_effect_from_chronology_becomes_persistent_world_signal():
         signals = state["world"]["social"]["signals"]
         assert signals
         assert next(iter(signals.values()))["scope"] == "корпус"
+
+
+def test_social_reactivity_allows_grounded_ambient_people_to_intervene_without_upsert():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(novel())["session_id"]
+        packet = read_packet(sid, "Сесть за общий стол и продолжить разговор")
+        instruction = packet["living_world"]["social_reactivity"]["instruction"].casefold()
+
+        assert "speak" in instruction
+        assert "intervene" in instruction
+        assert "without pov prompting" in instruction
+        assert "one-scene extra needs no card" in instruction
+
+
+def test_social_reactivity_allows_npc_to_npc_reports_without_turning_them_into_truth():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(novel())["session_id"]
+        packet = read_packet(sid, "Остаться рядом")
+        instruction = packet["living_world"]["social_reactivity"]["instruction"].casefold()
+
+        assert "npc-to-npc" in instruction
+        assert "wrong or lies" in instruction
+        assert "not truth" in instruction
