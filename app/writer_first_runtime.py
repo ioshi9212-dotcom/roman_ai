@@ -525,8 +525,7 @@ def _rewrite_context(session_id: str, context: Dict[str, Any]) -> Dict[str, Any]
         "chronology_selection": {"recent": 12, "per_character": 4, "location": 4, "full_recent_anchors": 12, "audited_scene_events_replaced_by_scene_history": True},
         "scene_history": {
             "working_cap": MAX_WORKING_SCENES,
-            "archive_read": "prepareSceneArchiveRead",
-            "exact_read_has_raw_turns": True,
+            "archive": "prepareSceneArchiveRead",
             "raw_turns_persistent": True,
         },
         "working_memory_caps": {"knowledge": MAX_WORKING_KNOWLEDGE, "experiences": MAX_WORKING_EXPERIENCES, "dialogue_memory": MAX_WORKING_DIALOGUE, "historical_knowledge_catalog": MAX_HISTORICAL_KNOWLEDGE_CATALOG},
