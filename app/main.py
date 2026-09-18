@@ -27,6 +27,7 @@ from .operation_service import (
     OperationReceiptConflict,
     commit_audit_request,
     commit_turn_request,
+    prepare_turn_request,
     rollback_last_turn_request,
 )
 from .storage import (
@@ -40,7 +41,6 @@ from .storage import (
     save_novel,
 )
 from .turn_rollback import RollbackError
-from .turn_duplicate_guard import duplicate_prepare_response, recent_duplicate_turn
 
 app = FastAPI(
     title="Roman AI",
@@ -402,15 +402,17 @@ def audit_snapshot_chunk_get(session_id: str, audit_id: str, chunk_index: int):
 @app.post("/sessions/{session_id}/turn-packet", operation_id="prepareTurn")
 def turn_packet_prepare(session_id: str, body: TurnPrepare):
     try:
-        duplicate = recent_duplicate_turn(session_id, body.user_input)
-        if duplicate:
-            return duplicate_prepare_response(duplicate)
-        return prepare_turn_packet(session_id, body.user_input)
+        return prepare_turn_request(session_id, body.user_input, body.request_id)
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Session not found")
     except RuntimeError as exc:
-        if str(exc) == "AUDIT_REQUIRED":
-            raise HTTPException(status_code=409, detail="Audit is required before preparing the next turn")
+        errors = {
+            "AUDIT_REQUIRED": "Audit is required before preparing the next turn",
+            "TURN_REQUEST_ID_REQUIRED": "prepareTurn requires a stable request_id for this user turn.",
+            "TURN_REQUEST_ID_REUSED": "This request_id was already used with different user_input. Use a new request_id for a new gameplay turn.",
+        }
+        if str(exc) in errors:
+            raise HTTPException(status_code=409, detail=errors[str(exc)])
         raise
 
 
@@ -490,7 +492,6 @@ def turns_commit(session_id: str, body: TurnCommit):
             "TURN_PACKET_ID_REQUIRED": "commitTurn requires the exact packet_id returned by prepareTurn",
             "TURN_PACKET_REQUIRED": "prepareTurn must be called for this exact user input and packet_id before commitTurn",
             "TURN_PACKET_INCOMPLETE": "Every turn packet chunk must be read before commitTurn",
-            "RECENT_DUPLICATE_USER_INPUT": "This exact user input was already committed moments ago. Do not create another turn for it; reuse the saved scene from the prior commit.",
             "PERSISTENCE_REVIEW_REQUIRED": "Before commitTurn explicitly review chronology and per-character memory. extracted must include persistence_reviewed=true plus chronology, knowledge_add, experiences_add and dialogue_memory_add arrays, even when empty.",
             "RELATIONSHIP_FOOTER_REQUIRED": "The Relationships footer is missing or empty for at least one NPC physically present in the scene. Rewrite the scene footer so EVERY present NPC has an NPC->POV relationship row. If that NPC has no saved dimensions yet, initialize 1-3 natural dimensions now; do not leave the block empty.",
             "RELATIONSHIP_FOOTER_INCOMPLETE": "A present NPC has saved relationship dimensions, but the scene footer omitted or renamed one or more of them. Rewrite the footer using all saved labels from relationship_lens, preserving current values unless this scene genuinely changed them.",
