@@ -519,14 +519,6 @@ paths:
             schema: {$ref: '#/components/schemas/SessionCreate'}
       responses:
         '200': {description: Session metadata}
-  /sessions/{session_id}/preview:
-    get:
-      operationId: getSessionPreview
-      summary: Build a compact preview from an existing session
-      parameters:
-        - {in: path, name: session_id, required: true, schema: {type: string}}
-      responses:
-        '200': {description: Session preview}
   /sessions/{session_id}/resume:
     post:
       operationId: resumeSession
@@ -670,15 +662,6 @@ paths:
         '404': {description: Session, character or chunk not found}
         '409': {description: Character dossier changed during reading}
   /sessions/{session_id}/turns:
-    get:
-      operationId: getTurnRange
-      summary: Emergency recovery or manual diagnostics only
-      parameters:
-        - {in: path, name: session_id, required: true, schema: {type: string}}
-        - {in: query, name: start_turn, required: true, schema: {type: integer}}
-        - {in: query, name: end_turn, required: true, schema: {type: integer}}
-      responses:
-        '200': {description: Raw turns}
     post:
       operationId: commitTurn
       summary: Save one complete turn after required writer chunks were read
