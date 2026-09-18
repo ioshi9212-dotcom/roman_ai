@@ -85,5 +85,6 @@ def test_custom_gpt_instruction_stays_small_and_matches_writer_first_transport()
     assert "422 на intake тем же payload НЕ повторяй" in text
     assert "пользователю сбой не показывай" in text
     assert "already_committed_duplicate=true" in text
+    assert "request_id" in text
     assert "запускай первую сцену" in text
     assert "не проси первый ход" in text
