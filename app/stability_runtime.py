@@ -13,7 +13,6 @@ from .operation_receipts import RECEIPTS_FILE, ledger_with_receipt, make_receipt
 from .rollback_snapshot_runtime import SNAPSHOT_FILE, build_pre_turn_snapshot
 from .scene_compaction_runtime import SCENE_MEMORY_FILE, apply_audit_compactions
 from .transactional_storage import json_text, recover, session_transaction, write_batch
-from .turn_duplicate_guard import recent_duplicate_turn
 
 
 _ORIGINAL_PREPARE_TURN = None
@@ -191,10 +190,6 @@ def _atomic_commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, A
         if len(set(packet.get("read_chunks", []))) < int(packet.get("chunk_count", 0)):
             raise RuntimeError("TURN_PACKET_INCOMPLETE")
 
-        duplicate = recent_duplicate_turn(session_id, payload.get("user_input", ""))
-        if duplicate:
-            raise RuntimeError("RECENT_DUPLICATE_USER_INPUT")
-
         pre_turn_snapshot = build_pre_turn_snapshot(root, turn_number)
         extracted = payload.get("extracted", {}) if isinstance(payload.get("extracted"), dict) else {}
         entry = storage._template("turn.json", {})
@@ -202,6 +197,7 @@ def _atomic_commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, A
             {
                 "turn_number": turn_number,
                 "saved_at": datetime.now(timezone.utc).isoformat(),
+                "request_id": str(packet.get("request_id") or ""),
                 "user_input": payload["user_input"],
                 "scene_output": payload["scene_output"],
                 "extracted": deepcopy(extracted),

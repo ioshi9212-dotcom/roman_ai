@@ -64,6 +64,7 @@ class SessionCreate(BaseModel):
 
 class TurnPrepare(BaseModel):
     user_input: str
+    request_id: str = Field(min_length=1, max_length=120)
 
 
 class RollbackLastTurn(BaseModel):

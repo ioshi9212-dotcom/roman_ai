@@ -10,6 +10,8 @@ from .operation_receipts import (
     replay_result,
     request_fingerprint,
 )
+from .transactional_storage import session_transaction
+from .turn_duplicate_guard import committed_request_turn, duplicate_prepare_response
 from .turn_rollback import RollbackError, rollback_last_turn
 
 
@@ -18,6 +20,49 @@ def _session_root(session_id: str):
     if not root.exists():
         raise FileNotFoundError(session_id)
     return root
+
+
+def prepare_turn_request(
+    session_id: str,
+    user_input: str,
+    request_id: str,
+) -> Dict[str, Any]:
+    root = _session_root(session_id)
+    identity = str(request_id or "").strip()
+    if not identity:
+        raise RuntimeError("TURN_REQUEST_ID_REQUIRED")
+
+    with session_transaction(root):
+        committed = committed_request_turn(session_id, identity, user_input)
+        if committed is not None:
+            return duplicate_prepare_response(committed)
+
+        packet = storage._read_json(root / "turn_packet.json", {})
+        if isinstance(packet, dict) and packet.get("packet_id"):
+            pending_identity = str(packet.get("request_id") or "").strip()
+            if pending_identity == identity:
+                if str(packet.get("user_input") or "") != str(user_input):
+                    raise RuntimeError("TURN_REQUEST_ID_REUSED")
+                result = dict(session_runtime.prepare_turn_packet(session_id, user_input))
+                result["request_id"] = identity
+                return result
+
+            if pending_identity and pending_identity != identity:
+                # A different client request is a different attempt. Invalidate the stale
+                # pending packet even when its text happens to be identical.
+                (root / "turn_packet.json").unlink(missing_ok=True)
+
+        result = dict(session_runtime.prepare_turn_packet(session_id, user_input))
+        current = storage._read_json(root / "turn_packet.json", {})
+        if (
+            isinstance(current, dict)
+            and str(current.get("packet_id") or "") == str(result.get("packet_id") or "")
+            and str(current.get("user_input") or "") == str(user_input)
+        ):
+            current["request_id"] = identity
+            storage._write_json(root / "turn_packet.json", current)
+        result["request_id"] = identity
+        return result
 
 
 def commit_turn_request(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -127,6 +172,7 @@ def rollback_last_turn_request(session_id: str, payload: Dict[str, Any]) -> Dict
 
 __all__ = [
     "OperationReceiptConflict",
+    "prepare_turn_request",
     "commit_turn_request",
     "commit_audit_request",
     "rollback_last_turn_request",

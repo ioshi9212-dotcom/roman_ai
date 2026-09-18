@@ -76,9 +76,15 @@ components:
         novel_id: {type: string}
     TurnPrepare:
       type: object
-      required: [user_input]
+      required: [user_input, request_id]
       properties:
         user_input: {type: string}
+        request_id:
+          type: string
+          minLength: 1
+          maxLength: 120
+          description: Stable id for this user turn. Reuse it only for technical retries of the same turn; use a new id for every new gameplay turn even when user_input is identical.
+      additionalProperties: false
     RollbackLastTurn:
       type: object
       required: [expected_turn_number, expected_turn_id, confirm]
@@ -583,7 +589,7 @@ paths:
     post:
       operationId: prepareTurn
       summary: Build or reuse bounded writer-first context from complete persistent canon
-      description: Response normally includes packet_id and may include chunk 0. Repeating the same pending input reuses it. If the exact same user_input was already committed moments ago, returns already_committed_duplicate=true plus the saved scene_output instead of creating another turn.
+      description: Send a new request_id for every new gameplay turn and reuse that same request_id only for technical retries. Identical user_input with a new request_id is a legitimate new turn. A retry of an already committed request_id returns the saved scene_output instead of creating another turn.
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
       requestBody:
@@ -593,7 +599,7 @@ paths:
             schema: {$ref: '#/components/schemas/TurnPrepare'}
       responses:
         '200': {description: Writer-first manifest plus inline chunk 0 when a new packet was prepared}
-        '409': {description: Audit required or current scene pointer requires technical recovery}
+        '409': {description: Audit required, current scene pointer requires recovery, or request_id was reused with different user_input}
   /sessions/{session_id}/turn-packet/{packet_id}/{chunk_index}:
     get:
       operationId: getTurnPacketChunk
