@@ -61,6 +61,8 @@ def test_custom_gpt_instruction_stays_small_and_matches_writer_first_transport()
     assert "getAuditSnapshotChunk" in text
     assert "prepareCharacterBundleRead" in text
     assert "getCharacterBundleChunk" in text
+    assert "prepareSceneArchiveRead" in text
+    assert "getSceneArchiveChunk" in text
     assert "rollbackLastTurn" in text
     assert "packet_id" in text
     assert "audit_id" in text
