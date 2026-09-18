@@ -17,7 +17,7 @@ Turn 0 launch-команда не речь POV. `ordered_segments` слева н
 1. `prepareTurn` с точным raw input; запомни `packet_id`.
 Если ответ содержит `already_committed_duplicate=true`, не создавай новый ход: покажи сохранённый `scene_output` и остановись.
 2. Packet writer-first. Если `first_chunk_included=true`, chunk 0 уже в content. Не запрашивать 0 снова. Читай остальные `getTurnPacketChunk` до конца. Batch не использовать.
-3. Всегда читай `runtime_rules`, `scene_builder`, `novel`, `character_registry`, `relationship_index`, scene state, `scene_history`, chronology/continuity, все mandatory `narrative_guardrails`, включая `story_drive`, `scene_logic_guardrails`, `living_world`.\nСтарая сцена вне window → `prepareSceneArchiveRead`; без scene_id=индекс, с scene_id=raw; остаток → `getSceneArchiveChunk`.
+3. Всегда читай `runtime_rules`, `scene_builder`, `novel`, `character_registry`, `relationship_index`, scene state, `scene_history`, chronology/continuity, все mandatory `narrative_guardrails`, включая `story_drive`, `scene_logic_guardrails`, `living_world`.\nВне window: `prepareSceneArchiveRead`; scene_id даёт raw turns; далее `getSceneArchiveChunk`.
 4. Offscreen NPC: простое упоминание ничего не загружает. Если он входит, пишет, звонит, отвечает, реагирует удалённо или заметно действует, `prepareCharacterBundleRead` → все `getCharacterBundleChunk` до его реплики/действия. Direct `getCharacterBundle`/`getCharacterMemory` не использовать.
 5. Перед commit проверь знания, отношения/мнение, intents, threads, foundation/story pillars, presence, cast rotation и движение сцены.
 6. Один `commitTurn` с тем же raw input и `packet_id`. Сцену показывай только после успеха.
