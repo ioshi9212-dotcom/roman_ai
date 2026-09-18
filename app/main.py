@@ -6,7 +6,7 @@ from .audit_runtime import get_audit_snapshot, get_audit_snapshot_chunk
 from .character_access import get_character_bundle
 from .character_chunk_read import get_character_bundle_chunk, prepare_character_bundle_read
 from .context_stats import session_context_stats
-from .models import AuditCommit, NovelDraftCreate, NovelDraftIntakeChunk, NovelDraftIntakeMapping, NovelDraftLaunchState, NovelDraftReconciliation, NovelDraftSection, NovelRawSave, NovelTemplate, RollbackLastTurn, SessionCreate, TurnCommit, TurnPrepare
+from .models import AuditCommit, NovelDraftCreate, NovelDraftIntakeChunk, NovelDraftIntakeMapping, NovelDraftLaunchState, NovelDraftReconciliation, NovelDraftSection, NovelRawSave, NovelTemplate, RollbackLastTurn, SceneArchiveRead, SessionCreate, TurnCommit, TurnPrepare
 from .novel_access import get_novel_read_chunk, prepare_novel_read, verify_novel
 from .novel_drafts import (
     create_draft,
@@ -23,6 +23,7 @@ from .runtime_access import runtime_chunk, runtime_manifest
 from .session_preview import get_session_preview
 from .session_recovery import recover_session_current
 from .session_runtime import continue_session, prepare_turn_packet
+from .scene_archive_read import get_scene_archive_chunk, prepare_scene_archive_read
 from .operation_service import (
     OperationReceiptConflict,
     commit_audit_request,
@@ -424,6 +425,30 @@ def turn_packet_chunk_get(session_id: str, packet_id: str, chunk_index: int):
         raise HTTPException(status_code=403, detail="Invalid or stale packet_id")
     except IndexError:
         raise HTTPException(status_code=404, detail="Chunk index out of range")
+
+
+@app.post("/sessions/{session_id}/scene-archive/read", operation_id="prepareSceneArchiveRead")
+def scene_archive_read_prepare(session_id: str, body: SceneArchiveRead):
+    try:
+        return prepare_scene_archive_read(session_id, body.scene_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Session not found")
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Scene not found")
+
+
+@app.get("/sessions/{session_id}/scene-archive/read/{read_id}/{chunk_index}", operation_id="getSceneArchiveChunk")
+def scene_archive_chunk_get(session_id: str, read_id: str, chunk_index: int, scene_id: str | None = None):
+    try:
+        return get_scene_archive_chunk(session_id, scene_id, read_id, chunk_index)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Session not found")
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Scene not found")
+    except PermissionError:
+        raise HTTPException(status_code=409, detail="Scene archive changed; restart the prepared read")
+    except IndexError:
+        raise HTTPException(status_code=404, detail="Scene archive chunk index out of range")
 
 
 @app.post("/sessions/{session_id}/characters/{character_id}/read", operation_id="prepareCharacterBundleRead")

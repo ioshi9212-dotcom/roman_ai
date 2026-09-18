@@ -12,7 +12,7 @@ from .transactional_storage import session_transaction
 
 
 _ORIGINAL_PREPARE = None
-WRITER_FIRST_VERSION = 9
+WRITER_FIRST_VERSION = 10
 WRITER_PACKET_CHARS = 16000
 RECENT_FULL_TURNS = 2
 CONTINUITY_WINDOW = 15
@@ -26,6 +26,10 @@ MAX_CHARACTER_CHRONOLOGY = 4
 MAX_LOCATION_CHRONOLOGY = 4
 MAX_FULL_ANCHOR_CHRONOLOGY = 12
 MAX_ANCHOR_SUMMARY = 240
+MAX_WORKING_SCENES = 12
+MAX_RECENT_SCENES = 8
+MAX_SCENES_PER_CHARACTER = 2
+MAX_SCENES_FOR_LOCATION = 2
 
 _TERMINAL = {"resolved", "closed", "expired", "cancelled", "canceled", "done", "abandoned"}
 _RUNTIME_DROP_KEYS = (
@@ -349,6 +353,97 @@ def _scene_ids(context: Dict[str, Any]) -> List[str]:
     return list(dict.fromkeys(ids))
 
 
+def _scene_end_turn(row: Dict[str, Any]) -> int:
+    try:
+        return int(row.get("end_turn") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _scene_participants(row: Dict[str, Any]) -> set[str]:
+    values = row.get("participants")
+    if isinstance(values, str):
+        values = [values]
+    return {str(value) for value in values if value} if isinstance(values, list) else set()
+
+
+def _scene_locations(row: Dict[str, Any]) -> set[str]:
+    values = row.get("locations")
+    if not isinstance(values, list):
+        value = row.get("location")
+        values = [value] if value else []
+    return {str(value).casefold().strip() for value in values if str(value).strip()}
+
+
+def _working_scene_history(
+    root,
+    character_ids: List[str],
+    location: Any,
+) -> tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    scenes = [deepcopy(row) for row in load_scene_history(root) if isinstance(row, dict)]
+    if not scenes:
+        return [], {}
+
+    selected: Dict[str, Dict[str, Any]] = {}
+
+    def keep(row: Dict[str, Any]) -> None:
+        key = str(row.get("scene_id") or "")
+        if key:
+            selected[key] = row
+
+    for row in scenes[-MAX_RECENT_SCENES:]:
+        keep(row)
+
+    for character_id in character_ids:
+        matches = [row for row in scenes[:-MAX_RECENT_SCENES] if character_id in _scene_participants(row)]
+        for row in matches[-MAX_SCENES_PER_CHARACTER:]:
+            keep(row)
+
+    needle = str(location or "").casefold().strip()
+    if needle:
+        matches = [row for row in scenes[:-MAX_RECENT_SCENES] if needle in _scene_locations(row)]
+        for row in matches[-MAX_SCENES_FOR_LOCATION:]:
+            keep(row)
+
+    for row in reversed(scenes):
+        if str(row.get("status") or "").casefold() == "open":
+            keep(row)
+            break
+
+    recent_ids = {
+        str(row.get("scene_id") or "")
+        for row in scenes[-MAX_RECENT_SCENES:]
+        if row.get("scene_id")
+    }
+    if len(selected) > MAX_WORKING_SCENES:
+        recent = [row for row in selected.values() if str(row.get("scene_id") or "") in recent_ids]
+        extras = [row for row in selected.values() if str(row.get("scene_id") or "") not in recent_ids]
+        extras.sort(key=_scene_end_turn, reverse=True)
+        allowed = max(0, MAX_WORKING_SCENES - len(recent))
+        selected = {
+            str(row.get("scene_id")): row
+            for row in [*recent, *extras[:allowed]]
+            if row.get("scene_id")
+        }
+
+    working = sorted(selected.values(), key=lambda row: (_scene_end_turn(row), str(row.get("scene_id") or "")))
+    omitted = max(0, len(scenes) - len(working))
+    window = {
+        "persistent_scene_count": len(scenes),
+        "working_scene_count": len(working),
+        "omitted_scene_count": omitted,
+        "complete_archive_persistent": True,
+        "working_cap": MAX_WORKING_SCENES,
+    }
+    if omitted:
+        window["retrieval"] = {
+            "index": "prepareSceneArchiveRead without scene_id -> getSceneArchiveChunk",
+            "exact_scene": "prepareSceneArchiveRead with scene_id -> getSceneArchiveChunk",
+            "exact_scene_includes_raw_turns": True,
+        }
+    return working, window
+
+
 def _separate_future_guidance(context: Dict[str, Any]) -> None:
     direction = context.pop("story_direction", None)
     author = context.get("author_context")
@@ -405,7 +500,6 @@ def _rewrite_context(session_id: str, context: Dict[str, Any]) -> Dict[str, Any]
     recent, continuity = _rolling_turn_context(root)
     result["recent_turns"] = recent
     result["continuity_turns"] = continuity
-    result["scene_history"] = load_scene_history(root)
     result["active_threads"] = _active_threads(result.get("active_threads"))
     result["cast_index"] = _compact_cast_index(result.get("cast_index"))
     _compact_memory(result)
@@ -413,6 +507,11 @@ def _rewrite_context(session_id: str, context: Dict[str, Any]) -> Dict[str, Any]
     character_ids = _scene_ids(result)
     current = result.get("scene_state", {}).get("current", {}) if isinstance(result.get("scene_state"), dict) else {}
     location = (current.get("location") or current.get("place")) if isinstance(current, dict) else None
+    result["scene_history"], scene_window = _working_scene_history(root, character_ids, location)
+    if scene_window:
+        result["scene_history_window"] = scene_window
+    else:
+        result.pop("scene_history_window", None)
     chronology_source = result.get("chronology_recent")
     result["chronology_anchor_catalog"] = _anchor_catalog(chronology_source)
     result["chronology_recent"] = _compact_chronology(chronology_source, character_ids, location)
@@ -424,7 +523,11 @@ def _rewrite_context(session_id: str, context: Dict[str, Any]) -> Dict[str, Any]
         "recent_full_turns": RECENT_FULL_TURNS,
         "continuity_window": CONTINUITY_WINDOW,
         "chronology_selection": {"recent": 12, "per_character": 4, "location": 4, "full_recent_anchors": 12, "audited_scene_events_replaced_by_scene_history": True},
-        "scene_history": {"one_dense_sentence_per_audited_scene": True, "raw_turns_remain_persistent": True},
+        "scene_history": {
+            "working_cap": MAX_WORKING_SCENES,
+            "archive": "prepareSceneArchiveRead",
+            "raw_turns_persistent": True,
+        },
         "working_memory_caps": {"knowledge": MAX_WORKING_KNOWLEDGE, "experiences": MAX_WORKING_EXPERIENCES, "dialogue_memory": MAX_WORKING_DIALOGUE, "historical_knowledge_catalog": MAX_HISTORICAL_KNOWLEDGE_CATALOG},
         "active_thread_cap": MAX_ACTIVE_THREADS,
         "runtime_documents_per_turn": ["runtime_rules", "scene_builder"],

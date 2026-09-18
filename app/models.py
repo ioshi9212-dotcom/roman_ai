@@ -66,6 +66,10 @@ class TurnPrepare(BaseModel):
     user_input: str
 
 
+class SceneArchiveRead(BaseModel):
+    scene_id: Optional[str] = Field(default=None, min_length=1)
+
+
 class RollbackLastTurn(BaseModel):
     expected_turn_number: int = Field(ge=1)
     expected_turn_id: str = Field(min_length=1)

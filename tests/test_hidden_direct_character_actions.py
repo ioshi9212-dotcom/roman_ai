@@ -18,6 +18,8 @@ def test_oversized_direct_character_reads_are_not_exposed_in_openapi():
     assert "getCharacterMemory" not in operation_ids
     assert "prepareCharacterBundleRead" in operation_ids
     assert "getCharacterBundleChunk" in operation_ids
+    assert "prepareSceneArchiveRead" in operation_ids
+    assert "getSceneArchiveChunk" in operation_ids
     assert "getTurnPacketChunkBatch" not in operation_ids
     assert "getAuditSnapshotChunkBatch" not in operation_ids
 
