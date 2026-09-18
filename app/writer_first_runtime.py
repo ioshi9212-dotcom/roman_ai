@@ -382,12 +382,7 @@ def _working_scene_history(
 ) -> tuple[List[Dict[str, Any]], Dict[str, Any]]:
     scenes = [deepcopy(row) for row in load_scene_history(root) if isinstance(row, dict)]
     if not scenes:
-        return [], {
-            "persistent_scene_count": 0,
-            "working_scene_count": 0,
-            "omitted_scene_count": 0,
-            "complete_archive_persistent": True,
-        }
+        return [], {}
 
     selected: Dict[str, Dict[str, Any]] = {}
 
@@ -512,7 +507,11 @@ def _rewrite_context(session_id: str, context: Dict[str, Any]) -> Dict[str, Any]
     character_ids = _scene_ids(result)
     current = result.get("scene_state", {}).get("current", {}) if isinstance(result.get("scene_state"), dict) else {}
     location = (current.get("location") or current.get("place")) if isinstance(current, dict) else None
-    result["scene_history"], result["scene_history_window"] = _working_scene_history(root, character_ids, location)
+    result["scene_history"], scene_window = _working_scene_history(root, character_ids, location)
+    if scene_window:
+        result["scene_history_window"] = scene_window
+    else:
+        result.pop("scene_history_window", None)
     chronology_source = result.get("chronology_recent")
     result["chronology_anchor_catalog"] = _anchor_catalog(chronology_source)
     result["chronology_recent"] = _compact_chronology(chronology_source, character_ids, location)
@@ -525,11 +524,10 @@ def _rewrite_context(session_id: str, context: Dict[str, Any]) -> Dict[str, Any]
         "continuity_window": CONTINUITY_WINDOW,
         "chronology_selection": {"recent": 12, "per_character": 4, "location": 4, "full_recent_anchors": 12, "audited_scene_events_replaced_by_scene_history": True},
         "scene_history": {
-            "one_dense_sentence_per_audited_scene": True,
             "working_cap": MAX_WORKING_SCENES,
-            "full_archive_chunked_on_demand": True,
-            "exact_scene_read_includes_raw_turns": True,
-            "raw_turns_remain_persistent": True,
+            "archive_read": "prepareSceneArchiveRead",
+            "exact_read_has_raw_turns": True,
+            "raw_turns_persistent": True,
         },
         "working_memory_caps": {"knowledge": MAX_WORKING_KNOWLEDGE, "experiences": MAX_WORKING_EXPERIENCES, "dialogue_memory": MAX_WORKING_DIALOGUE, "historical_knowledge_catalog": MAX_HISTORICAL_KNOWLEDGE_CATALOG},
         "active_thread_cap": MAX_ACTIVE_THREADS,
