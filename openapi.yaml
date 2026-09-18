@@ -79,6 +79,14 @@ components:
       required: [user_input]
       properties:
         user_input: {type: string}
+    SceneArchiveRead:
+      type: object
+      properties:
+        scene_id:
+          type: string
+          minLength: 1
+          description: Omit for the complete compacted-scene index; provide a scene_id to read that scene plus its immutable raw turn evidence.
+      additionalProperties: false
     RollbackLastTurn:
       type: object
       required: [expected_turn_number, expected_turn_id, confirm]
@@ -607,6 +615,35 @@ paths:
         '200': {description: One remaining writer packet chunk}
         '403': {description: Invalid or stale packet_id}
         '404': {description: Chunk index out of range}
+  /sessions/{session_id}/scene-archive/read:
+    post:
+      operationId: prepareSceneArchiveRead
+      summary: Prepare chunked persistent scene history or exact old-scene evidence
+      description: Omit scene_id to read the complete compacted-scene index. Provide scene_id to read that scene plus exact raw turns from its source ranges. Chunk 0 is included.
+      parameters:
+        - {in: path, name: session_id, required: true, schema: {type: string}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/SceneArchiveRead'}
+      responses:
+        '200': {description: Scene archive manifest plus inline chunk 0}
+        '404': {description: Session or scene not found}
+  /sessions/{session_id}/scene-archive/read/{read_id}/{chunk_index}:
+    get:
+      operationId: getSceneArchiveChunk
+      summary: Read one remaining chunk from a prepared scene archive read
+      description: Start at next_chunk_index because chunk 0 is already included. Echo scene_id only when the prepare request used one. Restart if persistent evidence changed.
+      parameters:
+        - {in: path, name: session_id, required: true, schema: {type: string}}
+        - {in: path, name: read_id, required: true, schema: {type: string}}
+        - {in: path, name: chunk_index, required: true, schema: {type: integer, minimum: 0}}
+        - {in: query, name: scene_id, required: false, schema: {type: string}}
+      responses:
+        '200': {description: One remaining scene archive chunk}
+        '404': {description: Session, scene or chunk not found}
+        '409': {description: Scene archive changed during reading}
   /sessions/{session_id}/characters/{character_id}/read:
     post:
       operationId: prepareCharacterBundleRead
