@@ -164,6 +164,57 @@ def test_character_driven_behavior_has_no_psychology_or_boundary_filter():
     assert "значимая реакция POV остаётся игроку" in instruction
 
 
+def test_dialogue_naturalism_does_not_make_humor_the_default_mode():
+    rule = guardrails._dialogue_naturalism_rule()
+    assert rule["mandatory"] is True
+    assert rule["humor_is_not_default"] is True
+    assert rule["one_joke_does_not_require_joke_response"] is True
+    assert rule["character_voice_over_shared_comedy_rhythm"] is True
+    assert any("буквальный" in item for item in rule["ordinary_reply_modes"])
+    assert any("стендап" in item for item in rule["avoid"])
+    assert any("одинаковый сухой сарказм" in item for item in rule["avoid"])
+    assert "Одна шутка не требует ответной шутки" in rule["instruction"]
+    assert "обычной" in rule["instruction"].casefold()
+    assert "каждой реплике" in rule["humor_budget_semantics"]
+    assert "каждому персонажу" in rule["humor_budget_semantics"]
+
+
+def test_dialogue_naturalism_checks_character_voice_instead_of_shared_punchline_rhythm():
+    rule = guardrails._dialogue_naturalism_rule()
+    check = rule["voice_check"]
+    assert "убери имена" in check
+    assert "взаимозаменяемо" in check
+    assert "одинакового сарказма" in check
+    assert "собственному характеру" in check
+
+
+def test_physical_clarity_requires_concrete_sequence_without_graphic_anatomy():
+    rule = guardrails._physical_clarity_rule()
+    assert rule["mandatory"] is True
+    assert rule["selective"] is True
+    assert rule["concrete_action_sequence_required"] is True
+    assert rule["sensations_supplement_action_not_replace_it"] is True
+    assert rule["non_graphic_is_enough"] is True
+    assert any("интимное" in item for item in rule["applies_when"])
+    assert any("положение тел" in item for item in rule["applies_when"])
+    assert any("дыхание" in item for item in rule["use_for_clarity"])
+    assert any("одежд" in item for item in rule["use_for_clarity"])
+    assert any("убрал последнюю дистанцию" in item for item in rule["avoid"])
+    assert any("ощущения" in item for item in rule["avoid"])
+    assert any("графичес" in item for item in rule["avoid"])
+    assert "без перечитывания и догадки" in rule["pre_commit_check"]
+    assert "неграфичной, но не туманной" in rule["instruction"]
+
+
+def test_pov_activity_keeps_humor_character_driven_not_default():
+    rule = guardrails._pov_activity_rule()
+    automatic = " ".join(rule["automatic_without_player_input"])
+    instruction = rule["instruction"]
+    assert "юмор, сарказм, подкол или огрызание только когда они естественны" in automatic
+    assert "Юмор, сарказм и подкол не являются режимом по умолчанию" in instruction
+    assert "шути, поддевай" not in instruction
+
+
 def test_npc_intent_drive_treats_evasion_as_unresolved():
     context = {
         "npc_active_intents": {
@@ -241,10 +292,14 @@ def test_prepare_turn_packet_contains_noncanonical_narrative_guardrails():
         context = json.loads("".join(parts))
 
         signals = context["narrative_guardrails"]
-        assert signals["version"] == 11
+        assert signals["version"] == 12
         assert signals["pov_activity"]["mandatory"] is True
         assert signals["pov_activity"]["ordinary_dialogue_required_when_natural"] is True
         assert signals["pov_activity"]["silence_requires_character_or_scene_reason"] is True
+        assert signals["dialogue_naturalism"]["humor_is_not_default"] is True
+        assert signals["dialogue_naturalism"]["one_joke_does_not_require_joke_response"] is True
+        assert signals["physical_clarity"]["concrete_action_sequence_required"] is True
+        assert signals["physical_clarity"]["sensations_supplement_action_not_replace_it"] is True
         assert signals["scene_momentum"]["player_input_scope"]["boundary"] == "next_meaningful_pov_choice"
         assert signals["story_drive"]["mandatory"] is True
         assert isinstance(signals["cast_pressure"], list)
