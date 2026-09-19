@@ -215,7 +215,7 @@ def _anchor_catalog(value: Any) -> List[Dict[str, Any]]:
     anchors = [event for event in events if _is_anchor(event)]
     anchors.sort(key=lambda event: (_event_turn(event), str(event.get("event_id") or "")))
     result: List[Dict[str, Any]] = []
-    for event in anchors[-MAX_FULL_ANCHOR_CHRONOLOGY:]:
+    for event in anchors:
         text = event.get("event") or event.get("summary") or event.get("fact") or event.get("description") or ""
         row = {
             "event_id": event.get("event_id"),
