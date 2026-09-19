@@ -367,15 +367,9 @@ def _scene_momentum_rule(context: Dict[str, Any]) -> Dict[str, Any]:
             "короткое содержательное действие POV вместе со следующим самостоятельным этапом, который игрок ещё не выбирал",
         ],
         "clarity": (
-            "Пиши достаточно прямо, чтобы читатель понимал, что физически и эмоционально происходит. Не прячь сам факт действия за туманными эвфемизмами или одним сообщением результата."
-        ),
-        "dialogue_naturalism": (
-            "Все говорящие — разные люди, не общий стендап. Юмор/сарказм не default и одна шутка не требует ответной; допустим простой, буквальный, тёплый, сухой, раздражённый, неловкий ответ, усмешка, игнор, смена темы или молчание. "
-            "Процент сарказма scene_builder относится ко всей сцене, не к каждой реплике/персонажу. Перед commit: если без имён говорящие взаимозаменяемы по сарказму/punchline-ритму, верни каждому его голос."
-        ),
-        "physical_clarity": (
-            "В интимном/романтическом и другом важном телесном действии неграфично, но конкретно показывай последовательность: кто что сделал, положение тел, контакт/позу/одежду и непосредственную реакцию. "
-            "Дыхание, голос, звуки, тепло, дрожь и ощущения дополняют действие, не заменяют его; не подменяй физику эвфемизмом вроде «убрал последнюю дистанцию»."
+            "Пиши прямо и понятно. Диалог не стендап: юмор/сарказм не default, одна шутка не требует ответной, голоса персонажей не должны быть взаимозаменяемы. "
+            "В важном телесном/интимном действии неграфично, но ясно показывай последовательность, положение тел, контакт/позу/одежду и реакцию; дыхание/звуки/ощущения дополняют действие, не заменяют его. "
+            "Не прячь физику за эвфемизмом вроде «убрал последнюю дистанцию»."
         ),
         "player_choice": (
             "Не возвращай управление ради технической мелочи или очевидного продолжения уже выбранной обычной деятельности. "
@@ -443,7 +437,7 @@ def _rewrite_packet(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
             "story_pressure": _story_pressure(context, current_turn),
             "character_relevance": _character_relevance(context),
             "instruction": (
-                "pov_activity, character_driven_behavior, npc_intent_drive and scene_momentum are mandatory; scene_momentum includes dialogue naturalism and physical clarity. "
+                "pov_activity, character_driven_behavior, npc_intent_drive and scene_momentum are mandatory. "
                 "Non-empty cast_pressure must be reconsidered without POV prompting; use a candidate when current canon permits, otherwise keep pending. "
                 "story_pressure and character_relevance are guidance. Never invent past events."
             ),
