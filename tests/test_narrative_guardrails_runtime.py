@@ -170,9 +170,9 @@ def test_dialogue_naturalism_does_not_make_humor_the_default_mode():
     assert rule["humor_is_not_default"] is True
     assert rule["one_joke_does_not_require_joke_response"] is True
     assert rule["character_voice_over_shared_comedy_rhythm"] is True
-    assert any("буквальный" in item for item in rule["ordinary_reply_modes"])
+    assert any("буквально" in item for item in rule["ordinary_reply_modes"])
     assert any("стендап" in item for item in rule["avoid"])
-    assert any("одинаковый сухой сарказм" in item for item in rule["avoid"])
+    assert any("одинаковый сарказм" in item for item in rule["avoid"])
     assert "Одна шутка не требует ответной шутки" in rule["instruction"]
     assert "обычной" in rule["instruction"].casefold()
     assert "каждой реплике" in rule["humor_budget_semantics"]
@@ -185,7 +185,7 @@ def test_dialogue_naturalism_checks_character_voice_instead_of_shared_punchline_
     assert "убери имена" in check
     assert "взаимозаменяемо" in check
     assert "одинакового сарказма" in check
-    assert "собственному характеру" in check
+    assert "собственный голос" in check
 
 
 def test_physical_clarity_requires_concrete_sequence_without_graphic_anatomy():
@@ -197,8 +197,8 @@ def test_physical_clarity_requires_concrete_sequence_without_graphic_anatomy():
     assert rule["non_graphic_is_enough"] is True
     assert any("интимное" in item for item in rule["applies_when"])
     assert any("положение тел" in item for item in rule["applies_when"])
-    assert any("дыхание" in item for item in rule["use_for_clarity"])
-    assert any("одежд" in item for item in rule["use_for_clarity"])
+    assert any("дыхание" in item for item in rule["clarity_fields"])
+    assert any("одежд" in item for item in rule["clarity_fields"])
     assert any("убрал последнюю дистанцию" in item for item in rule["avoid"])
     assert any("ощущения" in item for item in rule["avoid"])
     assert any("графичес" in item for item in rule["avoid"])
