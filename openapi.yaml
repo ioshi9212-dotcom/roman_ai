@@ -79,6 +79,28 @@ components:
       required: [user_input]
       properties:
         user_input: {type: string}
+        request_id:
+          type: string
+          minLength: 1
+          maxLength: 120
+          description: Optional for old clients; new clients send one stable id per gameplay turn and reuse it only for technical retries of that same turn.
+        scene_archive_capable:
+          type: boolean
+          default: false
+          description: Set true only when this client has prepareSceneArchiveRead/getSceneArchiveChunk available. Enables bounded scene_history transport.
+        replace_pending:
+          type: boolean
+          default: false
+          description: Never set automatically. True explicitly abandons an existing uncommitted turn packet; its diagnostic metadata is preserved.
+      additionalProperties: false
+    SceneArchiveRead:
+      type: object
+      properties:
+        scene_id:
+          type: string
+          minLength: 1
+          description: Omit for the complete compacted-scene index; provide a scene_id for that scene plus exact raw turns.
+      additionalProperties: false
     RollbackLastTurn:
       type: object
       required: [expected_turn_number, expected_turn_id, confirm]
@@ -511,14 +533,6 @@ paths:
             schema: {$ref: '#/components/schemas/SessionCreate'}
       responses:
         '200': {description: Session metadata}
-  /sessions/{session_id}/preview:
-    get:
-      operationId: getSessionPreview
-      summary: Build a compact preview from an existing session
-      parameters:
-        - {in: path, name: session_id, required: true, schema: {type: string}}
-      responses:
-        '200': {description: Session preview}
   /sessions/{session_id}/resume:
     post:
       operationId: resumeSession
@@ -583,7 +597,7 @@ paths:
     post:
       operationId: prepareTurn
       summary: Build or reuse bounded writer-first context from complete persistent canon
-      description: Response normally includes packet_id and may include chunk 0. Repeating the same pending input reuses it. If the exact same user_input was already committed moments ago, returns already_committed_duplicate=true plus the saved scene_output instead of creating another turn.
+      description: New clients send a stable request_id per gameplay turn, reuse it only for technical retries, and set scene_archive_capable=true. Old clients may omit both fields and keep legacy behavior. An existing pending turn is never replaced unless replace_pending=true was explicitly requested.
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
       requestBody:
@@ -593,7 +607,7 @@ paths:
             schema: {$ref: '#/components/schemas/TurnPrepare'}
       responses:
         '200': {description: Writer-first manifest plus inline chunk 0 when a new packet was prepared}
-        '409': {description: Audit required or current scene pointer requires technical recovery}
+        '409': {description: Audit/current recovery required, request_id conflict, or another uncommitted turn is already in progress}
   /sessions/{session_id}/turn-packet/{packet_id}/{chunk_index}:
     get:
       operationId: getTurnPacketChunk
@@ -607,6 +621,35 @@ paths:
         '200': {description: One remaining writer packet chunk}
         '403': {description: Invalid or stale packet_id}
         '404': {description: Chunk index out of range}
+  /sessions/{session_id}/scene-archive/read:
+    post:
+      operationId: prepareSceneArchiveRead
+      summary: Prepare chunked persistent scene history or exact old-scene evidence
+      description: Omit scene_id for the complete compacted-scene index. Provide scene_id for that scene plus exact raw turns from its source ranges. Chunk 0 is included.
+      parameters:
+        - {in: path, name: session_id, required: true, schema: {type: string}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/SceneArchiveRead'}
+      responses:
+        '200': {description: Scene archive manifest plus inline chunk 0}
+        '404': {description: Session or scene not found}
+  /sessions/{session_id}/scene-archive/read/{read_id}/{chunk_index}:
+    get:
+      operationId: getSceneArchiveChunk
+      summary: Read one remaining chunk from a prepared scene archive read
+      description: Start at next_chunk_index because chunk 0 is already included. Echo scene_id only when the prepare request used one.
+      parameters:
+        - {in: path, name: session_id, required: true, schema: {type: string}}
+        - {in: path, name: read_id, required: true, schema: {type: string}}
+        - {in: path, name: chunk_index, required: true, schema: {type: integer, minimum: 0}}
+        - {in: query, name: scene_id, required: false, schema: {type: string}}
+      responses:
+        '200': {description: One remaining scene archive chunk}
+        '404': {description: Session, scene or chunk not found}
+        '409': {description: Scene archive changed during reading}
   /sessions/{session_id}/characters/{character_id}/read:
     post:
       operationId: prepareCharacterBundleRead
@@ -633,19 +676,10 @@ paths:
         '404': {description: Session, character or chunk not found}
         '409': {description: Character dossier changed during reading}
   /sessions/{session_id}/turns:
-    get:
-      operationId: getTurnRange
-      summary: Emergency recovery or manual diagnostics only
-      parameters:
-        - {in: path, name: session_id, required: true, schema: {type: string}}
-        - {in: query, name: start_turn, required: true, schema: {type: integer}}
-        - {in: query, name: end_turn, required: true, schema: {type: integer}}
-      responses:
-        '200': {description: Raw turns}
     post:
       operationId: commitTurn
       summary: Save one complete turn after required writer chunks were read
-      description: Echo packet_id from prepareTurn. Canon and durable retry receipt commit atomically; exact retries return prior success without another turn.
+      description: Echo packet_id from prepareTurn. Canon and retry receipt commit atomically. TURN_PACKET_INCOMPLETE returns the same pending packet plus exact unread chunk indices; never use recoverSessionCurrent for a turn-packet error.
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
       requestBody:
