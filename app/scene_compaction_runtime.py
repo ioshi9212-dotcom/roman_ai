@@ -17,6 +17,8 @@ _MEMORY_ID_KEYS = {
     "experiences": "event_id",
     "dialogue_memory": "topic_id",
 }
+_IMPORTANCE_RANK = {"normal": 0, "major": 1, "anchor": 2, "critical": 3}
+_DURABILITY_FLAGS = ("anchor", "durable", "pinned", "permanent")
 
 
 def _clean_text(value: Any) -> str:
@@ -290,6 +292,77 @@ def _memory_source_lookup(bucket: Dict[str, Any], memory_type: str) -> Dict[str,
     }
 
 
+def _source_confidence_metadata(
+    source_rows: List[Dict[str, Any]],
+    source_ids: List[str],
+) -> Dict[str, Any]:
+    entries: List[Dict[str, Any]] = []
+    for item, source_id in zip(source_rows, source_ids):
+        inherited = item.get("source_confidences")
+        if item.get("canonical_compaction") is True and isinstance(inherited, list) and inherited:
+            entries.extend(
+                deepcopy(row)
+                for row in inherited
+                if isinstance(row, dict) and row.get("source_id")
+            )
+        elif "confidence" in item:
+            entries.append({"source_id": source_id, "confidence": deepcopy(item.get("confidence"))})
+
+    deduped: List[Dict[str, Any]] = []
+    seen: set[str] = set()
+    for row in entries:
+        source_id = str(row.get("source_id") or "")
+        if source_id and source_id not in seen:
+            seen.add(source_id)
+            deduped.append(row)
+    if not deduped:
+        return {}
+
+    values: List[Any] = []
+    for row in deduped:
+        value = row.get("confidence")
+        if not any(value == existing for existing in values):
+            values.append(deepcopy(value))
+
+    result: Dict[str, Any] = {"source_confidences": deduped}
+    if len(values) == 1:
+        result["confidence"] = deepcopy(values[0])
+        return result
+
+    non_certain = [value for value in values if str(value).casefold().strip() != "certain"]
+    result["confidence"] = deepcopy(non_certain[0]) if len(non_certain) == 1 else "mixed"
+    return result
+
+
+def _durability_metadata(source_rows: List[Dict[str, Any]]) -> Dict[str, Any]:
+    importances: List[str] = []
+    for item in source_rows:
+        inherited = item.get("source_importance")
+        if item.get("canonical_compaction") is True and isinstance(inherited, list):
+            importances.extend(
+                str(value).casefold().strip()
+                for value in inherited
+                if str(value or "").strip()
+            )
+        own = str(item.get("importance") or "").casefold().strip()
+        if own:
+            importances.append(own)
+
+    distinct = list(dict.fromkeys(importances))
+    result: Dict[str, Any] = {}
+    if distinct:
+        result["importance"] = max(
+            distinct,
+            key=lambda value: (_IMPORTANCE_RANK.get(value, 0), -distinct.index(value)),
+        )
+        result["source_importance"] = distinct
+
+    for key in _DURABILITY_FLAGS:
+        if any(item.get(key) is True for item in source_rows):
+            result[key] = True
+    return result
+
+
 def _canonical_memory_record(
     *,
     character_id: str,
@@ -336,12 +409,17 @@ def _canonical_memory_record(
     }
 
     if memory_type == "knowledge":
+        first_turn = min(ordered_turns) if ordered_turns else int(audit_end_turn)
+        last_turn = max(ordered_turns) if ordered_turns else int(audit_end_turn)
         return {
             **common,
+            **_source_confidence_metadata(source_rows, source_ids),
+            **_durability_metadata(source_rows),
             "fact_id": canonical_id,
             "fact": summary,
-            "learned_turn": min(ordered_turns) if ordered_turns else int(audit_end_turn),
-            "confidence": "certain",
+            "learned_turn": first_turn,
+            "first_learned_turn": first_turn,
+            "last_learned_turn": last_turn,
         }
     if memory_type == "experiences":
         return {
