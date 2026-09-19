@@ -164,6 +164,30 @@ def test_character_driven_behavior_has_no_psychology_or_boundary_filter():
     assert "значимая реакция POV остаётся игроку" in instruction
 
 
+def test_scene_momentum_clarity_keeps_dialogue_natural_and_physical_action_readable():
+    text = guardrails._scene_momentum_rule({})["clarity"]
+    lower = text.casefold()
+    assert "диалог не стендап" in lower
+    assert "не default" in lower
+    assert "шутка не требует ответной" in lower
+    assert "голоса различны" in lower
+    assert "телесном/интимном" in lower
+    assert "неграфично, но ясно" in lower
+    assert "положение тел" in lower
+    assert "контакт и реакцию" in lower
+    assert "звуки/ощущения не заменяют действие" in lower
+    assert "убрал последнюю дистанцию" in lower
+
+
+def test_pov_activity_keeps_humor_character_driven_not_default():
+    rule = guardrails._pov_activity_rule()
+    automatic = " ".join(rule["automatic_without_player_input"])
+    instruction = rule["instruction"]
+    assert "юмор/сарказм только когда естественны" in automatic
+    assert "юмор/сарказм не default" in instruction
+    assert "шути, поддевай" not in instruction
+
+
 def test_npc_intent_drive_treats_evasion_as_unresolved():
     context = {
         "npc_active_intents": {
@@ -241,10 +265,13 @@ def test_prepare_turn_packet_contains_noncanonical_narrative_guardrails():
         context = json.loads("".join(parts))
 
         signals = context["narrative_guardrails"]
-        assert signals["version"] == 11
+        assert signals["version"] == 12
         assert signals["pov_activity"]["mandatory"] is True
         assert signals["pov_activity"]["ordinary_dialogue_required_when_natural"] is True
         assert signals["pov_activity"]["silence_requires_character_or_scene_reason"] is True
+        assert "диалог не стендап" in signals["scene_momentum"]["clarity"].casefold()
+        assert "положение тел" in signals["scene_momentum"]["clarity"].casefold()
+        assert "не заменяют действие" in signals["scene_momentum"]["clarity"].casefold()
         assert signals["scene_momentum"]["player_input_scope"]["boundary"] == "next_meaningful_pov_choice"
         assert signals["story_drive"]["mandatory"] is True
         assert isinstance(signals["cast_pressure"], list)
