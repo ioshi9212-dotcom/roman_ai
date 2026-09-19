@@ -170,12 +170,12 @@ def test_scene_momentum_clarity_keeps_dialogue_natural_and_physical_action_reada
     assert "диалог не стендап" in lower
     assert "не default" in lower
     assert "одна шутка не требует ответной" in lower
-    assert "не должны быть взаимозаменяемы" in lower
+    assert "голоса не взаимозаменяемы" in lower
     assert "телесном/интимном" in lower
     assert "неграфично, но ясно" in lower
     assert "положение тел" in lower
-    assert "контакт/позу/одежду" in lower
-    assert "дыхание/звуки/ощущения дополняют действие, не заменяют его" in lower
+    assert "контакт и реакцию" in lower
+    assert "звуки/ощущения не заменяют действие" in lower
     assert "убрал последнюю дистанцию" in lower
 
 
@@ -183,8 +183,8 @@ def test_pov_activity_keeps_humor_character_driven_not_default():
     rule = guardrails._pov_activity_rule()
     automatic = " ".join(rule["automatic_without_player_input"])
     instruction = rule["instruction"]
-    assert "юмор, сарказм, подкол или огрызание только когда они естественны" in automatic
-    assert "Юмор, сарказм и подкол не являются режимом по умолчанию" in instruction
+    assert "юмор/сарказм только когда естественны" in automatic
+    assert "юмор/сарказм не default" in instruction
     assert "шути, поддевай" not in instruction
 
 
@@ -271,7 +271,7 @@ def test_prepare_turn_packet_contains_noncanonical_narrative_guardrails():
         assert signals["pov_activity"]["silence_requires_character_or_scene_reason"] is True
         assert "диалог не стендап" in signals["scene_momentum"]["clarity"].casefold()
         assert "положение тел" in signals["scene_momentum"]["clarity"].casefold()
-        assert "не заменяют его" in signals["scene_momentum"]["clarity"].casefold()
+        assert "не заменяют действие" in signals["scene_momentum"]["clarity"].casefold()
         assert signals["scene_momentum"]["player_input_scope"]["boundary"] == "next_meaningful_pov_choice"
         assert signals["story_drive"]["mandatory"] is True
         assert isinstance(signals["cast_pressure"], list)
