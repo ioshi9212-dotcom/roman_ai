@@ -164,30 +164,18 @@ def test_character_driven_behavior_has_no_psychology_or_boundary_filter():
     assert "значимая реакция POV остаётся игроку" in instruction
 
 
-def test_scene_momentum_keeps_dialogue_natural_and_character_specific():
-    rule = guardrails._scene_momentum_rule({})
-    text = rule["dialogue_naturalism"]
+def test_scene_momentum_clarity_keeps_dialogue_natural_and_physical_action_readable():
+    text = guardrails._scene_momentum_rule({})["clarity"]
     lower = text.casefold()
-    assert "не общий стендап" in lower
+    assert "диалог не стендап" in lower
     assert "не default" in lower
     assert "одна шутка не требует ответной" in lower
-    assert "простой" in lower
-    assert "не к каждой реплике/персонажу" in lower
-    assert "без имён" in lower
-    assert "взаимозаменяемы" in lower
-    assert "верни каждому его голос" in lower
-
-
-def test_scene_momentum_keeps_important_physical_action_readable_without_graphic_detail():
-    rule = guardrails._scene_momentum_rule({})
-    text = rule["physical_clarity"]
-    lower = text.casefold()
-    assert "интимном/романтическом" in lower
-    assert "неграфично, но конкретно" in lower
+    assert "не должны быть взаимозаменяемы" in lower
+    assert "телесном/интимном" in lower
+    assert "неграфично, но ясно" in lower
     assert "положение тел" in lower
     assert "контакт/позу/одежду" in lower
-    assert "дыхание" in lower
-    assert "ощущения дополняют действие, не заменяют его" in lower
+    assert "дыхание/звуки/ощущения дополняют действие, не заменяют его" in lower
     assert "убрал последнюю дистанцию" in lower
 
 
@@ -281,9 +269,9 @@ def test_prepare_turn_packet_contains_noncanonical_narrative_guardrails():
         assert signals["pov_activity"]["mandatory"] is True
         assert signals["pov_activity"]["ordinary_dialogue_required_when_natural"] is True
         assert signals["pov_activity"]["silence_requires_character_or_scene_reason"] is True
-        assert "не общий стендап" in signals["scene_momentum"]["dialogue_naturalism"].casefold()
-        assert "положение тел" in signals["scene_momentum"]["physical_clarity"].casefold()
-        assert "не заменяют его" in signals["scene_momentum"]["physical_clarity"].casefold()
+        assert "диалог не стендап" in signals["scene_momentum"]["clarity"].casefold()
+        assert "положение тел" in signals["scene_momentum"]["clarity"].casefold()
+        assert "не заменяют его" in signals["scene_momentum"]["clarity"].casefold()
         assert signals["scene_momentum"]["player_input_scope"]["boundary"] == "next_meaningful_pov_choice"
         assert signals["story_drive"]["mandatory"] is True
         assert isinstance(signals["cast_pressure"], list)
