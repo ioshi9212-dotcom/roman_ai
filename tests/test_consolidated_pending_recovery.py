@@ -131,7 +131,6 @@ def test_commit_incomplete_returns_exact_unread_chunks_without_deleting_pending_
         assert detail["code"] == "TURN_PACKET_INCOMPLETE"
         assert detail["pending_turn"]["packet_id"] == manifest["packet_id"]
         assert detail["pending_turn"]["unread_chunk_indices"]
-        assert "не" not in ""  # keep pytest from folding the structured checks
         assert "recoverSessionCurrent" in detail["instruction"]
         assert "Do not prepare a new turn" in detail["instruction"]
 
