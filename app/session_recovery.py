@@ -403,6 +403,18 @@ def recover_session_current(session_id: str) -> Dict[str, Any]:
     state["current"] = recovered
     state = storage._refresh_runtime_presence(state, cards, int(meta.get("turn_number", 0)))
     storage._write_json(root / "state.json", state)
+
+    pending_packet = storage._read_json(root / "turn_packet.json", {})
+    pending_retry = None
+    if isinstance(pending_packet, dict) and pending_packet.get("packet_id"):
+        pending_retry = {
+            "packet_id": str(pending_packet.get("packet_id")),
+            "request_id": str(pending_packet.get("request_id") or "") or None,
+            "user_input": str(pending_packet.get("user_input") or ""),
+            "scene_archive_capable": bool(pending_packet.get("scene_archive_capable")),
+            "invalidated_reason": "current_scene_pointer_repaired",
+        }
+
     for name in ("turn_packet.json", "audit_packet.json"):
         path = root / name
         if path.exists():
@@ -412,6 +424,7 @@ def recover_session_current(session_id: str) -> Dict[str, Any]:
         "turn_number": int(meta.get("turn_number", 0)),
         "reason": before_status["reasons"],
         "provenance": provenance,
+        "invalidated_pending_turn": deepcopy(pending_retry),
     }
     storage._write_json(root / "meta.json", meta)
     return {
@@ -423,8 +436,10 @@ def recover_session_current(session_id: str) -> Dict[str, Any]:
         "provenance": provenance,
         "canon_mutated": False,
         "turn_created": False,
+        "pending_turn_to_reprepare": deepcopy(pending_retry),
         "instruction": (
             "Technical current-scene pointer repaired without creating a gameplay turn and without changing chronology, memory, source or prior committed turns. "
-            "Call resumeSession again, then continue normally."
+            "If pending_turn_to_reprepare is present, its user_input/request_id were preserved before the stale packet was invalidated; reprepare that exact user turn after resumeSession. "
+            "Do not invent a replacement gameplay turn."
         ),
     }
