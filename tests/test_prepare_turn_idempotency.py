@@ -2,10 +2,12 @@ import tempfile
 from pathlib import Path
 
 import pytest
+from fastapi import HTTPException
 
 from app import session_runtime, storage
 from app.main import turn_packet_prepare
 from app.models import TurnPrepare
+from app.operation_service import prepare_turn_request
 
 
 def setup_temp_storage(tmp: str):
@@ -151,3 +153,139 @@ def test_commit_boundary_rejects_recent_duplicate_even_if_internal_prepare_is_ca
 
         assert storage._read_json(storage.SESSIONS_DIR / sid / "meta.json", {})["turn_number"] == 1
         assert len(storage._read_turns(storage.SESSIONS_DIR / sid)) == 1
+
+
+
+def _commit_request_turn(sid: str, user_input: str, request_id: str, turn: int):
+    manifest = prepare_turn_request(sid, user_input, request_id)
+    start = 1 if manifest.get("first_chunk_included") else 0
+    for index in range(start, manifest["chunk_count"]):
+        storage.get_turn_packet_chunk(sid, manifest["packet_id"], index)
+    return session_runtime.commit_turn(
+        sid,
+        {
+            "packet_id": manifest["packet_id"],
+            "user_input": user_input,
+            "scene_output": (
+                "🎭 Duplicate guard · осень\n"
+                f"🕒 День 1 · вторник, 01.09.2026, 10:{turn:02d} · 📍 room\n\n"
+                f"Сохранённая сцена {turn}.\n\nСостояние: спокойно\nОтношения:\n\nХод {turn}"
+            ),
+            "extracted": {
+                "persistence_reviewed": True,
+                "chronology": [],
+                "knowledge_add": [],
+                "experiences_add": [],
+                "dialogue_memory_add": [],
+                "npc_intent_updates": [],
+                "story_thread_updates": [],
+            },
+        },
+    )
+
+
+def test_request_id_allows_identical_text_as_two_real_gameplay_turns():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = make_session()
+        text = "Ещё раз."
+
+        first = _commit_request_turn(sid, text, "req-repeat-1", 1)
+        second = _commit_request_turn(sid, text, "req-repeat-2", 2)
+
+        turns = storage._read_turns(storage.SESSIONS_DIR / sid)
+        assert first["turn_number"] == 1
+        assert second["turn_number"] == 2
+        assert [row["user_input"] for row in turns] == [text, text]
+        assert [row["request_id"] for row in turns] == ["req-repeat-1", "req-repeat-2"]
+
+
+def test_same_committed_request_id_replays_saved_scene_without_new_turn():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = make_session()
+        text = "Один сетевой запрос."
+        _commit_request_turn(sid, text, "req-retry", 1)
+
+        response = prepare_turn_request(sid, text, "req-retry")
+        assert response["already_committed_duplicate"] is True
+        assert response["duplicate_guard"] == "request_id"
+        assert response["request_id"] == "req-retry"
+        assert response["turn_number"] == 1
+        assert len(storage._read_turns(storage.SESSIONS_DIR / sid)) == 1
+
+
+def test_new_request_cannot_silently_replace_an_uncommitted_pending_turn():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = make_session()
+        first = turn_packet_prepare(
+            sid,
+            TurnPrepare(user_input="Первый незаписанный ход.", request_id="req-pending-1"),
+        )
+
+        with pytest.raises(HTTPException) as exc:
+            turn_packet_prepare(
+                sid,
+                TurnPrepare(user_input="Другой ход.", request_id="req-pending-2"),
+            )
+
+        assert exc.value.status_code == 409
+        assert exc.value.detail["code"] == "TURN_IN_PROGRESS"
+        pending = exc.value.detail["pending_turn"]
+        assert pending["packet_id"] == first["packet_id"]
+        assert pending["request_id"] == "req-pending-1"
+        assert pending["user_input"] == "Первый незаписанный ход."
+
+        saved = storage._read_json(storage.SESSIONS_DIR / sid / "turn_packet.json", {})
+        assert saved["packet_id"] == first["packet_id"]
+
+
+def test_explicit_pending_replacement_preserves_diagnostic_metadata():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = make_session()
+        first = prepare_turn_request(sid, "Старый незаписанный ход.", "req-old")
+        second = prepare_turn_request(
+            sid,
+            "Новый ход.",
+            "req-new",
+            replace_pending=True,
+        )
+
+        assert second["packet_id"] != first["packet_id"]
+        root = storage.SESSIONS_DIR / sid
+        abandoned = storage._read_json(root / "abandoned_turn_packets.json", [])
+        assert abandoned[-1]["packet_id"] == first["packet_id"]
+        assert abandoned[-1]["request_id"] == "req-old"
+        assert abandoned[-1]["user_input"] == "Старый незаписанный ход."
+        assert abandoned[-1]["reason"] == "explicit_replace_pending"
+
+
+def test_old_prepare_schema_remains_backward_compatible_without_request_id():
+    value = TurnPrepare(user_input="Продолжить.")
+    assert value.request_id is None
+    assert value.scene_archive_capable is False
+    assert value.replace_pending is False
+
+
+
+def test_retry_of_old_committed_request_does_not_disturb_newer_pending_turn():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = make_session()
+        old_text = "Уже сохранённый ход."
+        _commit_request_turn(sid, old_text, "req-old-committed", 1)
+
+        pending = prepare_turn_request(sid, "Новый незаписанный ход.", "req-new-pending")
+        root = storage.SESSIONS_DIR / sid
+        before = storage._read_json(root / "turn_packet.json", {})
+
+        replay = prepare_turn_request(sid, old_text, "req-old-committed")
+
+        assert replay["already_committed_duplicate"] is True
+        assert replay["request_id"] == "req-old-committed"
+        after = storage._read_json(root / "turn_packet.json", {})
+        assert after == before
+        assert after["packet_id"] == pending["packet_id"]
+        assert after["request_id"] == "req-new-pending"

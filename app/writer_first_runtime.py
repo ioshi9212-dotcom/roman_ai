@@ -211,14 +211,11 @@ def _is_anchor(event: Dict[str, Any]) -> bool:
 
 
 def _anchor_catalog(value: Any) -> List[Dict[str, Any]]:
-    events = [
-        item for item in value
-        if isinstance(item, dict) and not item.get("compacted_scene_id")
-    ] if isinstance(value, list) else []
+    events = [item for item in value if isinstance(item, dict)] if isinstance(value, list) else []
+    anchors = [event for event in events if _is_anchor(event)]
+    anchors.sort(key=lambda event: (_event_turn(event), str(event.get("event_id") or "")))
     result: List[Dict[str, Any]] = []
-    for event in events:
-        if not _is_anchor(event):
-            continue
+    for event in anchors:
         text = event.get("event") or event.get("summary") or event.get("fact") or event.get("description") or ""
         row = {
             "event_id": event.get("event_id"),
@@ -226,6 +223,7 @@ def _anchor_catalog(value: Any) -> List[Dict[str, Any]]:
             "summary": " ".join(str(text).split())[:MAX_ANCHOR_SUMMARY],
             "participants_present": list(_event_participants(event))[:8],
             "location": event.get("location") or event.get("location_id") or event.get("place"),
+            "compacted_scene_id": event.get("compacted_scene_id"),
         }
         result.append({key: value for key, value in row.items() if value not in (None, "", [], 0)})
     return result

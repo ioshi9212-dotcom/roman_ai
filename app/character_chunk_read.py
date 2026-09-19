@@ -39,6 +39,17 @@ def _turn(item: Any) -> int:
         return 0
 
 
+def _recency_turn(item: Any) -> int:
+    if not isinstance(item, dict):
+        return 0
+    try:
+        if item.get("last_learned_turn") not in (None, ""):
+            return int(item["last_learned_turn"])
+    except (TypeError, ValueError):
+        pass
+    return _turn(item)
+
+
 def _id(item: Any) -> str | None:
     if not isinstance(item, dict):
         return None
@@ -78,7 +89,7 @@ def _bound_memory_value(value: Any) -> Any:
 
 def _tail(values: Any, limit: int) -> List[Dict[str, Any]]:
     rows = active_memory_records(values)
-    rows.sort(key=_turn)
+    rows.sort(key=_recency_turn)
     return rows[-limit:]
 
 
@@ -118,6 +129,7 @@ def _working_memory(bundle: Dict[str, Any]) -> Dict[str, Any]:
         {
             "fact_id": _id(item),
             "learned_turn": _turn(item),
+            "last_learned_turn": item.get("last_learned_turn"),
             "summary": _summary(item),
         }
         for item in older[-CHARACTER_HISTORICAL_CATALOG:]
