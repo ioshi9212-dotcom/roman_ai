@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
-from . import session_runtime
+from . import session_runtime, storage
 
 
 _ORIGINAL_CONTINUE_SESSION = None
@@ -15,6 +15,29 @@ def _size(value: Any) -> int:
     return 0
 
 
+def _pending_turn(root) -> Dict[str, Any] | None:
+    packet = storage._read_json(root / "turn_packet.json", {})
+    if not isinstance(packet, dict) or not packet.get("packet_id"):
+        return None
+    chunks = packet.get("chunks") if isinstance(packet.get("chunks"), list) else []
+    read = sorted({
+        int(value)
+        for value in packet.get("read_chunks", [])
+        if isinstance(value, int) and 0 <= int(value) < len(chunks)
+    })
+    unread = [index for index in range(len(chunks)) if index not in set(read)]
+    return {
+        "packet_id": str(packet.get("packet_id")),
+        "prepared_for_turn": int(packet.get("prepared_for_turn", 0) or 0),
+        "request_id": str(packet.get("request_id") or "") or None,
+        "user_input": str(packet.get("user_input") or ""),
+        "chunk_count": len(chunks),
+        "read_chunks": read,
+        "unread_chunk_indices": unread,
+        "ready_for_commit": not unread,
+    }
+
+
 def _continue_session(session_id: str) -> Dict[str, Any]:
     result = dict(_ORIGINAL_CONTINUE_SESSION(session_id))
     result["resume_payload_counts"] = {
@@ -23,7 +46,20 @@ def _continue_session(session_id: str) -> Dict[str, Any]:
     for field in _HEAVY_RESUME_FIELDS:
         result.pop(field, None)
     result["resume_payload_compact"] = True
-    if not result.get("current_recovery_required"):
+    root = storage.SESSIONS_DIR / session_id
+    pending = _pending_turn(root)
+    if pending:
+        result["pending_turn"] = pending
+    if result.get("current_recovery_required"):
+        if pending:
+            result["pending_turn_before_current_recovery"] = pending
+    elif pending:
+        result["instruction"] = (
+            "An uncommitted turn packet already exists. Do not start or replace another gameplay turn. "
+            "Call prepareTurn with this pending_turn.user_input and the same request_id when present; it must reuse the existing packet. "
+            "Read only unread_chunk_indices, then commit once. recoverSessionCurrent is not a turn-packet recovery tool."
+        )
+    else:
         result["instruction"] = (
             "Continue this exact existing session. The resume response is intentionally compact and does not transport the full chronology or relationship stores. "
             "Nothing was deleted or truncated in persistent storage. On the next gameplay input call prepareTurn for this same session_id; prepareTurn reloads the bounded scene working context from complete persistent storage."
