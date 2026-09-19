@@ -191,9 +191,12 @@ def _atomic_commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, A
         if len(set(packet.get("read_chunks", []))) < int(packet.get("chunk_count", 0)):
             raise RuntimeError("TURN_PACKET_INCOMPLETE")
 
-        duplicate = recent_duplicate_turn(session_id, payload.get("user_input", ""))
-        if duplicate:
-            raise RuntimeError("RECENT_DUPLICATE_USER_INPUT")
+        # Stable request_id is the authoritative retry identity for upgraded clients.
+        # Preserve the old text-window guard only for legacy packets that have no request_id.
+        if not str(packet.get("request_id") or "").strip():
+            duplicate = recent_duplicate_turn(session_id, payload.get("user_input", ""))
+            if duplicate:
+                raise RuntimeError("RECENT_DUPLICATE_USER_INPUT")
 
         pre_turn_snapshot = build_pre_turn_snapshot(root, turn_number)
         extracted = payload.get("extracted", {}) if isinstance(payload.get("extracted"), dict) else {}
@@ -202,6 +205,7 @@ def _atomic_commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, A
             {
                 "turn_number": turn_number,
                 "saved_at": datetime.now(timezone.utc).isoformat(),
+                "request_id": str(packet.get("request_id") or "") or None,
                 "user_input": payload["user_input"],
                 "scene_output": payload["scene_output"],
                 "extracted": deepcopy(extracted),
@@ -259,6 +263,8 @@ def _atomic_commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, A
         }
         if packet_id:
             result["packet_id"] = packet_id
+        if packet.get("request_id"):
+            result["request_id"] = str(packet.get("request_id"))
 
         values = {
             "turns.jsonl": _turns_text(turns),
