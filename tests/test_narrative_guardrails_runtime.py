@@ -169,8 +169,8 @@ def test_scene_momentum_clarity_keeps_dialogue_natural_and_physical_action_reada
     lower = text.casefold()
     assert "диалог не стендап" in lower
     assert "не default" in lower
-    assert "одна шутка не требует ответной" in lower
-    assert "голоса не взаимозаменяемы" in lower
+    assert "шутка не требует ответной" in lower
+    assert "голоса различны" in lower
     assert "телесном/интимном" in lower
     assert "неграфично, но ясно" in lower
     assert "положение тел" in lower
