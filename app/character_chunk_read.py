@@ -24,9 +24,9 @@ def _bundle_knowledge_firewall(character_id: str) -> Dict[str, Any]:
         "mandatory": True,
         "character_id": character_id,
         "card_is_author_only": True,
-        "allowed_sources": ["personal_memory", "personally perceived/received in scene", "inference from already-known premises"],
-        "forbidden_sources": ["card/backstory", "chronology/scene history", "lore/foundation/future", "other characters' private data"],
-        "instruction": "Read before CARD. CARD shapes characterization/author truth; PERSONAL_MEMORY controls factual awareness. Missing source means do not use the fact.",
+        "allowed_sources": ["personal_memory", "real perception/contact", "inference from known facts"],
+        "forbidden_sources": ["card/backstory", "chronology", "lore/foundation/future", "other private data"],
+        "instruction": "CARD — авторский канон. Фактическое знание персонажа — только memory/реальный источник.",
     }
 
 
@@ -202,9 +202,7 @@ def prepare_character_bundle_read(session_id: str, character_id: str) -> Dict[st
         "chunk_chars_max": CHARACTER_CHUNK_CHARS,
         "first_chunk_included": bool(chunks),
         "next_chunk_index": 1 if len(chunks) > 1 else None,
-        "instruction": (
-            "Chunk 0 is included in this prepare response and already available. Read only remaining getCharacterBundleChunk indices from 1 through chunk_count-1 before writing this offscreen character's entrance, speech, message, call, remote reaction or other deliberate action. Use single chunks only."
-        ),
+        "instruction": "Chunk 0 уже включён. Прочитай остальные chunks до участия персонажа.",
     }
     if chunks:
         result["chunk_index"] = 0
@@ -246,12 +244,7 @@ def install() -> None:
 
     def wrapped(context, cards, state):
         result = _ORIGINAL_INJECT(context, cards, state)
-        result["character_context_instruction"] = (
-            "Full character_cards travel only for POV and physically present characters. A mere offscreen name mention never loads a dossier. "
-            "character_memory is a bounded working copy while lifetime memory stays persistent. character_registry remains the compact registry for every registered character. "
-            "Before any other offscreen registered character enters, speaks, sends or receives a message, calls, answers, reacts remotely or otherwise materially acts, call prepareCharacterBundleRead(character_id). Its response already includes chunk 0; read only remaining getCharacterBundleChunk indices before writing the character. "
-            "Never call the oversized direct character bundle or direct memory Action."
-        )
+        result["character_context_instruction"] = "Offscreen NPC перед участием → prepareCharacterBundleRead и все оставшиеся chunks. Прямой oversized bundle не использовать."
         contract = result.get("working_context_contract") if isinstance(result.get("working_context_contract"), dict) else {}
         contract["dormant_character_retrieval"] = "bounded_chunked_on_demand"
         contract["remote_communication_requires_loaded_dossier"] = True
