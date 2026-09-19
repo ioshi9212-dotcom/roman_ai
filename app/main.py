@@ -6,7 +6,7 @@ from .audit_runtime import get_audit_snapshot, get_audit_snapshot_chunk
 from .character_access import get_character_bundle
 from .character_chunk_read import get_character_bundle_chunk, prepare_character_bundle_read
 from .context_stats import session_context_stats
-from .models import AuditCommit, NovelDraftCreate, NovelDraftIntakeChunk, NovelDraftIntakeMapping, NovelDraftLaunchState, NovelDraftReconciliation, NovelDraftSection, NovelRawSave, NovelTemplate, RollbackLastTurn, SessionCreate, TurnCommit, TurnPrepare
+from .models import AuditCommit, NovelDraftCreate, NovelDraftIntakeChunk, NovelDraftIntakeMapping, NovelDraftLaunchState, NovelDraftReconciliation, NovelDraftSection, NovelRawSave, NovelTemplate, RollbackLastTurn, SceneArchiveRead, SessionCreate, TurnCommit, TurnPrepare
 from .novel_access import get_novel_read_chunk, prepare_novel_read, verify_novel
 from .novel_drafts import (
     create_draft,
@@ -23,10 +23,13 @@ from .runtime_access import runtime_chunk, runtime_manifest
 from .session_preview import get_session_preview
 from .session_recovery import recover_session_current
 from .session_runtime import continue_session, prepare_turn_packet
+from .scene_archive_read import get_scene_archive_chunk, prepare_scene_archive_read
 from .operation_service import (
     OperationReceiptConflict,
     commit_audit_request,
     commit_turn_request,
+    pending_turn_status,
+    prepare_turn_request,
     rollback_last_turn_request,
 )
 from .storage import (
@@ -40,7 +43,6 @@ from .storage import (
     save_novel,
 )
 from .turn_rollback import RollbackError
-from .turn_duplicate_guard import duplicate_prepare_response, recent_duplicate_turn
 
 app = FastAPI(
     title="Roman AI",
@@ -402,15 +404,40 @@ def audit_snapshot_chunk_get(session_id: str, audit_id: str, chunk_index: int):
 @app.post("/sessions/{session_id}/turn-packet", operation_id="prepareTurn")
 def turn_packet_prepare(session_id: str, body: TurnPrepare):
     try:
-        duplicate = recent_duplicate_turn(session_id, body.user_input)
-        if duplicate:
-            return duplicate_prepare_response(duplicate)
-        return prepare_turn_packet(session_id, body.user_input)
+        return prepare_turn_request(
+            session_id,
+            body.user_input,
+            body.request_id,
+            scene_archive_capable=bool(body.scene_archive_capable),
+            replace_pending=bool(body.replace_pending),
+        )
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Session not found")
     except RuntimeError as exc:
-        if str(exc) == "AUDIT_REQUIRED":
+        code = str(exc)
+        if code == "AUDIT_REQUIRED":
             raise HTTPException(status_code=409, detail="Audit is required before preparing the next turn")
+        if code == "TURN_REQUEST_ID_REUSED":
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": code,
+                    "message": "This request_id already belongs to different user_input. Use a new request_id for a new gameplay turn.",
+                },
+            )
+        if code == "TURN_IN_PROGRESS":
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": code,
+                    "message": "Another user turn is already prepared but not committed. It was NOT deleted or replaced.",
+                    "pending_turn": pending_turn_status(session_id),
+                    "instruction": (
+                        "Resume the existing packet: read only its unread_chunk_indices and commit that same packet once. "
+                        "Do not call recoverSessionCurrent for a turn-packet error. Set replace_pending=true only if the user explicitly abandons the saved pending turn."
+                    ),
+                },
+            )
         raise
 
 
@@ -424,6 +451,30 @@ def turn_packet_chunk_get(session_id: str, packet_id: str, chunk_index: int):
         raise HTTPException(status_code=403, detail="Invalid or stale packet_id")
     except IndexError:
         raise HTTPException(status_code=404, detail="Chunk index out of range")
+
+
+@app.post("/sessions/{session_id}/scene-archive/read", operation_id="prepareSceneArchiveRead")
+def scene_archive_read_prepare(session_id: str, body: SceneArchiveRead):
+    try:
+        return prepare_scene_archive_read(session_id, body.scene_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Session not found")
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Scene not found")
+
+
+@app.get("/sessions/{session_id}/scene-archive/read/{read_id}/{chunk_index}", operation_id="getSceneArchiveChunk")
+def scene_archive_chunk_get(session_id: str, read_id: str, chunk_index: int, scene_id: str | None = None):
+    try:
+        return get_scene_archive_chunk(session_id, scene_id, read_id, chunk_index)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Session not found")
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Scene not found")
+    except PermissionError:
+        raise HTTPException(status_code=409, detail="Scene archive changed; restart the prepared read")
+    except IndexError:
+        raise HTTPException(status_code=404, detail="Scene archive chunk index out of range")
 
 
 @app.post("/sessions/{session_id}/characters/{character_id}/read", operation_id="prepareCharacterBundleRead")
@@ -485,18 +536,38 @@ def turns_commit(session_id: str, body: TurnCommit):
     except OperationReceiptConflict:
         raise HTTPException(status_code=409, detail="The packet_id was already used with a different commit payload. Prepare a fresh turn packet; no mutation was performed.")
     except RuntimeError as exc:
+        code = str(exc)
+        if code in {"TURN_PACKET_REQUIRED", "TURN_PACKET_INCOMPLETE"}:
+            pending = pending_turn_status(session_id)
+            if code == "TURN_PACKET_INCOMPLETE":
+                instruction = (
+                    "Do not prepare a new turn and do not call recoverSessionCurrent. "
+                    "Read only pending_turn.unread_chunk_indices for this exact packet_id, then retry commitTurn once with the same payload."
+                )
+            else:
+                instruction = (
+                    "Do not invent a recovery turn. Inspect pending_turn. If it exists, resume that exact packet; "
+                    "otherwise call prepareTurn again for the same user input/request_id. recoverSessionCurrent is only for resumeSession current_recovery_required=true."
+                )
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": code,
+                    "message": "Turn packet is not ready for this commit; no canonical turn was created or deleted.",
+                    "pending_turn": pending,
+                    "instruction": instruction,
+                },
+            )
         errors = {
             "AUDIT_REQUIRED": "Audit is required before the next turn",
             "TURN_PACKET_ID_REQUIRED": "commitTurn requires the exact packet_id returned by prepareTurn",
-            "TURN_PACKET_REQUIRED": "prepareTurn must be called for this exact user input and packet_id before commitTurn",
-            "TURN_PACKET_INCOMPLETE": "Every turn packet chunk must be read before commitTurn",
-            "RECENT_DUPLICATE_USER_INPUT": "This exact user input was already committed moments ago. Do not create another turn for it; reuse the saved scene from the prior commit.",
+            "RECENT_DUPLICATE_USER_INPUT": "Legacy duplicate guard rejected identical recent text. Upgrade prepareTurn to request_id semantics; no new turn was created.",
             "PERSISTENCE_REVIEW_REQUIRED": "Before commitTurn explicitly review chronology and per-character memory. extracted must include persistence_reviewed=true plus chronology, knowledge_add, experiences_add and dialogue_memory_add arrays, even when empty.",
             "RELATIONSHIP_FOOTER_REQUIRED": "The Relationships footer is missing or empty for at least one NPC physically present in the scene. Rewrite the scene footer so EVERY present NPC has an NPC->POV relationship row. If that NPC has no saved dimensions yet, initialize 1-3 natural dimensions now; do not leave the block empty.",
             "RELATIONSHIP_FOOTER_INCOMPLETE": "A present NPC has saved relationship dimensions, but the scene footer omitted or renamed one or more of them. Rewrite the footer using all saved labels from relationship_lens, preserving current values unless this scene genuinely changed them.",
         }
-        if str(exc) in errors:
-            raise HTTPException(status_code=409, detail=errors[str(exc)])
+        if code in errors:
+            raise HTTPException(status_code=409, detail=errors[code])
         raise
 
 
