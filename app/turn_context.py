@@ -132,6 +132,17 @@ def _record_turn(item: Any) -> int:
         return 0
 
 
+def _recency_turn(item: Any) -> int:
+    if not isinstance(item, dict):
+        return 0
+    try:
+        if item.get("last_learned_turn") not in (None, ""):
+            return int(item["last_learned_turn"])
+    except (TypeError, ValueError):
+        pass
+    return _record_turn(item)
+
+
 def _is_durable_memory(item: Any) -> bool:
     if not isinstance(item, dict):
         return False
@@ -168,9 +179,9 @@ def _working_records(records: Any, current_turn: int) -> tuple[List[Dict[str, An
     threshold = max(0, current_turn - RECENT_MEMORY_TURNS + 1)
     full_candidates = [
         item for item in values
-        if _is_durable_memory(item) or _record_turn(item) >= threshold or _record_turn(item) == 0
+        if _is_durable_memory(item) or _recency_turn(item) >= threshold or _recency_turn(item) == 0
     ]
-    full_candidates.sort(key=lambda item: (_is_durable_memory(item), _record_turn(item)), reverse=True)
+    full_candidates.sort(key=lambda item: (_is_durable_memory(item), _recency_turn(item)), reverse=True)
     full = full_candidates[:MAX_FULL_MEMORY_RECORDS_PER_TYPE]
     full_ids = {_record_id(item) or json.dumps(item, ensure_ascii=False, sort_keys=True) for item in full}
     omitted = [
@@ -192,6 +203,8 @@ def _working_memory_bucket(bucket: Any, current_turn: int) -> Dict[str, Any]:
             "learned_turn": _record_turn(item),
             "summary": _memory_summary(item),
         }
+        if item.get("last_learned_turn") not in (None, ""):
+            row["last_learned_turn"] = item.get("last_learned_turn")
         if item.get("confidence") is not None:
             row["confidence"] = item.get("confidence")
         historical_knowledge_catalog.append({key: value for key, value in row.items() if value not in (None, "", 0)})
