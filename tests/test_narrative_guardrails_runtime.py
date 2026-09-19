@@ -170,22 +170,21 @@ def test_dialogue_naturalism_does_not_make_humor_the_default_mode():
     assert rule["humor_is_not_default"] is True
     assert rule["one_joke_does_not_require_joke_response"] is True
     assert rule["character_voice_over_shared_comedy_rhythm"] is True
-    assert any("буквально" in item for item in rule["ordinary_reply_modes"])
-    assert any("стендап" in item for item in rule["avoid"])
-    assert any("одинаковый сарказм" in item for item in rule["avoid"])
-    assert "Одна шутка не требует ответной шутки" in rule["instruction"]
-    assert "обычной" in rule["instruction"].casefold()
-    assert "каждой реплике" in rule["humor_budget_semantics"]
-    assert "каждому персонажу" in rule["humor_budget_semantics"]
+    text = rule["rule"]
+    assert "не стендап" in text
+    assert "не требует ответной шутки" in text
+    assert "буквальный" in text
+    assert "ко всей сцене" in text
+    assert "не к каждой реплике/персонажу" in text
 
 
 def test_dialogue_naturalism_checks_character_voice_instead_of_shared_punchline_rhythm():
-    rule = guardrails._dialogue_naturalism_rule()
-    check = rule["voice_check"]
-    assert "убери имена" in check
-    assert "взаимозаменяемо" in check
-    assert "одинакового сарказма" in check
-    assert "собственный голос" in check
+    check = guardrails._dialogue_naturalism_rule()["pre_commit_check"]
+    lower = check.casefold()
+    assert "убери имена" in lower
+    assert "взаимозаменяемы" in lower
+    assert "одинаковому сарказму" in lower
+    assert "собственный голос" in lower
 
 
 def test_physical_clarity_requires_concrete_sequence_without_graphic_anatomy():
@@ -195,15 +194,14 @@ def test_physical_clarity_requires_concrete_sequence_without_graphic_anatomy():
     assert rule["concrete_action_sequence_required"] is True
     assert rule["sensations_supplement_action_not_replace_it"] is True
     assert rule["non_graphic_is_enough"] is True
-    assert any("интимное" in item for item in rule["applies_when"])
-    assert any("положение тел" in item for item in rule["applies_when"])
-    assert any("дыхание" in item for item in rule["clarity_fields"])
-    assert any("одежд" in item for item in rule["clarity_fields"])
-    assert any("убрал последнюю дистанцию" in item for item in rule["avoid"])
-    assert any("ощущения" in item for item in rule["avoid"])
-    assert any("графичес" in item for item in rule["avoid"])
-    assert "без перечитывания и догадки" in rule["pre_commit_check"]
-    assert "неграфичной, но не туманной" in rule["instruction"]
+    text = rule["rule"]
+    assert "интимном" in text
+    assert "положения тел" in text
+    assert "дыхание" in text
+    assert "одежда" in text
+    assert "убрал последнюю дистанцию" in text
+    assert "графическая анатомия не нужна" in text
+    assert "без перечитывания и догадки" in rule["pre_commit_check"].casefold()
 
 
 def test_pov_activity_keeps_humor_character_driven_not_default():
