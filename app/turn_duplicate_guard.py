@@ -87,7 +87,8 @@ def duplicate_prepare_response(row: Dict[str, Any]) -> Dict[str, Any]:
     result = {
         "ok": True,
         "already_committed_duplicate": True,
-        "duplicate_guard": "request_id" if request_based else row.get("duplicate_guard", "legacy_text_window"),
+        "duplicate_guard": "request_id" if request_based else True,
+        "duplicate_guard_mode": "request_id" if request_based else row.get("duplicate_guard", "legacy_text_window"),
         "turn_number": int(row.get("turn_number", 0) or 0),
         "current_turn_id": row.get("turn_id"),
         "saved_at": row.get("saved_at"),
