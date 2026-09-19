@@ -267,3 +267,25 @@ def test_old_prepare_schema_remains_backward_compatible_without_request_id():
     assert value.request_id is None
     assert value.scene_archive_capable is False
     assert value.replace_pending is False
+
+
+
+def test_retry_of_old_committed_request_does_not_disturb_newer_pending_turn():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = make_session()
+        old_text = "Уже сохранённый ход."
+        _commit_request_turn(sid, old_text, "req-old-committed", 1)
+
+        pending = prepare_turn_request(sid, "Новый незаписанный ход.", "req-new-pending")
+        root = storage.SESSIONS_DIR / sid
+        before = storage._read_json(root / "turn_packet.json", {})
+
+        replay = prepare_turn_request(sid, old_text, "req-old-committed")
+
+        assert replay["already_committed_duplicate"] is True
+        assert replay["request_id"] == "req-old-committed"
+        after = storage._read_json(root / "turn_packet.json", {})
+        assert after == before
+        assert after["packet_id"] == pending["packet_id"]
+        assert after["request_id"] == "req-new-pending"
