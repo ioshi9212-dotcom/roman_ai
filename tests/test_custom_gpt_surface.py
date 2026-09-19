@@ -19,6 +19,8 @@ def test_custom_gpt_schema_exposes_response_safe_single_context_character_and_ro
     intake_mapping = "/novel-drafts/{draft_id}/intake/{block_id}/mapping"
     reconciliation = "/novel-drafts/{draft_id}/reconciliation"
     launch_state = "/novel-drafts/{draft_id}/launch-state"
+    scene_archive_prepare = "/sessions/{session_id}/scene-archive/read"
+    scene_archive_chunk = "/sessions/{session_id}/scene-archive/read/{read_id}/{chunk_index}"
 
     assert paths[turn_path]["get"]["operationId"] == "getTurnPacketChunk"
     assert paths[audit_path]["get"]["operationId"] == "getAuditSnapshotChunk"
@@ -29,17 +31,31 @@ def test_custom_gpt_schema_exposes_response_safe_single_context_character_and_ro
     assert paths[intake_mapping]["post"]["operationId"] == "updateDraftIntakeMapping"
     assert paths[reconciliation]["post"]["operationId"] == "confirmDraftReconciliation"
     assert paths[launch_state]["post"]["operationId"] == "setDraftLaunchState"
+    assert paths[scene_archive_prepare]["post"]["operationId"] == "prepareSceneArchiveRead"
+    assert paths[scene_archive_chunk]["get"]["operationId"] == "getSceneArchiveChunk"
     assert schema["components"]["schemas"]["NovelDraftIntakeChunk"]["properties"]["raw_text"]["maxLength"] == 6000
     rollback_schema = schema["components"]["schemas"]["RollbackLastTurn"]
     assert set(rollback_schema["required"]) == {"expected_turn_number", "expected_turn_id", "confirm"}
     assert rollback_schema["properties"]["confirm"]["const"] is True
     assert "packet_id" in schema["components"]["schemas"]["TurnCommit"]["required"]
+    turn_prepare = schema["components"]["schemas"]["TurnPrepare"]
+    assert turn_prepare["required"] == ["user_input"]
+    assert "request_id" in turn_prepare["properties"]
+    assert "scene_archive_capable" in turn_prepare["properties"]
+    assert "replace_pending" in turn_prepare["properties"]
     assert "audit_id" in schema["components"]["schemas"]["AuditCommit"]["required"]
 
     assert "/sessions/{session_id}/turn-packet-batch/{packet_id}" not in paths
     assert "/sessions/{session_id}/audit-snapshot-batch/{audit_id}" not in paths
     assert "/sessions/{session_id}/characters/{character_id}" not in paths
     assert "/sessions/{session_id}/characters/{character_id}/memory" not in paths
+    assert "/sessions/{session_id}/preview" not in paths
+    assert "getTurnRange" not in {
+        operation.get("operationId")
+        for methods in paths.values()
+        for method, operation in methods.items()
+        if method in {"get", "post", "put", "patch", "delete"} and isinstance(operation, dict)
+    }
 
 
 def test_action_descriptions_stay_under_custom_gpt_limit():
@@ -85,5 +101,13 @@ def test_custom_gpt_instruction_stays_small_and_matches_writer_first_transport()
     assert "422 на intake тем же payload НЕ повторяй" in text
     assert "пользователю сбой не показывай" in text
     assert "already_committed_duplicate=true" in text
+    assert "request_id" in text
+    assert "scene_archive_capable=true" in text
+    assert "prepareSceneArchiveRead" in text
+    assert "getSceneArchiveChunk" in text
+    assert "TURN_PACKET_INCOMPLETE" in text
+    assert "TURN_IN_PROGRESS" in text
+    assert "replace_pending=true" in text
+    assert "current_recovery_required=true" in text
     assert "запускай первую сцену" in text
     assert "не проси первый ход" in text
