@@ -84,6 +84,13 @@ def prepare_turn_request(
     identity = str(request_id or "").strip()
 
     with session_transaction(root):
+        # A completed request replay is independent of any newer pending turn and must
+        # never disturb it.
+        if identity:
+            committed = committed_request_turn(session_id, identity, user_input)
+            if committed is not None:
+                return duplicate_prepare_response(committed)
+
         packet = storage._read_json(root / "turn_packet.json", {})
         status = _packet_status(packet)
         if status is not None:
@@ -109,11 +116,7 @@ def prepare_turn_request(
             _archive_abandoned_pending(root, packet, reason="explicit_replace_pending")
             (root / "turn_packet.json").unlink(missing_ok=True)
 
-        if identity:
-            committed = committed_request_turn(session_id, identity, user_input)
-            if committed is not None:
-                return duplicate_prepare_response(committed)
-        else:
+        if not identity:
             # Backward-compatible path for an old Custom GPT schema. It behaves exactly
             # like the legacy client until request_id support is enabled client-side.
             duplicate = recent_duplicate_turn(session_id, user_input)
