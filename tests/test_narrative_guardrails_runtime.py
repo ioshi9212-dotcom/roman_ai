@@ -164,44 +164,31 @@ def test_character_driven_behavior_has_no_psychology_or_boundary_filter():
     assert "значимая реакция POV остаётся игроку" in instruction
 
 
-def test_dialogue_naturalism_does_not_make_humor_the_default_mode():
-    rule = guardrails._dialogue_naturalism_rule()
-    assert rule["mandatory"] is True
-    assert rule["humor_is_not_default"] is True
-    assert rule["one_joke_does_not_require_joke_response"] is True
-    assert rule["character_voice_over_shared_comedy_rhythm"] is True
-    text = rule["rule"]
-    assert "не стендап" in text
-    assert "не требует ответной шутки" in text
-    assert "буквальный" in text
-    assert "ко всей сцене" in text
-    assert "не к каждой реплике/персонажу" in text
-
-
-def test_dialogue_naturalism_checks_character_voice_instead_of_shared_punchline_rhythm():
-    check = guardrails._dialogue_naturalism_rule()["pre_commit_check"]
-    lower = check.casefold()
-    assert "убери имена" in lower
+def test_scene_momentum_keeps_dialogue_natural_and_character_specific():
+    rule = guardrails._scene_momentum_rule({})
+    text = rule["dialogue_naturalism"]
+    lower = text.casefold()
+    assert "не общий стендап" in lower
+    assert "не default" in lower
+    assert "одна шутка не требует ответной" in lower
+    assert "простой" in lower
+    assert "не к каждой реплике/персонажу" in lower
+    assert "без имён" in lower
     assert "взаимозаменяемы" in lower
-    assert "одинаковому сарказму" in lower
-    assert "собственный голос" in lower
+    assert "верни каждому его голос" in lower
 
 
-def test_physical_clarity_requires_concrete_sequence_without_graphic_anatomy():
-    rule = guardrails._physical_clarity_rule()
-    assert rule["mandatory"] is True
-    assert rule["selective"] is True
-    assert rule["concrete_action_sequence_required"] is True
-    assert rule["sensations_supplement_action_not_replace_it"] is True
-    assert rule["non_graphic_is_enough"] is True
-    text = rule["rule"]
-    assert "интимном" in text
-    assert "положения тел" in text
-    assert "дыхание" in text
-    assert "одежда" in text
-    assert "убрал последнюю дистанцию" in text
-    assert "графическая анатомия не нужна" in text
-    assert "без перечитывания и догадки" in rule["pre_commit_check"].casefold()
+def test_scene_momentum_keeps_important_physical_action_readable_without_graphic_detail():
+    rule = guardrails._scene_momentum_rule({})
+    text = rule["physical_clarity"]
+    lower = text.casefold()
+    assert "интимном/романтическом" in lower
+    assert "неграфично, но конкретно" in lower
+    assert "положение тел" in lower
+    assert "контакт/позу/одежду" in lower
+    assert "дыхание" in lower
+    assert "ощущения дополняют действие, не заменяют его" in lower
+    assert "убрал последнюю дистанцию" in lower
 
 
 def test_pov_activity_keeps_humor_character_driven_not_default():
@@ -294,10 +281,9 @@ def test_prepare_turn_packet_contains_noncanonical_narrative_guardrails():
         assert signals["pov_activity"]["mandatory"] is True
         assert signals["pov_activity"]["ordinary_dialogue_required_when_natural"] is True
         assert signals["pov_activity"]["silence_requires_character_or_scene_reason"] is True
-        assert signals["dialogue_naturalism"]["humor_is_not_default"] is True
-        assert signals["dialogue_naturalism"]["one_joke_does_not_require_joke_response"] is True
-        assert signals["physical_clarity"]["concrete_action_sequence_required"] is True
-        assert signals["physical_clarity"]["sensations_supplement_action_not_replace_it"] is True
+        assert "не общий стендап" in signals["scene_momentum"]["dialogue_naturalism"].casefold()
+        assert "положение тел" in signals["scene_momentum"]["physical_clarity"].casefold()
+        assert "не заменяют его" in signals["scene_momentum"]["physical_clarity"].casefold()
         assert signals["scene_momentum"]["player_input_scope"]["boundary"] == "next_meaningful_pov_choice"
         assert signals["story_drive"]["mandatory"] is True
         assert isinstance(signals["cast_pressure"], list)
