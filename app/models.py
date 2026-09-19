@@ -64,6 +64,13 @@ class SessionCreate(BaseModel):
 
 class TurnPrepare(BaseModel):
     user_input: str
+    request_id: Optional[str] = Field(default=None, min_length=1, max_length=120)
+    scene_archive_capable: bool = False
+    replace_pending: bool = False
+
+
+class SceneArchiveRead(BaseModel):
+    scene_id: Optional[str] = Field(default=None, min_length=1)
 
 
 class RollbackLastTurn(BaseModel):
