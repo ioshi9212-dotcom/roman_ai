@@ -368,7 +368,7 @@ def _rewrite_packet(session_id: str, base_result: Dict[str, Any]) -> Dict[str, A
             "direction": "NPC -> POV",
             "always_read": True,
             "characters": _relationship_index(state, cards),
-            "instruction": "Read every turn; 0 persists; behavior still follows the specific NPC.",
+            "instruction": "Читай каждый ход; 0 сохраняется.",
         }
 
         previous_policy = context.get("relationship_policy") if isinstance(context.get("relationship_policy"), dict) else {}
@@ -389,15 +389,15 @@ def _rewrite_packet(session_id: str, base_result: Dict[str, Any]) -> Dict[str, A
         persistence = context.get("persistence_contract") if isinstance(context.get("persistence_contract"), dict) else {}
         persistence["relationship_updates"] = {
             "optional": True,
-            "when": "causal NPC->POV change only",
+            "when": "Только causal NPC->POV change.",
             "fields": "character_id, reason, change_scale, elapsed_game_days(timeskip), dimensions[label,value,delta(existing)]",
-            "instruction": "Existing metric needs delta+reason. ordinary<=3; timeskip=3/day cap30; critical_event<=25. Mere mention is not contact.",
+            "instruction": "Existing metric → delta+reason. ordinary<=3; timeskip 3/day cap30; critical_event<=25.",
         }
         context["persistence_contract"] = persistence
 
         living = context.get("living_world") if isinstance(context.get("living_world"), dict) else {}
         model = living.get("relationship_model") if isinstance(living.get("relationship_model"), dict) else {}
-        model["behavior_rule"] = "Use metrics through character/context: strong bonds may cause contact, avoidance, testing, help or conflict."
+        model["behavior_rule"] = "Отношения влияют на поведение вместе с характером и ситуацией."
         living["relationship_model"] = model
         context["living_world"] = living
 
