@@ -226,44 +226,6 @@ def _pov_activity_rule() -> Dict[str, Any]:
     }
 
 
-def _dialogue_naturalism_rule() -> Dict[str, Any]:
-    return {
-        "mandatory": True,
-        "humor_is_not_default": True,
-        "one_joke_does_not_require_joke_response": True,
-        "character_voice_over_shared_comedy_rhythm": True,
-        "rule": (
-            "Диалог — разговор разных людей, не стендап. Юмор/сарказм не default и не требует ответной шутки: "
-            "допустимы буквальный, простой, тёплый, сухой, раздражённый, неловкий ответ, усмешка, игнор, смена темы или молчание. "
-            "Процент сарказма scene_builder относится ко всей сцене, не к каждой реплике/персонажу."
-        ),
-        "pre_commit_check": (
-            "Убери имена: если говорящие взаимозаменяемы по одинаковому сарказму, punchline-ритму или псевдоофициальным остротам, "
-            "верни каждому его собственный голос."
-        ),
-    }
-
-
-def _physical_clarity_rule() -> Dict[str, Any]:
-    return {
-        "mandatory": True,
-        "selective": True,
-        "concrete_action_sequence_required": True,
-        "sensations_supplement_action_not_replace_it": True,
-        "non_graphic_is_enough": True,
-        "rule": (
-            "В романтическом/чувственном/интимном сближении, поцелуях, прикосновениях, раздевании, лечении, танце, тренировке, драке "
-            "и любом важном изменении положения тел показывай конкретно: кто что сделал, где находится относительно другого, "
-            "как изменились поза/контакт/одежда и какое действие вызвало следующую реакцию. Дыхание, голос, звуки, тепло, дрожь, паузы и темп дополняют действие, не заменяют его. "
-            "Графическая анатомия не нужна. Не подменяй физику туманным эвфемизмом вроде «убрал последнюю дистанцию» или «ответила движением»."
-        ),
-        "pre_commit_check": (
-            "Без перечитывания и догадки понятны последовательность физических действий и положение участников? "
-            "Если нет, уточни только недостающий переход без каталога микродвижений."
-        ),
-    }
-
-
 def _character_driven_behavior_rule() -> Dict[str, Any]:
     return {
         "mandatory": True,
@@ -407,6 +369,14 @@ def _scene_momentum_rule(context: Dict[str, Any]) -> Dict[str, Any]:
         "clarity": (
             "Пиши достаточно прямо, чтобы читатель понимал, что физически и эмоционально происходит. Не прячь сам факт действия за туманными эвфемизмами или одним сообщением результата."
         ),
+        "dialogue_naturalism": (
+            "Все говорящие — разные люди, не общий стендап. Юмор/сарказм не default и одна шутка не требует ответной; допустим простой, буквальный, тёплый, сухой, раздражённый, неловкий ответ, усмешка, игнор, смена темы или молчание. "
+            "Процент сарказма scene_builder относится ко всей сцене, не к каждой реплике/персонажу. Перед commit: если без имён говорящие взаимозаменяемы по сарказму/punchline-ритму, верни каждому его голос."
+        ),
+        "physical_clarity": (
+            "В интимном/романтическом и другом важном телесном действии неграфично, но конкретно показывай последовательность: кто что сделал, положение тел, контакт/позу/одежду и непосредственную реакцию. "
+            "Дыхание, голос, звуки, тепло, дрожь и ощущения дополняют действие, не заменяют его; не подменяй физику эвфемизмом вроде «убрал последнюю дистанцию»."
+        ),
         "player_choice": (
             "Не возвращай управление ради технической мелочи или очевидного продолжения уже выбранной обычной деятельности. "
             "Возвращай его, когда появляется новый значимый выбор. Бounded meaningful action можно закончить на самом действии и реакции NPC; ongoing routine можно сжать дальше."
@@ -466,8 +436,6 @@ def _rewrite_packet(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
         context["narrative_guardrails"] = {
             "version": _GUARDRAIL_VERSION,
             "pov_activity": _pov_activity_rule(),
-            "dialogue_naturalism": _dialogue_naturalism_rule(),
-            "physical_clarity": _physical_clarity_rule(),
             "character_driven_behavior": _character_driven_behavior_rule(),
             "npc_intent_drive": _npc_intent_drive_rule(context),
             "scene_momentum": _scene_momentum_rule(context),
@@ -475,7 +443,7 @@ def _rewrite_packet(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
             "story_pressure": _story_pressure(context, current_turn),
             "character_relevance": _character_relevance(context),
             "instruction": (
-                "pov_activity, dialogue_naturalism, physical_clarity, character_driven_behavior, npc_intent_drive and scene_momentum are mandatory. "
+                "pov_activity, character_driven_behavior, npc_intent_drive and scene_momentum are mandatory; scene_momentum includes dialogue naturalism and physical clarity. "
                 "Non-empty cast_pressure must be reconsidered without POV prompting; use a candidate when current canon permits, otherwise keep pending. "
                 "story_pressure and character_relevance are guidance. Never invent past events."
             ),
