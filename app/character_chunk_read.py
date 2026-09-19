@@ -174,13 +174,7 @@ def _participation_bundle(session_id: str, character_id: str) -> Dict[str, Any]:
         "active_intents": deepcopy(full.get("active_intents", [])),
         "working_bundle": True,
         "persistent_lifetime_memory_complete": True,
-        "instruction": (
-            "KNOWLEDGE FIREWALL FIRST. CARD is objective author context for characterization, appearance, goals and hidden continuity; CARD is never evidence that this character personally knows a fact, including facts about their own past. "
-            "PERSONAL_MEMORY is the authoritative source for past factual awareness. Knowledge supporting an active intent is included when source_fact_ids identify it. "
-            "Complete lifetime memory remains persistent in Railway and is intentionally not retransmitted for every offscreen entrance/message/call. "
-            "Long prose inside memory records may be shortened in transport only; identifiers and persistent originals remain exact. "
-            "Do not infer factual awareness from author context."
-        ),
+        "instruction": "CARD — авторский контекст. Прошлые факты персонаж знает только из personal_memory/реального источника. Полная память остаётся в Railway.",
     }
 
 
