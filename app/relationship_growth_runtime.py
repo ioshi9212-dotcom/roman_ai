@@ -281,12 +281,9 @@ def _install_packet_policy_wrapper() -> None:
 
         lens = context.get("relationship_lens") if isinstance(context.get("relationship_lens"), dict) else {}
         lens["initialization_required"] = False
-        lens["initialization_instruction"] = "Initialize only meaningful dimensions; saved dimensions persist."
+        lens["initialization_instruction"] = "Новые dimensions только по реальному основанию; старые сохраняются."
         context["relationship_lens"] = lens
-        context["relationship_lens_instruction"] = (
-            "MANDATORY. Saved relationship_lens is this turn's authoritative NPC->POV start. "
-            "Ignore old relationship numbers from prior scene text."
-        )
+        context["relationship_lens_instruction"] = "relationship_lens — текущий канон NPC->POV."
 
         policy = context.get("relationship_policy") if isinstance(context.get("relationship_policy"), dict) else {}
         policy.update({
@@ -297,22 +294,16 @@ def _install_packet_policy_wrapper() -> None:
             "fresh_baseline_required": False,
             "zero_dimensions_may_be_hidden": True,
             "new_dimensions_may_be_appended": True,
-            "instruction": (
-                "Existing metrics change only through causal relationship_updates; Railway applies saved+delta. "
-                "Omitted metrics persist. Footer is display only; relationship_policy defines allowed change scale."
-            ),
+            "instruction": "Изменения только через causal relationship_updates; footer display-only.",
         })
         context["relationship_policy"] = policy
 
         persistence = context.get("persistence_contract") if isinstance(context.get("persistence_contract"), dict) else {}
         persistence["relationship_updates"] = {
             "optional": True,
-            "when": "Only on a real numeric or relationship-metadata change.",
+            "when": "Только при реальном изменении.",
             "format": '[{"character_id":"npc_id","dimensions":[{"label":"доверие","value":12,"delta":2}]}]',
-            "instruction": (
-                "Existing metric: send delta; Railway applies saved baseline + delta. Omit unchanged metrics. "
-                "Works if the participating NPC stays or leaves; metadata may share the row."
-            ),
+            "instruction": "Existing metric → delta; неизменённое не отправляй.",
         }
         context["persistence_contract"] = persistence
 
