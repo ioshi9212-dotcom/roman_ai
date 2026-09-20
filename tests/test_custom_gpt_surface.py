@@ -109,5 +109,6 @@ def test_custom_gpt_instruction_stays_small_and_matches_writer_first_transport()
     assert "TURN_IN_PROGRESS" in text
     assert "replace_pending=true" in text
     assert "current_recovery_required=true" in text
+    assert "last_committed_turn.scene_output" in text
     assert "запускай первую сцену" in text
     assert "не проси первый ход" in text
