@@ -326,11 +326,7 @@ def _rewrite_packet(session_id: str, base_result: Dict[str, Any]) -> Dict[str, A
             "story_created_active_count": sum(1 for row in active_rows if row.get("origin") == "story_created"),
             "rotation_pressure": pressure,
             "mandatory_rotation_consideration": bool(pressure),
-            "instruction": (
-                "Non-empty rotation_pressure requires active reconsideration without POV prompting. "
-                "If current canon permits participation, load the bundle and let a top candidate initiate or re-enter. "
-                "Bundle loading is procedural, not a reason for absence; relationships/intents shape initiative."
-            ),
+            "instruction": "Если rotation_pressure не пуст, проверь естественный возврат NPC без запроса POV.",
         }
 
         cast_index = context.get("cast_index")
