@@ -537,7 +537,7 @@ paths:
     post:
       operationId: resumeSession
       summary: Reconnect to the exact existing session
-      description: Compact checkpoint only. If current_recovery_required=true, call recoverSessionCurrent before prepareTurn. Complete canon remains in Railway.
+      description: Compact checkpoint including exact last_committed_turn.scene_output. If current_recovery_required=true, call recoverSessionCurrent before prepareTurn. Full canon remains in Railway.
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
       responses:

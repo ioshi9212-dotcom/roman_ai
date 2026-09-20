@@ -38,6 +38,19 @@ def _pending_turn(root) -> Dict[str, Any] | None:
     }
 
 
+def _last_committed_turn(root) -> Dict[str, Any] | None:
+    turns = storage._read_turns(root)
+    if not turns:
+        return None
+    last = turns[-1]
+    if not isinstance(last, dict):
+        return None
+    return {
+        "turn_number": int(last.get("turn_number", 0) or 0),
+        "scene_output": str(last.get("scene_output") or ""),
+    }
+
+
 def _continue_session(session_id: str) -> Dict[str, Any]:
     result = dict(_ORIGINAL_CONTINUE_SESSION(session_id))
     result["resume_payload_counts"] = {
@@ -47,6 +60,7 @@ def _continue_session(session_id: str) -> Dict[str, Any]:
         result.pop(field, None)
     result["resume_payload_compact"] = True
     root = storage.SESSIONS_DIR / session_id
+    result["last_committed_turn"] = _last_committed_turn(root)
     pending = _pending_turn(root)
     if pending:
         result["pending_turn"] = pending
@@ -55,14 +69,14 @@ def _continue_session(session_id: str) -> Dict[str, Any]:
             result["pending_turn_before_current_recovery"] = pending
     elif pending:
         result["instruction"] = (
-            "An uncommitted turn packet already exists. Do not start or replace another gameplay turn. "
-            "Call prepareTurn with this pending_turn.user_input and the same request_id when present; it must reuse the existing packet. "
-            "Read only unread_chunk_indices, then commit once. recoverSessionCurrent is not a turn-packet recovery tool."
+            "An uncommitted turn packet already exists. last_committed_turn.scene_output is the exact latest committed scene. "
+            "Do not start or replace another gameplay turn. Reuse pending_turn with the same request_id, read only unread_chunk_indices, then commit once. "
+            "recoverSessionCurrent is not a turn-packet recovery tool."
         )
     else:
         result["instruction"] = (
-            "Continue this exact existing session. The resume response is intentionally compact and does not transport the full chronology or relationship stores. "
-            "Nothing was deleted or truncated in persistent storage. On the next gameplay input call prepareTurn for this same session_id; prepareTurn reloads the bounded scene working context from complete persistent storage."
+            "Continue this exact existing session. last_committed_turn.scene_output is the exact latest saved scene and may be shown verbatim when the user asks for the last scene. "
+            "The resume response stays compact; full canon remains in persistent storage. On the next gameplay input call prepareTurn for this same session_id."
         )
     return result
 
