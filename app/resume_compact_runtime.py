@@ -70,7 +70,8 @@ def _continue_session(session_id: str) -> Dict[str, Any]:
     elif pending:
         result["instruction"] = (
             "An uncommitted turn packet already exists. last_committed_turn.scene_output is the exact latest committed scene. "
-            "Do not start or replace another gameplay turn. Reuse pending_turn with the same request_id, read only unread_chunk_indices, then commit once."
+            "Do not start or replace another gameplay turn. Reuse pending_turn with the same request_id, read only unread_chunk_indices, then commit once. "
+            "recoverSessionCurrent is not a turn-packet recovery tool."
         )
     else:
         result["instruction"] = (
