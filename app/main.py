@@ -410,6 +410,7 @@ def turn_packet_prepare(session_id: str, body: TurnPrepare):
             body.request_id,
             scene_archive_capable=bool(body.scene_archive_capable),
             knowledge_review_capable=bool(body.knowledge_review_capable),
+            strict_knowledge_capable=bool(body.strict_knowledge_capable),
             replace_pending=bool(body.replace_pending),
         )
     except FileNotFoundError:

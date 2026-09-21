@@ -84,7 +84,8 @@ def _rewrite_packet(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
             return base
 
         existing = context.get("scene_logic_guardrails")
-        already_front_loaded = bool(context) and next(iter(context)) == "scene_logic_guardrails"
+        first_key = next(iter(context)) if context else None
+        already_front_loaded = first_key in {"scene_logic_guardrails", "knowledge_firewall_v5"}
         if isinstance(existing, dict) and existing.get("version") == _GUARD_VERSION and already_front_loaded:
             return base
 

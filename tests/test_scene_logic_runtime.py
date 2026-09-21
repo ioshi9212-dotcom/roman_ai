@@ -80,7 +80,9 @@ def test_final_writer_packet_contains_scene_logic_guardrails():
             chunks.append(storage.get_turn_packet_chunk(sid, packet["packet_id"], index)["content"])
         context = json.loads("".join(chunks))
 
-        assert next(iter(context)) == "scene_logic_guardrails"
+        assert next(iter(context)) == "knowledge_firewall_v5"
+        assert context["knowledge_firewall_v5"]["version"] == 5
+        assert context["knowledge_firewall_v5"]["closed_world"] is True
         guards = context["scene_logic_guardrails"]
         assert guards["version"] == 4
         assert guards["knowledge_causality"]["mandatory"] is True
