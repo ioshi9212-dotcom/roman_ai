@@ -22,8 +22,8 @@ Railway хранит канон. `scene_builder` задаёт стиль и фо
 - Card/questionnaire/backstory, chronology, recent/continuity turns, scene_history, foundation, lore/world/future, experiences, dialogue_memory, relationships и чужая память — AUTHOR ONLY. Они не дают персонажу факт.
 - Источник знания должен существовать ДО реплики, вывода или действия. Не придумывай источник задним числом.
 - Факт текущего хода сначала оформляется как `turn_knowledge` с `event_id`, `character_id`, `fact`, `source_kind` и дословным `evidence`, уже существующим в raw input или сцене ДО использования.
-- Перед commit каждая зарегистрированная реплика и каждый POV-вариант действия/реплики/мысли покрываются `knowledge_usage`: либо `fact_free=true`, либо ссылками на knowledge fact/event этого же персонажа.
-- `knowledge_add` не создаёт знание задним числом: это только долговечная копия валидного `turn_knowledge` и требует `source_event_id`.
+- Перед commit реплики и POV-варианты покрываются `knowledge_usage`: `fact_free=true` либо knowledge fact/event этого же персонажа.
+- `knowledge_add` лишь сохраняет валидный `turn_knowledge` и требует `source_event_id`.
 - Нет источника до использования — перепиши сцену. Нельзя чинить дыру источником, появившимся позже.
 
 ## Отношения
