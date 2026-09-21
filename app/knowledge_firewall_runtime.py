@@ -712,7 +712,10 @@ def _strict_participation_bundle(session_id: str, character_id: str) -> Dict[str
     bundle = dict(_ORIGINAL_PARTICIPATION_BUNDLE(session_id, character_id))
     memory = deepcopy(bundle.get("personal_memory", {})) if isinstance(bundle.get("personal_memory"), dict) else {}
     bundle["personal_memory"] = memory
-    bundle["character_knowledge"] = _knowledge_only_bucket(memory)
+    bundle["character_knowledge"] = {
+        "path": "personal_memory.knowledge",
+        "fact_authority": True,
+    }
     bundle["author_only_recollection_context"] = {
         "experiences_path": "personal_memory.experiences",
         "dialogue_memory_path": "personal_memory.dialogue_memory",
@@ -722,7 +725,7 @@ def _strict_participation_bundle(session_id: str, character_id: str) -> Dict[str
     firewall.update({
         "version": _VERSION,
         "closed_world": True,
-        "authoritative_prior_knowledge_path": "character_knowledge.knowledge",
+        "authoritative_prior_knowledge_path": "personal_memory.knowledge",
         "card_is_author_only": True,
         "experiences_are_not_fact_authority": True,
         "dialogue_memory_is_not_fact_authority": True,
@@ -730,7 +733,7 @@ def _strict_participation_bundle(session_id: str, character_id: str) -> Dict[str
     })
     bundle["knowledge_firewall"] = firewall
     bundle["instruction"] = (
-        "Фактическое знание только character_knowledge.knowledge (тот же authority, что personal_memory.knowledge). "
+        "Фактическое знание только personal_memory.knowledge; character_knowledge.path указывает на него. "
         "Card, chronology, experiences/dialogue_memory и любой другой author context не дают новых фактов."
     )
     return bundle
