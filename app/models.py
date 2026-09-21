@@ -67,6 +67,7 @@ class TurnPrepare(BaseModel):
     request_id: Optional[str] = Field(default=None, min_length=1, max_length=120)
     scene_archive_capable: bool = False
     knowledge_review_capable: bool = False
+    strict_knowledge_capable: bool = False
     replace_pending: bool = False
 
 
