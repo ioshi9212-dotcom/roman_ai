@@ -28,8 +28,8 @@ def test_scene_builder_requires_progression_without_freezing_pov():
 def test_source_lines_cast_and_pov_remain_active_without_prompt_bloat():
     rules = (ROOT / "runtime" / "rules.md").read_text(encoding="utf-8")
     builder = (ROOT / "runtime" / "scene_builder.md").read_text(encoding="utf-8")
-    assert "Быт не должен замораживать мир" in rules
-    assert "активные threads/intents" in rules
+    assert "Мир не ждёт POV" in rules
+    assert "Активные NPC, intents, threads" in rules
     assert "Вне сцены важные НПС также живут" in builder
     assert "POV всегда присутствует как живой персонаж" in builder
     assert "реальные разные продолжения сцены" in builder
