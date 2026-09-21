@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Roman AI
-  version: 1.14.0
+  version: 1.15.0
   description: Persistent isolated novel sessions with bounded writer-first context, transactional memory, living NPC relationships, NPC intents, story threads, recovery, rollback, cast rotation and lossless chunked setup intake.
 servers:
   - url: https://romanai-production-0fdb.up.railway.app
@@ -20,7 +20,7 @@ components:
       properties:
         section_name:
           type: string
-          enum: [novel, characters, lore, rules, hidden_lore, world, starting_state, story_direction, foundation, intake]
+          enum: [novel, characters, lore, rules, hidden_lore, world, starting_state, story_direction, foundation, knowledge, intake]
         section_json: {type: string}
         expected_revision:
           type: integer
@@ -91,7 +91,7 @@ components:
         knowledge_review_capable:
           type: boolean
           default: false
-          description: Set true when the client performs the POV+NPC knowledge review and sends extracted.knowledge_reviewed=true before commit.
+          description: Set true when the client performs strict closed-world POV+NPC knowledge review, turn_knowledge provenance and per-unit knowledge_usage coverage before commit.
         replace_pending:
           type: boolean
           default: false
@@ -242,7 +242,19 @@ components:
             knowledge_reviewed:
               type: boolean
               default: false
-              description: True only after checking POV and every NPC in scene_output for unsupported knowledge and rewriting any claim without a personal-memory or real in-scene source.
+              description: True only after checking POV and every NPC against the strict closed-world knowledge ledger.
+            knowledge_trace_complete:
+              type: boolean
+              default: false
+              description: True only after knowledge_usage covers every registered speech unit plus every POV action/speech/thought option in scene_output.
+            turn_knowledge:
+              type: array
+              description: Current-turn learned facts. Each row uses character_id, event_id, fact, source_kind and exact evidence already present in user_input or scene_output before use. Card/chronology/foundation/lore are forbidden sources.
+              items: {type: object, additionalProperties: true}
+            knowledge_usage:
+              type: array
+              description: Per-unit provenance ledger. For each unit_id provide character_id and either fact_free=true or source_fact_ids/source_event_ids. Existing fact IDs must belong to that same character.
+              items: {type: object, additionalProperties: true}
             chronology:
               type: array
               items: {type: object, additionalProperties: true}
