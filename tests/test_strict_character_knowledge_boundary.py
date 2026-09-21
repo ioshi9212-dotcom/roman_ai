@@ -56,9 +56,14 @@ def test_offscreen_bundle_frontloads_firewall_and_card_is_not_knowledge(monkeypa
 
     assert next(iter(bundle)) == "knowledge_firewall"
     assert bundle["knowledge_firewall"]["card_is_author_only"] is True
+    assert bundle["knowledge_firewall"]["version"] == 5
+    assert bundle["knowledge_firewall"]["closed_world"] is True
     assert bundle["knowledge_firewall"]["character_id"] == "silas"
-    assert "CARD — авторский контекст" in bundle["instruction"]
-    assert "personal_memory/реального источника" in bundle["instruction"]
+    assert "personal_memory" not in bundle
+    assert "character_knowledge" in bundle
+    assert "knowledge" in bundle["character_knowledge"]
+    assert bundle["author_only_recollection_context"]["fact_authority"] is False
+    assert "Фактическое знание только character_knowledge.knowledge" in bundle["instruction"]
 
 
 def test_knowledge_guard_allows_causal_npc_to_npc_information_transfer():
