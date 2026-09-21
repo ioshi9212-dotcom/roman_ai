@@ -126,13 +126,18 @@ def _rewrite_packet(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
         packet = storage._read_json(root / "turn_packet.json", {})
         if not isinstance(packet, dict) or not packet.get("chunks"):
             return base
-        if int(packet.get("strict_knowledge_firewall_version", 0) or 0) >= _VERSION:
-            return base
-
         raw = "".join(str(chunk) for chunk in packet.get("chunks", []))
         try:
             context = json.loads(raw)
         except json.JSONDecodeError:
+            return base
+        if (
+            int(packet.get("strict_knowledge_firewall_version", 0) or 0) >= _VERSION
+            and context
+            and next(iter(context)) == "knowledge_firewall_v5"
+            and isinstance(context.get("knowledge_firewall_v5"), dict)
+            and int(context["knowledge_firewall_v5"].get("version", 0) or 0) >= _VERSION
+        ):
             return base
 
         memory = context.get("character_memory") if isinstance(context.get("character_memory"), dict) else {}
