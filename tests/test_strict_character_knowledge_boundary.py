@@ -32,7 +32,7 @@ def test_gpt_instruction_says_chronology_and_questionnaires_are_not_character_kn
     assert "анкеты/cards POV/NPC" in instructions
     assert "chronology/scene_history/recent_turns" in instructions
     assert "chronology_recent" in instructions
-    assert "не личное знание NPC" in instructions
+    assert "не знание персонажа" in instructions
     assert "foundation_pressure" in instructions
     assert "только как авторские сюжетные семена" in instructions
 
