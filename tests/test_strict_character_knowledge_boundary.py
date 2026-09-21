@@ -13,18 +13,17 @@ def test_character_knowledge_contract_excludes_author_only_sources():
     assert rule["character_knowledge_is_closed_world"] is True
 
     author_only = " ".join(rule["author_only_not_character_knowledge"]).casefold()
-    assert "pov questionnaire" in author_only
-    assert "npc questionnaire" in author_only
+    assert "pov/npc questionnaire" in author_only
     assert "foundation" in author_only
     assert "chronology" in author_only
     assert "recent_turns" in author_only
     assert "continuity_turns" in author_only
-    assert "character cards" in author_only
+    assert "character card/backstory" in author_only
     assert "another character's memory" in author_only
     allowed = " ".join(rule["allowed_sources"]).casefold()
     assert "character_memory" in allowed
     assert "directly saw" in allowed
-    assert "every premise" in allowed
+    assert "inference from facts already known" in allowed
 
 
 def test_gpt_instruction_says_chronology_and_questionnaires_are_not_character_knowledge():
@@ -58,8 +57,8 @@ def test_offscreen_bundle_frontloads_firewall_and_card_is_not_knowledge(monkeypa
     assert next(iter(bundle)) == "knowledge_firewall"
     assert bundle["knowledge_firewall"]["card_is_author_only"] is True
     assert bundle["knowledge_firewall"]["character_id"] == "silas"
-    assert "CARD is objective author context" in bundle["instruction"]
-    assert "never evidence" in bundle["instruction"]
+    assert "CARD — авторский контекст" in bundle["instruction"]
+    assert "personal_memory/реального источника" in bundle["instruction"]
 
 
 def test_knowledge_guard_allows_causal_npc_to_npc_information_transfer():
