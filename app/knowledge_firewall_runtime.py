@@ -585,13 +585,23 @@ def _validate_knowledge_commit(session_id: str, payload: Dict[str, Any]) -> None
     if (
         not isinstance(packet, dict)
         or int(packet.get("strict_knowledge_firewall_version", 0) or 0) < _VERSION
-        or not bool(packet.get("knowledge_review_capable"))
+        or not bool(packet.get("strict_knowledge_capable"))
     ):
         return
 
     extracted = payload.get("extracted") if isinstance(payload.get("extracted"), dict) else {}
     if extracted.get("knowledge_reviewed") is not True:
-        raise HTTPException(status_code=409, detail={"code": "KNOWLEDGE_REVIEW_REQUIRED"})
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "KNOWLEDGE_REVIEW_REQUIRED",
+                "packet_id": packet.get("packet_id"),
+                "instruction": (
+                    "Проверь знания POV и всех NPC в scene_output. Прошлый факт допустим только из knowledge этого персонажа; "
+                    "новый факт текущего хода сначала оформи turn_knowledge с реальным источником ДО использования."
+                ),
+            },
+        )
 
     source = storage._read_json(root / "source.json", {})
     cards = storage._load_cards(root, source)
@@ -700,7 +710,8 @@ def _create_session(novel: Dict[str, Any], *, session_id: str | None = None, met
 
 def _strict_participation_bundle(session_id: str, character_id: str) -> Dict[str, Any]:
     bundle = dict(_ORIGINAL_PARTICIPATION_BUNDLE(session_id, character_id))
-    memory = bundle.pop("personal_memory", {}) if isinstance(bundle.get("personal_memory"), dict) else {}
+    memory = deepcopy(bundle.get("personal_memory", {})) if isinstance(bundle.get("personal_memory"), dict) else {}
+    bundle["personal_memory"] = memory
     bundle["character_knowledge"] = _knowledge_only_bucket(memory)
     bundle["author_only_recollection_context"] = {
         "experiences": deepcopy(memory.get("experiences", [])) if isinstance(memory.get("experiences"), list) else [],
@@ -719,8 +730,8 @@ def _strict_participation_bundle(session_id: str, character_id: str) -> Dict[str
     })
     bundle["knowledge_firewall"] = firewall
     bundle["instruction"] = (
-        "Для фактов этого персонажа используй только character_knowledge.knowledge. "
-        "Card, chronology, experiences/dialogue memory и любой другой author context не дают знание."
+        "Фактическое знание только character_knowledge.knowledge (тот же authority, что personal_memory.knowledge). "
+        "Card, chronology, experiences/dialogue_memory и любой другой author context не дают новых фактов."
     )
     return bundle
 
