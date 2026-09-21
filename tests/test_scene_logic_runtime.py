@@ -82,10 +82,14 @@ def test_final_writer_packet_contains_scene_logic_guardrails():
 
         assert next(iter(context)) == "scene_logic_guardrails"
         guards = context["scene_logic_guardrails"]
-        assert guards["version"] == 3
+        assert guards["version"] == 4
         assert guards["knowledge_causality"]["mandatory"] is True
         assert guards["knowledge_causality"]["source_before_use"] is True
         assert guards["knowledge_causality"]["character_knowledge_is_closed_world"] is True
+        assert guards["knowledge_causality"]["applies_to"] == "POV and every NPC"
+        assert guards["knowledge_review"]["mandatory"] is True
+        assert guards["knowledge_review"]["applies_to"] == "POV and every NPC"
+        assert "перепиши" in guards["knowledge_review"]["rule"]
         assert guards["player_input_order"]["mandatory"] is True
         assert guards["player_input_order"]["no_reordering"] is True
         assert guards["player_text_cleanup"]["mandatory"] is True
