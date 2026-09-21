@@ -129,7 +129,11 @@ def _prepare_turn(session_id: str, user_input: str) -> Dict[str, Any]:
 def _require_knowledge_review(session_id: str, payload: Dict[str, Any]) -> None:
     root = storage.SESSIONS_DIR / session_id
     packet = storage._read_json(root / "turn_packet.json", {})
-    if not isinstance(packet, dict) or int(packet.get("scene_logic_guard_version", 0) or 0) < _GUARD_VERSION:
+    if (
+        not isinstance(packet, dict)
+        or int(packet.get("scene_logic_guard_version", 0) or 0) < _GUARD_VERSION
+        or not bool(packet.get("knowledge_review_capable"))
+    ):
         return
     extracted = payload.get("extracted") if isinstance(payload.get("extracted"), dict) else {}
     if extracted.get("knowledge_reviewed") is True:
