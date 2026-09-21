@@ -32,8 +32,8 @@ def test_knowledge_causality_requires_source_before_use_and_forbids_retroactive_
     assert "chronology" in author_only
     assert "future_guidance" in author_only
     assert "another character's memory" in author_only
-    assert "Источник должен существовать до реплики" in rule["rule"]
-    assert "Не придумывай источник задним числом" in rule["rule"]
+    assert "Источник должен существовать до реплики/мысли/действия" in rule["rule"]
+    assert "не придумывай его задним числом" in rule["rule"]
 
 def test_player_input_order_rule_forbids_reordering_segments():
     rule = scene_logic._player_input_order_rule()
@@ -82,10 +82,14 @@ def test_final_writer_packet_contains_scene_logic_guardrails():
 
         assert next(iter(context)) == "scene_logic_guardrails"
         guards = context["scene_logic_guardrails"]
-        assert guards["version"] == 3
+        assert guards["version"] == 4
         assert guards["knowledge_causality"]["mandatory"] is True
         assert guards["knowledge_causality"]["source_before_use"] is True
         assert guards["knowledge_causality"]["character_knowledge_is_closed_world"] is True
+        assert guards["knowledge_causality"]["applies_to"] == "POV and every NPC"
+        assert guards["knowledge_review"]["mandatory"] is True
+        assert guards["knowledge_review"]["applies_to"] == "POV and every NPC"
+        assert "перепиши" in guards["knowledge_review"]["rule"]
         assert guards["player_input_order"]["mandatory"] is True
         assert guards["player_input_order"]["no_reordering"] is True
         assert guards["player_text_cleanup"]["mandatory"] is True
@@ -103,6 +107,6 @@ def test_runtime_and_custom_gpt_repeat_source_order_and_spelling_policy():
     assert "слева направо" in rules
     assert "scene_logic_guardrails" in instructions
     assert "ordered_segments" in instructions
-    assert "информационную дыру задним числом" in instructions
+    assert "не закрывай информационную дыру задним числом" in instructions
     assert "очевидную орфографию" in instructions
     assert len(instructions) <= 8000

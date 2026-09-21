@@ -103,6 +103,8 @@ def test_custom_gpt_instruction_stays_small_and_matches_writer_first_transport()
     assert "already_committed_duplicate=true" in text
     assert "request_id" in text
     assert "scene_archive_capable=true" in text
+    assert "knowledge_review_capable=true" in text
+    assert "knowledge_reviewed=true" in text
     assert "prepareSceneArchiveRead" in text
     assert "getSceneArchiveChunk" in text
     assert "TURN_PACKET_INCOMPLETE" in text

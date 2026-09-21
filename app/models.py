@@ -66,6 +66,7 @@ class TurnPrepare(BaseModel):
     user_input: str
     request_id: Optional[str] = Field(default=None, min_length=1, max_length=120)
     scene_archive_capable: bool = False
+    knowledge_review_capable: bool = False
     replace_pending: bool = False
 
 
@@ -146,6 +147,7 @@ class TurnExtracted(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     persistence_reviewed: bool
+    knowledge_reviewed: bool = False
     chronology: List[Dict[str, Any]]
     knowledge_add: List[Dict[str, Any]]
     experiences_add: List[Dict[str, Any]]

@@ -88,6 +88,10 @@ components:
           type: boolean
           default: false
           description: Set true only when this client has prepareSceneArchiveRead/getSceneArchiveChunk available. Enables bounded scene_history transport.
+        knowledge_review_capable:
+          type: boolean
+          default: false
+          description: Set true when the client performs the POV+NPC knowledge review and sends extracted.knowledge_reviewed=true before commit.
         replace_pending:
           type: boolean
           default: false
@@ -235,6 +239,10 @@ components:
           required: [persistence_reviewed, chronology, knowledge_add, experiences_add, dialogue_memory_add, npc_intent_updates, story_thread_updates]
           properties:
             persistence_reviewed: {type: boolean}
+            knowledge_reviewed:
+              type: boolean
+              default: false
+              description: True only after checking POV and every NPC in scene_output for unsupported knowledge and rewriting any claim without a personal-memory or real in-scene source.
             chronology:
               type: array
               items: {type: object, additionalProperties: true}
@@ -597,7 +605,7 @@ paths:
     post:
       operationId: prepareTurn
       summary: Build or reuse bounded writer-first context from complete persistent canon
-      description: New clients send a stable request_id per gameplay turn, reuse it only for technical retries, and set scene_archive_capable=true. Old clients may omit both fields and keep legacy behavior. An existing pending turn is never replaced unless replace_pending=true was explicitly requested.
+      description: New clients send a stable request_id per gameplay turn, reuse it only for technical retries, and set scene_archive_capable=true plus knowledge_review_capable=true. Old clients may omit capability fields. An existing pending turn is never replaced unless replace_pending=true was explicitly requested.
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
       requestBody:
@@ -679,7 +687,7 @@ paths:
     post:
       operationId: commitTurn
       summary: Save one complete turn after required writer chunks were read
-      description: Echo packet_id from prepareTurn. Canon and retry receipt commit atomically. TURN_PACKET_INCOMPLETE returns the same pending packet plus exact unread chunk indices; never use recoverSessionCurrent for a turn-packet error.
+      description: Echo packet_id from prepareTurn. For knowledge-review-capable packets, set extracted.knowledge_reviewed=true only after checking POV and NPC knowledge. KNOWLEDGE_REVIEW_REQUIRED means rewrite unsupported knowledge and retry the same commit.
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
       requestBody:

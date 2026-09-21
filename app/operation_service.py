@@ -49,6 +49,7 @@ def _packet_status(packet: Any) -> Dict[str, Any] | None:
         "ready_for_commit": not unread,
         "status": "ready_for_commit" if not unread else "reading",
         "scene_archive_capable": bool(packet.get("scene_archive_capable")),
+        "knowledge_review_capable": bool(packet.get("knowledge_review_capable")),
     }
 
 
@@ -78,6 +79,7 @@ def prepare_turn_request(
     request_id: str | None = None,
     *,
     scene_archive_capable: bool = False,
+    knowledge_review_capable: bool = False,
     replace_pending: bool = False,
 ) -> Dict[str, Any]:
     root = _session_root(session_id)
@@ -107,6 +109,7 @@ def prepare_turn_request(
                 if identity:
                     result["request_id"] = identity
                 result["scene_archive_capable"] = bool(packet.get("scene_archive_capable"))
+                result["knowledge_review_capable"] = bool(packet.get("knowledge_review_capable"))
                 result["pending_turn"] = pending_turn_status(session_id)
                 return result
 
@@ -129,6 +132,7 @@ def prepare_turn_request(
             if identity:
                 packet["request_id"] = identity
             packet["scene_archive_capable"] = bool(scene_archive_capable)
+            packet["knowledge_review_capable"] = bool(knowledge_review_capable)
             storage._write_json(root / "turn_packet.json", packet)
 
         if scene_archive_capable:
@@ -137,6 +141,7 @@ def prepare_turn_request(
         if identity:
             result["request_id"] = identity
         result["scene_archive_capable"] = bool(scene_archive_capable)
+        result["knowledge_review_capable"] = bool(knowledge_review_capable)
         result["pending_turn"] = pending_turn_status(session_id)
         return result
 
