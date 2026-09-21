@@ -49,6 +49,7 @@ def _packet_status(packet: Any) -> Dict[str, Any] | None:
         "ready_for_commit": not unread,
         "status": "ready_for_commit" if not unread else "reading",
         "scene_archive_capable": bool(packet.get("scene_archive_capable")),
+        "knowledge_review_capable": bool(packet.get("knowledge_review_capable")),
     }
 
 
