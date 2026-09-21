@@ -714,8 +714,8 @@ def _strict_participation_bundle(session_id: str, character_id: str) -> Dict[str
     bundle["personal_memory"] = memory
     bundle["character_knowledge"] = _knowledge_only_bucket(memory)
     bundle["author_only_recollection_context"] = {
-        "experiences": deepcopy(memory.get("experiences", [])) if isinstance(memory.get("experiences"), list) else [],
-        "dialogue_memory": deepcopy(memory.get("dialogue_memory", [])) if isinstance(memory.get("dialogue_memory"), list) else [],
+        "experiences_path": "personal_memory.experiences",
+        "dialogue_memory_path": "personal_memory.dialogue_memory",
         "fact_authority": False,
     }
     firewall = bundle.get("knowledge_firewall") if isinstance(bundle.get("knowledge_firewall"), dict) else {}
