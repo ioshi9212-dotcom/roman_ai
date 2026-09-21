@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Roman AI
-  version: 1.15.0
+  version: 1.14.0
   description: Persistent isolated novel sessions with bounded writer-first context, transactional memory, living NPC relationships, NPC intents, story threads, recovery, rollback, cast rotation and lossless chunked setup intake.
 servers:
   - url: https://romanai-production-0fdb.up.railway.app
@@ -91,7 +91,11 @@ components:
         knowledge_review_capable:
           type: boolean
           default: false
-          description: Set true when the client performs strict closed-world POV+NPC knowledge review, turn_knowledge provenance and per-unit knowledge_usage coverage before commit.
+          description: Set true when the client performs the POV+NPC knowledge review before commit.
+        strict_knowledge_capable:
+          type: boolean
+          default: false
+          description: Set true only for clients that send turn_knowledge, knowledge_usage and knowledge_trace_complete under the strict closed-world knowledge firewall.
         replace_pending:
           type: boolean
           default: false
@@ -617,7 +621,7 @@ paths:
     post:
       operationId: prepareTurn
       summary: Build or reuse bounded writer-first context from complete persistent canon
-      description: New clients send a stable request_id per gameplay turn, reuse it only for technical retries, and set scene_archive_capable=true plus knowledge_review_capable=true. Old clients may omit capability fields. An existing pending turn is never replaced unless replace_pending=true was explicitly requested.
+      description: New clients use stable request_id and capability flags. Strict clients set scene_archive_capable, knowledge_review_capable and strict_knowledge_capable=true. Pending turns are replaced only when explicitly requested.
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
       requestBody:
