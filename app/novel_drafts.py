@@ -22,6 +22,7 @@ ALLOWED_SECTIONS = {
     "starting_state",
     "story_direction",
     "foundation",
+    "knowledge",
 }
 _CURRENT_FIELDS = (
     "date",
