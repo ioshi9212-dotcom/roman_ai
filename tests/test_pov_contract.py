@@ -9,7 +9,7 @@ def test_runtime_keeps_pov_agency_without_separate_contract_document():
     docs = runtime_documents()
     rules = docs["rules"]
     builder = docs["scene_builder"]
-    assert "POV — живой участник, не камера" in rules
+    assert "POV может сам делать мелкие бытовые действия" in rules
     assert "POV всегда присутствует как живой персонаж, а не камера" in builder
     assert "реакция пов остается за игроком" in builder
     assert "pov_contract" not in runtime_payload()["documents"]
@@ -36,7 +36,7 @@ def test_runtime_version_marks_writer_first_two_document_runtime():
 def test_first_scene_start_command_is_control_not_pov_speech():
     rules = (ROOT / "runtime" / "rules.md").read_text(encoding="utf-8")
     instructions = (ROOT / "gpt" / "custom_gpt_instructions.md").read_text(encoding="utf-8")
-    assert "turn_number=0" in rules
+    assert "turn 0" in rules
     assert "запускай первую сцену" in rules
     assert "служебная команда, не реплика POV" in rules
     assert "запускай первую сцену" in instructions
