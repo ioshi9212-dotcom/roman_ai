@@ -29,8 +29,8 @@ def test_character_knowledge_contract_excludes_author_only_sources():
 def test_gpt_instruction_says_chronology_and_questionnaires_are_not_character_knowledge():
     instructions = (ROOT / "gpt" / "custom_gpt_instructions.md").read_text(encoding="utf-8")
 
-    assert "анкета POV" in instructions
-    assert "анкеты NPC" in instructions
+    assert "анкеты/cards POV/NPC" in instructions
+    assert "chronology/scene_history/recent_turns" in instructions
     assert "chronology_recent" in instructions
     assert "не личное знание NPC" in instructions
     assert "foundation_pressure" in instructions
