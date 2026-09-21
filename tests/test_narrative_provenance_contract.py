@@ -9,10 +9,9 @@ def test_simple_runtime_forbids_direction_notes_from_becoming_shared_history():
     builder = (ROOT / "runtime" / "scene_builder.md").read_text(encoding="utf-8")
     combined = rules + "\n" + builder
     assert "future_guidance" in combined
-    assert "не доказывают" in combined or "не означает" in combined
-    assert "в этот раз" in combined
-    assert "он уже говорил" in combined
+    assert "не уже произошедшие события" in combined
     assert "Источник знания" in combined
+    assert "ДО реплики" in combined
     assert "задним числом" in combined
 
 
