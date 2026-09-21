@@ -107,6 +107,6 @@ def test_runtime_and_custom_gpt_repeat_source_order_and_spelling_policy():
     assert "слева направо" in rules
     assert "scene_logic_guardrails" in instructions
     assert "ordered_segments" in instructions
-    assert "не придумывай задним числом" in instructions
+    assert "не закрывай информационную дыру задним числом" in instructions
     assert "очевидную орфографию" in instructions
     assert len(instructions) <= 8000
