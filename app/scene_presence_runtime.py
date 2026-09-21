@@ -225,10 +225,7 @@ def _rewrite_turn_packet(session_id: str, manifest: Dict[str, Any]) -> Dict[str,
         "pov_character_id": pov_id or None,
         "present_character_ids": start_roster,
         "required_full_character_ids": start_roster,
-        "instruction": (
-            "Every character in required_full_character_ids remains physically active in the scene until an explicit leave transition is committed. "
-            "Read each full card/memory/relationship and evaluate perception/reaction before writing important beats."
-        ),
+        "instruction": "Все listed персонажи остаются в сцене до явного leave.",
     }
     context["scene_presence"] = {
         "start_present_character_ids": start_roster,
@@ -240,20 +237,15 @@ def _rewrite_turn_packet(session_id: str, manifest: Dict[str, Any]) -> Dict[str,
             "field": "extracted.presence_updates",
             "actions": ["enter", "leave", "move"],
         },
-        "instruction": (
-            "STRUCTURAL PRESENCE CONTRACT. Do not rewrite current.present_characters as a free-form snapshot. "
-            "If nobody physically enters, leaves or moves, presence_updates may be empty and the start roster persists automatically. "
-            "Use enter only for a real arrival, leave only for a real physical exit from the accessible scene, and move only for a position change inside the same scene. "
-            "Silence and focus changes do not alter scene membership."
-        ),
+        "instruction": "Start roster сохраняется. enter/leave/move используй только при реальном физическом изменении; молчание не меняет presence.",
     }
 
     persistence = context.get("persistence_contract") if isinstance(context.get("persistence_contract"), dict) else {}
     persistence["presence_updates"] = {
         "optional": True,
         "field": "extracted.presence_updates",
-        "required_when": "Only when a character physically enters, leaves, or changes position inside the scene.",
-        "rule": "Omission preserves the start roster. Only explicit leave removes an already-present character.",
+        "required_when": "Только при enter/leave/move.",
+        "rule": "Нет update — start roster сохраняется.",
     }
     context["persistence_contract"] = persistence
 
@@ -269,7 +261,7 @@ def _rewrite_turn_packet(session_id: str, manifest: Dict[str, Any]) -> Dict[str,
     result["chunk_count"] = len(chunks)
     result["instruction"] = (
         str(result.get("instruction", "")).rstrip()
-        + " Scene presence is structural: start roster persists; use extracted.presence_updates enter/leave/move for physical transitions."
+        + " Presence: start roster сохраняется; enter/leave/move только при изменении."
     ).strip()
     return result
 
