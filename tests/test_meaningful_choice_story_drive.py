@@ -8,17 +8,10 @@ def test_story_drive_uses_substantive_choice_gate_not_micro_movement(tmp_path: P
     monkeypatch.setattr(runtime, "active_threads", lambda state: [])
 
     drive = runtime._story_drive({}, tmp_path, 42, [])
-    instruction = drive["instruction"]
-    progress = drive["scene_progress_flag"]
-
-    assert "if POV chose any reasonable next action, would anything substantive change?" in instruction
-    assert "If no, it is not a player choice" in instruction
-    assert "Movement, observation, rechecking, routine and time passing are not beats by themselves" in instruction
-    assert "risk, information, goal, relationship/emotion, conflict, consequence" in instruction
-
-    assert "Movement, position, observation, routine execution or elapsed time alone are not progress" in progress
-    assert "risk, information, objective, relationship/emotional state, conflict, consequence" in progress
-
+    assert drive["mandatory"] is True
+    assert drive["force_progress_this_turn"] is False
+    assert "Значимый выбор POV оставляй игроку" in drive["rule"]
+    assert "перемещение, ожидание и течение времени сами по себе не прогресс" in drive["scene_progress_flag"]
 
 def test_static_streak_error_does_not_accept_position_or_routine_as_progress():
     try:
@@ -29,5 +22,5 @@ def test_static_streak_error_does_not_accept_position_or_routine_as_progress():
         raise AssertionError("expected progress error")
 
     assert detail["code"] == "STORY_PROGRESS_REQUIRED"
-    assert "movement, waiting, observation, rechecking or neutral routine" in detail["message"]
-    assert "position/time/routine alone" in detail["message"]
+    assert "real change" in detail["message"]
+    assert "Routine/position/time alone are not progress" in detail["message"]
