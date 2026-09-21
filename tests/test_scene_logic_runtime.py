@@ -32,8 +32,8 @@ def test_knowledge_causality_requires_source_before_use_and_forbids_retroactive_
     assert "chronology" in author_only
     assert "future_guidance" in author_only
     assert "another character's memory" in author_only
-    assert "Источник должен существовать до реплики" in rule["rule"]
-    assert "Не придумывай источник задним числом" in rule["rule"]
+    assert "Источник должен существовать до реплики/мысли/действия" in rule["rule"]
+    assert "не придумывай его задним числом" in rule["rule"]
 
 def test_player_input_order_rule_forbids_reordering_segments():
     rule = scene_logic._player_input_order_rule()
@@ -107,6 +107,6 @@ def test_runtime_and_custom_gpt_repeat_source_order_and_spelling_policy():
     assert "слева направо" in rules
     assert "scene_logic_guardrails" in instructions
     assert "ordered_segments" in instructions
-    assert "информационную дыру задним числом" in instructions
+    assert "не придумывай задним числом" in instructions
     assert "очевидную орфографию" in instructions
     assert len(instructions) <= 8000
