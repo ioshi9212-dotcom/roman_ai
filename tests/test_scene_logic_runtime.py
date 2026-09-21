@@ -16,22 +16,24 @@ def _setup_temp_storage(tmp: str) -> None:
     storage.ensure_dirs()
 
 
+
 def test_knowledge_causality_requires_source_before_use_and_forbids_retroactive_patch():
     rule = scene_logic._knowledge_causality_rule()
-
     assert rule["mandatory"] is True
     assert rule["source_before_use"] is True
-    assert rule["scene_order_is_causal"] is True
     assert rule["no_retroactive_justification"] is True
     assert rule["character_knowledge_is_closed_world"] is True
-    forbidden = " ".join(rule["forbidden"])
-    assert "inventing the missing source afterwards" in forbidden
-    assert "forgotten detail after the fact" in forbidden
-    assert "own questionnaire/card/backstory" in forbidden
-    assert "before the line" in rule["missing_source_behavior"]
-    assert "Cause/information must precede reaction/conclusion" in rule["pre_commit_check"]
-    assert "including that character's own questionnaire/card/backstory" in rule["questionnaire_rule"]
-
+    allowed = " ".join(rule["allowed_sources"]).casefold()
+    author_only = " ".join(rule["author_only_not_character_knowledge"]).casefold()
+    assert "character_memory" in allowed
+    assert "real in-story channel" in allowed
+    assert "inference" in allowed
+    assert "questionnaire" in author_only
+    assert "chronology" in author_only
+    assert "future_guidance" in author_only
+    assert "another character's memory" in author_only
+    assert "Источник должен существовать до реплики" in rule["rule"]
+    assert "Не придумывай источник задним числом" in rule["rule"]
 
 def test_player_input_order_rule_forbids_reordering_segments():
     rule = scene_logic._player_input_order_rule()
@@ -42,19 +44,17 @@ def test_player_input_order_rule_forbids_reordering_segments():
     assert rule["source_path"] == "player_input_map.ordered_segments"
 
 
+
 def test_player_text_cleanup_corrects_errors_without_rewriting_voice():
     rule = scene_logic._player_text_cleanup_rule()
-
     assert rule["mandatory"] is True
-    corrected = " ".join(rule["correct_in_rendered_scene"])
-    preserve = " ".join(rule["preserve"])
-    do_not = " ".join(rule["do_not"])
-    assert "орфографические ошибки" in corrected
-    assert "опечатки" in corrected
-    assert "мат, сленг" in preserve
-    assert "не цензурь" in do_not
-    assert "не заменяй слова синонимами" in do_not
-
+    text = rule["rule"]
+    assert "опечатки" in text
+    assert "орфографию" in text
+    assert "мат" in text
+    assert "сленг" in text
+    assert "не переписывай" in text
+    assert len(text) < 180
 
 def test_final_writer_packet_contains_scene_logic_guardrails():
     with tempfile.TemporaryDirectory() as tmp:
@@ -82,7 +82,7 @@ def test_final_writer_packet_contains_scene_logic_guardrails():
 
         assert next(iter(context)) == "scene_logic_guardrails"
         guards = context["scene_logic_guardrails"]
-        assert guards["version"] == 2
+        assert guards["version"] == 3
         assert guards["knowledge_causality"]["mandatory"] is True
         assert guards["knowledge_causality"]["source_before_use"] is True
         assert guards["knowledge_causality"]["character_knowledge_is_closed_world"] is True
@@ -96,9 +96,9 @@ def test_runtime_and_custom_gpt_repeat_source_order_and_spelling_policy():
     rules = (ROOT / "runtime" / "rules.md").read_text(encoding="utf-8")
     instructions = (ROOT / "gpt" / "custom_gpt_instructions.md").read_text(encoding="utf-8")
 
-    assert "должны существовать ДО реплики" in rules
-    assert "не придумывай задним числом" in rules
-    assert "орфографические ошибки" in rules
+    assert "должен существовать ДО реплики" in rules
+    assert "Не придумывай источник задним числом" in rules
+    assert "исправляй только явные ошибки" in rules
     assert "ordered_segments" in rules
     assert "слева направо" in rules
     assert "scene_logic_guardrails" in instructions
