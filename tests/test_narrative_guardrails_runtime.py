@@ -148,44 +148,40 @@ def test_character_relevance_extracts_existing_card_hooks_without_inventing_hist
     assert "короткие" not in facts
 
 
-def test_character_driven_behavior_has_no_psychology_or_boundary_filter():
+
+def test_character_driven_behavior_is_short_and_character_driven():
     rule = guardrails._character_driven_behavior_rule()
     assert rule["mandatory"] is True
-    assert rule["no_psychological_correctness_filter"] is True
-    assert rule["no_boundary_compliance_filter"] is True
-    allowed = " ".join(rule["allowed_when_character_driven"])
-    forbidden = " ".join(rule["forbidden_respectability_narration"])
-    instruction = rule["instruction"]
-    assert "поцеловать без предварительного вопроса" in allowed
-    assert "решить что-то за POV" in allowed
-    assert "он не коснулся её, хотя мог" in forbidden
-    assert "оставил ей пространство" in forbidden
-    assert "Не пропускай его решения через авторский фильтр" in instruction
-    assert "значимая реакция POV остаётся игроку" in instruction
+    text = rule["rule"]
+    assert "характеру" in text
+    assert "целям" in text
+    assert "знаниям" in text
+    assert "отношениям" in text
+    assert "не по тому, как правильно" in text
+    assert "Значимая реакция POV" in text
+    assert len(text) < 180
 
 
-def test_scene_momentum_clarity_keeps_dialogue_natural_and_physical_action_readable():
-    text = guardrails._scene_momentum_rule({})["clarity"]
-    lower = text.casefold()
-    assert "диалог не стендап" in lower
-    assert "не default" in lower
-    assert "шутка не требует ответной" in lower
-    assert "голоса различны" in lower
-    assert "телесном/интимном" in lower
-    assert "неграфично, но ясно" in lower
-    assert "положение тел" in lower
-    assert "контакт и реакцию" in lower
-    assert "звуки/ощущения не заменяют действие" in lower
-    assert "убрал последнюю дистанцию" in lower
+def test_scene_momentum_is_short_and_keeps_meaningful_boundary():
+    rule = guardrails._scene_momentum_rule({})
+    assert rule["mandatory"] is True
+    assert rule["player_input_scope"]["boundary"] == "next_meaningful_pov_choice"
+    text = rule["rule"]
+    assert "Рутину" in text
+    assert "Короткое действие" in text
+    assert "следующий самостоятельный этап" in text
+    assert "Важную сцену не проматывай" in text
+    assert len(text) < 360
 
 
-def test_pov_activity_keeps_humor_character_driven_not_default():
+def test_pov_activity_is_short_and_keeps_minor_actions_with_pov():
     rule = guardrails._pov_activity_rule()
-    automatic = " ".join(rule["automatic_without_player_input"])
-    instruction = rule["instruction"]
-    assert "юмор/сарказм только когда естественны" in automatic
-    assert "юмор/сарказм не default" in instruction
-    assert "шути, поддевай" not in instruction
+    assert rule["mandatory"] is True
+    text = rule["rule"]
+    assert "мелочи" in text
+    assert "обычные реплики" in text
+    assert "Значимый выбор остаётся игроку" in text
+    assert len(text) < 140
 
 
 def test_npc_intent_drive_treats_evasion_as_unresolved():
@@ -202,9 +198,9 @@ def test_npc_intent_drive_treats_evasion_as_unresolved():
     drive = guardrails._npc_intent_drive_rule(context)
     assert drive["mandatory"] is True
     assert drive["active_intent_count"] == 1
-    assert any("увилила" in item for item in drive["not_resolution"])
-    assert "НЕ закрывают intent" in drive["instruction"]
-    assert "operation=resolve" in drive["instruction"]
+    assert "до resolve/abandon" in drive["rule"]
+    assert "Увиливание" in drive["rule"]
+    assert "не закрывают" in drive["rule"]
 
 
 def test_scene_momentum_uses_meaningful_choice_not_literal_last_action_as_boundary():
@@ -217,13 +213,11 @@ def test_scene_momentum_uses_meaningful_choice_not_literal_last_action_as_bounda
     }
     rule = guardrails._scene_momentum_rule(context)
     assert rule["mandatory"] is True
-    assert rule["player_input_scope"]["boundary"] == "next_meaningful_pov_choice"
-    assert "ongoing ordinary activity" in rule["player_input_scope"]["rule"]
-    assert any("проверить телефон" in item for item in rule["automatic_minor_actions"])
-    assert any("обычную работу" in item for item in rule["automatic_minor_actions"])
-    assert any("значимый контакт" in item for item in rule["meaningful_choice_boundary"])
-    assert any("техническую мелочь" in item for item in rule["invalid_endings"])
-    assert "сжимай до конца" in rule["instruction"]
+    scope = rule["player_input_scope"]
+    assert scope["boundary"] == "next_meaningful_pov_choice"
+    assert scope["last_segment_kind"] == "stage_direction"
+    assert "добраться до смены" in scope["last_segment_text"]
+    assert "Рутину веди до конца" in rule["rule"]
 
 
 def test_scene_momentum_does_not_turn_short_meaningful_action_into_whole_new_phase():
@@ -236,12 +230,11 @@ def test_scene_momentum_does_not_turn_short_meaningful_action_into_whole_new_pha
     }
     rule = guardrails._scene_momentum_rule(context)
     assert rule["player_input_scope"]["boundary"] == "next_meaningful_pov_choice"
-    assert "short" not in rule["player_input_scope"].get("boundary", "")
-    assert any("следующим самостоятельным этапом" in item for item in rule["do_not_compress"])
-    assert any("следующий час" in item for item in rule["invalid_endings"])
+    assert "Короткое действие доводи до результата и реакции" in rule["rule"]
+    assert "не проживай за POV следующий самостоятельный этап" in rule["rule"]
 
 
-def test_prepare_turn_packet_contains_noncanonical_narrative_guardrails():
+def test_prepare_turn_packet_contains_concise_narrative_guardrails():
     with tempfile.TemporaryDirectory() as tmp:
         _setup_temp_storage(tmp)
         novel = {
@@ -265,15 +258,12 @@ def test_prepare_turn_packet_contains_noncanonical_narrative_guardrails():
         context = json.loads("".join(parts))
 
         signals = context["narrative_guardrails"]
-        assert signals["version"] == 12
+        assert signals["version"] == 13
         assert signals["pov_activity"]["mandatory"] is True
-        assert signals["pov_activity"]["ordinary_dialogue_required_when_natural"] is True
-        assert signals["pov_activity"]["silence_requires_character_or_scene_reason"] is True
-        assert "диалог не стендап" in signals["scene_momentum"]["clarity"].casefold()
-        assert "положение тел" in signals["scene_momentum"]["clarity"].casefold()
-        assert "не заменяют действие" in signals["scene_momentum"]["clarity"].casefold()
+        assert signals["character_driven_behavior"]["mandatory"] is True
+        assert signals["npc_intent_drive"]["mandatory"] is True
         assert signals["scene_momentum"]["player_input_scope"]["boundary"] == "next_meaningful_pov_choice"
         assert signals["story_drive"]["mandatory"] is True
         assert isinstance(signals["cast_pressure"], list)
-        assert "cast_pressure" in signals["instruction"]
-        assert "requires active reconsideration without POV prompting" in signals["instruction"]
+        assert len(json.dumps(signals, ensure_ascii=False)) < 9000
+
