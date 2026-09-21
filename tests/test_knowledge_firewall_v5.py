@@ -79,6 +79,7 @@ def _prepare_strict_turn(session_id: str, user_input: str = "(посмотрет
         request_id="strict-request",
         scene_archive_capable=False,
         knowledge_review_capable=True,
+        strict_knowledge_capable=True,
         replace_pending=False,
     )
     for index in packet.get("pending_turn", {}).get("unread_chunk_indices", []):
