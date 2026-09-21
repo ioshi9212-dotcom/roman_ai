@@ -292,22 +292,9 @@ def inject_required_turn_context(context: Dict[str, Any], cards: List[Dict[str, 
         "rules": "runtime_rules",
         "scene_builder": "scene_builder",
     }
-    context["scene_builder_instruction"] = (
-        "MANDATORY. Read scene_builder completely before writing and follow its FORMAT exactly. "
-        "Do not shorten, reorder, omit or replace its blocks."
-    )
-    context["pov_participation_instruction"] = (
-        "MANDATORY GLOBAL POV RULE. POV must remain an active participant throughout the scene. "
-        "Write ordinary in-character POV dialogue, reactions, thoughts and small actions without asking permission. "
-        "Do not reduce POV to silence, one-word replies or body-only reactions merely to preserve player agency. "
-        "Stop only before genuinely consequential POV choices defined by the contract."
-    )
-    context["npc_agency_instruction"] = (
-        "MANDATORY GLOBAL NPC AGENCY RULE. NPC behavior comes from that NPC's character, desires, goals, advantage, fears, relationships, knowledge, duties and current situation. "
-        "Do not replace character logic with universal therapy, etiquette or author-approved psychological correctness. "
-        "If the specific NPC would act, let them act without forcing a preliminary permission question. "
-        "Do not praise restraint or narrate omitted action merely to model healthy behavior. Consequential POV reactions and choices remain with the player."
-    )
+    context["scene_builder_instruction"] = "scene_builder обязателен; формат не менять."
+    context["pov_participation_instruction"] = "POV участвует сам в мелочах и обычной речи; значимые решения оставляй игроку."
+    context["npc_agency_instruction"] = "NPC действует по характеру, целям, знаниям и отношениям; не по универсальной правильности."
 
     relationship_lens = build_relationship_lens(
         state,
@@ -317,27 +304,13 @@ def inject_required_turn_context(context: Dict[str, Any], cards: List[Dict[str, 
     )
     relationship_lens["present_npc_candidates"] = _present_npc_candidates(cards, state, relationship_lens)
     relationship_lens["initialization_required"] = True
-    relationship_lens["initialization_instruction"] = (
-        "A missing saved relation is NOT a reason to omit relationships forever. Evaluate every present NPC candidate. "
-        "For an NPC with saved dimensions, preserve them. For an NPC without saved dimensions, once this scene establishes a real directional attitude toward POV, "
-        "create 1-3 specific dimensions natural to that NPC and print them in the visible footer. Do not use a generic placeholder. "
-        "The first appearance may omit /delta because there is no prior numeric baseline."
-    )
+    relationship_lens["initialization_instruction"] = "Сохраняй старые dimensions; новые 1–3 создавай только когда отношение реально возникло."
     context["relationship_lens"] = relationship_lens
-    context["relationship_lens_instruction"] = (
-        "MANDATORY. relationship_lens is the causal relationship layer and is authoritative for current NPC->POV relations. "
-        "Every physically present NPC is listed in present_npc_candidates. Existing dimensions MUST appear in the visible Relationships footer. "
-        "Carry saved dimensions across absences and later meetings. Full relationship stores remain persistent in Railway and are intentionally omitted from scene_state transport."
-    )
+    context["relationship_lens_instruction"] = "relationship_lens — канон NPC->POV; старые dimensions сохраняются между сценами."
 
     context["character_cards"] = scene_cards
     context["character_memory"] = scene_memory
-    context["character_context_instruction"] = (
-        "Full character_cards are transported only for POV, characters physically present at turn start, and registered characters explicitly named in the current player input. "
-        "This includes an offscreen person the player is explicitly messaging, calling or otherwise addressing. The registry still contains every registered character. "
-        "If any other offscreen character is about to speak, send/receive a message, call, enter, or materially act, load that character's full bundle with prepareCharacterBundleRead and every getCharacterBundleChunk BEFORE writing that character. "
-        "character_memory is a bounded working copy: recent/durable records plus a compact catalog of older learned facts. Complete lifetime memory remains persistent and is available through the same character bundle read."
-    )
+    context["character_context_instruction"] = "Offscreen NPC перед участием → полный character bundle. character_memory в packet bounded; полный архив остаётся в Railway."
     context["knowledge_guard"] = {
         "mandatory": True,
         "personal_memory_path": "character_memory[character_id]",
@@ -347,19 +320,8 @@ def inject_required_turn_context(context: Dict[str, Any], cards: List[Dict[str, 
             "novel", "novel_rules", "novel_lore", "hidden_lore", "world_canon", "story_direction",
             "chronology_recent", "recent_turns", "character_memory[OTHER_CHARACTER_ID]",
         ],
-        "instruction": (
-            "MANDATORY KNOWLEDGE FIREWALL. Before every NPC line, message, call, inference, recognition or deliberate action, identify that NPC and verify the exact source for every referenced fact. "
-            "Past knowledge may come only from that NPC's own character_memory, including historical_knowledge_catalog. If an exact older detail is needed beyond the working copy, load that NPC's full character bundle first. "
-            "A fact created during the current turn may be used only after that NPC personally perceived it or received it through an explicit communication channel established in the scene. "
-            "Author context, recent turns, chronology, cards, registry, scene state, another character's memory, relationship values and narrative plausibility are never character knowledge sources. "
-            "Private POV thoughts, phone screens, typed or received messages, calls not heard by the NPC, letters, photos, headphones and other private content remain unknown without established access. "
-            "An NPC outside the physical scene does not know what is happening there merely because the author knows it. Before an offscreen NPC sends a message, calls or reacts to a current event, verify how that NPC learned the specific event first. "
-            "Arrival after an event and departure before an event do not grant retroactive knowledge. Inference may use only premises already available to that NPC and may not reproduce an unavailable exact detail. "
-            "If any drafted line or action uses a fact without a valid source, rewrite or delete it before output. The leak is not canon and must not be persisted."
-        ),
-        "offscreen_contact_rule": (
-            "Remote communication counts as character participation. An offscreen sender/recipient needs a loaded full card before their authored dialogue or deliberate reaction, and may refer only to facts actually available to that character."
-        ),
+        "instruction": "NPC использует только свою память и реально полученную информацию. Нет источника — факт не использовать.",
+        "offscreen_contact_rule": "Offscreen контакт требует bundle и реального источника знания.",
     }
     context["working_context_contract"] = {
         "persistent_storage_is_complete": True,
@@ -370,17 +332,11 @@ def inject_required_turn_context(context: Dict[str, Any], cards: List[Dict[str, 
         "scene_state_relationship_stores_omitted": True,
         "single_runtime_document_copy": True,
         "stable_scene_builder_paths": True,
-        "instruction": (
-            "Railway stores complete source, live cards, personal memories, relationships and chronology. The turn packet is intentionally a bounded working set. "
-            "Omitted dormant dossiers, older full memory records and relationship documents were not deleted; retrieve a character bundle on demand before an offscreen character participates."
-        ),
+        "instruction": "Packet bounded; полный канон остаётся в Railway.",
     }
 
     author_context = context.get("author_context") if isinstance(context.get("author_context"), dict) else {}
     author_context["character_cards"] = scene_cards
-    author_context["knowledge_quarantine"] = (
-        "Everything in author_context is objective author/engine truth only. Never use it as a character knowledge source. "
-        "A character may use a fact only from that character's own personal memory or from a perception/communication channel that actually reached that character."
-    )
+    author_context["knowledge_quarantine"] = "author_context — авторский канон, не личное знание персонажа."
     context["author_context"] = author_context
     return context
