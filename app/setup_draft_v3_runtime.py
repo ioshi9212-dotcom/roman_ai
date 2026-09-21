@@ -192,7 +192,7 @@ def _draft_status(draft_id: str) -> Dict[str, Any]:
 
     sections = draft.get("sections", {}) if isinstance(draft.get("sections"), dict) else {}
     characters = sections.get("characters", [])
-    required = ["novel", "characters", "lore", "foundation", "intake"]
+    required = ["novel", "characters", "lore", "foundation", "knowledge", "intake"]
     missing = [name for name in required if name not in sections]
     blocker = None
     foundation_coverage = None
