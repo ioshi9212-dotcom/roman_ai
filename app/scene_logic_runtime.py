@@ -8,55 +8,30 @@ from .transactional_storage import session_transaction
 
 
 _ORIGINAL_PREPARE = None
-_GUARD_VERSION = 2
+_GUARD_VERSION = 3
 
 
 def _knowledge_causality_rule() -> Dict[str, Any]:
     return {
         "mandatory": True,
         "source_before_use": True,
-        "scene_order_is_causal": True,
         "no_retroactive_justification": True,
         "character_knowledge_is_closed_world": True,
         "allowed_sources": [
-            "this character's own personal_memory / character_memory",
-            "something this character directly saw, heard, read, received or was told through a real in-story channel before use, including NPC-to-NPC contact",
-            "an inference whose every premise was already available to this character from the two sources above",
+            "own character_memory",
+            "directly saw/heard/read/received or was told through a real in-story channel, including NPC-to-NPC",
+            "inference from facts already known to this character",
         ],
         "author_only_not_character_knowledge": [
-            "POV questionnaire, NPC questionnaire including that NPC's own questionnaire, character cards and character backstory fields",
-            "foundation, foundation_pressure, story_pillars, future_guidance and author plans",
-            "chronology, chronology_recent, recent_turns and continuity_turns",
-            "lore, hidden_lore, world canon and scene direction",
-            "another character's memory, beliefs, relationship state or private information",
+            "POV/NPC questionnaire, character card/backstory",
+            "chronology/recent_turns/continuity_turns",
+            "foundation/future_guidance/lore/world canon",
+            "another character's memory, beliefs or private information",
         ],
-        "forbidden": [
-            "treating any author-only source as if a character personally knows its contents",
-            "giving an NPC facts from the POV questionnaire merely because the writer packet contains them",
-            "giving one NPC facts from another NPC's questionnaire/card/memory",
-            "treating a character's own questionnaire/card/backstory as factual awareness unless the same fact exists in that character's memory or was acquired through a real in-story channel",
-            "using chronology/recent turns as a character knowledge source unless the same fact is independently present in that character's own memory or was perceived in-scene",
-            "an absent/late character knowing an exchange they missed",
-            "writing a factual line first and inventing the missing source afterwards",
-            "adding a convenient forgotten detail after the fact to justify a conclusion",
-        ],
-        "questionnaire_rule": (
-            "Neither the POV questionnaire nor any NPC questionnaire, including that character's own questionnaire/card/backstory, is personal knowledge. "
-            "These author-only fields may shape characterization and plot possibilities, but factual awareness still requires that character's own memory "
-            "or a real witnessed/read/heard/received/told channel in story time."
-        ),
-        "chronology_rule": (
-            "Chronology and recent/continuity turns establish authorial canon only. They are never evidence that a specific character knows the event. "
-            "For character dialogue or action, require that character's own memory or a current-scene perception/source."
-        ),
-        "inference_rule": "Every premise must already be known by this character before the inference; weak premises mean suspicion/question, not certainty.",
-        "missing_source_behavior": (
-            "If the chain is missing before the line, rewrite before commit: remove the knowledge, make it a question/uncertain guess, "
-            "or first show a real source the character perceives. Never justify it retroactively."
-        ),
-        "pre_commit_check": (
-            "Cause/information must precede reaction/conclusion. Trace every non-trivial factual statement, recognition, inference, question premise and deliberate action "
-            "to this character's own memory or a source they personally perceived before that exact moment. Do not cite chronology, questionnaire/card, foundation, lore or another character's memory."
+        "rule": (
+            "Источник должен существовать до реплики, вывода или действия. "
+            "Если источника нет — убери знание, сделай вопрос/догадку или сначала покажи реальный канал. "
+            "Не придумывай источник задним числом."
         ),
     }
 
@@ -74,24 +49,7 @@ def _player_input_order_rule() -> Dict[str, Any]:
 def _player_text_cleanup_rule() -> Dict[str, Any]:
     return {
         "mandatory": True,
-        "raw_input_is_semantic_source": True,
-        "correct_in_rendered_scene": [
-            "очевидные орфографические ошибки",
-            "явные опечатки",
-            "очевидную безопасную пунктуацию",
-        ],
-        "preserve": [
-            "смысл и выбранные игроком слова",
-            "мат, сленг, просторечие и характерную манеру речи",
-            "намеренно разговорные формы",
-        ],
-        "do_not": [
-            "не цензурь",
-            "не делай речь литературнее или вежливее",
-            "не заменяй слова синонимами",
-            "не исправляй неоднозначное место, если неясно, была ли ошибка",
-        ],
-        "instruction": "В scene_output исправляй явную орфографию/опечатки и безопасную пунктуацию, сохраняя лексику, мат, сленг, тон и смысл.",
+        "rule": "В scene_output исправляй только явные опечатки, орфографию и безопасную пунктуацию. Слова, мат, сленг, тон и смысл не переписывай.",
     }
 
 
@@ -118,7 +76,7 @@ def _rewrite_packet(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
             "knowledge_causality": _knowledge_causality_rule(),
             "player_input_order": _player_input_order_rule(),
             "player_text_cleanup": _player_text_cleanup_rule(),
-            "instruction": "All rules are mandatory. Preserve player segment order; author canon is not personal character knowledge.",
+            "instruction": "Соблюдай порядок ввода и границы знаний персонажей.",
         }
         context.pop("scene_logic_guardrails", None)
         context = {"scene_logic_guardrails": guards, **context}

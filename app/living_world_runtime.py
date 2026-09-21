@@ -14,23 +14,23 @@ from .transactional_storage import session_transaction
 
 _ORIGINAL_PREPARE = None
 _ORIGINAL_COMMIT = None
-_VERSION = 2
+_VERSION = 3
 
 # New labels come from one small shared vocabulary. Existing labels in old sessions remain valid.
 RELATIONSHIP_DIMENSIONS: Dict[str, str] = {
-    "доверие": "насколько NPC верит словам, надёжности и намерениям POV",
-    "близость": "насколько естественны личность, фамильярность и малая дистанция",
-    "привязанность": "насколько POV стала личным приоритетом и частью жизни NPC",
-    "симпатия": "тепло, доброжелательность и удовольствие от контакта",
-    "влечение": "физическое или романтическое притяжение и инициатива",
-    "уважение": "вес мнения, способностей и решений POV для NPC",
-    "подозрение": "склонность сомневаться, проверять и искать скрытый смысл",
-    "настороженность": "общая осторожность и готовность ждать подвоха",
-    "раздражение": "текущая терпимость и резкость реакции",
-    "обида": "удерживаемое переживание нанесённого вреда или унижения",
-    "ревность": "чувствительность к чужому вниманию и соперникам",
-    "страх": "ожидание угрозы от POV и осторожность рядом с ней",
-    "соперничество": "потребность сравниваться, спорить, побеждать или не уступать",
+    "доверие": "верит POV",
+    "близость": "личная дистанция",
+    "привязанность": "личный приоритет",
+    "симпатия": "тепло",
+    "влечение": "романтическое/физическое притяжение",
+    "уважение": "вес мнения POV",
+    "подозрение": "сомнение и проверка",
+    "настороженность": "осторожность",
+    "раздражение": "резкость реакции",
+    "обида": "удерживаемая обида",
+    "ревность": "реакция на соперников",
+    "страх": "ожидание угрозы",
+    "соперничество": "желание не уступать",
 }
 _ALLOWED_NORMS = {base._relationship_norm(label) for label in RELATIONSHIP_DIMENSIONS}
 _HOOK_WORDS = (
@@ -296,10 +296,7 @@ def _actor_frames(
             },
             "active_intents": deepcopy(intents.get(cid, [])) if isinstance(intents.get(cid), list) else [],
             "memory_path": f"character_memory[{cid}]",
-            "instruction": (
-                "Play this NPC from this exact combination. Ask what this person wants now, "
-                "what they think POV is like, what they know, and what they would actually do."
-            ),
+            "instruction": "Действуй по этим данным.",
         })
     return result
 
@@ -335,7 +332,7 @@ def _enrich_cast_pressure(context: Dict[str, Any], state: Dict[str, Any]) -> Non
             "character_id": cid,
             "name": member.get("name") or member.get("full_name"),
             "relationship_salience": round(strength, 2),
-            "guidance": "Eligible for proactive contact/re-entry without POV prompting when current canon permits.",
+            "guidance": "Можно вернуть без запроса POV, если уместно по канону.",
         })
         existing.add(cid)
     guards["cast_pressure"] = rows[:8]
@@ -412,10 +409,7 @@ def _foundation_pressure(
         "mandatory_consideration": True,
         "eligible_hooks": candidates,
         "legacy_card_cues": legacy_cues,
-        "instruction": (
-            "Setup facts are not decoration. Use eligible facts gradually when a natural memory, reaction, clue, "
-            "conversation, consequence or plot opening makes them relevant. Do not dump several hooks at once."
-        ),
+        "instruction": "Используй eligible hooks постепенно и только когда они уместны.",
     }
 
 
@@ -470,10 +464,7 @@ def _story_pillars(source: Dict[str, Any], state: Dict[str, Any], current_turn: 
     return {
         "mandatory_consideration": True,
         "pillars": rows,
-        "instruction": (
-            "A story pillar must sometimes change what actually happens, not only color descriptions. "
-            "If one has been absent for a long time, use an existing causal hook/thread/world condition. No quota and no random genre event."
-        ),
+        "instruction": "Если pillar давно не влиял на историю, верни его причинно. Без квот и случайных событий.",
     }
 
 
@@ -484,11 +475,7 @@ def _social_world(state: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "mandatory": True,
         "recent_social_signals": deepcopy(list(signals.values())[-12:]),
-        "instruction": (
-            "Background people are people, not wallpaper. In shared/crowded scenes they may speak, intervene or gossip without POV prompting; "
-            "a one-scene extra needs no card for current perception. Recurring/important extra gets character_upserts. "
-            "NPC-to-NPC reports need real channels; wrong or lies are not truth."
-        ),
+        "instruction": "Фоновые люди могут говорить и вмешиваться. Одноразовому extra карточка не нужна; повторяющийся → character_upserts. Слух или ложь не становятся истиной.",
     }
 
 
@@ -517,25 +504,20 @@ def _rewrite_packet(session_id: str, base_result: Dict[str, Any]) -> Dict[str, A
             "mandatory": True,
             "relationship_model": {
                 "fixed_new_dimensions": deepcopy(RELATIONSHIP_DIMENSIONS),
-                "legacy_rule": "Existing saved legacy labels stay valid and are never renamed to fit the new vocabulary.",
-                "numbers_are_behavioral": "Values affect tone, initiative, distance, interpretation and choices when relevant; they are not decorative counters.",
-                "opinion_rule": "current_opinion/beliefs may be wrong or biased. Keep the latest belief until something actually changes it.",
+                "legacy_rule": "Старые labels не переименовывай.",
+                "rule": "Числа и мнение влияют на поведение; мнение может быть ошибочным.",
             },
             "npc_actor_frames": _actor_frames(context, state, cards),
             "foundation_pressure": _foundation_pressure(source, state, context, cards, current_turn),
             "story_pillar_pressure": _story_pillars(source, state, current_turn),
             "social_reactivity": _social_world(state),
-            "instruction": "Use actor frames. NPCs/social world may initiate without POV requesting their presence.",
+            "instruction": "NPC и мир могут действовать сами. Используй actor frames.",
         }
         persistence = context.get("persistence_contract") if isinstance(context.get("persistence_contract"), dict) else {}
-        persistence["relationship_opinion"] = (
-            "When opinion/beliefs/unresolved state changes, use relationship_updates with character_id plus opinion/current_dynamic "
-            "and/or full beliefs_about_target/unresolved_between_them. Numeric relationship changes also use relationship_updates; "
-            "the visible footer is display-only."
-        )
-        persistence["social_effect"] = "Durable social reaction/rumor/reputation: put social_effect inside the relevant chronology event."
-        persistence["foundation_fact_ids"] = "When a foundation fact is actually used, attach foundation_fact_ids to chronology or anchor_facts to the story thread."
-        persistence["story_pillar_ids"] = "When a story pillar actually influences the turn, attach story_pillar_ids to chronology or pillar_ids to story_thread_updates."
+        persistence["relationship_opinion"] = "Изменение мнения/отношений → relationship_updates. Footer только display."
+        persistence["social_effect"] = "Устойчивое социальное последствие → chronology.social_effect."
+        persistence["foundation_fact_ids"] = "Использованный foundation fact → foundation_fact_ids/anchor_facts."
+        persistence["story_pillar_ids"] = "Повлиявший pillar → story_pillar_ids/pillar_ids."
         context["persistence_contract"] = persistence
 
         text = json.dumps(context, ensure_ascii=False, separators=(",", ":"))

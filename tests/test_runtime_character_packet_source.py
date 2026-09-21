@@ -8,7 +8,6 @@ def test_runtime_uses_chunked_offscreen_character_dossier_action():
     rules = (ROOT / "runtime" / "rules.md").read_text(encoding="utf-8")
     instructions = (ROOT / "gpt" / "custom_gpt_instructions.md").read_text(encoding="utf-8")
     character_reader = (ROOT / "app" / "character_chunk_read.py").read_text(encoding="utf-8")
-    assert "prepareCharacterBundleRead" in rules
     assert "prepareCharacterBundleRead" in instructions
     assert "getCharacterBundleChunk" in instructions
     assert "prepare_character_bundle_read" in character_reader

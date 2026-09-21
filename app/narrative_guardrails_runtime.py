@@ -9,7 +9,7 @@ from .transactional_storage import session_transaction
 
 
 _ORIGINAL_PREPARE = None
-_GUARDRAIL_VERSION = 12
+_GUARDRAIL_VERSION = 13
 _TERMINAL = {"resolved", "closed", "expired", "cancelled", "canceled", "done", "abandoned"}
 _HOOK_KEYS = (
     "fear", "страх", "weak", "слаб", "past", "прошл", "history", "истор",
@@ -78,7 +78,7 @@ def _cast_pressure(context: Dict[str, Any], state: Dict[str, Any], current_turn:
             "active_intent": has_intent,
             "important_role": important,
             "must_reconsider": True,
-            "guidance": "Reconsider without POV prompting; if current canon permits participation, load bundle and let this NPC initiate or re-enter, otherwise keep pending.",
+            "guidance": "Если уместно по канону — верни NPC; иначе оставь pending.",
         }
         scored.append((score, {k: v for k, v in item.items() if v not in (None, "", False)}))
     scored.sort(key=lambda pair: pair[0], reverse=True)
@@ -124,7 +124,7 @@ def _story_pressure(context: Dict[str, Any], current_turn: int) -> List[Dict[str
             "priority": priority,
             "turns_since_progress": age,
             "overdue": overdue,
-            "guidance": "Keep this line alive through an existing cause, consequence, message, NPC action or scene beat; do not inject a random event.",
+            "guidance": "Не забывай линию. Двигай только причинно.",
         }
         result.append((priority + (age or 0), {k: v for k, v in item.items() if v not in (None, "", False)}))
     result.sort(key=lambda pair: pair[0], reverse=True)
@@ -173,7 +173,7 @@ def _character_relevance(context: Dict[str, Any]) -> List[Dict[str, Any]]:
                 "character_id": cid or None,
                 "name": card.get("name") or card.get("full_name"),
                 "card_hooks": hooks,
-                "guidance": "Existing card facts only. Use when naturally relevant; never convert them into invented prior events or dialogue.",
+                "guidance": "Факты card — не прошлые события.",
             })
     return result[:5]
 
@@ -181,94 +181,14 @@ def _character_relevance(context: Dict[str, Any]) -> List[Dict[str, Any]]:
 def _pov_activity_rule() -> Dict[str, Any]:
     return {
         "mandatory": True,
-        "ordinary_dialogue_expected": True,
-        "ordinary_dialogue_required_when_natural": True,
-        "multiple_pov_lines_allowed": True,
-        "silence_requires_character_or_scene_reason": True,
-        "automatic_without_player_input": [
-            "короткое перемещение, взгляд, взять/положить обычный предмет",
-            "достать/проверить телефон, прочитать доступное сообщение или уведомление",
-            "обычное бытовое или техническое действие без существенного выбора",
-            "продолжение уже выбранной работы, дороги, ожидания, подготовки или рутины",
-            "бытовой или нейтральный ответ на вопрос NPC",
-            "поддержание разговора по характеру POV; юмор/сарказм только когда естественны",
-            "очевидный вопрос из доступных POV фактов или комментарий к происходящему",
-            "несколько обычных реплик POV в продолжающемся диалоге",
-            "естественная физическая реакция и очевидное продолжение начатого действия",
-        ],
-        "do_not_silence_pov": [
-            "не заменяй естественный словесный ответ кивком, взглядом, улыбкой или молчанием только из осторожности",
-            "не делай длинный диалог, где говорят только NPC, если POV по характеру нормально участвовал бы словами",
-            "не ограничивай POV одной короткой репликой на весь ход, если обычный разговор естественно продолжается",
-            "не считай любой вопрос NPC автоматически выбором игрока",
-        ],
-        "reserved_for_player": [
-            "значимое согласие или отказ, включая принятие/отклонение контакта или предложения, если это выражает позицию POV",
-            "обещание, обязательство, признание или сознательная ложь",
-            "раскрытие секрета или важной информации",
-            "выбор стороны, существенная тактика или серьёзный риск",
-            "сексуальное согласие",
-            "решение или реплика, способные заметно изменить отношения, конфликт или направление сюжета",
-        ],
-        "pre_commit_check": [
-            "POV остался полноценным участником после выполнения user_input",
-            "в обычном диалоге POV не замолчал искусственно",
-            "естественные реплики POV не урезаны до кивков/угу/молчания без причины",
-            "значимый выбор POV не был присвоен автором",
-            "точка остановки действительно требует игрока, а не обычной реплики POV",
-        ],
-        "instruction": (
-            "POV — полноценный участник сцены, а не камера и не мебель. После выполнения user_input продолжай его естественно через речь, действия, реакции и мысли. "
-            "Обычный разговор: POV НЕ должен искусственно молчать; несколько обычных обменов репликами допустимы; юмор/сарказм не default. "
-            "Не сокращай естественную речь до кивка, взгляда, 'угу' или молчания только из страха написать за POV. Молчание допустимо, только если оно естественно следует из характера или ситуации. "
-            "Не спрашивай игрока о мелких действиях и обычных репликах. Остановись только перед репликой/решением, которое реально определяет позицию POV или заметно меняет отношения, конфликт, сюжет, риск, обязательства или раскрытие информации."
-        ),
+        "rule": "POV сам делает мелочи и обычные реплики. Значимый выбор остаётся игроку.",
     }
 
 
 def _character_driven_behavior_rule() -> Dict[str, Any]:
     return {
         "mandatory": True,
-        "no_psychological_correctness_filter": True,
-        "no_boundary_compliance_filter": True,
-        "drivers": [
-            "характер и прошлое конкретного NPC",
-            "его цели, желания и выгода",
-            "отношения к POV и другим персонажам",
-            "знания, настроение и текущая ситуация",
-        ],
-        "allowed_when_character_driven": [
-            "подойти ближе или нарушить дистанцию",
-            "коснуться, удержать или схватить",
-            "поцеловать без предварительного вопроса",
-            "решить что-то за POV или вмешаться",
-            "надавить, ревновать, солгать, ошибиться или быть уверенным в собственной неправоте",
-            "сделать то, что POV может не понравиться",
-        ],
-        "forbidden_authorial_filters": [
-            "здоровая коммуникация как обязательная норма",
-            "уважение границ как автоматическая причина поведения",
-            "комфорт или безопасность POV как скрытый приоритет автора",
-            "моральная или терапевтическая правильность вместо характера персонажа",
-        ],
-        "forbidden_respectability_narration": [
-            "он не коснулся её, хотя мог",
-            "он оставил ей пространство",
-            "он не стал давить",
-            "он ждал, пока она сама решит",
-            "объяснение или похвала поведения через границы, правильность или психологию",
-        ],
-        "player_boundary": (
-            "NPC может инициировать неприятное, навязчивое или физическое действие, если это естественно для него. "
-            "Не выбирай за POV его значимую реакцию, согласие/отказ или другое решение с последствиями."
-        ),
-        "instruction": (
-            "Пиши NPC изнутри его характера, целей, желаний, выгоды, отношений, знаний и ситуации. Не пропускай его решения через авторский фильтр психологии, здоровой коммуникации, границ, комфорта POV или того, как было бы правильно поступить. "
-            "Если конкретный NPC по своим причинам хочет подойти, коснуться, схватить, вмешаться, надавить, решить за POV или поцеловать без предварительного вопроса, это допустимое действие персонажа; значимая реакция POV остаётся игроку. "
-            "NPC не обязан нарушать границы: отказ от действия тоже должен идти из его характера, желания, страха, расчёта или ситуации, а не из авторской правильности. "
-            "Не выделяй отсутствующее действие как добродетель или романтический знак. Не пиши формулы вроде 'он не коснулся её, хотя мог', 'оставил ей пространство', 'не стал давить', 'ждал, пока она сама решит', если именно эта сдержанность не является конкретным важным поступком данного персонажа. "
-            "Показывай то, что реально произошло, без психологического, морального или терапевтического комментария."
-        ),
+        "rule": "NPC действует по характеру, целям, знаниям и отношениям, а не по тому, как правильно. Значимая реакция POV остаётся игроку.",
     }
 
 
@@ -279,133 +199,29 @@ def _npc_intent_drive_rule(context: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "mandatory": True,
         "active_intent_count": count,
-        "source_path": "npc_active_intents",
-        "closure_semantics": {
-            "pursued_now": "NPC attempted to advance the intent; this does NOT mean the intent is satisfied.",
-            "resolve": "Use only when the underlying question/goal/agreement is substantively satisfied or otherwise actually closed.",
-            "abandon": "Use only when the NPC genuinely stops wanting to pursue it for character/situation reasons.",
-        },
-        "not_resolution": [
-            "POV увилила, отшутилась, промолчала или сменила тему",
-            "POV дала неполный, двусмысленный или явно неудовлетворительный ответ",
-            "NPC один раз спросил, напомнил или попытался надавить",
-            "договорённость или обещание только прозвучали, но ещё не выполнены",
-            "разговор прервался, сцена закончилась или персонажи разошлись",
-        ],
-        "persistence_behavior": [
-            "Если NPC всё ещё нужен ответ/результат, intent остаётся активным.",
-            "Упрямый, подозрительный, заинтересованный или мотивированный NPC может продолжить дожим в той же сцене, если это естественно.",
-            "Не повторяй одну и ту же фразу механически: меняй тактику по характеру — уточнить, переформулировать, поддеть, надавить, привести аргумент, поймать позже, проверить самому.",
-            "Приоритет и характер определяют настойчивость. Вежливость или уклонение POV сами по себе не гасят чужую цель.",
-            "Договорённость, обещание, долг, просьба или задача остаются активными до исполнения, явной отмены/пересмотра или настоящего отказа NPC от цели.",
-        ],
-        "instruction": (
-            "npc_active_intents — это незакрытые собственные мотивы NPC, а не список тем, которые достаточно один раз упомянуть. "
-            "Если eligible intent естественно относится к текущей ситуации, дай ему причинно влиять на поведение NPC. "
-            "Увиливание POV, шутка, молчание, смена темы, неполный ответ или сам факт попытки НЕ закрывают intent. "
-            "Если NPC всё ещё хочет ответ или результат, он может продолжить добиваться его сейчас или вернуться позже в другой форме, согласно характеру, приоритету, отношениям и обстоятельствам. "
-            "Не превращай настойчивость в механическое повторение одной реплики. "
-            "Ставь pursued_now=true только за реальную попытку продвинуть intent; operation=resolve только при фактическом удовлетворении/закрытии цели, operation=abandon только когда NPC действительно отказался от неё."
-        ),
+        "rule": "Intent остаётся активным до resolve/abandon. Увиливание, молчание и смена темы не закрывают его.",
     }
 
 
 def _player_input_scope(context: Dict[str, Any]) -> Dict[str, Any]:
     mapping = context.get("player_input_map") if isinstance(context.get("player_input_map"), dict) else {}
     ordered = mapping.get("ordered_segments") if isinstance(mapping.get("ordered_segments"), list) else []
-    stage = mapping.get("stage_directions") if isinstance(mapping.get("stage_directions"), list) else []
-    spoken = mapping.get("spoken_segments") if isinstance(mapping.get("spoken_segments"), list) else []
     last = ordered[-1] if ordered and isinstance(ordered[-1], dict) else {}
     return {
-        "source_path": "player_input_map",
-        "has_stage_direction": bool(stage),
-        "has_spoken": bool(spoken),
         "last_segment_kind": last.get("kind"),
         "last_segment_text": str(last.get("text") or "")[:500],
         "boundary": "next_meaningful_pov_choice",
-        "rule": (
-            "Player input defines what POV has already chosen, not a mandatory stop after every literal action. "
-            "If it delegates an ongoing ordinary activity, compress its uneventful continuation until completion, interruption or the next meaningful POV choice. "
-            "If it is a bounded meaningful act, complete that act and immediate reactions but do not invent a later independent POV phase. "
-            "Minor physical/technical actions and neutral communication happen automatically when they carry no meaningful choice."
-        ),
     }
 
 
 def _scene_momentum_rule(context: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "mandatory": True,
-        "ending_required": True,
-        "important_scene_can_span_turns": True,
         "player_input_scope": _player_input_scope(context),
-        "important_scene_is_progress": (
-            "If action, contact, position, emotion, risk, information or a character goal is still changing, the scene itself is progressing even if it stays in the same place and plot thread."
-        ),
-        "visual_coverage": [
-            "положение людей и дистанция, когда они важны",
-            "видимые действия, взгляд, выражение и реакция",
-            "изменение контакта, позы и важных предметов",
-            "ощущения POV как дополнительный слой, а не замена внешнего кадра",
-        ],
-        "automatic_minor_actions": [
-            "посмотреть, повернуть голову, сделать несколько шагов",
-            "взять/положить обычный предмет",
-            "достать или проверить телефон, прочитать доступное сообщение/уведомление",
-            "продолжить уже выбранную обычную работу или рутину",
-            "нейтрально ответить, если ответ не раскрывает важную информацию и не выражает значимую позицию",
-        ],
-        "meaningful_choice_boundary": [
-            "согласиться или отказаться там, где это выражает позицию POV",
-            "принять или отклонить значимый контакт, предложение, просьбу или обязательство",
-            "рассказать/скрыть важное, солгать, признаться или дать обещание",
-            "выбрать сторону, существенную тактику или серьёзный риск",
-            "сделать реплику/действие, способные заметно изменить отношения, конфликт или сюжет",
-        ],
-        "do_not_compress": [
-            "важную эмоциональную или интимную сцену только потому, что её общий исход уже понятен",
-            "экшн, опасность или конфликт до абстрактной цепочки глаголов или итогового абзаца",
-            "короткое содержательное действие POV вместе со следующим самостоятельным этапом, который игрок ещё не выбирал",
-        ],
-        "clarity": (
-            "Диалог не стендап: юмор/сарказм не default, шутка не требует ответной; голоса различны. "
-            "В важном телесном/интимном действии неграфично, но ясно показывай последовательность, положение тел, контакт и реакцию; звуки/ощущения не заменяют действие. "
-            "Не прячь физику за «убрал последнюю дистанцию»."
-        ),
-        "player_choice": (
-            "Не возвращай управление ради технической мелочи или очевидного продолжения уже выбранной обычной деятельности. "
-            "Возвращай его, когда появляется новый значимый выбор. Бounded meaningful action можно закончить на самом действии и реакции NPC; ongoing routine можно сжать дальше."
-        ),
-        "time_skip_policy": (
-            "Time skip сжимает уже выбранный игроком длительный обычный отрезок: работу, дорогу, ожидание, сон, подготовку, повторяющуюся рутину. "
-            "Остановись раньше, если NPC/мир вмешались так, что требуется значимый выбор POV. Не используй time skip после короткого содержательного действия как разрешение придумать следующий самостоятельный этап POV."
-        ),
-        "anti_overstretch": (
-            "Не превращай кинематографичность в каталог микродвижений. Несколько ходов оправданы только пока каждый ход даёт новый beat: меняет действие, контакт, положение, эмоцию, риск, информацию или цель."
-        ),
-        "valid_endings": [
-            "следующий действительно значимый выбор POV",
-            "событие/вмешательство NPC или мира, которое требует реакции с последствиями",
-            "естественный конец порученной длительной рутины",
-            "короткое содержательное действие POV и непосредственная реакция NPC, если дальше начинается уже новый самостоятельный этап",
-        ],
-        "invalid_endings": [
-            "посмотреть, взять предмет, проверить телефон, продолжить обычную работу или другую техническую мелочь, если она не несёт существенного выбора",
-            "рутина остановлена через несколько минут только ради выдачи трёх одинаково бессодержательных вариантов",
-            "автор после короткого содержательного действия сам прожил за POV следующий час, ночь, день или новый самостоятельный этап",
-            "важная сцена обрывается итоговым абзацем или time skip, хотя внутри неё ещё есть меняющиеся beats",
-        ],
-        "anti_therapy": (
-            "Отдых и тишина могут существовать как обычная часть жизни, но не превращай их в эмоциональное лечение, безопасный опыт, заслуженное восстановление или отдельную арку облегчения."
-        ),
-        "causality": (
-            "Не придумывай случайное событие только ради крючка. Во время порученной рутины NPC, intents, threads, расписание и последствия могут естественно вмешаться. "
-            "Если ничего содержательного не происходит, сожми рутину до её конца вместо остановки на мелочи."
-        ),
-        "instruction": (
-            "Граница хода — следующий значимый выбор POV, а не каждая мелкая операция. Выполняй бытовые/технические мелочи автоматически. "
-            "Порученную работу, дорогу, ожидание, сон или повторяющуюся рутину сжимай до конца, естественного вмешательства или значимого выбора. "
-            "Короткое содержательное действие доводи до результата и реакции, но не присваивай следующий самостоятельный этап POV. "
-            "Важную эмоциональную, интимную, конфликтную или экшн-сцену показывай ясно и визуально, пока в ней есть новые beats."
+        "rule": (
+            "Рутину веди до конца, вмешательства или следующего значимого выбора. "
+            "Короткое действие доводи до результата и реакции, но не проживай за POV следующий самостоятельный этап. "
+            "Важную сцену не проматывай, пока в ней реально меняются действие, контакт, эмоция, риск, информация или цель."
         ),
     }
 
@@ -436,11 +252,7 @@ def _rewrite_packet(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
             "cast_pressure": _cast_pressure(context, state if isinstance(state, dict) else {}, current_turn),
             "story_pressure": _story_pressure(context, current_turn),
             "character_relevance": _character_relevance(context),
-            "instruction": (
-                "pov_activity, character_driven_behavior, npc_intent_drive and scene_momentum are mandatory. "
-                "Non-empty cast_pressure must be reconsidered without POV prompting; use a candidate when current canon permits, otherwise keep pending. "
-                "story_pressure and character_relevance are guidance. Never invent past events."
-            ),
+            "instruction": "Обязательные правила выше; pressure — только напоминания. Не придумывай прошлое.",
         }
 
         text = json.dumps(context, ensure_ascii=False, separators=(",", ":"))

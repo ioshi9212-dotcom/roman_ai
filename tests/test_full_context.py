@@ -31,13 +31,13 @@ def test_runtime_is_only_rules_and_scene_builder_and_stays_small():
     assert set(payload["documents"]) == {"rules", "scene_builder"}
     rules = payload["documents"]["rules"]
     builder = payload["documents"]["scene_builder"]
-    assert "POV — живой участник" in rules
-    assert "future_guidance" in rules
+    assert "POV может сам делать мелкие бытовые действия" in rules
+    assert "`foundation` и `future_guidance` — материал на будущее" in rules
     assert "NPC действуют сами" in rules
     assert "Формат scene_builder обязателен" in builder
     assert "Каждый ход должен быть логично связан с предыдущим" in builder
     assert manifest["total_chars"] == sum(len(x) for x in chunks)
-    assert manifest["total_chars"] < 30000
+    assert manifest["total_chars"] < 18000
 
 
 def test_turn_packet_separates_history_memory_future_guidance_and_preserves_storage():

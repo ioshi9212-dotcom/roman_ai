@@ -107,7 +107,7 @@ def test_strong_relationship_can_surface_absent_npc_in_cast_pressure():
         pressure = packet["narrative_guardrails"]["cast_pressure"]
         adrian = next(row for row in pressure if row.get("character_id") == "adrian")
         assert adrian["relationship_salience"] >= 0.6
-        assert "without POV prompting" in adrian["guidance"]
+        assert "без запроса POV" in adrian["guidance"]
 
 
 def test_present_npc_opinion_can_change_without_fake_numeric_relationship_update():
@@ -169,10 +169,9 @@ def test_social_reactivity_allows_grounded_ambient_people_to_intervene_without_u
         packet = read_packet(sid, "Сесть за общий стол и продолжить разговор")
         instruction = packet["living_world"]["social_reactivity"]["instruction"].casefold()
 
-        assert "speak" in instruction
-        assert "intervene" in instruction
-        assert "without pov prompting" in instruction
-        assert "one-scene extra needs no card" in instruction
+        assert "говорить" in instruction
+        assert "вмешиваться" in instruction
+        assert "одноразовому extra карточка не нужна" in instruction
 
 
 def test_social_reactivity_allows_npc_to_npc_reports_without_turning_them_into_truth():
@@ -182,6 +181,6 @@ def test_social_reactivity_allows_npc_to_npc_reports_without_turning_them_into_t
         packet = read_packet(sid, "Остаться рядом")
         instruction = packet["living_world"]["social_reactivity"]["instruction"].casefold()
 
-        assert "npc-to-npc" in instruction
-        assert "wrong or lies" in instruction
-        assert "not truth" in instruction
+        assert "слух" in instruction
+        assert "ложь" in instruction
+        assert "не становятся истиной" in instruction

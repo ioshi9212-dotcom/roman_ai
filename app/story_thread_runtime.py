@@ -15,7 +15,7 @@ from .transactional_storage import session_transaction
 _ORIGINAL_PREPARE = None
 _ORIGINAL_COMMIT_TURN = None
 _ORIGINAL_COMMIT_AUDIT = None
-_STORY_ENGINE_VERSION = 6
+_STORY_ENGINE_VERSION = 7
 _STAGNATION_LIMIT = 3
 _THREAD_SOFT_AGE = 4
 _THREAD_HARD_AGE = 6
@@ -142,10 +142,7 @@ def _story_pressure(context: Dict[str, Any], current_turn: int) -> list[Dict[str
             "current_goal": thread.get("current_goal"),
             "current_phase": thread.get("current_phase"),
             "unresolved": deepcopy(thread.get("unresolved")) if isinstance(thread.get("unresolved"), list) else None,
-            "guidance": (
-                "Advance this existing line through a causal beat, consequence, NPC action, discovery or phase change. "
-                "If it genuinely cannot move yet, record a concrete causal pause/next eligibility in story_thread_updates instead of silently forgetting it."
-            ),
+            "guidance": "Продвинь причинно; если сейчас нельзя — сохрани понятную паузу/следующее условие.",
         }))
     result.sort(key=lambda pair: pair[0], reverse=True)
     return [{key: value for key, value in item.items() if value not in (None, "", [], False)} for _, item in result[:6]]
@@ -186,30 +183,14 @@ def _future_direction_cues(context: Dict[str, Any]) -> list[Dict[str, str]]:
 def _story_drive(context: Dict[str, Any], root, current_turn: int, pressure: list[Dict[str, Any]]) -> Dict[str, Any]:
     streak = trailing_stagnant_turns(root)
     hard_thread_due = any(item.get("must_advance_or_causally_pause") is True for item in pressure)
-    force_progress = streak >= _STAGNATION_LIMIT or hard_thread_due
-    current_threads = active_threads(storage._read_json(root / "state.json", {}))
     return {
         "mandatory": True,
         "stagnant_turns": streak,
-        "max_consecutive_static_turns": _STAGNATION_LIMIT,
-        "force_progress_this_turn": force_progress,
-        "active_thread_count": len(current_threads),
-        "scene_progress_flag": (
-            "Set extracted.scene_progressed=true only for substantive change in risk, information, objective, relationship/emotional state, conflict, consequence or a character goal. Movement, position, observation, routine execution or elapsed time alone are not progress."
-        ),
-        "story_thread_updates_required_in_persistence_review": True,
+        "force_progress_this_turn": streak >= _STAGNATION_LIMIT or hard_thread_due,
+        "active_thread_count": len(active_threads(storage._read_json(root / "state.json", {}))),
         "future_direction_cues": _future_direction_cues(context),
-        "thread_lifecycle": {
-            "start": "When a bounded event/operation/investigation/trip/conflict becomes live, upsert one story thread with premise, goal/phase, unresolved and end_conditions.",
-            "progress": "When the live event materially changes, upsert with progressed_now=true and update phase/goal/unresolved/progress_summary.",
-            "pause": "If a due thread genuinely cannot move yet, keep it active and record the causal pause/next eligibility; do not silently drop it.",
-            "close": "Resolve/abandon only when the event actually ends or is genuinely dropped; keep anchor_facts intact.",
-        },
-        "instruction": (
-            "Before ending ask: if POV chose any reasonable next action, would anything substantive change? If no, it is not a player choice; continue or compress until a real change, interruption, natural end or consequential choice. "
-            "A turn should change risk, information, goal, relationship/emotion, conflict, consequence or character goal, or compress the path to such a change. Movement, observation, rechecking, routine and time passing are not beats by themselves. "
-            "Keep consequential consent, disclosure, promise, allegiance, tactic and serious risk with the player. Important emotional, intimate, conflict and action scenes may continue while they produce genuinely new beats."
-        ),
+        "scene_progress_flag": "scene_progressed=true только при реальном изменении ситуации; перемещение, ожидание и течение времени сами по себе не прогресс.",
+        "rule": "Двигай существующие линии причинно. Значимый выбор POV оставляй игроку. Просроченную линию продвинь или явно поставь на причинную паузу.",
     }
 
 
@@ -218,10 +199,7 @@ def _progress_required_error(streak: int) -> None:
         status_code=409,
         detail={
             "code": "STORY_PROGRESS_REQUIRED",
-            "message": (
-                "The previous turns formed a static streak. Do not commit another turn that only extends movement, waiting, observation, rechecking or neutral routine. "
-                "Compress to a substantive change, interruption, natural end or meaningful POV choice; do not use scene_progressed=true for position/time/routine alone."
-            ),
+            "message": "Static streak: continue/compress to a real change, interruption, natural end or meaningful POV choice. Routine/position/time alone are not progress.",
             "stagnant_turns_before_this_commit": streak,
             "maximum_consecutive_static_turns": _STAGNATION_LIMIT,
         },
@@ -295,11 +273,7 @@ def _rewrite_story_drive(session_id: str, base: Dict[str, Any]) -> Dict[str, Any
         guardrails["story_drive"] = _story_drive(context, root, current_turn, pressure)
         prior_instruction = str(guardrails.get("instruction") or "").strip()
         guardrails["instruction"] = (
-            "pov_activity, character_driven_behavior, npc_intent_drive, scene_momentum and story_drive are mandatory. "
-            "Address story_pressure marked must_advance_or_causally_pause. Non-empty cast_pressure requires active reconsideration without POV prompting. "
-            "Keep meaningful POV choices with the player; never invent past events."
-        ) if prior_instruction else (
-            "character_driven_behavior, story_drive and non-empty cast_pressure reconsideration are mandatory."
+            "Обязательные правила соблюдай. Pressure — напоминания: учитывай причинно, без выдуманного прошлого."
         )
         context["narrative_guardrails"] = guardrails
         _clean_relationship_policy(context)

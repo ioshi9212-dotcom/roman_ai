@@ -95,7 +95,8 @@ def test_unresolved_npc_intent_persists_and_resurfaces_without_player_reminder()
         assert intent["intent_id"] == "check_account_origin"
         assert intent["eligible_now"] is True
         assert "npc_intent_instruction" not in context
-        assert "без напоминания POV" in context["runtime_rules"]
+        assert "Незакрытый вопрос" in context["runtime_rules"]
+        assert "intent не закрывает" in context["runtime_rules"]
         assert context["narrative_guardrails"]["npc_intent_drive"]["mandatory"] is True
 
         bundle = get_character_bundle(sid, "ren")

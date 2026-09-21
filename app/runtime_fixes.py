@@ -84,14 +84,7 @@ def _rewrite_turn_packet(session_id: str, manifest: Dict[str, Any]) -> Dict[str,
     context["relationship_policy"] = {
         "direction": "NPC -> POV only",
         "source_of_truth": "relationship_lens + relationship_contract",
-        "instruction": (
-            "Use relationship_lens and relationship_contract as the only relationship model. "
-            "Preserve established dimensions across scenes and absences. New dimensions may be added only when they genuinely arise "
-            "and must not replace old dimensions. Deltas are optional; when a delta is shown for an established dimension, "
-            "the final value must equal the saved start value plus that delta. The visible Relationships footer contains only NPCs "
-            "present at scene end. If an NPC's relationship changes during the scene but that NPC leaves before the footer, persist "
-            "the final values invisibly through extracted.relationship_updates instead of printing an absent NPC in the footer."
-        ),
+        "instruction": "Сохраняй старые dimensions; реальные изменения пиши через relationship_updates.",
     }
 
     persistence = context.get("persistence_contract")
@@ -99,15 +92,9 @@ def _rewrite_turn_packet(session_id: str, manifest: Dict[str, Any]) -> Dict[str,
         persistence = {}
     persistence["relationship_updates"] = {
         "optional": True,
-        "when": "Only for an NPC whose relationship changed in this turn and who is absent at scene end.",
-        "format": (
-            '[{"character_id":"npc_id","dimensions":'
-            '[{"label":"доверие","value":12,"delta":2}]}]'
-        ),
-        "instruction": (
-            "Do not use relationship_updates for NPCs still present at scene end; their visible footer is authoritative. "
-            "For a departed NPC include all already-established dimensions, plus any genuinely new dimensions."
-        ),
+        "when": "Только при реальном изменении.",
+        "format": '[{"character_id":"npc_id","dimensions":[{"label":"доверие","value":12,"delta":2}]}]',
+        "instruction": "Изменения сохраняй через relationship_updates.",
     }
     context["persistence_contract"] = persistence
 
@@ -126,8 +113,7 @@ def _rewrite_turn_packet(session_id: str, manifest: Dict[str, Any]) -> Dict[str,
     result["chunk_count"] = len(chunks)
     result["instruction"] = (
         str(result.get("instruction", "")).rstrip()
-        + " Relationship persistence follows relationship_lens + relationship_contract; "
-        "departed-NPC changes use extracted.relationship_updates."
+        + " Relationship changes → extracted.relationship_updates."
     ).strip()
     return result
 
@@ -749,20 +735,15 @@ def _rewrite_audit_packet(session_id: str, manifest: Dict[str, Any]) -> Dict[str
     payload = json.loads(raw)
     payload["audit_repair_policy"] = {
         "mandatory_original_turn": True,
-        "chronology_add": "Each repair must include turn_number/turn/source_turn from the exact audited turn where the event happened.",
-        "knowledge_add": "Each repair must include learned_turn or turn_number/source_turn.",
-        "experiences_add": "Each repair must include turn or turn_number/source_turn.",
-        "dialogue_memory_add": "Each repair must include turn or turn_number/source_turn.",
-        "instruction": (
-            "Never stamp a repair with the audit-end turn merely because the repair is discovered during the audit. "
-            "Preserve the original causal turn. Include story_date/period/location/participants from exact evidence when known; "
-            "leave unknown optional context absent rather than borrowing the current final scene."
-        ),
+        "chronology_add": "Keep original turn.",
+        "knowledge_add": "Keep learned turn.",
+        "experiences_add": "Keep original turn.",
+        "dialogue_memory_add": "Keep original turn.",
+        "instruction": "Audit repairs keep the original causal turn.",
     }
     payload["instruction"] = (
         str(payload.get("instruction", "")).rstrip()
-        + " Every chronology or memory repair MUST carry its original turn inside the audited range; "
-        "repairs without an original turn are rejected."
+        + " Audit repairs require original turn."
     ).strip()
 
     text = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))

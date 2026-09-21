@@ -10,7 +10,7 @@ from .scene_compaction_runtime import audit_scene_context
 
 
 _ORIGINAL_GET_AUDIT = None
-FAST_AUDIT_PACKET_VERSION = 9
+FAST_AUDIT_PACKET_VERSION = 10
 AUDIT_PACKET_CHARS = 16000
 
 
@@ -75,45 +75,26 @@ def _build_fast_payload(session_id: str) -> Dict[str, Any]:
         "scene_compaction_context": audit_scene_context(root),
         "audit_repair_policy": {
             "mandatory_original_turn": True,
-            "chronology_add": "Each repair must carry turn_number/turn/source_turn from the exact audited turn where the event happened.",
-            "knowledge_add": "Each repair must carry learned_turn or turn_number/source_turn from the exact audited turn where the character learned it.",
-            "experiences_add": "Each repair must carry turn or turn_number/source_turn from the exact audited turn.",
-            "dialogue_memory_add": "Each repair must carry turn or turn_number/source_turn from the exact audited turn.",
-            "npc_intent_updates": "Create or repair an intent only when an audited turn proves the NPC formed, advanced, resolved or abandoned that future-facing motive.",
-            "scene_compactions": (
-                "REQUIRED. Partition the exact audit range into contiguous scenes with no gaps/overlap. "
-                "Each row: {scene_id?: existing open scene id only, start_turn, end_turn, summary, participants, location, status}. "
-                "summary is ONE dense factual sentence preserving who initiated what, development, important dialogue/revelations/choices, and the ending/pause. "
-                "If all 15 turns are one continuous scene, submit exactly one row. If the previous open scene continues, reuse its scene_id and rewrite one updated sentence covering old+new development."
-            ),
-            "memory_compactions": (
-                "OPTIONAL but expected for repeated/verbose memory from this audit range. "
-                "Each row: {character_id, memory_type: knowledge|experiences|dialogue_memory, source_ids:[...], summary}. "
-                "The summary must preserve every distinct fact contained in the source records. Sources remain raw evidence and are only superseded in working memory."
-            ),
+            "chronology_add": "Repair keeps the original turn.",
+            "knowledge_add": "Knowledge keeps the learned turn.",
+            "experiences_add": "Experience keeps the original turn.",
+            "dialogue_memory_add": "Dialogue memory keeps the original turn.",
+            "npc_intent_updates": "Repair intent only from audited evidence.",
+            "scene_compactions": "REQUIRED: cover every audited turn exactly once by real scenes; one dense factual summary per scene.",
+            "memory_compactions": "Optional: merge duplicates only if every distinct fact survives.",
         },
         "audit_contract": {
             "exact_range": [start_turn, end_turn],
-            "visible_chat_is_primary": True,
-            "persisted_scene_text_is_complete": True,
             "persistent_storage_is_complete": True,
             "do_not_reaudit_entire_novel": True,
             "check": [
-                "missing important chronology from these 15 turns",
-                "missing or unsupported per-character knowledge/memory from these 15 turns",
-                "missing or stale NPC follow-up intents created/resolved/advanced in these 15 turns",
-                "obvious current-state or presence contradiction with the latest committed scene",
-                "scene-level compression of every audited turn without losing distinct facts",
-                "duplicate or needlessly fragmented character memory that can be losslessly merged",
+                "missing chronology/memory/intents",
+                "state or presence contradictions",
+                "scene_compactions cover every audited turn once",
+                "lossless memory compaction where useful",
             ],
         },
-        "instruction": (
-            "15-TURN AUDIT + LOSSLESS COMPACTION. Read every persisted scene_output in turn_evidence_backup. "
-            "First repair genuine omissions/contradictions. Then group the exact audit range by real scene, not by turn count, and ALWAYS send repairs.scene_compactions covering every audited turn exactly once. "
-            "One continuous 15-turn scene becomes ONE dense sentence, not fifteen micro-events and not a vague label. Preserve initiation, development, important dialogue/revelations/choices and the ending/pause. "
-            "Use repairs.memory_compactions to merge repeated or fragmented knowledge/experience/dialogue records only when every distinct fact survives in the compact summary. Raw turns and raw source records remain evidence. "
-            "Never give a character knowledge merely because chronology/source/card knows it. Commit once after this pass."
-        ),
+        "instruction": "Проверь только эти 15 ходов, исправь реальные пропуски, сделай lossless compaction и один commitAudit.",
     }
 
 
@@ -128,10 +109,7 @@ def _response(packet: Dict[str, Any], *, include_first: bool) -> Dict[str, Any]:
         "already_read_chunks": packet.get("read_chunks", []),
         "first_chunk_included": bool(include_first and chunks),
         "next_chunk_index": 1 if include_first and len(chunks) > 1 else None,
-        "instruction": (
-            "Chunk 0 is included in this response when first_chunk_included=true and is already counted as read. "
-            "Read only the remaining audit chunks individually, perform one reconciliation + scene compaction pass, then commitAudit once with required repairs.scene_compactions."
-        ),
+        "instruction": "Chunk 0 уже включён. Прочитай остальные chunks и сделай один commitAudit.",
     }
     if include_first and chunks:
         result["chunk_index"] = 0

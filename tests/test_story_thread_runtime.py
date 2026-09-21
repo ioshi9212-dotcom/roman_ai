@@ -185,9 +185,9 @@ def test_story_drive_forces_movement_but_keeps_meaningful_pov_choice_with_player
         assert drive["force_progress_this_turn"] is True
         assert drive["future_direction_cues"]
         assert "scene_progressed=true" in drive["scene_progress_flag"]
-        assert "it is not a player choice" in drive["instruction"]
-        assert "continue or compress" in drive["instruction"]
-        assert "consent" in drive["instruction"]
+        assert "Значимый выбор POV оставляй игроку" in drive["rule"]
+        assert "Просроченную линию продвинь" in drive["rule"]
+        assert "перемещение, ожидание и течение времени сами по себе не прогресс" in drive["scene_progress_flag"]
 
 
 def test_actions_schema_and_gpt_instruction_include_story_thread_contract():

@@ -127,18 +127,10 @@ def _strip_legacy_full_payloads(context: Dict[str, Any], *, persistent_state: Di
 
     policy = result.get("relationship_policy") if isinstance(result.get("relationship_policy"), dict) else {}
     policy["authoritative_start_snapshot"] = _relationship_snapshot_from_persistent_state(persistent_state)
-    policy["authoritative_start_snapshot_note"] = (
-        "Compact diagnostic start values for physically present NPCs, rebuilt from persistent state before transport compaction. "
-        "relationship_lens + relationship_contract remain authoritative."
-    )
+    policy["authoritative_start_snapshot_note"] = "Стартовые значения взяты из persistent state."
     result["relationship_policy"] = policy
 
-    result["character_context_instruction"] = (
-        "Full character_cards are transported only for POV, physically present characters and registered characters explicitly participating in the current input or communication. "
-        "character_memory is a bounded working copy; complete lifetime memory remains persisted. Oversized memory text may be shortened in transport only; load the full character bundle if exact omitted wording matters. "
-        "character_registry stays available for every registered character. If any other offscreen registered character must enter, speak, message, call, answer, react remotely or otherwise materially act, call prepareCharacterBundleRead and read every getCharacterBundleChunk individually before writing that character. "
-        "Do not use direct oversized character bundle or memory Actions."
-    )
+    result["character_context_instruction"] = "Packet bounded. Offscreen NPC перед участием → prepareCharacterBundleRead; полный канон остаётся в Railway."
     contract = result.get("working_context_contract") if isinstance(result.get("working_context_contract"), dict) else {}
     contract.update(
         {
@@ -171,10 +163,7 @@ def _pending_manifest(packet: Dict[str, Any]) -> Dict[str, Any]:
         "working_context": True,
         "reused_pending_packet": True,
         "read_chunks": list(packet.get("read_chunks", [])),
-        "instruction": (
-            "This exact pending turn was already prepared, so the existing packet_id was reused instead of invalidating in-progress chunk reads. "
-            "Continue reading any unread packet chunks individually, then commit once."
-        ),
+        "instruction": "Pending packet переиспользован. Дочитай unread chunks и сделай один commit.",
     }
 
 
@@ -217,7 +206,7 @@ def _prepare_turn(session_id: str, user_input: str) -> Dict[str, Any]:
         manifest["relevant_character_ids"] = [str(value) for value in context.get("relevant_character_ids", []) if value]
         manifest["reused_pending_packet"] = False
         manifest["instruction"] = (
-            "Read every turn packet chunk individually before writing. The packet is a bounded scene working set; complete persistent data remains in Railway. "
+            "Прочитай все turn packet chunks. Packet bounded; полный канон остаётся в Railway. "
             "Load an absent registered character bundle before any entrance, speech, message, call, remote reaction or other material action."
         )
         return manifest
