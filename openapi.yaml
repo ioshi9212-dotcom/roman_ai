@@ -4,7 +4,7 @@ info:
   version: 1.14.0
   description: Persistent isolated novel sessions with bounded writer-first context, transactional memory, living NPC relationships, NPC intents, story threads, recovery, rollback, cast rotation and lossless chunked setup intake.
 servers:
-  - url: https://romanai-production-0fdb.up.railway.app
+  - url: https://ai-roman-yumikofv.mia0.amvera.tech
 components:
   schemas:
     NovelDraftCreate:
