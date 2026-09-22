@@ -7,7 +7,9 @@ from . import storage
 
 
 SNAPSHOT_FILE = "last_turn_snapshot.json"
-SNAPSHOT_VERSION = 1
+PREVIOUS_SNAPSHOT_FILE = "previous_turn_snapshot.json"
+PREVIOUS2_SNAPSHOT_FILE = "previous_turn_snapshot_2.json"
+SNAPSHOT_VERSION = 2
 
 
 def build_pre_turn_snapshot(root, committed_turn: int) -> Dict[str, Any]:

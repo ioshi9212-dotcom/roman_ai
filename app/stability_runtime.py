@@ -10,7 +10,7 @@ from . import session_recovery, session_runtime, storage
 from .game_day import sync_game_day
 from .relationship_runtime import overwrite_relationship_snapshots
 from .operation_receipts import RECEIPTS_FILE, ledger_with_receipt, make_receipt
-from .rollback_snapshot_runtime import SNAPSHOT_FILE, build_pre_turn_snapshot
+from .rollback_snapshot_runtime import PREVIOUS2_SNAPSHOT_FILE, PREVIOUS_SNAPSHOT_FILE, SNAPSHOT_FILE, build_pre_turn_snapshot
 from .scene_compaction_runtime import SCENE_MEMORY_FILE, apply_audit_compactions
 from .transactional_storage import json_text, recover, session_transaction, write_batch
 from .turn_duplicate_guard import recent_duplicate_turn
@@ -198,6 +198,8 @@ def _atomic_commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, A
             if duplicate:
                 raise RuntimeError("RECENT_DUPLICATE_USER_INPUT")
 
+        prior_snapshot = storage._read_json(root / SNAPSHOT_FILE, {})
+        prior_previous_snapshot = storage._read_json(root / PREVIOUS_SNAPSHOT_FILE, {})
         pre_turn_snapshot = build_pre_turn_snapshot(root, turn_number)
         extracted = payload.get("extracted", {}) if isinstance(payload.get("extracted"), dict) else {}
         entry = storage._template("turn.json", {})
@@ -275,6 +277,18 @@ def _atomic_commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, A
             "meta.json": json_text(meta),
             SNAPSHOT_FILE: json_text(pre_turn_snapshot),
         }
+        prior_snapshot_valid = (
+            isinstance(prior_snapshot, dict)
+            and int(prior_snapshot.get("committed_turn", 0) or 0) == turn_number - 1
+        )
+        if prior_snapshot_valid:
+            values[PREVIOUS_SNAPSHOT_FILE] = json_text(prior_snapshot)
+        prior_previous_valid = (
+            isinstance(prior_previous_snapshot, dict)
+            and int(prior_previous_snapshot.get("committed_turn", 0) or 0) == turn_number - 2
+        )
+        if prior_previous_valid:
+            values[PREVIOUS2_SNAPSHOT_FILE] = json_text(prior_previous_snapshot)
         receipt_meta = payload.get("_operation_receipt") if isinstance(payload.get("_operation_receipt"), dict) else None
         if receipt_meta:
             receipt = make_receipt(
@@ -287,6 +301,10 @@ def _atomic_commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, A
             values[RECEIPTS_FILE] = json_text(ledger_with_receipt(root, receipt))
 
         write_batch(root, values)
+        if not prior_snapshot_valid:
+            (root / PREVIOUS_SNAPSHOT_FILE).unlink(missing_ok=True)
+        if not prior_previous_valid:
+            (root / PREVIOUS2_SNAPSHOT_FILE).unlink(missing_ok=True)
         (root / "turn_packet.json").unlink(missing_ok=True)
         return result
 
