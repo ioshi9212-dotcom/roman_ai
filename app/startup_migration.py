@@ -54,9 +54,15 @@ def _fetch_turns(source: str, session_id: str, last_turn: int, *, batch_size: in
     for start in range(1, last_turn + 1, batch_size):
         end = min(last_turn, start + batch_size - 1)
         query = urllib.parse.urlencode({"start_turn": start, "end_turn": end})
-        batch = _get_json(f"{source.rstrip('/')}/sessions/{session_id}/turns?{query}")
-        if not isinstance(batch, list):
-            raise RuntimeError(f"Unexpected turn-range payload for {start}-{end}: {type(batch).__name__}")
+        payload = _get_json(f"{source.rstrip('/')}/sessions/{session_id}/turns?{query}")
+        if isinstance(payload, dict) and isinstance(payload.get("turns"), list):
+            batch = payload["turns"]
+        elif isinstance(payload, list):
+            batch = payload
+        else:
+            raise RuntimeError(
+                f"Unexpected turn-range payload for {start}-{end}: {type(payload).__name__}"
+            )
         turns.extend(item for item in batch if isinstance(item, dict))
     turns.sort(key=lambda item: int(item.get("turn_number", 0) or 0))
     return turns
