@@ -1,4 +1,6 @@
 import json
+import os
+from threading import Thread
 
 from fastapi import FastAPI, HTTPException
 
@@ -43,6 +45,7 @@ from .storage import (
     save_novel,
 )
 from .turn_rollback import RollbackError
+from .startup_migration import read_migration_status, run_startup_session_migration
 
 app = FastAPI(
     title="Roman AI",
@@ -51,9 +54,20 @@ app = FastAPI(
 )
 
 
+@app.on_event("startup")
+def startup_session_migration():
+    if str(os.getenv("ROMAN_MIGRATE_SESSION_ID") or "").strip():
+        Thread(target=run_startup_session_migration, daemon=True, name="roman-session-migration").start()
+
+
 @app.get("/health", operation_id="health")
 def health():
     return {"ok": True}
+
+
+@app.get("/migration-status", operation_id="getMigrationStatus")
+def migration_status_get():
+    return read_migration_status()
 
 
 @app.get("/sessions/{session_id}/context-stats", operation_id="getSessionContextStats")
