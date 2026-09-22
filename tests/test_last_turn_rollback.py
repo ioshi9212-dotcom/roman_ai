@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from app import audit_runtime, session_runtime, storage
+from app import turn_rollback as rollback_module
 from app.rollback_snapshot_runtime import SNAPSHOT_FILE
 from app.turn_rollback import RollbackError, rollback_last_turn
 
@@ -335,3 +336,27 @@ def test_new_release_keeps_exact_snapshot_for_immediate_second_rollback():
         snapshot = storage._read_json(root / SNAPSHOT_FILE, {})
         assert snapshot["committed_turn"] == 1
         assert snapshot["previous_turn"] == 0
+
+
+
+def test_exact_snapshot_rollback_never_replays_full_history(monkeypatch):
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = make_session()
+        root = storage.SESSIONS_DIR / sid
+
+        for turn in range(1, 4):
+            commit_simple_turn(sid, turn)
+
+        snapshot = storage._read_json(root / SNAPSHOT_FILE, {})
+        assert snapshot["committed_turn"] == 3
+
+        def fail_replay(*args, **kwargs):
+            raise AssertionError("exact snapshot rollback must not replay full history")
+
+        monkeypatch.setattr(rollback_module, "_replay_through", fail_replay)
+        result = rollback_module.rollback_last_turn(sid, 3, True)
+
+        assert result["method"] == "exact_pre_turn_snapshot"
+        assert result["turn_number"] == 2
+        assert storage._read_json(root / "meta.json", {})["turn_number"] == 2
