@@ -12,7 +12,7 @@ from .scene_compaction_runtime import active_memory_records
 from .transactional_storage import session_transaction
 
 
-_VERSION = 5
+_VERSION = 6
 _ORIGINAL_PREPARE = None
 _ORIGINAL_COMMIT = None
 _ORIGINAL_CREATE_SESSION = None
@@ -50,6 +50,124 @@ _OPTION_MARKERS = (
     ("Что я могу сказать:", "option_say"),
     ("Что я могу подумать:", "option_thought"),
 )
+
+_KNOWLEDGE_TOPIC_ROOTS = {
+    "meeting_plan": ("встреч", "свидан", "визит", "назнач", "брониров", "резервир", "планир"),
+    "clothing": ("плать", "наряд", "одежд"),
+    "promise": ("обещ", "договор"),
+    "relationship_history": ("бывш", "родств", "брат", "сестр", "женат", "замуж", "супруг"),
+    "secret": ("секрет", "тайн"),
+}
+_TEMPORAL_MARKERS = ("завтра", "послезавтра", "сегодня", "вечером", "утром", "ночью", "во сколько")
+_CONTACT_RE = re.compile(r"(?iu)\b(?:к|ко|с|со|у|от)\s+([^\W\d_][\w-]{2,})")
+_CONTACT_STOP = {
+    "тебе", "тебя", "тобой", "нему", "него", "ним", "ней", "нее", "неё",
+    "мне", "меня", "мной", "себе", "собой", "нами", "вами", "ними",
+}
+
+
+def _entity_stem(value: str) -> str:
+    word = _norm(value).strip(".,!?;:()[]{}\"'«»")
+    for ending in (
+        "иями", "ями", "ами", "ого", "ему", "ому", "ыми", "ими",
+        "ах", "ях", "ом", "ем", "ам", "ям", "ой", "ей", "ую", "юю",
+        "ов", "ев", "а", "я", "у", "ю", "е", "ы", "и",
+    ):
+        if len(word) >= 5 and word.endswith(ending) and len(word) - len(ending) >= 3:
+            return word[:-len(ending)]
+    return word
+
+
+def _word_stems(text: str) -> set[str]:
+    return {
+        _entity_stem(match.group(0))
+        for match in re.finditer(r"(?iu)[a-zа-яё][a-zа-яё-]{2,}", str(text or ""))
+    }
+
+
+def _contact_targets(text: str) -> set[str]:
+    result: set[str] = set()
+    for match in _CONTACT_RE.finditer(str(text or "")):
+        raw = _norm(match.group(1))
+        if raw in _CONTACT_STOP:
+            continue
+        stem = _entity_stem(raw)
+        if len(stem) >= 3:
+            result.add(stem)
+    return result
+
+
+def _knowledge_topics(text: str) -> set[str]:
+    normalized = _norm(text)
+    result: set[str] = set()
+    for topic, roots in _KNOWLEDGE_TOPIC_ROOTS.items():
+        if any(root in normalized for root in roots):
+            result.add(topic)
+    return result
+
+
+def _has_temporal_marker(text: str) -> bool:
+    normalized = _norm(text)
+    return any(marker in normalized for marker in _TEMPORAL_MARKERS)
+
+
+def _fact_free_sensitive_reason(text: str) -> str | None:
+    topics = _knowledge_topics(text)
+    if topics:
+        return "topic:" + ",".join(sorted(topics))
+    contacts = _contact_targets(text)
+    if contacts and _has_temporal_marker(text):
+        return "scheduled_contact:" + ",".join(sorted(contacts))
+    if "во сколько" in _norm(text):
+        return "schedule"
+    if _NUMBER_RE.search(str(text or "")):
+        return "numeric_literal"
+    return None
+
+
+def _source_supports_unit(unit_text: str, source_texts: List[str]) -> tuple[bool, Dict[str, Any]]:
+    source_texts = [str(value or "") for value in source_texts if str(value or "").strip()]
+    joined = "\n".join(source_texts)
+    unit_topics = _knowledge_topics(unit_text)
+    source_topics = _knowledge_topics(joined)
+    missing_topics = sorted(unit_topics - source_topics)
+
+    unit_contacts = _contact_targets(unit_text)
+    source_contacts = _contact_targets(joined)
+    scheduled_contacts = bool(unit_contacts and _has_temporal_marker(unit_text))
+    missing_contacts: List[str] = []
+    if scheduled_contacts:
+        source_has_schedule = (
+            _has_temporal_marker(joined)
+            or bool(source_topics & {"meeting_plan"})
+            or bool(_NUMBER_RE.search(joined))
+        )
+        if not source_has_schedule:
+            missing_contacts = sorted(unit_contacts)
+        else:
+            source_stems = _word_stems(joined)
+            missing_contacts = sorted(
+                target
+                for target in unit_contacts
+                if target not in source_contacts
+                and not ("meeting_plan" in source_topics and target in source_stems)
+            )
+
+    missing_numbers: List[int] = []
+    for match in _NUMBER_RE.finditer(str(unit_text or "")):
+        try:
+            number = int(match.group(0))
+        except ValueError:
+            continue
+        if not any(_number_present(source, number) for source in source_texts):
+            missing_numbers.append(number)
+
+    ok = not missing_topics and not missing_contacts and not missing_numbers
+    return ok, {
+        "missing_topics": missing_topics,
+        "missing_contact_targets": missing_contacts,
+        "missing_numbers": missing_numbers,
+    }
 
 
 def _norm(value: Any) -> str:
@@ -109,7 +227,9 @@ def _firewall_contract() -> Dict[str, Any]:
             "knowledge_trace_complete": True,
             "knowledge_usage": (
                 "Покрой каждую зарегистрированную реплику и каждый POV-вариант действия/реплики/мысли. "
-                "Для unit_id укажи fact_free=true либо source_fact_ids/source_event_ids."
+                "fact_free=true допустим только для unit без внешнего фактического утверждения. "
+                "Планы/встречи/одежда/обещания/секреты/конкретные числа и запланированный контакт требуют "
+                "source_fact_ids/source_event_ids, а источник должен содержательно поддерживать именно этот claim."
             ),
             "durable_knowledge": (
                 "knowledge_add разрешён только как долговечная копия уже валидного turn_knowledge; "
@@ -495,7 +615,7 @@ def _validate_usage_ledger(
             },
         )
 
-    persistent_cache: Dict[str, set[str]] = {}
+    persistent_cache: Dict[str, Dict[str, Dict[str, Any]]] = {}
     for unit_id, unit in expected.items():
         row = provided[unit_id]
         character_id = str(unit["character_id"])
@@ -510,6 +630,22 @@ def _validate_usage_ledger(
         fact_free = row.get("fact_free") is True
         if fact_free and (source_fact_ids or source_event_ids):
             raise HTTPException(status_code=409, detail={"code": "KNOWLEDGE_USAGE_INVALID", "unit_id": unit_id})
+        if fact_free:
+            sensitive_reason = _fact_free_sensitive_reason(str(unit.get("text") or ""))
+            if sensitive_reason:
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "code": "KNOWLEDGE_FACT_FREE_SENSITIVE",
+                        "unit_id": unit_id,
+                        "character_id": character_id,
+                        "reason": sensitive_reason,
+                        "instruction": (
+                            "Эта реплика/мысль содержит конкретный фактический claim и не может быть fact_free. "
+                            "Укажи реальный knowledge source этого персонажа либо перепиши unit без неподтверждённого факта."
+                        ),
+                    },
+                )
         if not fact_free and not (source_fact_ids or source_event_ids):
             raise HTTPException(
                 status_code=409,
@@ -518,7 +654,7 @@ def _validate_usage_ledger(
 
         if character_id not in persistent_cache:
             persistent_cache[character_id] = {
-                str(_fact_id(item))
+                str(_fact_id(item)): item
                 for item in _persistent_knowledge(root, character_id)
                 if _fact_id(item)
             }
@@ -529,12 +665,30 @@ def _validate_usage_ledger(
                 detail={"code": "KNOWLEDGE_USAGE_UNKNOWN_FACT", "unit_id": unit_id, "unknown_fact_ids": unknown_facts},
             )
 
+        source_texts = [
+            _fact_text(persistent_cache[character_id][fact_id])
+            for fact_id in source_fact_ids
+            if fact_id in persistent_cache[character_id]
+        ]
         for event_id in source_event_ids:
             event = turn_events.get(event_id)
             if event is None:
+                forbidden_prefix = str(event_id).casefold().startswith(
+                    ("dialogue_", "dialogue_t", "exp_", "experience_", "chrono_", "scene_")
+                )
                 raise HTTPException(
                     status_code=409,
-                    detail={"code": "KNOWLEDGE_USAGE_UNKNOWN_EVENT", "unit_id": unit_id, "event_id": event_id},
+                    detail={
+                        "code": "KNOWLEDGE_USAGE_FORBIDDEN_SOURCE" if forbidden_prefix else "KNOWLEDGE_USAGE_UNKNOWN_EVENT",
+                        "unit_id": unit_id,
+                        "event_id": event_id,
+                        "instruction": (
+                            "dialogue_memory/experiences/chronology/scene IDs не являются источниками знания. "
+                            "source_event_ids могут ссылаться только на валидный turn_knowledge текущего хода."
+                            if forbidden_prefix
+                            else "Источник знания не существует в валидном turn_knowledge текущего хода."
+                        ),
+                    },
                 )
             if str(event.get("character_id") or "") != character_id:
                 raise HTTPException(
@@ -549,6 +703,25 @@ def _validate_usage_ledger(
                         "unit_id": unit_id,
                         "event_id": event_id,
                         "instruction": "Источник появился после использования факта. Перепиши сцену; задним числом источник не засчитывается.",
+                    },
+                )
+            source_texts.append(str(event.get("fact") or ""))
+
+        if not fact_free:
+            relevant, relevance = _source_supports_unit(str(unit.get("text") or ""), source_texts)
+            if not relevant:
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "code": "KNOWLEDGE_SOURCE_NOT_RELEVANT",
+                        "unit_id": unit_id,
+                        "character_id": character_id,
+                        **relevance,
+                        "instruction": (
+                            "Указанный knowledge source существует, но не поддерживает фактическое содержание unit. "
+                            "Нельзя прикрывать новый факт старой записью с тем же именем/темой. "
+                            "Укажи источник именно этого факта либо перепиши сцену."
+                        ),
                     },
                 )
 
