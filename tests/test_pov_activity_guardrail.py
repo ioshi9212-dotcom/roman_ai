@@ -13,18 +13,26 @@ def _setup_temp_storage(tmp: str) -> None:
     storage.ensure_dirs()
 
 
-def test_pov_activity_rule_is_short_and_keeps_only_core_agency_boundary():
+def test_pov_activity_rule_keeps_pov_active_without_stealing_meaningful_choice():
     rule = guardrails._pov_activity_rule()
 
     assert rule["mandatory"] is True
+    assert rule["min_post_input_presence_beats"] == 2
+    assert rule["ordinary_dialogue_required_when_natural"] is True
+    assert rule["multiple_pov_lines_allowed"] is True
+    assert rule["silence_requires_character_or_scene_reason"] is True
+    assert rule["do_not_replace_speech_with_gesture"] is True
+
     text = rule["rule"]
-    assert "мелочи" in text
-    assert "обычные реплики" in text
-    assert "Значимый выбор" in text
-    assert len(text) < 140
+    assert "не камера и не мебель" in text
+    assert "минимум дважды" in text
+    assert "сам user_input не засчитывай" in text
+    assert "POV отвечает словами" in text
+    assert "не заменяй естественный ответ" in text
+    assert "reserved_for_player" in text
 
 
-def test_writer_packet_keeps_meaningful_choice_boundary_without_duplicate_pov_essay():
+def test_writer_packet_contains_active_pov_guard_and_meaningful_choice_boundary():
     with tempfile.TemporaryDirectory() as tmp:
         _setup_temp_storage(tmp)
         novel = {
@@ -49,7 +57,10 @@ def test_writer_packet_keeps_meaningful_choice_boundary_without_duplicate_pov_es
         context = json.loads("".join(chunks))
 
         signals = context["narrative_guardrails"]
-        assert signals["version"] == 13
+        assert signals["version"] == 14
         assert signals["pov_activity"]["mandatory"] is True
+        assert signals["pov_activity"]["min_post_input_presence_beats"] == 2
+        assert signals["pov_activity"]["ordinary_dialogue_required_when_natural"] is True
+        assert signals["pov_activity"]["do_not_replace_speech_with_gesture"] is True
         assert signals["scene_momentum"]["player_input_scope"]["boundary"] == "next_meaningful_pov_choice"
-        assert len(json.dumps(signals["pov_activity"], ensure_ascii=False)) < 200
+        assert len(json.dumps(signals["pov_activity"], ensure_ascii=False)) < 2200

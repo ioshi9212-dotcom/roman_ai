@@ -174,14 +174,20 @@ def test_scene_momentum_is_short_and_keeps_meaningful_boundary():
     assert len(text) < 360
 
 
-def test_pov_activity_is_short_and_keeps_minor_actions_with_pov():
+def test_pov_activity_keeps_visible_presence_and_ordinary_dialogue():
     rule = guardrails._pov_activity_rule()
     assert rule["mandatory"] is True
+    assert rule["min_post_input_presence_beats"] == 2
+    assert rule["ordinary_dialogue_required_when_natural"] is True
+    assert rule["multiple_pov_lines_allowed"] is True
+    assert rule["silence_requires_character_or_scene_reason"] is True
+    assert rule["do_not_replace_speech_with_gesture"] is True
     text = rule["rule"]
-    assert "мелочи" in text
-    assert "обычные реплики" in text
-    assert "Значимый выбор остаётся игроку" in text
-    assert len(text) < 140
+    assert "не камера и не мебель" in text
+    assert "минимум дважды" in text
+    assert "сам user_input не засчитывай" in text
+    assert "POV отвечает словами" in text
+    assert "не заменяй естественный ответ" in text
 
 
 def test_npc_intent_drive_treats_evasion_as_unresolved():
@@ -258,8 +264,10 @@ def test_prepare_turn_packet_contains_concise_narrative_guardrails():
         context = json.loads("".join(parts))
 
         signals = context["narrative_guardrails"]
-        assert signals["version"] == 13
+        assert signals["version"] == 14
         assert signals["pov_activity"]["mandatory"] is True
+        assert signals["pov_activity"]["min_post_input_presence_beats"] == 2
+        assert signals["pov_activity"]["ordinary_dialogue_required_when_natural"] is True
         assert signals["character_driven_behavior"]["mandatory"] is True
         assert signals["npc_intent_drive"]["mandatory"] is True
         assert signals["scene_momentum"]["player_input_scope"]["boundary"] == "next_meaningful_pov_choice"
