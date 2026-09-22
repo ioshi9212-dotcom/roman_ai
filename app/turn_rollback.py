@@ -480,13 +480,17 @@ def rollback_last_turn(
             previous2_snapshot = storage._read_json(root / PREVIOUS2_SNAPSHOT_FILE, {})
             next_snapshot = (
                 deepcopy(previous_snapshot)
-                if isinstance(previous_snapshot, dict)
+                if target_turn > 0
+                and isinstance(previous_snapshot, dict)
+                and bool(previous_snapshot)
                 and int(previous_snapshot.get("committed_turn", 0) or 0) == target_turn
                 else None
             )
             following_snapshot = (
                 deepcopy(previous2_snapshot)
-                if isinstance(previous2_snapshot, dict)
+                if target_turn > 1
+                and isinstance(previous2_snapshot, dict)
+                and bool(previous2_snapshot)
                 and int(previous2_snapshot.get("committed_turn", 0) or 0) == target_turn - 1
                 else None
             )
@@ -556,11 +560,28 @@ def rollback_last_turn(
                 result=result,
                 target_turn_after=target_turn,
             )
-        # Do not synchronously replay hundreds of historical turns a second time
-        # just to prepare a possible future rollback. That work can exceed reverse
-        # proxy timeouts on smaller hosts. The rollback itself is authoritative; a
-        # later rollback may fall back to historical verification if no snapshot exists.
-        next_snapshot = None
+        # Never replay hundreds of historical turns a second time just to
+        # prepare a possible future rollback. Reuse the small recent snapshot chain
+        # when it already contains the target; otherwise finish this rollback without
+        # blocking the HTTP response on extra reconstruction.
+        recent_snapshot = storage._read_json(root / PREVIOUS_SNAPSHOT_FILE, {})
+        recent_snapshot_2 = storage._read_json(root / PREVIOUS2_SNAPSHOT_FILE, {})
+        next_snapshot = (
+            deepcopy(recent_snapshot)
+            if target_turn > 0
+            and isinstance(recent_snapshot, dict)
+            and bool(recent_snapshot)
+            and int(recent_snapshot.get("committed_turn", 0) or 0) == target_turn
+            else None
+        )
+        following_snapshot = (
+            deepcopy(recent_snapshot_2)
+            if target_turn > 1
+            and isinstance(recent_snapshot_2, dict)
+            and bool(recent_snapshot_2)
+            and int(recent_snapshot_2.get("committed_turn", 0) or 0) == target_turn - 1
+            else None
+        )
         _write_restored_state(
             root,
             target_turn=target_turn,
@@ -573,5 +594,6 @@ def rollback_last_turn(
             meta=restored_meta,
             operation_receipt=receipt,
             next_snapshot=next_snapshot,
+            following_snapshot=following_snapshot,
         )
         return result
