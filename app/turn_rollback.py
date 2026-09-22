@@ -8,7 +8,7 @@ from . import storage
 from .character_registry import refresh_pov_familiarity
 from .game_day import sync_game_day
 from .relationship_runtime import repair_relationship_state
-from .rollback_snapshot_runtime import SNAPSHOT_FILE
+from .rollback_snapshot_runtime import PREVIOUS_SNAPSHOT_FILE, SNAPSHOT_FILE
 from .operation_receipts import (
     RECEIPTS_FILE,
     add_receipt,
@@ -401,6 +401,7 @@ def _write_restored_state(
     write_batch(root, values)
     if not isinstance(next_snapshot, dict):
         (root / SNAPSHOT_FILE).unlink(missing_ok=True)
+    (root / PREVIOUS_SNAPSHOT_FILE).unlink(missing_ok=True)
     for name in (
         "turn_packet.json",
         "audit_packet.json",
@@ -469,14 +470,13 @@ def rollback_last_turn(
                     result=result,
                     target_turn_after=target_turn,
                 )
-            source = storage._read_json(root / "source.json", {})
             snapshot_audits = deepcopy(snapshot.get("audits", [])) if isinstance(snapshot.get("audits"), list) else []
-            next_snapshot = _snapshot_for_current_turn(
-                source,
-                remaining_turns,
-                snapshot_audits,
-                committed_turn=target_turn,
-                meta_seed=previous_meta,
+            previous_snapshot = storage._read_json(root / PREVIOUS_SNAPSHOT_FILE, {})
+            next_snapshot = (
+                deepcopy(previous_snapshot)
+                if isinstance(previous_snapshot, dict)
+                and int(previous_snapshot.get("committed_turn", 0) or 0) == target_turn
+                else None
             )
             _write_restored_state(
                 root,
@@ -543,13 +543,11 @@ def rollback_last_turn(
                 result=result,
                 target_turn_after=target_turn,
             )
-        next_snapshot = _snapshot_for_current_turn(
-            source,
-            replay_previous["turns"],
-            target_audits,
-            committed_turn=target_turn,
-            meta_seed=restored_meta,
-        )
+        # Do not synchronously replay hundreds of historical turns a second time
+        # just to prepare a possible future rollback. That work can exceed reverse
+        # proxy timeouts on smaller hosts. The rollback itself is authoritative; a
+        # later rollback may fall back to historical verification if no snapshot exists.
+        next_snapshot = None
         _write_restored_state(
             root,
             target_turn=target_turn,
