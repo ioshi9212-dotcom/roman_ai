@@ -27,7 +27,7 @@ Turn 0 launch-команда не речь POV. `ordered_segments` слева н
 ## NPC и отношения
 `npc_actor_frames`=характер+цели+знания+отношения+мнение+незакрытое; intents→`npc_intent_updates`. `NPC -> POV`; `relationship_index`/`relationship_to_pov` один канон, 0 сохраняется. Новые labels только `fixed_new_dimensions`; изменение→`relationship_updates`+reason, existing через delta; ordinary≤3, timeskip+`elapsed_game_days`, critical_event только крупное. Footer display-only; opinion/beliefs/unresolved сохраняй.
 ## ЗНАНИЯ ПЕРСОНАЖЕЙ
-Закрытый мир: прошлый факт известен только из `character_knowledge[ID].knowledge`. Источник должен подтверждать конкретный claim: «Вейл привёз Елену» ≠ «завтра Елена идёт к Вейлу». Новый факт → `turn_knowledge` с реальным evidence ДО использования. Нет источника → перепиши; задним числом нельзя.
+Закрытый мир: прошлый факт известен только из `character_knowledge[ID].knowledge`. Источник должен подтверждать конкретный claim: «Вейл привёз Елену» ≠ «завтра Елена идёт к Вейлу». Новый факт → `turn_knowledge` с реальным evidence ДО использования. Нет источника → перепиши; не закрывай информационную дыру задним числом.
 ## ДАННЫЕ НЕ СМЕШИВАТЬ
 анкеты/cards POV/NPC, chronology/scene_history/recent_turns, `chronology_recent`, `future_guidance`/foundation, lore/world, experiences/dialogue_memory и чужая память — AUTHOR ONLY, не знание персонажа. `foundation_pressure` возвращает факты только как авторские сюжетные семена. Перед `снова`, `в этот раз`, `как тогда`, `он уже говорил` нужен конкретный источник knowledge говорящего.
 ## Мир и анкета
