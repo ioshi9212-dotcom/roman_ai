@@ -81,7 +81,7 @@ def test_final_writer_packet_contains_scene_logic_guardrails():
         context = json.loads("".join(chunks))
 
         assert next(iter(context)) == "knowledge_firewall_v5"
-        assert context["knowledge_firewall_v5"]["version"] == 6
+        assert context["knowledge_firewall_v5"]["version"] == 7
         assert context["knowledge_firewall_v5"]["closed_world"] is True
         guards = context["scene_logic_guardrails"]
         assert guards["version"] == 4
