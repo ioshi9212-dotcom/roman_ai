@@ -52,10 +52,10 @@ _OPTION_MARKERS = (
 )
 
 _KNOWLEDGE_TOPIC_ROOTS = {
-    "meeting_plan": ("встреч", "свидан", "визит", "назнач", "брони", "бронь", "планир"),
+    "meeting_plan": ("встреч", "свидан", "визит", "назнач", "брониров", "резервир", "планир"),
     "clothing": ("плать", "наряд", "одежд"),
     "promise": ("обещ", "договор"),
-    "relationship_history": ("бывш", "родств", "брат", "сестр", "жених", "невест", "муж", "жена"),
+    "relationship_history": ("бывш", "родств", "брат", "сестр", "женат", "замуж", "супруг"),
     "secret": ("секрет", "тайн"),
 }
 _TEMPORAL_MARKERS = ("завтра", "послезавтра", "сегодня", "вечером", "утром", "ночью", "во сколько")
@@ -76,6 +76,13 @@ def _entity_stem(value: str) -> str:
         if len(word) >= 5 and word.endswith(ending) and len(word) - len(ending) >= 3:
             return word[:-len(ending)]
     return word
+
+
+def _word_stems(text: str) -> set[str]:
+    return {
+        _entity_stem(match.group(0))
+        for match in re.finditer(r"(?iu)[a-zа-яё][a-zа-яё-]{2,}", str(text or ""))
+    }
 
 
 def _contact_targets(text: str) -> set[str]:
@@ -138,7 +145,13 @@ def _source_supports_unit(unit_text: str, source_texts: List[str]) -> tuple[bool
         if not source_has_schedule:
             missing_contacts = sorted(unit_contacts)
         else:
-            missing_contacts = sorted(unit_contacts - source_contacts)
+            source_stems = _word_stems(joined)
+            missing_contacts = sorted(
+                target
+                for target in unit_contacts
+                if target not in source_contacts
+                and not ("meeting_plan" in source_topics and target in source_stems)
+            )
 
     missing_numbers: List[int] = []
     for match in _NUMBER_RE.finditer(str(unit_text or "")):
