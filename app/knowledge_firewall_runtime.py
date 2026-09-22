@@ -12,7 +12,7 @@ from .scene_compaction_runtime import active_memory_records
 from .transactional_storage import session_transaction
 
 
-_VERSION = 6
+_VERSION = 7
 _ORIGINAL_PREPARE = None
 _ORIGINAL_COMMIT = None
 _ORIGINAL_CREATE_SESSION = None
@@ -111,8 +111,23 @@ def _has_temporal_marker(text: str) -> bool:
     return any(marker in normalized for marker in _TEMPORAL_MARKERS)
 
 
-def _fact_free_sensitive_reason(text: str) -> str | None:
+def _fact_free_sensitive_reason(text: str, *, unit_id: str = "") -> str | None:
     topics = _knowledge_topics(text)
+    is_action_option = str(unit_id or "").startswith("option_action:")
+
+    # Action options are proposals, not statements that a fact already exists.
+    # "Поправить платье", "вечером подойти к Вейлу" or "пойти на встречу"
+    # may be a new neutral choice. Do not force a knowledge source merely because
+    # the wording overlaps clothing / meeting / contact heuristics.
+    # We still protect action options that themselves presuppose durable facts.
+    if is_action_option:
+        factual_topics = topics & {"promise", "relationship_history", "secret"}
+        if factual_topics:
+            return "topic:" + ",".join(sorted(factual_topics))
+        if _NUMBER_RE.search(str(text or "")):
+            return "numeric_literal"
+        return None
+
     if topics:
         return "topic:" + ",".join(sorted(topics))
     contacts = _contact_targets(text)
@@ -227,9 +242,10 @@ def _firewall_contract() -> Dict[str, Any]:
             "knowledge_trace_complete": True,
             "knowledge_usage": (
                 "Покрой каждую зарегистрированную реплику и каждый POV-вариант действия/реплики/мысли. "
-                "fact_free=true допустим только для unit без внешнего фактического утверждения. "
-                "Планы/встречи/одежда/обещания/секреты/конкретные числа и запланированный контакт требуют "
-                "source_fact_ids/source_event_ids, а источник должен содержательно поддерживать именно этот claim."
+                "fact_free=true допустим только без внешнего фактического утверждения. Само упоминание темы ещё не claim: "
+                "нейтральный option_action может создать новый выбор про одежду/встречу/контакт без source. "
+                "Реплики/мысли и действия, которые ссылаются на обещание/родство/секрет/конкретное число или утверждают "
+                "уже существующий факт, требуют source_fact_ids/source_event_ids; источник должен поддерживать именно claim."
             ),
             "durable_knowledge": (
                 "knowledge_add разрешён только как долговечная копия уже валидного turn_knowledge; "
@@ -631,7 +647,10 @@ def _validate_usage_ledger(
         if fact_free and (source_fact_ids or source_event_ids):
             raise HTTPException(status_code=409, detail={"code": "KNOWLEDGE_USAGE_INVALID", "unit_id": unit_id})
         if fact_free:
-            sensitive_reason = _fact_free_sensitive_reason(str(unit.get("text") or ""))
+            sensitive_reason = _fact_free_sensitive_reason(
+                str(unit.get("text") or ""),
+                unit_id=unit_id,
+            )
             if sensitive_reason:
                 raise HTTPException(
                     status_code=409,
@@ -641,8 +660,9 @@ def _validate_usage_ledger(
                         "character_id": character_id,
                         "reason": sensitive_reason,
                         "instruction": (
-                            "Эта реплика/мысль содержит конкретный фактический claim и не может быть fact_free. "
-                            "Укажи реальный knowledge source этого персонажа либо перепиши unit без неподтверждённого факта."
+                            "Этот unit содержит фактический claim и не может быть fact_free. "
+                            "Нейтральный новый option_action не требует source только из-за слов про одежду/встречу/контакт; "
+                            "для реального утверждения укажи knowledge source либо перепиши unit."
                         ),
                     },
                 )
