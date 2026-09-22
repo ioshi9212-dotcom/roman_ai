@@ -133,7 +133,7 @@ def test_writer_packet_frontloads_closed_world_knowledge_and_strips_fact_authori
 
         assert next(iter(context)) == "knowledge_firewall_v5"
         assert context["knowledge_firewall_v5"]["closed_world"] is True
-        assert context["knowledge_firewall_v5"]["version"] == 6
+        assert context["knowledge_firewall_v5"]["version"] == 7
         assert context["character_knowledge"]["emily"]["knowledge"][0]["fact_id"] == "emily_knows_silas_name"
         assert "experiences" not in context["character_memory"]["emily"]
         assert context["author_only_recollection_context"]["emily"]["fact_authority"] is False

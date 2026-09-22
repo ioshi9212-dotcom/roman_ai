@@ -257,7 +257,7 @@ components:
               items: {type: object, additionalProperties: true}
             knowledge_usage:
               type: array
-              description: Per-unit provenance ledger. For each unit_id provide character_id and either fact_free=true or source_fact_ids/source_event_ids. Existing fact IDs must belong to that same character.
+              description: Per-unit provenance ledger. For each unit_id provide character_id and either fact_free=true or source_fact_ids/source_event_ids. Neutral option_action choices about clothing/meeting/contact may be fact_free when they create a new choice rather than assert a pre-existing fact. Existing fact IDs must belong to that same character.
               items: {type: object, additionalProperties: true}
             chronology:
               type: array
