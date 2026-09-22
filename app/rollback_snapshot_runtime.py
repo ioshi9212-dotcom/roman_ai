@@ -8,6 +8,7 @@ from . import storage
 
 SNAPSHOT_FILE = "last_turn_snapshot.json"
 PREVIOUS_SNAPSHOT_FILE = "previous_turn_snapshot.json"
+PREVIOUS2_SNAPSHOT_FILE = "previous_turn_snapshot_2.json"
 SNAPSHOT_VERSION = 2
 
 
