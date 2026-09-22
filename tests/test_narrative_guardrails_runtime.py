@@ -84,6 +84,42 @@ def test_scene_format_rejects_missing_exact_option_count():
         guardrails._validate_scene_output(broken)
 
 
+
+
+def test_scene_format_rejects_foreign_text_inside_lower_option_sections():
+    broken = VALID_SCENE.replace(
+        "3. Остаться на месте.\n\nЧто я могу сказать:",
+        "3. Остаться на месте.\nЕлена ещё раз осмотрелась.\n\nЧто я могу сказать:",
+    )
+    with pytest.raises(ValueError, match="SCENE_FORMAT_INVALID"):
+        guardrails._validate_scene_output(broken)
+
+
+def test_scene_format_rejects_duplicate_or_inline_option_headers():
+    duplicate = VALID_SCENE.replace(
+        "Что я могу сказать:",
+        "Что я могу сказать:\nЧто я могу сказать:",
+        1,
+    )
+    with pytest.raises(ValueError, match="SCENE_FORMAT_INVALID"):
+        guardrails._validate_scene_output(duplicate)
+
+    inline = VALID_SCENE.replace(
+        "Что я могу подумать:",
+        "Подсказка: Что я могу подумать:",
+    )
+    with pytest.raises(ValueError, match="SCENE_FORMAT_INVALID"):
+        guardrails._validate_scene_output(inline)
+
+
+def test_scene_format_rejects_text_between_thought_options_and_state():
+    broken = VALID_SCENE.replace(
+        "3. Решить, кому доверять.\n\nСостояние:",
+        "3. Решить, кому доверять.\nИ ещё одно пояснение.\n\nСостояние:",
+    )
+    with pytest.raises(ValueError, match="SCENE_FORMAT_INVALID"):
+        guardrails._validate_scene_output(broken)
+
 def test_turn_commit_model_enforces_scene_builder_and_story_review_at_api_boundary():
     broken = VALID_SCENE.replace("Что я могу подумать:", "Мысли:")
     with pytest.raises(ValidationError, match="SCENE_FORMAT_INVALID"):
