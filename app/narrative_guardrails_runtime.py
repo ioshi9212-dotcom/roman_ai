@@ -9,7 +9,7 @@ from .transactional_storage import session_transaction
 
 
 _ORIGINAL_PREPARE = None
-_GUARDRAIL_VERSION = 13
+_GUARDRAIL_VERSION = 14
 _TERMINAL = {"resolved", "closed", "expired", "cancelled", "canceled", "done", "abandoned"}
 _HOOK_KEYS = (
     "fear", "страх", "weak", "слаб", "past", "прошл", "history", "истор",
@@ -181,7 +181,23 @@ def _character_relevance(context: Dict[str, Any]) -> List[Dict[str, Any]]:
 def _pov_activity_rule() -> Dict[str, Any]:
     return {
         "mandatory": True,
-        "rule": "POV сам делает мелочи и обычные реплики. Значимый выбор остаётся игроку.",
+        "min_post_input_presence_beats": 2,
+        "ordinary_dialogue_required_when_natural": True,
+        "multiple_pov_lines_allowed": True,
+        "silence_requires_character_or_scene_reason": True,
+        "do_not_replace_speech_with_gesture": True,
+        "reserved_for_player": (
+            "Значимое согласие/отказ, обещание, признание, сознательная ложь, раскрытие секрета, "
+            "выбор стороны, серьёзный риск, сексуальное согласие и другие решения с заметными последствиями."
+        ),
+        "rule": (
+            "POV — полноценный участник, не камера и не мебель. После выполнения user_input, если сцена не упёрлась сразу "
+            "в значимый выбор, POV должен ещё минимум дважды естественно проявиться в ОСНОВНОЙ сцене через обычную реплику, "
+            "мелкое действие, наблюдение/ощущение или непосредственную не-решающую реакцию; сам user_input не засчитывай как "
+            "достаточное присутствие. Если к POV обращаются и ответ не является значимым выбором, POV отвечает словами по "
+            "характеру; не заменяй естественный ответ кивком, улыбкой, взглядом или молчанием. Допускай несколько обычных "
+            "обменов репликами. Остановись только перед действительно значимым решением из reserved_for_player."
+        ),
     }
 
 
