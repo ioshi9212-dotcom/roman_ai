@@ -309,7 +309,9 @@ def test_chained_rollback_crosses_audit_after_exact_duplicate_turn():
         third = rollback_last_turn(sid, 14, True)
         assert third["method"] == "exact_pre_turn_snapshot"
         assert third["turn_number"] == 13
-        assert storage._read_json(root / SNAPSHOT_FILE, {})["committed_turn"] == 13
+        # The rollback itself stays exact. We deliberately do not rebuild another
+        # historical snapshot synchronously once the small recent chain is exhausted.
+        assert not (root / SNAPSHOT_FILE).exists()
         assert len(storage._read_turns(root)) == 13
         assert storage._read_json(root / "meta.json", {})["turn_number"] == 13
 
