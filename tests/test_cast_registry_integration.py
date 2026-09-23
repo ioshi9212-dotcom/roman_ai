@@ -374,6 +374,7 @@ def test_story_created_upsert_requires_director_story_function():
             "user_input": "Новый медик вмешивается.",
             "scene_output": "test",
             "extracted": {
+                "runtime_rules_reviewed": True,
                 "chronology": [],
                 "character_upserts": [
                     {"character_id": "new_doc", "name": "Марк", "role": "медик"}
