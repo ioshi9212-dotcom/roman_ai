@@ -107,15 +107,15 @@ def test_packet_knowledge_review_applies_to_pov_and_npcs_and_quarantines_author_
         context = read_packet(sid, manifest)
 
         guards = context["scene_logic_guardrails"]
-        assert guards["version"] == 4
-        assert guards["knowledge_causality"]["applies_to"] == "POV and every NPC"
+        assert guards["version"] == 5
+        assert guards["knowledge_causality"]["applies_to"] == "real speech only"
         author_only = " ".join(guards["knowledge_causality"]["author_only_not_character_knowledge"]).casefold()
         assert "chronology" in author_only
         assert "scene_history" in author_only
         assert "character card" in author_only
         assert "foundation" in author_only
         review = guards["knowledge_review"]
-        assert review["applies_to"] == "POV and every NPC"
+        assert review["applies_to"] == "real speech only"
         assert review["older_memory_retrieval"] == "prepareCharacterBundleRead(character_id)"
         assert "перепиши" in review["rule"]
         assert "knowledge_reviewed=true" in review["rule"]
@@ -146,7 +146,7 @@ def test_capable_packet_rejects_commit_until_knowledge_review_is_confirmed_then_
         assert exc.value.status_code == 409
         assert exc.value.detail["code"] == "KNOWLEDGE_REVIEW_REQUIRED"
         assert exc.value.detail["packet_id"] == manifest["packet_id"]
-        assert "POV и всех NPC" in exc.value.detail["instruction"]
+        assert "каждую реальную реплику" in exc.value.detail["instruction"]
         assert storage._read_json(root / "meta.json", {})["turn_number"] == 0
         assert storage._read_json(root / "turn_packet.json", {}).get("packet_id") == manifest["packet_id"]
 
