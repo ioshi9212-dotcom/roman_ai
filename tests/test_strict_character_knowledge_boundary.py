@@ -56,7 +56,7 @@ def test_offscreen_bundle_frontloads_firewall_and_card_is_not_knowledge(monkeypa
 
     assert next(iter(bundle)) == "knowledge_firewall"
     assert bundle["knowledge_firewall"]["card_is_author_only"] is True
-    assert bundle["knowledge_firewall"]["version"] == 7
+    assert bundle["knowledge_firewall"]["version"] == 8
     assert bundle["knowledge_firewall"]["closed_world"] is True
     assert bundle["knowledge_firewall"]["character_id"] == "silas"
     assert "personal_memory" in bundle
