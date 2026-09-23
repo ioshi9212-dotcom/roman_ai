@@ -65,7 +65,7 @@ def _player_input_order_rule() -> Dict[str, Any]:
 def _player_text_cleanup_rule() -> Dict[str, Any]:
     return {
         "mandatory": True,
-        "rule": "В scene_output исправляй только явные опечатки, орфографию и безопасную пунктуацию. Слова, мат, сленг, тон и смысл не переписывай.",
+        "rule": "Реплики POV из user_input при переносе в scene_output: исправляй явные опечатки, орфографию и безопасную пунктуацию; слова, мат, сленг, тон и смысл не переписывай.",
     }
 
 
