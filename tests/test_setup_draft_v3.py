@@ -360,3 +360,52 @@ def test_v3_publish_requires_launch_state_and_publishes_playable_template_after_
         saved = storage.get_novel("v3_publish")
         assert saved["starting_state"]["current"]["location"] == "архив"
         assert saved["starting_state"]["current"]["present_characters"] == ["rina"]
+
+
+
+def test_v3_core_cast_is_required_and_normalized_to_character_ids():
+    template = {
+        "version": 3,
+        "novel": {"pov_character": "rina"},
+        "characters": [
+            {"character_id": "rina", "name": "Рина", "is_pov": True},
+            {"character_id": "adrian", "name": "Адриан"},
+        ],
+    }
+    with pytest.raises(ValueError, match="CORE_CAST_REQUIRED"):
+        novel_drafts._normalise_core_cast_shape(template, required=True)
+
+    template["novel"]["core_cast"] = [
+        {"name": "Рина", "story_function": "POV истории."},
+        {"character_id": "adrian", "name": "Адриан", "story_function": "Связывает POV с центральным конфликтом."},
+    ]
+    normalized = novel_drafts._normalise_core_cast_shape(template, required=True)
+    assert normalized["novel"]["core_cast"] == [
+        {"character_id": "rina", "name": "Рина", "story_function": "POV истории."},
+        {"character_id": "adrian", "name": "Адриан", "story_function": "Связывает POV с центральным конфликтом."},
+    ]
+
+
+def test_v3_core_cast_rejects_missing_story_function_and_missing_pov():
+    base = {
+        "version": 3,
+        "novel": {"pov_character": "rina"},
+        "characters": [
+            {"character_id": "rina", "name": "Рина", "is_pov": True},
+            {"character_id": "adrian", "name": "Адриан"},
+        ],
+    }
+    missing_function = json.loads(json.dumps(base, ensure_ascii=False))
+    missing_function["novel"]["core_cast"] = [
+        {"character_id": "rina", "name": "Рина", "story_function": "POV."},
+        {"character_id": "adrian", "name": "Адриан"},
+    ]
+    with pytest.raises(ValueError, match="CORE_CAST_STORY_FUNCTION_REQUIRED"):
+        novel_drafts._normalise_core_cast_shape(missing_function, required=True)
+
+    missing_pov = json.loads(json.dumps(base, ensure_ascii=False))
+    missing_pov["novel"]["core_cast"] = [
+        {"character_id": "adrian", "name": "Адриан", "story_function": "Основная конфликтная линия."},
+    ]
+    with pytest.raises(ValueError, match="CORE_CAST_POV_REQUIRED"):
+        novel_drafts._normalise_core_cast_shape(missing_pov, required=True)
