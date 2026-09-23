@@ -14,7 +14,7 @@ def test_custom_gpt_instructions_include_scene_audit_compaction_and_fit_editor_l
         "repairs.scene_compactions",
         "15 ходов одной сцены = ОДНА запись",
         "repairs.memory_compactions",
-        "не закрывай информационную дыру задним числом",
+        "claims_reviewed=true",
         "до следующего значимого выбора",
         "очевидную орфографию",
     ):
