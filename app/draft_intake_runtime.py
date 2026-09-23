@@ -312,6 +312,40 @@ def _coverage(draft: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def coverage_for_response(coverage: Dict[str, Any], *, sample_limit: int = 12) -> Dict[str, Any]:
+    """Compact transport view; full coverage stays available internally and through draft reads."""
+    raw = deepcopy(coverage) if isinstance(coverage, dict) else {}
+    uncovered = raw.pop("uncovered_source_units", [])
+    unknown_units = raw.pop("unknown_source_unit_ids", [])
+    unknown_facts = raw.get("unknown_fact_ids", [])
+    if not isinstance(uncovered, list):
+        uncovered = []
+    if not isinstance(unknown_units, list):
+        unknown_units = []
+    raw["uncovered_source_unit_count"] = len(uncovered)
+    raw["uncovered_source_unit_ids_sample"] = [
+        str(row.get("source_unit_id") or "")
+        for row in uncovered[:sample_limit]
+        if isinstance(row, dict) and row.get("source_unit_id")
+    ]
+    raw["unknown_source_unit_id_count"] = len(unknown_units)
+    raw["unknown_source_unit_ids_sample"] = [
+        {
+            "fact_id": str(row.get("fact_id") or ""),
+            "source_unit_id": str(row.get("source_unit_id") or ""),
+        }
+        for row in unknown_units[:sample_limit]
+        if isinstance(row, dict)
+    ]
+    raw["unknown_fact_id_count"] = len(unknown_facts) if isinstance(unknown_facts, list) else 0
+    raw["response_compacted"] = True
+    raw["detail_instruction"] = (
+        "This status is compact. Use prepareDraftRead/getNovelReadChunk for exact raw text and full source-unit evidence. "
+        "Do not infer missing detail text from this response."
+    )
+    return raw
+
+
 def _character_target_from_path(path: str, cards: List[Dict[str, Any]]) -> tuple[str | None, str]:
     value = str(path or "").strip()
     match = re.search(r"characters\[([^\]]+)\]", value, flags=re.IGNORECASE)
