@@ -182,7 +182,14 @@ def novel_draft_intake_mapping_update(draft_id: str, block_id: str, body: NovelD
             "INTAKE_BLOCK_INVALID": "block_id is required.",
             "INTAKE_MAPPING_REVISION_REQUIRED": "replace=true requires expected_revision so a stale correction cannot overwrite a newer mapping.",
             "INTAKE_MAPPING_REVISION_MISMATCH": "The draft changed since this mapping was prepared. Read the current draft revision before replacing mappings.",
+            "INTAKE_SOURCE_UNITS_REQUIRE_FACTS": "This v4 block contains substantive source_units and cannot be marked contains_no_facts. Map every source unit to foundation facts.",
         }
+        if code.startswith("INTAKE_SOURCE_UNITS_UNCOVERED:"):
+            missing = code.split(":", 1)[1]
+            raise HTTPException(
+                status_code=409,
+                detail=f"Lossless v4 review failed. These source_unit_ids are still not represented by mapped foundation facts: {missing}. Add/correct facts with source_unit_ids before reviewed_against_raw=true.",
+            )
         raise HTTPException(status_code=409, detail=messages.get(code, code))
 
 

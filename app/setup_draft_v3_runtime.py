@@ -34,7 +34,10 @@ def _content_template(draft: Dict[str, Any]) -> Dict[str, Any]:
         "lore": sections.pop("lore", {}),
     }
     template.update(sections)
-    return novel_drafts._normalise_foundation_shape(template)
+    template = novel_drafts._normalise_foundation_shape(template)
+    if int(draft.get("version", _VERSION) or _VERSION) >= draft_intake_runtime._LOSSLESS_DRAFT_VERSION:
+        template = draft_intake_runtime.enrich_template_with_source_evidence(draft, template)
+    return template
 
 
 def _pov_id(template: Dict[str, Any]) -> str | None:
@@ -45,12 +48,18 @@ def _pov_id(template: Dict[str, Any]) -> str | None:
 
 def _validate_content(template: Dict[str, Any]) -> tuple[Dict[str, Any], Dict[str, Any]]:
     normalized = novel_drafts._normalise_foundation_shape(template)
+    version = int(normalized.get("version", _VERSION) or _VERSION)
+    normalized = novel_drafts._normalise_core_cast_shape(normalized, required=version >= 3)
     verification = novel_drafts.verify_template(normalized)
     if not verification.get("ok"):
         raise ValueError("DRAFT_CONTENT_INVALID")
     if not _pov_id(normalized):
         raise ValueError("DRAFT_POV_REQUIRED")
     coverage = novel_drafts._foundation_coverage(normalized, required=True)
+    if version >= draft_intake_runtime._LOSSLESS_DRAFT_VERSION:
+        integrity = normalized.get("setup_integrity") if isinstance(normalized.get("setup_integrity"), dict) else {}
+        if integrity.get("all_source_units_preserved") is not True:
+            raise ValueError("SETUP_SOURCE_EVIDENCE_INCOMPLETE")
     return normalized, coverage
 
 
@@ -104,6 +113,14 @@ def confirm_reconciliation(
             raise ValueError("INTAKE_REQUIRED")
         coverage = draft_intake_runtime._coverage(draft)
         if not coverage.get("ok"):
+            uncovered = coverage.get("uncovered_source_units") if isinstance(coverage.get("uncovered_source_units"), list) else []
+            missing_ids = [
+                str(row.get("source_unit_id"))
+                for row in uncovered
+                if isinstance(row, dict) and row.get("source_unit_id")
+            ]
+            if missing_ids:
+                raise ValueError("INTAKE_SOURCE_UNITS_UNCOVERED:" + ",".join(missing_ids[:20]))
             raise ValueError("INTAKE_COVERAGE_INCOMPLETE")
 
         template, foundation_coverage = _validate_content(_content_template(draft))

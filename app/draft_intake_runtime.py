@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from copy import deepcopy
 from typing import Any, Dict, List
 
-from . import novel_access, novel_drafts
+from . import novel_access, novel_drafts, storage
 from .transactional_storage import session_transaction
 
 
@@ -12,7 +13,8 @@ _ORIGINAL_SAVE_SECTION = None
 _ORIGINAL_DRAFT_STATUS = None
 _ORIGINAL_FINALIZE = None
 _ORIGINAL_PREPARE_READ = None
-_VERSION = 4
+_VERSION = 5
+_LOSSLESS_DRAFT_VERSION = 4
 MAX_INTAKE_CHUNK_CHARS = 100000
 
 _PLACEHOLDER_FRAGMENTS = (
@@ -35,6 +37,75 @@ def _assert_not_placeholder(raw_text: str) -> None:
     normalized = " ".join(str(raw_text or "").casefold().split())
     if any(fragment in normalized for fragment in _PLACEHOLDER_FRAGMENTS):
         raise ValueError("INTAKE_PLACEHOLDER_FORBIDDEN")
+
+
+def _source_unit_is_required(text: str) -> bool:
+    value = str(text or "").strip()
+    if not value:
+        return False
+    cleaned = re.sub(r"^[#>*•\-\s]+", "", value).strip()
+    if not cleaned:
+        return False
+    # Pure headings and questionnaire prompts are structure, not canon facts.
+    if value.lstrip().startswith("#"):
+        return False
+    if len(cleaned) <= 160 and cleaned.endswith(":"):
+        return False
+    if len(cleaned) <= 180 and cleaned.endswith("?"):
+        return False
+    return True
+
+
+def _source_units_for_block(block_id: str, raw_text: str) -> List[Dict[str, Any]]:
+    units: List[Dict[str, Any]] = []
+    heading: str | None = None
+    index = 0
+    lines = str(raw_text or "").splitlines() or [str(raw_text or "")]
+    for raw_line in lines:
+        line = raw_line.strip()
+        if not line:
+            continue
+        if not _source_unit_is_required(line):
+            heading = re.sub(r"^[#>*•\-\s]+", "", line).strip().rstrip(":").strip() or heading
+            continue
+        pieces = re.split(r"(?<=[.!?…])\s+(?=\S)", line)
+        for piece in pieces:
+            text = piece.strip()
+            if not text:
+                continue
+            index += 1
+            row: Dict[str, Any] = {
+                "source_unit_id": f"{block_id}:u{index:04d}",
+                "text": text,
+                "required": True,
+            }
+            if heading:
+                row["section_hint"] = heading[:160]
+            units.append(row)
+    return units
+
+
+def _all_source_units(intake: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+    result: Dict[str, Dict[str, Any]] = {}
+    for block in intake.get("blocks", []) if isinstance(intake.get("blocks"), list) else []:
+        if not isinstance(block, dict):
+            continue
+        block_id = str(block.get("block_id") or "")
+        raw_text = str(block.get("raw_text") or "")
+        for unit in _source_units_for_block(block_id, raw_text):
+            result[str(unit["source_unit_id"])] = {
+                **deepcopy(unit),
+                "block_id": block_id,
+                "stage": str(block.get("stage") or ""),
+            }
+    return result
+
+
+def _lossless_detail_coverage_required(draft: Dict[str, Any]) -> bool:
+    try:
+        return int(draft.get("version", 1) or 1) >= _LOSSLESS_DRAFT_VERSION
+    except (TypeError, ValueError):
+        return False
 
 
 def _normalise_intake(value: Any, *, reject_placeholders: bool = False) -> Dict[str, Any]:
@@ -67,6 +138,7 @@ def _normalise_intake(value: Any, *, reject_placeholders: bool = False) -> Dict[
         if no_facts and fact_ids:
             raise ValueError("INTAKE_FACT_IDS_CONFLICT")
         seen.add(block_id)
+        source_units = _source_units_for_block(block_id, raw_text)
         result["blocks"].append({
             "block_id": block_id,
             "stage": stage,
@@ -74,6 +146,8 @@ def _normalise_intake(value: Any, *, reject_placeholders: bool = False) -> Dict[
             "fact_ids": list(dict.fromkeys(fact_ids)),
             "reviewed_against_raw": reviewed,
             "contains_no_facts": no_facts,
+            "source_units": source_units,
+            "source_unit_count": len(source_units),
         })
     return result
 
@@ -132,36 +206,220 @@ def _intake_upload_status(draft: Dict[str, Any]) -> Dict[str, Any]:
 def _coverage(draft: Dict[str, Any]) -> Dict[str, Any]:
     sections = draft.get("sections") if isinstance(draft.get("sections"), dict) else {}
     intake = sections.get("intake")
+    strict_units = _lossless_detail_coverage_required(draft)
     if not isinstance(intake, dict):
         return {
             "required": False,
+            "lossless_detail_coverage_required": strict_units,
             "ok": True,
             "block_count": 0,
             "reviewed_blocks": 0,
             "unreviewed_blocks": [],
             "unknown_fact_ids": [],
+            "source_unit_count": 0,
+            "covered_source_unit_count": 0,
+            "uncovered_source_units": [],
+            "unknown_source_unit_ids": [],
         }
+
     intake = _normalise_intake(intake)
     foundation = sections.get("foundation") if isinstance(sections.get("foundation"), dict) else {}
     facts = foundation.get("facts") if isinstance(foundation.get("facts"), list) else []
-    known = {str(row.get("fact_id")) for row in facts if isinstance(row, dict) and row.get("fact_id")}
-    unreviewed = []
-    unknown = []
+    fact_rows = {
+        str(row.get("fact_id")): row
+        for row in facts
+        if isinstance(row, dict) and row.get("fact_id")
+    }
+    known = set(fact_rows)
+    all_units = _all_source_units(intake)
+    valid_unit_ids = set(all_units)
+
+    fact_source_units: Dict[str, set[str]] = {}
+    unknown_source_unit_ids: List[Dict[str, str]] = []
+    for fact_id, row in fact_rows.items():
+        refs = row.get("source_unit_ids", [])
+        if refs is None:
+            refs = []
+        if not isinstance(refs, list):
+            refs = []
+        clean = {str(value).strip() for value in refs if str(value).strip()}
+        fact_source_units[fact_id] = clean
+        for unit_id in sorted(clean):
+            if unit_id not in valid_unit_ids:
+                unknown_source_unit_ids.append({"fact_id": fact_id, "source_unit_id": unit_id})
+
+    unreviewed: List[str] = []
+    unknown: List[Dict[str, str]] = []
+    uncovered: List[Dict[str, Any]] = []
+    covered_ids: set[str] = set()
+    no_fact_conflicts: List[str] = []
+
     for block in intake["blocks"]:
+        block_id = str(block["block_id"])
         if not block["reviewed_against_raw"]:
-            unreviewed.append(block["block_id"])
-        for fact_id in block["fact_ids"]:
+            unreviewed.append(block_id)
+
+        block_fact_ids = {str(value) for value in block.get("fact_ids", []) if str(value)}
+        for fact_id in sorted(block_fact_ids):
             if fact_id not in known:
-                unknown.append({"block_id": block["block_id"], "fact_id": fact_id})
+                unknown.append({"block_id": block_id, "fact_id": fact_id})
+
+        units = _source_units_for_block(block_id, str(block.get("raw_text") or ""))
+        if strict_units and block.get("contains_no_facts") and units:
+            no_fact_conflicts.append(block_id)
+
+        for unit in units:
+            unit_id = str(unit["source_unit_id"])
+            covering = sorted(
+                fact_id
+                for fact_id in block_fact_ids
+                if fact_id in known and unit_id in fact_source_units.get(fact_id, set())
+            )
+            if covering:
+                covered_ids.add(unit_id)
+            elif strict_units:
+                uncovered.append({
+                    "block_id": block_id,
+                    "source_unit_id": unit_id,
+                    "section_hint": unit.get("section_hint"),
+                    "text": str(unit.get("text") or "")[:320],
+                })
+
+    ok = not unreviewed and not unknown
+    if strict_units:
+        ok = ok and not uncovered and not unknown_source_unit_ids and not no_fact_conflicts
+
     return {
         "required": True,
-        "ok": not unreviewed and not unknown,
+        "lossless_detail_coverage_required": strict_units,
+        "ok": ok,
         "block_count": len(intake["blocks"]),
         "reviewed_blocks": len(intake["blocks"]) - len(unreviewed),
         "unreviewed_blocks": unreviewed,
         "unknown_fact_ids": unknown,
-        "instruction": "Every raw intake block is immutable, reviewed against its verbatim source, and mapped to existing foundation fact ids before finalize.",
+        "source_unit_count": len(valid_unit_ids),
+        "covered_source_unit_count": len(covered_ids),
+        "uncovered_source_units": uncovered,
+        "unknown_source_unit_ids": unknown_source_unit_ids,
+        "contains_no_facts_conflicts": no_fact_conflicts,
+        "instruction": (
+            "Every raw intake block is immutable and reviewed. For draft v4+, every substantive source_unit "
+            "must be cited by source_unit_ids on at least one mapped foundation fact. Finalize is blocked while "
+            "uncovered_source_units is non-empty; exact source text is later preserved into canonical evidence."
+            if strict_units else
+            "Every raw intake block is immutable, reviewed against its verbatim source, and mapped to existing foundation fact ids before finalize."
+        ),
     }
+
+
+def _character_target_from_path(path: str, cards: List[Dict[str, Any]]) -> tuple[str | None, str]:
+    value = str(path or "").strip()
+    match = re.search(r"characters\[([^\]]+)\]", value, flags=re.IGNORECASE)
+    ref = match.group(1).strip() if match else None
+    suffix = value[match.end():].lstrip(".") if match else ""
+    if ref is None:
+        dotted = re.match(r"characters\.([^.\s]+)(?:\.(.*))?$", value, flags=re.IGNORECASE)
+        if dotted:
+            ref = dotted.group(1).strip()
+            suffix = str(dotted.group(2) or "")
+    if not ref:
+        return None, ""
+    resolved = novel_drafts._resolve_character_ref(cards, ref)
+    return (str(resolved) if resolved else None), suffix[:160]
+
+
+def enrich_template_with_source_evidence(draft: Dict[str, Any], template: Dict[str, Any]) -> Dict[str, Any]:
+    result = deepcopy(template)
+    if not _lossless_detail_coverage_required(draft):
+        return result
+    sections = draft.get("sections") if isinstance(draft.get("sections"), dict) else {}
+    intake_raw = sections.get("intake")
+    if not isinstance(intake_raw, dict):
+        return result
+    intake = _normalise_intake(intake_raw)
+    units = _all_source_units(intake)
+    if not units:
+        return result
+
+    foundation = result.get("foundation") if isinstance(result.get("foundation"), dict) else {}
+    foundation = deepcopy(foundation)
+    facts = foundation.get("facts") if isinstance(foundation.get("facts"), list) else []
+    cards = storage._normalise_cards(result.get("characters", []))
+    card_map = {storage._card_id(card): deepcopy(card) for card in cards}
+    order = [storage._card_id(card) for card in cards]
+
+    covered: set[str] = set()
+    enriched_facts: List[Dict[str, Any]] = []
+    for raw_fact in facts:
+        if not isinstance(raw_fact, dict):
+            enriched_facts.append(raw_fact)
+            continue
+        fact = deepcopy(raw_fact)
+        fact_id = str(fact.get("fact_id") or "")
+        refs = fact.get("source_unit_ids", [])
+        refs = refs if isinstance(refs, list) else []
+        clean_refs = list(dict.fromkeys(str(value).strip() for value in refs if str(value).strip()))
+        evidence: List[Dict[str, Any]] = []
+        for unit_id in clean_refs:
+            unit = units.get(unit_id)
+            if not isinstance(unit, dict):
+                continue
+            covered.add(unit_id)
+            evidence_row = {
+                "source_unit_id": unit_id,
+                "text": str(unit.get("text") or ""),
+                "block_id": str(unit.get("block_id") or ""),
+                "stage": str(unit.get("stage") or ""),
+            }
+            if unit.get("section_hint"):
+                evidence_row["section_hint"] = str(unit["section_hint"])
+            evidence.append(evidence_row)
+        if evidence:
+            fact["source_evidence"] = evidence
+
+        stored_in = fact.get("stored_in")
+        stored_paths = stored_in if isinstance(stored_in, list) else []
+        for path in stored_paths:
+            cid, category = _character_target_from_path(str(path), cards)
+            if not cid or cid not in card_map:
+                continue
+            card = card_map[cid]
+            details = card.get("setup_details") if isinstance(card.get("setup_details"), list) else []
+            details = [deepcopy(row) for row in details if isinstance(row, dict)]
+            seen = {
+                (str(row.get("source_unit_id") or ""), str(row.get("fact_id") or ""), str(row.get("category") or ""))
+                for row in details
+            }
+            for evidence_row in evidence:
+                key = (str(evidence_row["source_unit_id"]), fact_id, category or "general")
+                if key in seen:
+                    continue
+                detail = {
+                    "source_unit_id": evidence_row["source_unit_id"],
+                    "fact_id": fact_id,
+                    "text": evidence_row["text"],
+                    "category": category or "general",
+                    "story_use": str(fact.get("story_use") or fact.get("usage") or "reference"),
+                }
+                if evidence_row.get("section_hint"):
+                    detail["section_hint"] = evidence_row["section_hint"]
+                details.append(detail)
+                seen.add(key)
+            card["setup_details"] = details
+            card_map[cid] = card
+        enriched_facts.append(fact)
+
+    foundation["facts"] = enriched_facts
+    result["foundation"] = foundation
+    result["characters"] = [card_map[cid] for cid in order if cid in card_map]
+    result["setup_integrity"] = {
+        "version": 1,
+        "lossless_detail_coverage": True,
+        "source_unit_count": len(units),
+        "preserved_source_unit_count": len(covered),
+        "all_source_units_preserved": len(covered) == len(units),
+    }
+    return result
 
 
 def append_intake_chunk(
@@ -213,6 +471,7 @@ def append_intake_chunk(
             )
             if not exact:
                 raise ValueError("INTAKE_UPLOAD_CHUNK_CONFLICT")
+            existing = existing_blocks.get(block_id) if isinstance(existing_blocks.get(block_id), dict) else {}
             return {
                 "draft_id": draft_id,
                 "block_id": block_id,
@@ -221,6 +480,8 @@ def append_intake_chunk(
                 "chunk_count": chunk_count,
                 "char_count": int(receipt.get("char_count", sum(lengths)) or 0),
                 "draft_revision": int(draft.get("revision", 0) or 0),
+                "source_units": deepcopy(existing.get("source_units", [])),
+                "source_unit_count": int(existing.get("source_unit_count", 0) or 0),
             }
 
         if not isinstance(receipt, dict):
@@ -318,6 +579,7 @@ def append_intake_chunk(
         novel_drafts._write(novel_drafts._draft_path(draft_id), draft)
         revision = int(draft.get("revision", 0) or 0)
 
+    source_units = _source_units_for_block(block_id, assembled)
     return {
         "draft_id": draft_id,
         "block_id": block_id,
@@ -326,7 +588,12 @@ def append_intake_chunk(
         "chunk_count": len(hashes),
         "char_count": len(assembled),
         "draft_revision": revision,
-        "instruction": "Raw intake is stored verbatim. Create foundation facts, then map their existing fact_ids to this block without resending raw_text.",
+        "source_units": source_units,
+        "source_unit_count": len(source_units),
+        "instruction": (
+            "Raw intake is stored verbatim. For draft v4+, every returned source_unit_id must be cited by source_unit_ids "
+            "on at least one foundation fact mapped to this block. Do not mark the block reviewed until no substantive unit is omitted."
+        ),
     }
 
 
@@ -372,6 +639,33 @@ def update_intake_mapping(
         unknown = [fact_id for fact_id in clean_fact_ids if fact_id not in known]
         if unknown:
             raise ValueError("INTAKE_FACT_ID_UNKNOWN")
+
+        if _lossless_detail_coverage_required(draft) and reviewed_against_raw:
+            final_fact_ids = (
+                set(clean_fact_ids)
+                if replace
+                else set(str(value) for value in target.get("fact_ids", []) if str(value)) | set(clean_fact_ids)
+            )
+            units = _source_units_for_block(block_id, str(target.get("raw_text") or ""))
+            if contains_no_facts and units:
+                raise ValueError("INTAKE_SOURCE_UNITS_REQUIRE_FACTS")
+            uncovered_units: List[str] = []
+            for unit in units:
+                unit_id = str(unit["source_unit_id"])
+                covered = False
+                for fact_id in final_fact_ids:
+                    fact = next(
+                        (row for row in facts if isinstance(row, dict) and str(row.get("fact_id") or "") == fact_id),
+                        None,
+                    )
+                    refs = fact.get("source_unit_ids", []) if isinstance(fact, dict) else []
+                    if isinstance(refs, list) and unit_id in {str(value) for value in refs}:
+                        covered = True
+                        break
+                if not covered:
+                    uncovered_units.append(unit_id)
+            if uncovered_units:
+                raise ValueError("INTAKE_SOURCE_UNITS_UNCOVERED:" + ",".join(uncovered_units[:20]))
 
         before = deepcopy(target)
         if replace:
