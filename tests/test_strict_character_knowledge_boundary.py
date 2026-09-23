@@ -13,27 +13,26 @@ def test_character_knowledge_contract_excludes_author_only_sources():
     assert rule["character_knowledge_is_closed_world"] is True
 
     author_only = " ".join(rule["author_only_not_character_knowledge"]).casefold()
-    assert "pov/npc questionnaire" in author_only
+    assert "questionnaire" in author_only
     assert "foundation" in author_only
     assert "chronology" in author_only
     assert "recent_turns" in author_only
     assert "continuity_turns" in author_only
-    assert "character card/backstory" in author_only
+    assert "character card" in author_only
     assert "another character's memory" in author_only
     allowed = " ".join(rule["allowed_sources"]).casefold()
-    assert "character_memory" in allowed
-    assert "directly saw" in allowed
-    assert "inference from facts already known" in allowed
+    assert "knowledge_path" in allowed
+    assert "turn_knowledge" in allowed
 
 
 def test_gpt_instruction_says_chronology_and_questionnaires_are_not_character_knowledge():
     instructions = (ROOT / "gpt" / "custom_gpt_instructions.md").read_text(encoding="utf-8")
 
-    assert "анкеты/cards POV/NPC" in instructions
+    assert "анкеты/cards" in instructions
     assert "chronology/scene_history/recent_turns" in instructions
     assert "chronology_recent" in instructions
-    assert "никогда не являются фактическим источником реплики" in instructions
-    assert "dialogue_frames[ID].dialogue_knowledge" in instructions
+    assert "не фактический источник реплики" in instructions
+    assert "dialogue_frames[ID].knowledge_path" in instructions
 
 
 
@@ -68,9 +67,9 @@ def test_offscreen_bundle_frontloads_firewall_and_card_is_not_knowledge(monkeypa
     assert "Для фактического содержания реплик" in bundle["instruction"]
 
 
-def test_knowledge_guard_allows_causal_npc_to_npc_information_transfer():
+def test_knowledge_guard_routes_new_information_through_turn_knowledge():
     rule = scene_logic_runtime._knowledge_causality_rule()
     allowed = " ".join(rule["allowed_sources"]).casefold()
 
-    assert "npc-to-npc" in allowed
-    assert "real in-story channel" in allowed
+    assert "turn_knowledge" in allowed
+    assert rule["source_before_use"] is True
