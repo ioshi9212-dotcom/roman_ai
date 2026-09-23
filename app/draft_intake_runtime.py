@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from copy import deepcopy
 from typing import Any, Dict, List
 
@@ -12,7 +13,8 @@ _ORIGINAL_SAVE_SECTION = None
 _ORIGINAL_DRAFT_STATUS = None
 _ORIGINAL_FINALIZE = None
 _ORIGINAL_PREPARE_READ = None
-_VERSION = 4
+_VERSION = 5
+_LOSSLESS_DRAFT_VERSION = 4
 MAX_INTAKE_CHUNK_CHARS = 100000
 
 _PLACEHOLDER_FRAGMENTS = (
@@ -35,6 +37,75 @@ def _assert_not_placeholder(raw_text: str) -> None:
     normalized = " ".join(str(raw_text or "").casefold().split())
     if any(fragment in normalized for fragment in _PLACEHOLDER_FRAGMENTS):
         raise ValueError("INTAKE_PLACEHOLDER_FORBIDDEN")
+
+
+def _source_unit_is_required(text: str) -> bool:
+    value = str(text or "").strip()
+    if not value:
+        return False
+    cleaned = re.sub(r"^[#>*•\-\s]+", "", value).strip()
+    if not cleaned:
+        return False
+    # Pure headings and questionnaire prompts are structure, not canon facts.
+    if value.lstrip().startswith("#"):
+        return False
+    if len(cleaned) <= 160 and cleaned.endswith(":"):
+        return False
+    if len(cleaned) <= 180 and cleaned.endswith("?"):
+        return False
+    return True
+
+
+def _source_units_for_block(block_id: str, raw_text: str) -> List[Dict[str, Any]]:
+    units: List[Dict[str, Any]] = []
+    heading: str | None = None
+    index = 0
+    lines = str(raw_text or "").splitlines() or [str(raw_text or "")]
+    for raw_line in lines:
+        line = raw_line.strip()
+        if not line:
+            continue
+        if not _source_unit_is_required(line):
+            heading = re.sub(r"^[#>*•\-\s]+", "", line).strip().rstrip(":").strip() or heading
+            continue
+        pieces = re.split(r"(?<=[.!?…])\s+(?=\S)", line)
+        for piece in pieces:
+            text = piece.strip()
+            if not text:
+                continue
+            index += 1
+            row: Dict[str, Any] = {
+                "source_unit_id": f"{block_id}:u{index:04d}",
+                "text": text,
+                "required": True,
+            }
+            if heading:
+                row["section_hint"] = heading[:160]
+            units.append(row)
+    return units
+
+
+def _all_source_units(intake: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+    result: Dict[str, Dict[str, Any]] = {}
+    for block in intake.get("blocks", []) if isinstance(intake.get("blocks"), list) else []:
+        if not isinstance(block, dict):
+            continue
+        block_id = str(block.get("block_id") or "")
+        raw_text = str(block.get("raw_text") or "")
+        for unit in _source_units_for_block(block_id, raw_text):
+            result[str(unit["source_unit_id"])] = {
+                **deepcopy(unit),
+                "block_id": block_id,
+                "stage": str(block.get("stage") or ""),
+            }
+    return result
+
+
+def _lossless_detail_coverage_required(draft: Dict[str, Any]) -> bool:
+    try:
+        return int(draft.get("version", 1) or 1) >= _LOSSLESS_DRAFT_VERSION
+    except (TypeError, ValueError):
+        return False
 
 
 def _normalise_intake(value: Any, *, reject_placeholders: bool = False) -> Dict[str, Any]:
