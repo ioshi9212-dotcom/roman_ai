@@ -136,14 +136,17 @@ def test_runtime_contract_requires_both_document_reviews_and_version():
             )
 
 
-def test_runtime_contract_rejects_short_scene_wrong_title_and_wrong_footer():
+def test_runtime_contract_accepts_short_scene_and_rejects_oversized_scene_wrong_title_and_wrong_footer():
     with tempfile.TemporaryDirectory() as tmp:
         _setup(tmp)
         sid = storage.create_session(_novel())["session_id"]
 
         short = _scene().replace(_main_scene(), "Короткая сцена.")
+        validate_runtime_contract(sid, _payload(short))
+
+        oversized = _scene().replace(_main_scene(), "Длинная сцена. " + ("x" * 3100))
         with pytest.raises(RuntimeContractError, match="SCENE_BUILDER_MAIN_LENGTH_INVALID"):
-            validate_runtime_contract(sid, _payload(short))
+            validate_runtime_contract(sid, _payload(oversized))
 
         with pytest.raises(RuntimeContractError, match="SCENE_BUILDER_TITLE_MISMATCH"):
             validate_runtime_contract(sid, _payload(_scene(title="Чужое название")))
