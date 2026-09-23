@@ -187,6 +187,10 @@ def _validate_character_upserts(
     extracted: Dict[str, Any],
     source_character_ids: set[str],
 ) -> None:
+    # Legacy/internal callers predate the hard runtime contract. Strict gameplay
+    # clients review runtime_rules every turn, so require director metadata there.
+    if extracted.get("runtime_rules_reviewed") is not True:
+        return
     existing = {storage._card_id(card): card for card in current_cards}
     rows = extracted.get("character_upserts", []) if isinstance(extracted.get("character_upserts"), list) else []
     for row in rows:
