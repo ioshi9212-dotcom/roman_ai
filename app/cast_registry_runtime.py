@@ -182,6 +182,39 @@ def _registry_index(registry: Dict[str, Any]) -> List[Dict[str, Any]]:
     return rows
 
 
+def _merge_character_registry(
+    current: Any,
+    registry_rows: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """Keep one writer-facing cast catalog instead of transporting a second full copy."""
+    existing_rows = current if isinstance(current, list) else []
+    by_id: Dict[str, Dict[str, Any]] = {}
+    existing_order: List[str] = []
+    for raw in existing_rows:
+        if not isinstance(raw, dict):
+            continue
+        cid = str(raw.get("character_id") or "")
+        if not cid:
+            continue
+        by_id[cid] = deepcopy(raw)
+        existing_order.append(cid)
+
+    registry_order: List[str] = []
+    for raw in registry_rows:
+        if not isinstance(raw, dict):
+            continue
+        cid = str(raw.get("character_id") or "")
+        if not cid:
+            continue
+        merged = by_id.get(cid, {"character_id": cid})
+        merged.update(deepcopy(raw))
+        by_id[cid] = merged
+        registry_order.append(cid)
+
+    ordered = list(dict.fromkeys([*registry_order, *existing_order]))
+    return [by_id[cid] for cid in ordered if cid in by_id]
+
+
 def _validate_character_upserts(
     current_cards: List[Dict[str, Any]],
     extracted: Dict[str, Any],
@@ -559,11 +592,16 @@ def _rewrite_packet(session_id: str, base_result: Dict[str, Any]) -> Dict[str, A
             state, cards, current_turn, source_character_ids=source_ids, source=source
         )
         active_rows = [row for row in registry.values() if isinstance(row, dict) and not _is_inactive(row.get("status"))]
+        registry_rows = _registry_index(registry)
+        context["character_registry"] = _merge_character_registry(
+            context.get("character_registry"),
+            registry_rows,
+        )
         context["cast_registry"] = {
             "version": _VERSION,
             "persistent": True,
             "authoritative_live_roster": True,
-            "registry_index": _registry_index(registry),
+            "registry_index_path": "character_registry",
             "active_count": len(active_rows),
             "player_created_active_count": sum(1 for row in active_rows if row.get("origin") == "player_created"),
             "story_created_active_count": sum(1 for row in active_rows if row.get("origin") == "story_created"),
@@ -571,12 +609,11 @@ def _rewrite_packet(session_id: str, base_result: Dict[str, Any]) -> Dict[str, A
             "rotation_pressure": pressure,
             "mandatory_rotation_consideration": bool(pressure),
             "instruction": (
-                "registry_index = полный компактный каталог всех зарегистрированных персонажей. "
-                "character_id/card_ref ведут к полной карточке. Перед сценой проверь весь каталог, особенно core. "
-                "rotation_pressure не означает телепортацию: ищи ближайшую естественную причинную возможность вернуть персонажа. "
-                "Новый именованный NPC может быть одноразовым extra без карточки; если он стал другом, врагом, конкурентом, "
-                "постоянным коллегой, романтической/сюжетной линией или иной устойчивой фигурой, сохрани character_upsert "
-                "с короткой режиссёрской story_function."
+                "character_registry = единственный полный компактный каталог зарегистрированных персонажей, включая core/story_function и last-seen metadata. "
+                "cast_registry не дублирует каталог: здесь только ротация и агрегаты. "
+                "Перед сценой проверь character_registry, особенно core. rotation_pressure не означает телепортацию: "
+                "ищи ближайшую естественную причинную возможность вернуть персонажа. "
+                "Устойчивого нового NPC сохрани через character_upsert с короткой режиссёрской story_function."
             ),
         }
 

@@ -49,6 +49,7 @@ def test_player_text_cleanup_corrects_errors_without_rewriting_voice():
     rule = scene_logic._player_text_cleanup_rule()
     assert rule["mandatory"] is True
     text = rule["rule"]
+    assert "Реплики POV из user_input" in text
     assert "опечатки" in text
     assert "орфографию" in text
     assert "мат" in text
@@ -104,7 +105,10 @@ def test_runtime_and_custom_gpt_repeat_source_order_and_spelling_policy():
 
     assert "каждую реальную реплику" in rules
     assert "Источник текущего хода должен существовать до реплики" in rules
-    assert "исправляй только явные ошибки" in rules
+    assert "опечатки" in rules
+    assert "орфографию" in rules
+    assert "безопасную пунктуацию" in rules
+    assert "слова, мат, сленг, тон и смысл не меняй" in rules
     assert "ordered_segments" in rules
     assert "слева направо" in rules
     assert "scene_logic_guardrails" in instructions

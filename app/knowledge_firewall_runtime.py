@@ -199,37 +199,27 @@ def _knowledge_only_bucket(bucket: Any) -> Dict[str, Any]:
 
 
 def _dialogue_frames(context: Dict[str, Any], strict_memory: Dict[str, Any]) -> Dict[str, Any]:
+    """Pointers only: do not duplicate actor frames or knowledge payloads."""
     living = context.get("living_world") if isinstance(context.get("living_world"), dict) else {}
     actor_rows = living.get("npc_actor_frames") if isinstance(living.get("npc_actor_frames"), list) else []
-    actors = {
-        str(row.get("character_id")): row
+    actor_ids = {
+        str(row.get("character_id"))
         for row in actor_rows
         if isinstance(row, dict) and row.get("character_id")
     }
 
-    cards = context.get("character_cards") if isinstance(context.get("character_cards"), list) else []
-    card_names: Dict[str, str] = {}
-    for row in cards:
-        if not isinstance(row, dict):
-            continue
-        cid = str(row.get("character_id") or "")
-        card = row.get("card") if isinstance(row.get("card"), dict) else row
-        if cid:
-            identity = card.get("identity") if isinstance(card.get("identity"), dict) else {}
-            card_names[cid] = str(card.get("name") or card.get("full_name") or identity.get("name") or cid)
-
     result: Dict[str, Any] = {}
-    for character_id, bucket in strict_memory.items():
-        actor = actors.get(str(character_id), {})
-        result[str(character_id)] = {
-            "character_id": str(character_id),
-            "name": actor.get("name") or card_names.get(str(character_id)) or str(character_id),
-            "character_drivers": deepcopy(actor.get("character_drivers", [])),
-            "relationship": deepcopy(actor.get("relationship", {})),
-            "active_intents": deepcopy(actor.get("active_intents", [])),
-            "knowledge_path": f"character_knowledge[{character_id}].knowledge",
+    for character_id in strict_memory:
+        cid = str(character_id)
+        result[cid] = {
+            "character_id": cid,
+            "actor_frame_path": (
+                f"living_world.npc_actor_frames[character_id={cid}]"
+                if cid in actor_ids else None
+            ),
+            "knowledge_path": f"character_memory[{cid}].knowledge",
             "factual_source_rule": (
-                "Фактическое содержание реплик этого персонажа берётся только из knowledge_path "
+                "Манеру и цель бери из actor_frame_path, если он есть; факты реплики — только из knowledge_path "
                 "и turn_knowledge этого же character_id, полученного раньше реплики."
             ),
             "director_context_is_not_dialogue_knowledge": True,
@@ -242,7 +232,7 @@ def _firewall_contract() -> Dict[str, Any]:
         "version": _VERSION,
         "mandatory": True,
         "closed_world": True,
-        "authoritative_prior_knowledge_path": "character_knowledge[character_id].knowledge",
+        "authoritative_prior_knowledge_path": "character_memory[character_id].knowledge",
         "current_turn_knowledge_path": "extracted.turn_knowledge",
         "exclusive_rule": (
             "Фактическое содержание каждой реплики берётся только из knowledge_path в dialogue_frames[character_id] "
@@ -305,7 +295,7 @@ def _rewrite_packet(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
             }
 
         context["character_memory"] = strict_memory
-        context["character_knowledge"] = deepcopy(strict_memory)
+        context.pop("character_knowledge", None)
         context["author_only_recollection_context"] = author_recollection
         context["dialogue_frames"] = _dialogue_frames(context, strict_memory)
         context["dialogue_policy"] = {
@@ -313,7 +303,7 @@ def _rewrite_packet(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
             "scope": "real_speech_only",
             "rule": (
                 "Перед написанием каждой реплики используй dialogue_frame говорящего. "
-                "Характер, отношения и intents задают манеру и цель; фактическое содержание разрешено только из knowledge_path "
+                "actor_frame_path задаёт характер, отношения и intents без их копирования; фактическое содержание разрешено только из knowledge_path "
                 "и более раннего turn_knowledge этого же персонажа. Director/chronology/history context не является материалом реплики."
             ),
         }

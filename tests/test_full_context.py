@@ -90,6 +90,9 @@ def test_turn_packet_separates_history_memory_future_guidance_and_preserves_stor
         assert {x["character_id"] for x in context["character_cards"]} == {"pov", "npc"}
         assert set(context["character_memory"]) == {"pov", "npc"}
         assert "away" in {x["character_id"] for x in context["character_registry"]}
+        assert context["cast_registry"]["registry_index_path"] == "character_registry"
+        assert "registry_index" not in context["cast_registry"]
+        assert all("importance" in row for row in context["character_registry"])
         assert context["scene_characters"]["pov"]["personal_memory_path"] == "character_memory[pov]"
         assert context["future_guidance"]["story_direction"]["direction"] == "future relationship beat"
         assert context["future_guidance"]["status"] == "future_only_not_history"
