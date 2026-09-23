@@ -312,6 +312,116 @@ def _coverage(draft: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _character_target_from_path(path: str, cards: List[Dict[str, Any]]) -> tuple[str | None, str]:
+    value = str(path or "").strip()
+    match = re.search(r"characters\[([^\]]+)\]", value, flags=re.IGNORECASE)
+    ref = match.group(1).strip() if match else None
+    suffix = value[match.end():].lstrip(".") if match else ""
+    if ref is None:
+        dotted = re.match(r"characters\.([^.\s]+)(?:\.(.*))?$", value, flags=re.IGNORECASE)
+        if dotted:
+            ref = dotted.group(1).strip()
+            suffix = str(dotted.group(2) or "")
+    if not ref:
+        return None, ""
+    resolved = novel_drafts._resolve_character_ref(cards, ref)
+    return (str(resolved) if resolved else None), suffix[:160]
+
+
+def enrich_template_with_source_evidence(draft: Dict[str, Any], template: Dict[str, Any]) -> Dict[str, Any]:
+    result = deepcopy(template)
+    if not _lossless_detail_coverage_required(draft):
+        return result
+    sections = draft.get("sections") if isinstance(draft.get("sections"), dict) else {}
+    intake_raw = sections.get("intake")
+    if not isinstance(intake_raw, dict):
+        return result
+    intake = _normalise_intake(intake_raw)
+    units = _all_source_units(intake)
+    if not units:
+        return result
+
+    foundation = result.get("foundation") if isinstance(result.get("foundation"), dict) else {}
+    foundation = deepcopy(foundation)
+    facts = foundation.get("facts") if isinstance(foundation.get("facts"), list) else []
+    cards = storage._normalise_cards(result.get("characters", []))
+    card_map = {storage._card_id(card): deepcopy(card) for card in cards}
+    order = [storage._card_id(card) for card in cards]
+
+    covered: set[str] = set()
+    enriched_facts: List[Dict[str, Any]] = []
+    for raw_fact in facts:
+        if not isinstance(raw_fact, dict):
+            enriched_facts.append(raw_fact)
+            continue
+        fact = deepcopy(raw_fact)
+        fact_id = str(fact.get("fact_id") or "")
+        refs = fact.get("source_unit_ids", [])
+        refs = refs if isinstance(refs, list) else []
+        clean_refs = list(dict.fromkeys(str(value).strip() for value in refs if str(value).strip()))
+        evidence: List[Dict[str, Any]] = []
+        for unit_id in clean_refs:
+            unit = units.get(unit_id)
+            if not isinstance(unit, dict):
+                continue
+            covered.add(unit_id)
+            evidence_row = {
+                "source_unit_id": unit_id,
+                "text": str(unit.get("text") or ""),
+                "block_id": str(unit.get("block_id") or ""),
+                "stage": str(unit.get("stage") or ""),
+            }
+            if unit.get("section_hint"):
+                evidence_row["section_hint"] = str(unit["section_hint"])
+            evidence.append(evidence_row)
+        if evidence:
+            fact["source_evidence"] = evidence
+
+        stored_in = fact.get("stored_in")
+        stored_paths = stored_in if isinstance(stored_in, list) else []
+        for path in stored_paths:
+            cid, category = _character_target_from_path(str(path), cards)
+            if not cid or cid not in card_map:
+                continue
+            card = card_map[cid]
+            details = card.get("setup_details") if isinstance(card.get("setup_details"), list) else []
+            details = [deepcopy(row) for row in details if isinstance(row, dict)]
+            seen = {
+                (str(row.get("source_unit_id") or ""), str(row.get("fact_id") or ""), str(row.get("category") or ""))
+                for row in details
+            }
+            for evidence_row in evidence:
+                key = (str(evidence_row["source_unit_id"]), fact_id, category or "general")
+                if key in seen:
+                    continue
+                detail = {
+                    "source_unit_id": evidence_row["source_unit_id"],
+                    "fact_id": fact_id,
+                    "text": evidence_row["text"],
+                    "category": category or "general",
+                    "story_use": str(fact.get("story_use") or fact.get("usage") or "reference"),
+                }
+                if evidence_row.get("section_hint"):
+                    detail["section_hint"] = evidence_row["section_hint"]
+                details.append(detail)
+                seen.add(key)
+            card["setup_details"] = details
+            card_map[cid] = card
+        enriched_facts.append(fact)
+
+    foundation["facts"] = enriched_facts
+    result["foundation"] = foundation
+    result["characters"] = [card_map[cid] for cid in order if cid in card_map]
+    result["setup_integrity"] = {
+        "version": 1,
+        "lossless_detail_coverage": True,
+        "source_unit_count": len(units),
+        "preserved_source_unit_count": len(covered),
+        "all_source_units_preserved": len(covered) == len(units),
+    }
+    return result
+
+
 def append_intake_chunk(
     draft_id: str,
     *,
