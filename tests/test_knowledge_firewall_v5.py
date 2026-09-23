@@ -135,7 +135,7 @@ def test_writer_packet_frontloads_closed_world_knowledge_and_strips_fact_authori
         assert context["knowledge_firewall_v5"]["closed_world"] is True
         assert context["knowledge_firewall_v5"]["version"] == 9
         assert context["character_knowledge"]["emily"]["knowledge"][0]["fact_id"] == "emily_knows_silas_name"
-        assert context["dialogue_frames"]["emily"]["dialogue_knowledge"][0]["fact_id"] == "emily_knows_silas_name"
+        assert context["dialogue_frames"]["emily"]["knowledge_path"] == "character_knowledge[emily].knowledge"
         assert context["dialogue_policy"]["scope"] == "real_speech_only"
         assert "experiences" not in context["character_memory"]["emily"]
         assert context["author_only_recollection_context"]["emily"]["fact_authority"] is False
