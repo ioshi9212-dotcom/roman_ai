@@ -581,6 +581,23 @@ def turns_commit(session_id: str, body: TurnCommit):
             "PERSISTENCE_REVIEW_REQUIRED": "Before commitTurn explicitly review chronology and per-character memory. extracted must include persistence_reviewed=true plus chronology, knowledge_add, experiences_add and dialogue_memory_add arrays, even when empty.",
             "RELATIONSHIP_FOOTER_REQUIRED": "The Relationships footer is missing or empty for at least one NPC physically present in the scene. Rewrite the scene footer so EVERY present NPC has an NPC->POV relationship row. If that NPC has no saved dimensions yet, initialize 1-3 natural dimensions now; do not leave the block empty.",
             "RELATIONSHIP_FOOTER_INCOMPLETE": "A present NPC has saved relationship dimensions, but the scene footer omitted or renamed one or more of them. Rewrite the footer using all saved labels from relationship_lens, preserving current values unless this scene genuinely changed them.",
+            "RUNTIME_RULES_REVIEW_REQUIRED": "Read runtime_rules completely, rewrite the scene if needed, set extracted.runtime_rules_reviewed=true and retry the same commit.",
+            "SCENE_BUILDER_REVIEW_REQUIRED": "Read scene_builder completely, rewrite the scene if needed, set extracted.scene_builder_reviewed=true and retry the same commit.",
+            "RUNTIME_CONTRACT_VERSION_MISMATCH": "Echo runtime_contract.version from the current turn packet in extracted.runtime_contract_version and retry the same commit.",
+            "SCENE_BUILDER_STRUCTURE_INVALID": "Rewrite the scene to the exact scene_builder structure and retry the same commit.",
+            "SCENE_BUILDER_HEADER_INVALID": "Rewrite the five-line scene_builder header exactly and retry the same commit.",
+            "SCENE_BUILDER_SCENE_LABEL_TOO_LONG": "Rewrite the scene label to at most 10 words and retry the same commit.",
+            "SCENE_BUILDER_DIVIDER_INVALID": "Use exactly one scene_builder divider in the correct position and retry the same commit.",
+            "SCENE_BUILDER_OPTIONS_INVALID": "Rewrite the lower block as exactly 3 actions, 3 spoken lines and 3 thoughts, with exact headings and no extra prose between sections.",
+            "SCENE_BUILDER_MAIN_LENGTH_INVALID": "Rewrite only the main scene to 2000-3000 characters, excluding header and lower block, then retry the same commit.",
+            "SCENE_BUILDER_FOOTER_INVALID": "Rewrite State, Relationships and turn footer in the exact scene_builder order and retry the same commit.",
+            "SCENE_BUILDER_STATE_INVALID": "State must be one State: line with no more than 10 words describing only the current POV state.",
+            "SCENE_BUILDER_RELATIONSHIP_FORMAT_INVALID": "Rewrite every relationship row as Name - metric number[/delta]; metric number[/delta], with no prose.",
+            "SCENE_BUILDER_CONTENT_AFTER_FOOTER": "Nothing may appear after the final turn footer. Rewrite and retry the same commit.",
+            "SCENE_BUILDER_TITLE_MISMATCH": "The first line must use the session's fixed novel title exactly.",
+            "SCENE_BUILDER_POV_MISMATCH": "The POV name in the scene header must match the session POV exactly.",
+            "SCENE_BUILDER_TURN_FOOTER_MISMATCH": "The final turn number and cycle must match the backend's current turn exactly.",
+            "RUNTIME_RULE_PLAYER_SPEECH_NOT_PRESERVED": "The player's spoken text outside parentheses was lost or rewritten. Preserve those words in the main scene and retry the same commit.",
         }
         if code in errors:
             raise HTTPException(status_code=409, detail=errors[code])
