@@ -346,7 +346,7 @@ def _rotation_pressure(
 
         turn_due = inactive_for >= turn_threshold
         day_due = inactive_days is not None and inactive_days >= day_threshold
-        relationship_due = relation >= 0.6 and inactive_for >= max(5, turn_threshold // 3)
+        relationship_due = relation >= 0.6 and inactive_for >= 5
         forgotten_core = (
             importance == "core"
             and appearance_count <= 1
