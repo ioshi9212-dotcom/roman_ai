@@ -25,15 +25,15 @@ def test_knowledge_causality_requires_source_before_use_and_forbids_retroactive_
     assert rule["character_knowledge_is_closed_world"] is True
     allowed = " ".join(rule["allowed_sources"]).casefold()
     author_only = " ".join(rule["author_only_not_character_knowledge"]).casefold()
-    assert "character_memory" in allowed
-    assert "real in-story channel" in allowed
-    assert "inference" in allowed
+    assert "knowledge_path" in allowed
+    assert "turn_knowledge" in allowed
     assert "questionnaire" in author_only
     assert "chronology" in author_only
     assert "future_guidance" in author_only
     assert "another character's memory" in author_only
-    assert "Источник должен существовать до реплики/мысли/действия" in rule["rule"]
-    assert "не придумывай его задним числом" in rule["rule"]
+    assert rule["applies_to"] == "real speech only"
+    assert "dialogue_frame" in rule["rule"]
+    assert "не является источником реплики" in rule["rule"]
 
 def test_player_input_order_rule_forbids_reordering_segments():
     rule = scene_logic._player_input_order_rule()
@@ -81,16 +81,16 @@ def test_final_writer_packet_contains_scene_logic_guardrails():
         context = json.loads("".join(chunks))
 
         assert next(iter(context)) == "knowledge_firewall_v5"
-        assert context["knowledge_firewall_v5"]["version"] == 8
+        assert context["knowledge_firewall_v5"]["version"] == 9
         assert context["knowledge_firewall_v5"]["closed_world"] is True
         guards = context["scene_logic_guardrails"]
-        assert guards["version"] == 4
+        assert guards["version"] == 5
         assert guards["knowledge_causality"]["mandatory"] is True
         assert guards["knowledge_causality"]["source_before_use"] is True
         assert guards["knowledge_causality"]["character_knowledge_is_closed_world"] is True
-        assert guards["knowledge_causality"]["applies_to"] == "POV and every NPC"
+        assert guards["knowledge_causality"]["applies_to"] == "real speech only"
         assert guards["knowledge_review"]["mandatory"] is True
-        assert guards["knowledge_review"]["applies_to"] == "POV and every NPC"
+        assert guards["knowledge_review"]["applies_to"] == "real speech only"
         assert "перепиши" in guards["knowledge_review"]["rule"]
         assert guards["player_input_order"]["mandatory"] is True
         assert guards["player_input_order"]["no_reordering"] is True
@@ -102,13 +102,13 @@ def test_runtime_and_custom_gpt_repeat_source_order_and_spelling_policy():
     rules = (ROOT / "runtime" / "rules.md").read_text(encoding="utf-8")
     instructions = (ROOT / "gpt" / "custom_gpt_instructions.md").read_text(encoding="utf-8")
 
-    assert "должен существовать ДО реплики" in rules
-    assert "Не придумывай источник задним числом" in rules
+    assert "каждую реальную реплику" in rules
+    assert "Источник текущего хода должен существовать до реплики" in rules
     assert "исправляй только явные ошибки" in rules
     assert "ordered_segments" in rules
     assert "слева направо" in rules
     assert "scene_logic_guardrails" in instructions
     assert "ordered_segments" in instructions
-    assert "не закрывай информационную дыру задним числом" in instructions
+    assert "knowledge_path" in instructions
     assert "очевидную орфографию" in instructions
     assert len(instructions) <= 8000
