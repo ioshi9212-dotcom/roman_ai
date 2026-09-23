@@ -190,3 +190,13 @@ def test_turn_packet_exposes_runtime_contract_next_to_full_documents():
         assert context["runtime_contract"]["mandatory"] is True
         assert context["runtime_rules"]
         assert context["scene_builder"]
+
+
+
+def test_first_scene_control_command_is_not_forced_into_pov_speech():
+    with tempfile.TemporaryDirectory() as tmp:
+        _setup(tmp)
+        sid = storage.create_session(_novel())["session_id"]
+        payload = _payload(_scene(include_spoken=False))
+        payload["user_input"] = "запускай первую сцену"
+        validate_runtime_contract(sid, payload)
