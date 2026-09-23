@@ -63,7 +63,7 @@ def test_offscreen_bundle_frontloads_firewall_and_card_is_not_knowledge(monkeypa
     assert bundle["character_knowledge"]["path"] == "personal_memory.knowledge"
     assert bundle["character_knowledge"]["fact_authority"] is True
     assert bundle["author_only_recollection_context"]["fact_authority"] is False
-    assert bundle["dialogue_frame"]["dialogue_knowledge"] == []
+    assert bundle["dialogue_frame"]["knowledge_path"] == "personal_memory.knowledge"
     assert bundle["dialogue_frame"]["behavior_paths"] == ["card", "relationship_to_pov", "active_intents"]
     assert "Для фактического содержания реплик" in bundle["instruction"]
 
