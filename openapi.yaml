@@ -307,7 +307,9 @@ components:
             state_patch: {type: object, additionalProperties: true}
             character_upserts:
               type: array
-              description: Persist recurring/important named NPCs. Story-created upserts require story_function: one short director-level sentence explaining why the NPC matters to the story, not the NPC's personal goal.
+              description: >-
+                Persist recurring/important named NPCs. Story-created upserts require story_function,
+                one short director-level sentence explaining why the NPC matters to the story, not the NPC's personal goal.
               items: {type: object, additionalProperties: true}
           additionalProperties: true
     SceneCompaction:
