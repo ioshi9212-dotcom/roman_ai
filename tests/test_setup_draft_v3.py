@@ -66,7 +66,15 @@ def save_content(draft_id: str):
     save_v3_section(
         draft_id,
         "novel",
-        {"pov_character": "rina", "genres": ["триллер"], "age_rating": "18+"},
+        {
+            "pov_character": "rina",
+            "genres": ["триллер"],
+            "age_rating": "18+",
+            "core_cast": [
+                {"character_id": "rina", "name": "Рина", "story_function": "POV, через которую раскрывается тайна архива."},
+                {"character_id": "adrian", "name": "Адриан", "story_function": "Основной персонаж, связывающий Рину с конфликтом вокруг архива."},
+            ],
+        },
     )
     save_v3_section(
         draft_id,
@@ -186,7 +194,15 @@ def test_v3_any_content_write_invalidates_full_read_and_reconciliation():
         save_v3_section(
             draft_id,
             "novel",
-            {"pov_character": "rina", "genres": ["триллер", "драма"], "age_rating": "18+"},
+            {
+                "pov_character": "rina",
+                "genres": ["триллер", "драма"],
+                "age_rating": "18+",
+                "core_cast": [
+                    {"character_id": "rina", "name": "Рина", "story_function": "POV, через которую раскрывается тайна архива."},
+                    {"character_id": "adrian", "name": "Адриан", "story_function": "Основной персонаж, связывающий Рину с конфликтом вокруг архива."},
+                ],
+            },
         )
         after = novel_drafts.draft_status(draft_id)
         assert after["reconciliation_current"] is False
