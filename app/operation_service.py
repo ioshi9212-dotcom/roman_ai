@@ -172,7 +172,10 @@ def commit_turn_request(session_id: str, payload: Dict[str, Any]) -> Dict[str, A
     if not isinstance(packet, dict) or str(packet.get("packet_id") or "") != packet_id:
         raise RuntimeError("TURN_PACKET_REQUIRED")
 
-    validate_runtime_contract(session_id, payload)
+    # Upgraded Custom GPT clients opt into the hard runtime contract together
+    # with the strict knowledge capability. Legacy clients remain compatible.
+    if bool(packet.get("strict_knowledge_capable")):
+        validate_runtime_contract(session_id, payload)
 
     prepared = deepcopy(payload)
     prepared["_operation_receipt"] = {
