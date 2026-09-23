@@ -640,6 +640,33 @@ def update_intake_mapping(
         if unknown:
             raise ValueError("INTAKE_FACT_ID_UNKNOWN")
 
+        if _lossless_detail_coverage_required(draft) and reviewed_against_raw:
+            final_fact_ids = (
+                set(clean_fact_ids)
+                if replace
+                else set(str(value) for value in target.get("fact_ids", []) if str(value)) | set(clean_fact_ids)
+            )
+            units = _source_units_for_block(block_id, str(target.get("raw_text") or ""))
+            if contains_no_facts and units:
+                raise ValueError("INTAKE_SOURCE_UNITS_REQUIRE_FACTS")
+            uncovered_units: List[str] = []
+            for unit in units:
+                unit_id = str(unit["source_unit_id"])
+                covered = False
+                for fact_id in final_fact_ids:
+                    fact = next(
+                        (row for row in facts if isinstance(row, dict) and str(row.get("fact_id") or "") == fact_id),
+                        None,
+                    )
+                    refs = fact.get("source_unit_ids", []) if isinstance(fact, dict) else []
+                    if isinstance(refs, list) and unit_id in {str(value) for value in refs}:
+                        covered = True
+                        break
+                if not covered:
+                    uncovered_units.append(unit_id)
+            if uncovered_units:
+                raise ValueError("INTAKE_SOURCE_UNITS_UNCOVERED:" + ",".join(uncovered_units[:20]))
+
         before = deepcopy(target)
         if replace:
             target["fact_ids"] = clean_fact_ids
