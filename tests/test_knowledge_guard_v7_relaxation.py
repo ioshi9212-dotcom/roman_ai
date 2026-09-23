@@ -81,50 +81,42 @@ def _payload(scene_output: str, usage):
     }
 
 
-def test_neutral_clothing_action_option_can_be_fact_free():
+def test_lower_block_options_are_not_part_of_knowledge_ledger():
     with tempfile.TemporaryDirectory() as tmp:
         _setup(tmp)
         sid = storage.create_session(_novel())["session_id"]
         _prepare(sid)
 
         payload = _payload(
-            "Что я могу сделать:\n1. Поправить платье и снова сесть рядом с Лиамом.",
-            [{"unit_id": "option_action:1", "character_id": "elena", "fact_free": True}],
+            (
+                "Что я могу сделать:\n"
+                "1. Напомнить Лиаму о его обещании.\n"
+                "Что я могу сказать:\n"
+                "1. «Сто раз я, конечно, пизданула.»\n"
+                "Что я могу подумать:\n"
+                "1. Вечером Маркус. Прекрасная шпионская карьера."
+            ),
+            [],
         )
 
         firewall._validate_knowledge_commit(sid, payload)
 
 
-def test_new_future_contact_action_option_is_not_treated_as_preexisting_schedule():
+def test_real_speech_still_uses_strict_knowledge_ledger():
     with tempfile.TemporaryDirectory() as tmp:
         _setup(tmp)
         sid = storage.create_session(_novel())["session_id"]
         _prepare(sid)
 
         payload = _payload(
-            "Что я могу сделать:\n1. Вечером самой подойти к Вейлу и спросить напрямую.",
-            [{"unit_id": "option_action:1", "character_id": "elena", "fact_free": True}],
-        )
-
-        firewall._validate_knowledge_commit(sid, payload)
-
-
-def test_action_option_still_blocks_promise_claim_without_source():
-    with tempfile.TemporaryDirectory() as tmp:
-        _setup(tmp)
-        sid = storage.create_session(_novel())["session_id"]
-        _prepare(sid)
-
-        payload = _payload(
-            "Что я могу сделать:\n1. Напомнить Лиаму о его обещании.",
-            [{"unit_id": "option_action:1", "character_id": "elena", "fact_free": True}],
+            "**Лиам** — То синее платье тебе идёт.",
+            [],
         )
 
         with pytest.raises(HTTPException) as exc:
             firewall._validate_knowledge_commit(sid, payload)
 
-        assert exc.value.detail["code"] == "KNOWLEDGE_FACT_FREE_SENSITIVE"
-        assert "promise" in exc.value.detail["reason"]
+        assert exc.value.detail["code"] == "KNOWLEDGE_USAGE_COVERAGE_MISMATCH"
 
 
 def test_speech_about_unknown_dress_remains_blocked():
