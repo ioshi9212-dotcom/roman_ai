@@ -4,10 +4,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_scene_length_floor_is_2000_chars():
+def test_scene_length_is_natural_with_3000_cap_not_2000_floor():
     text = (ROOT / "runtime" / "scene_builder.md").read_text(encoding="utf-8")
-    assert "2000–3000 символов" in text
-    assert "1500–3000 символов" not in text
+    assert "максимум 3000 символов" in text
+    assert "2000–3000 символов; это не минимум" in text
 
 
 def test_scene_endings_avoid_authorial_curtain_and_forecast():
