@@ -88,6 +88,23 @@ def test_relationship_index_always_contains_offscreen_npcs():
         assert index["characters"]["aiden"]["настороженность"] == 3
 
 
+def test_repeated_prepare_does_not_reset_already_read_chunks():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(novel())["session_id"]
+        first, _ = read_packet(sid, "обычный ход")
+        root = storage.SESSIONS_DIR / sid
+        before = storage._read_json(root / "turn_packet.json", {})
+        assert before["read_chunks"] == list(range(before["chunk_count"]))
+
+        second = session_runtime.prepare_turn_packet(sid, "обычный ход")
+        after = storage._read_json(root / "turn_packet.json", {})
+
+        assert second["packet_id"] == first["packet_id"]
+        assert after["read_chunks"] == before["read_chunks"]
+        assert len(after["read_chunks"]) == after["chunk_count"]
+
+
 def test_partial_display_footer_cannot_block_or_delete_established_metric():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
