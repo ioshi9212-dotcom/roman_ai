@@ -1,6 +1,8 @@
 import tempfile
 from pathlib import Path
 
+import pytest
+
 from app import cast_registry_runtime, storage, story_thread_runtime
 from app.turn_rollback import _apply_saved_turn, _initial_replay_state
 
@@ -104,11 +106,11 @@ def test_story_created_rotation_age_starts_at_registration_not_turn_zero():
         state, cards, current_turn=20, source_character_ids=source_ids
     ) == []
     pressure = cast_registry_runtime._rotation_pressure(
-        state, cards, current_turn=27, source_character_ids=source_ids
+        state, cards, current_turn=48, source_character_ids=source_ids
     )
     row = next(item for item in pressure if item["character_id"] == "mark")
-    assert row["turns_since_activity"] == 15
-    assert row["turns_since_appearance"] == 15
+    assert row["turns_since_activity"] == 36
+    assert row["turns_since_appearance"] == 36
 
 
 def test_legacy_dynamic_card_bootstraps_as_story_created_before_first_registry_commit():
@@ -250,3 +252,167 @@ def test_chronology_mention_does_not_reset_rotation_contact_age():
         assert row["last_meaningful_turn"] == 21
         assert row["last_contact_turn"] == 2
         assert cast_registry_runtime._last_activity_turn(row) == 2
+
+
+
+def test_core_cast_story_function_is_carried_into_persistent_registry():
+    cards = [
+        {"character_id": "pov", "name": "Елена", "is_pov": True},
+        {"character_id": "liam", "name": "Лиам", "role": "рейдер"},
+    ]
+    source = {
+        "novel": {
+            "core_cast": [
+                {"character_id": "pov", "name": "Елена", "story_function": "POV истории."},
+                {"character_id": "liam", "name": "Лиам", "story_function": "Основная романтическая и конфликтная линия Елены."},
+            ]
+        },
+        "characters": cards,
+    }
+    state = {
+        "pov": {"character_id": "pov"},
+        "current": {"present_characters": ["pov"], "game_day": 7},
+        "world": {},
+    }
+    registry = cast_registry_runtime._ensure_registry(
+        state,
+        cards,
+        current_turn=120,
+        source_character_ids={"pov", "liam"},
+        source=source,
+    )
+    assert registry["liam"]["importance"] == "core"
+    assert registry["liam"]["story_function"] == "Основная романтическая и конфликтная линия Елены."
+    assert registry["liam"]["card_ref"] == "liam"
+    assert registry["liam"]["first_registered_game_day"] == 1
+
+
+def test_rotation_pressure_balances_turns_and_game_days_and_marks_forgotten_core():
+    cards = [
+        {"character_id": "pov", "name": "Елена", "is_pov": True},
+        {"character_id": "core", "name": "Рэй"},
+    ]
+    source = {
+        "novel": {"core_cast": [
+            {"character_id": "pov", "name": "Елена", "story_function": "POV."},
+            {"character_id": "core", "name": "Рэй", "story_function": "Связывает личную линию POV с командованием базы."},
+        ]},
+        "characters": cards,
+    }
+    state = {
+        "pov": {"character_id": "pov"},
+        "current": {"present_characters": ["pov"], "game_day": 10},
+        "relationships": {},
+        "world": {"cast_registry": {
+            "core": {
+                "character_id": "core",
+                "name": "Рэй",
+                "origin": "player_created",
+                "importance": "core",
+                "first_registered_turn": 0,
+                "first_registered_game_day": 1,
+                "last_appearance_turn": 590,
+                "last_appearance_game_day": 2,
+                "last_contact_turn": 590,
+                "last_contact_game_day": 2,
+                "appearance_count": 1,
+                "status": "active",
+            }
+        }},
+    }
+    pressure = cast_registry_runtime._rotation_pressure(
+        state,
+        cards,
+        current_turn=600,
+        source_character_ids={"pov", "core"},
+        source=source,
+    )
+    row = next(item for item in pressure if item["character_id"] == "core")
+    assert row["turns_since_activity"] == 10
+    assert row["game_days_since_activity"] == 8
+    assert row["forgotten_core"] is True
+    assert "естественную" in row["return_rule"]
+
+
+def test_many_turns_can_create_pressure_even_when_same_game_day():
+    cards = [
+        {"character_id": "pov", "name": "POV", "is_pov": True},
+        {"character_id": "core", "name": "Core"},
+    ]
+    state = {
+        "pov": {"character_id": "pov"},
+        "current": {"present_characters": ["pov"], "game_day": 1},
+        "world": {"cast_registry": {
+            "core": {
+                "character_id": "core",
+                "origin": "player_created",
+                "importance": "core",
+                "first_registered_turn": 0,
+                "first_registered_game_day": 1,
+                "last_contact_turn": 1,
+                "last_contact_game_day": 1,
+                "last_appearance_turn": 1,
+                "last_appearance_game_day": 1,
+                "appearance_count": 2,
+                "status": "active",
+            }
+        }},
+    }
+    pressure = cast_registry_runtime._rotation_pressure(
+        state, cards, current_turn=25, source_character_ids={"pov", "core"}
+    )
+    row = next(item for item in pressure if item["character_id"] == "core")
+    assert row["turns_since_activity"] == 24
+    assert row["game_days_since_activity"] == 0
+
+
+def test_story_created_upsert_requires_director_story_function():
+    with tempfile.TemporaryDirectory() as tmp:
+        _setup(tmp)
+        sid = storage.create_session(_novel())["session_id"]
+        payload = {
+            "user_input": "Новый медик вмешивается.",
+            "scene_output": "test",
+            "extracted": {
+                "runtime_rules_reviewed": True,
+                "chronology": [],
+                "character_upserts": [
+                    {"character_id": "new_doc", "name": "Марк", "role": "медик"}
+                ],
+            },
+        }
+        with pytest.raises(RuntimeError, match="CAST_STORY_FUNCTION_REQUIRED"):
+            cast_registry_runtime._with_registry_patch(sid, payload)
+
+
+def test_registry_index_keeps_every_registered_character_and_last_seen_metadata():
+    registry = {
+        "core": {
+            "character_id": "core",
+            "name": "Рэй",
+            "card_ref": "core",
+            "origin": "player_created",
+            "importance": "core",
+            "story_function": "Командная линия.",
+            "status": "active",
+            "last_appearance_turn": 111,
+            "last_appearance_game_day": 5,
+            "appearance_count": 3,
+        },
+        "friend": {
+            "character_id": "friend",
+            "name": "Марк",
+            "card_ref": "friend",
+            "origin": "story_created",
+            "importance": "recurring",
+            "story_function": "Друг POV и источник медицинской линии.",
+            "status": "active",
+            "last_contact_turn": 98,
+            "last_contact_game_day": 4,
+            "appearance_count": 7,
+        },
+    }
+    index = cast_registry_runtime._registry_index(registry)
+    assert [row["character_id"] for row in index] == ["core", "friend"]
+    assert index[0]["last_appearance_turn"] == 111
+    assert index[1]["last_contact_game_day"] == 4

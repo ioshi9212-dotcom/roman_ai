@@ -146,6 +146,53 @@ def _pillar_id(value: Any, index: int) -> str:
     return text[:80] or f"pillar_{index + 1}"
 
 
+def _normalise_core_cast_shape(template: Dict[str, Any], *, required: bool) -> Dict[str, Any]:
+    result = deepcopy(template)
+    cards = storage._normalise_cards(result.get("characters", []))
+    novel = deepcopy(result.get("novel") if isinstance(result.get("novel"), dict) else {})
+    raw = novel.get("core_cast")
+    if raw in (None, ""):
+        if required:
+            raise ValueError("CORE_CAST_REQUIRED")
+        result["novel"] = novel
+        return result
+    if not isinstance(raw, list) or not raw:
+        raise ValueError("CORE_CAST_REQUIRED")
+
+    normalized: list[Dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in raw:
+        if not isinstance(item, dict):
+            raise ValueError("CORE_CAST_ROW_INVALID")
+        resolved = _resolve_character_ref(
+            cards,
+            item.get("character_id") or item.get("id") or item.get("name") or item.get("full_name"),
+        )
+        if not resolved:
+            raise ValueError("CORE_CAST_CHARACTER_UNKNOWN")
+        if resolved in seen:
+            raise ValueError("CORE_CAST_CHARACTER_DUPLICATE")
+        story_function = " ".join(str(item.get("story_function") or "").split()).strip()
+        if not story_function:
+            raise ValueError("CORE_CAST_STORY_FUNCTION_REQUIRED")
+        if len(story_function) > 360:
+            raise ValueError("CORE_CAST_STORY_FUNCTION_TOO_LONG")
+        card = next((row for row in cards if storage._card_id(row) == resolved), {})
+        normalized.append({
+            "character_id": resolved,
+            "name": storage._card_name(card) or str(item.get("name") or resolved),
+            "story_function": story_function,
+        })
+        seen.add(resolved)
+
+    pov_id = storage._find_pov_id(result, cards)
+    if pov_id and pov_id not in seen:
+        raise ValueError("CORE_CAST_POV_REQUIRED")
+    novel["core_cast"] = normalized
+    result["novel"] = novel
+    return result
+
+
 def _normalise_foundation_shape(template: Dict[str, Any]) -> Dict[str, Any]:
     result = deepcopy(template)
     foundation = result.get("foundation")
@@ -452,8 +499,9 @@ def _validate_starting_state(template: Dict[str, Any]) -> Dict[str, Any]:
 
 def _validate_template(template: Dict[str, Any]) -> tuple[Dict[str, Any], Dict[str, Any]]:
     normalized = _normalise_foundation_shape(template)
-    normalized = _validate_starting_state(normalized)
     version = int(normalized.get("version", 1) or 1)
+    normalized = _normalise_core_cast_shape(normalized, required=version >= 3)
+    normalized = _validate_starting_state(normalized)
     coverage = _foundation_coverage(normalized, required=version >= 2)
     return normalized, coverage
 
