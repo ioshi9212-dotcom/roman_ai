@@ -127,7 +127,7 @@ def _payload(scene_output: str, usage, turn_knowledge=None):
     }
 
 
-def test_fact_free_cannot_hide_future_contact_with_veil():
+def test_unknown_future_contact_claim_requires_speaker_source():
     with tempfile.TemporaryDirectory() as tmp:
         _setup(tmp)
         sid = storage.create_session(_novel())["session_id"]
@@ -135,14 +135,19 @@ def test_fact_free_cannot_hide_future_contact_with_veil():
 
         payload = _payload(
             "**Лиам** — Кстати. Завтра ты к Вейлу во сколько?",
-            [{"unit_id": "speech:1", "character_id": "liam", "fact_free": True}],
+            [{
+                "unit_id": "speech:1",
+                "character_id": "liam",
+                "speech_text": "Кстати. Завтра ты к Вейлу во сколько?",
+                "claims_reviewed": True,
+                "claims": [{"claim": "У Елены завтра есть контакт с Вейлом."}],
+            }],
         )
 
         with pytest.raises(HTTPException) as exc:
             firewall._validate_knowledge_commit(sid, payload)
 
-        assert exc.value.detail["code"] == "KNOWLEDGE_FACT_FREE_SENSITIVE"
-        assert "scheduled_contact" in exc.value.detail["reason"]
+        assert exc.value.detail["code"] == "KNOWLEDGE_CLAIM_SOURCE_REQUIRED"
 
 
 def test_old_veil_fact_does_not_cover_new_meeting_claim():
@@ -157,8 +162,12 @@ def test_old_veil_fact_does_not_cover_new_meeting_claim():
                 {
                     "unit_id": "speech:1",
                     "character_id": "liam",
-                    "fact_free": False,
-                    "source_fact_ids": ["liam_knows_old_veil_context"],
+                    "speech_text": "Кстати. Завтра ты к Вейлу во сколько?",
+                    "claims_reviewed": True,
+                    "claims": [{
+                        "claim": "У Елены завтра есть контакт с Вейлом.",
+                        "source_fact_ids": ["liam_knows_old_veil_context"],
+                    }],
                 }
             ],
         )
@@ -182,8 +191,12 @@ def test_dialogue_memory_id_cannot_be_used_as_knowledge_source():
                 {
                     "unit_id": "speech:1",
                     "character_id": "liam",
-                    "fact_free": False,
-                    "source_event_ids": ["dialogue_t593_elena_confirms_marcus_meeting"],
+                    "speech_text": "Кстати. Завтра ты к Вейлу во сколько?",
+                    "claims_reviewed": True,
+                    "claims": [{
+                        "claim": "У Елены завтра есть контакт с Вейлом.",
+                        "source_event_ids": ["dialogue_t593_elena_confirms_marcus_meeting"],
+                    }],
                 }
             ],
         )
@@ -194,7 +207,7 @@ def test_dialogue_memory_id_cannot_be_used_as_knowledge_source():
         assert exc.value.detail["code"] == "KNOWLEDGE_USAGE_FORBIDDEN_SOURCE"
 
 
-def test_unknown_dress_cannot_be_marked_fact_free():
+def test_unknown_dress_claim_requires_speaker_source():
     with tempfile.TemporaryDirectory() as tmp:
         _setup(tmp)
         sid = storage.create_session(_novel())["session_id"]
@@ -202,14 +215,19 @@ def test_unknown_dress_cannot_be_marked_fact_free():
 
         payload = _payload(
             "**Лиам** — То синее платье тебе идёт.",
-            [{"unit_id": "speech:1", "character_id": "liam", "fact_free": True}],
+            [{
+                "unit_id": "speech:1",
+                "character_id": "liam",
+                "speech_text": "То синее платье тебе идёт.",
+                "claims_reviewed": True,
+                "claims": [{"claim": "У Елены есть синее платье."}],
+            }],
         )
 
         with pytest.raises(HTTPException) as exc:
             firewall._validate_knowledge_commit(sid, payload)
 
-        assert exc.value.detail["code"] == "KNOWLEDGE_FACT_FREE_SENSITIVE"
-        assert "clothing" in exc.value.detail["reason"]
+        assert exc.value.detail["code"] == "KNOWLEDGE_CLAIM_SOURCE_REQUIRED"
 
 
 def test_unrelated_source_does_not_cover_unknown_dress():
@@ -224,8 +242,12 @@ def test_unrelated_source_does_not_cover_unknown_dress():
                 {
                     "unit_id": "speech:1",
                     "character_id": "liam",
-                    "fact_free": False,
-                    "source_fact_ids": ["liam_knows_elena_name"],
+                    "speech_text": "То синее платье тебе идёт.",
+                    "claims_reviewed": True,
+                    "claims": [{
+                        "claim": "У Елены есть синее платье.",
+                        "source_fact_ids": ["liam_knows_elena_name"],
+                    }],
                 }
             ],
         )
@@ -249,8 +271,12 @@ def test_real_meeting_knowledge_allows_veil_question():
                 {
                     "unit_id": "speech:1",
                     "character_id": "liam",
-                    "fact_free": False,
-                    "source_fact_ids": ["liam_knows_veil_meeting"],
+                    "speech_text": "Кстати. Завтра ты к Вейлу во сколько?",
+                    "claims_reviewed": True,
+                    "claims": [{
+                        "claim": "Елена завтра встречается с Вейлом.",
+                        "source_fact_ids": ["liam_knows_veil_meeting"],
+                    }],
                 }
             ],
         )
@@ -274,14 +300,22 @@ def test_current_turn_telling_can_create_valid_source_before_use():
                 {
                     "unit_id": "speech:1",
                     "character_id": "elena",
-                    "fact_free": False,
-                    "source_fact_ids": ["elena_knows_own_veil_meeting"],
+                    "speech_text": "Завтра встречаюсь с Вейлом.",
+                    "claims_reviewed": True,
+                    "claims": [{
+                        "claim": "Елена завтра встречается с Вейлом.",
+                        "source_fact_ids": ["elena_knows_own_veil_meeting"],
+                    }],
                 },
                 {
                     "unit_id": "speech:2",
                     "character_id": "liam",
-                    "fact_free": False,
-                    "source_event_ids": ["liam_hears_veil_meeting"],
+                    "speech_text": "Кстати. Завтра ты к Вейлу во сколько?",
+                    "claims_reviewed": True,
+                    "claims": [{
+                        "claim": "Елена завтра встречается с Вейлом.",
+                        "source_event_ids": ["liam_hears_veil_meeting"],
+                    }],
                 },
             ],
             turn_knowledge=[
