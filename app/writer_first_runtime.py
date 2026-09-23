@@ -9,6 +9,7 @@ from . import session_runtime, storage
 from .npc_intent import active_intents_for
 from .scene_compaction_runtime import active_memory_records, covered_turns, load_scene_history
 from .transactional_storage import session_transaction
+from .runtime_contract import contract_packet
 
 
 _ORIGINAL_PREPARE = None
@@ -396,6 +397,7 @@ def _rewrite_context(session_id: str, context: Dict[str, Any]) -> Dict[str, Any]
     _strip_instruction_noise(result)
     _separate_future_guidance(result)
     result["runtime_document_paths"] = {"rules": "runtime_rules", "scene_builder": "scene_builder"}
+    result["runtime_contract"] = contract_packet()
     result["player_input_map"] = _parse_player_input(str(result.get("user_input") or ""))
 
     result["scene_state"] = _compact_scene_state(result.get("scene_state"))
