@@ -11,31 +11,30 @@ from .transactional_storage import session_transaction
 
 _ORIGINAL_PREPARE = None
 _ORIGINAL_COMMIT = None
-_GUARD_VERSION = 4
+_GUARD_VERSION = 5
 
 
 def _knowledge_causality_rule() -> Dict[str, Any]:
     return {
         "mandatory": True,
-        "applies_to": "POV and every NPC",
+        "applies_to": "real speech only",
         "source_before_use": True,
         "no_retroactive_justification": True,
         "character_knowledge_is_closed_world": True,
         "allowed_sources": [
-            "own character_memory",
-            "directly saw/heard/read/received or was told through a real in-story channel, including NPC-to-NPC",
-            "inference from facts already known to this character",
+            "dialogue_frames[character_id].knowledge_path",
+            "earlier turn_knowledge for the same character_id",
         ],
         "author_only_not_character_knowledge": [
-            "POV/NPC questionnaire, character card/backstory",
+            "questionnaire and character card facts",
             "chronology/recent_turns/continuity_turns/scene_history",
             "foundation/future_guidance/lore/world canon",
-            "another character's memory, beliefs or private information",
+            "another character's memory or private information",
         ],
         "rule": (
-            "POV и NPC знают факт только из своей памяти или реального источника. Источник должен существовать до реплики/мысли/действия. "
-            "Chronology/scene_history/card/foundation/lore — авторский канон, не знание персонажа. "
-            "Нет источника — перепиши сцену; не придумывай его задним числом."
+            "Перед каждой реальной репликой используй dialogue_frame говорящего. "
+            "Характер, отношения и intents задают поведение; фактическое содержание речи разрешено только из knowledge_path "
+            "и более раннего turn_knowledge этого же персонажа. Остальной контекст не является источником реплики."
         ),
     }
 
@@ -43,12 +42,11 @@ def _knowledge_causality_rule() -> Dict[str, Any]:
 def _knowledge_review_rule() -> Dict[str, Any]:
     return {
         "mandatory": True,
-        "applies_to": "POV and every NPC",
+        "applies_to": "real speech only",
         "older_memory_retrieval": "prepareCharacterBundleRead(character_id)",
         "rule": (
-            "Перед commit проверь scene_output: каждую реплику, мысль, узнавание и осознанное действие с фактом сверяй с личной памятью "
-            "или информацией, реально полученной этим персонажем. Если working memory недостаточно, догрузи его bundle. "
-            "Факт без источника перепиши. После 0 нарушений передай extracted.knowledge_reviewed=true."
+            "После сцены перечитай каждую реальную реплику отдельно. Зафиксируй exact speech_text и все factual claims/presuppositions; "
+            "каждый claim должен иметь источник говорящего. Нет источника до реплики — перепиши только эту реплику."
         ),
     }
 
@@ -145,9 +143,9 @@ def _require_knowledge_review(session_id: str, payload: Dict[str, Any]) -> None:
             "code": "KNOWLEDGE_REVIEW_REQUIRED",
             "packet_id": packet.get("packet_id"),
             "instruction": (
-                "Проверь знания POV и всех NPC в текущем scene_output. Для каждого факта нужен источник в личной памяти "
-                "или реально полученная в сцене информация. Chronology/scene_history/card/foundation/lore не являются знанием персонажа. "
-                "Факт без источника перепиши, затем повтори тот же commit с extracted.knowledge_reviewed=true. Новый prepareTurn не вызывай."
+                "Проверь каждую реальную реплику отдельно по dialogue_frame говорящего. "
+                "Каждый factual claim/presupposition должен ссылаться на knowledge_path или более ранний turn_knowledge этого персонажа. "
+                "Нет источника — перепиши реплику и повтори тот же commit с extracted.knowledge_reviewed=true."
             ),
         },
     )
