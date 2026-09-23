@@ -113,6 +113,14 @@ def confirm_reconciliation(
             raise ValueError("INTAKE_REQUIRED")
         coverage = draft_intake_runtime._coverage(draft)
         if not coverage.get("ok"):
+            uncovered = coverage.get("uncovered_source_units") if isinstance(coverage.get("uncovered_source_units"), list) else []
+            missing_ids = [
+                str(row.get("source_unit_id"))
+                for row in uncovered
+                if isinstance(row, dict) and row.get("source_unit_id")
+            ]
+            if missing_ids:
+                raise ValueError("INTAKE_SOURCE_UNITS_UNCOVERED:" + ",".join(missing_ids[:20]))
             raise ValueError("INTAKE_COVERAGE_INCOMPLETE")
 
         template, foundation_coverage = _validate_content(_content_template(draft))
