@@ -231,8 +231,18 @@ def novel_draft_finalize(draft_id: str):
         return finalize_draft(draft_id)
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Draft not found")
-    except ValueError:
-        raise HTTPException(status_code=409, detail="Draft is incomplete")
+    except ValueError as exc:
+        code = str(exc)
+        core_errors = {
+            "CORE_CAST_REQUIRED": "Draft v3 requires novel.core_cast with the main player-defined cast.",
+            "CORE_CAST_ROW_INVALID": "Every novel.core_cast item must contain character_id/name and story_function.",
+            "CORE_CAST_CHARACTER_UNKNOWN": "novel.core_cast references a character that is missing from characters.",
+            "CORE_CAST_CHARACTER_DUPLICATE": "novel.core_cast contains the same character more than once.",
+            "CORE_CAST_STORY_FUNCTION_REQUIRED": "Every core cast member needs one short director-level story_function explaining why they matter to the plot.",
+            "CORE_CAST_STORY_FUNCTION_TOO_LONG": "core_cast story_function must stay short (max 360 characters).",
+            "CORE_CAST_POV_REQUIRED": "The POV character must be included in novel.core_cast.",
+        }
+        raise HTTPException(status_code=409, detail=core_errors.get(code, "Draft is incomplete"))
     except RuntimeError:
         raise HTTPException(status_code=500, detail="Final draft verification failed")
 
@@ -598,6 +608,7 @@ def turns_commit(session_id: str, body: TurnCommit):
             "SCENE_BUILDER_POV_MISMATCH": "The POV name in the scene header must match the session POV exactly.",
             "SCENE_BUILDER_TURN_FOOTER_MISMATCH": "The final turn number and cycle must match the backend's current turn exactly.",
             "RUNTIME_RULE_PLAYER_SPEECH_NOT_PRESERVED": "The player's spoken text outside parentheses was lost or rewritten. Preserve those words in the main scene and retry the same commit.",
+            "CAST_STORY_FUNCTION_REQUIRED": "A recurring/important story-created NPC needs character_upserts.story_function: one short director-level sentence explaining why this NPC matters to the story, not the NPC's personal goal.",
         }
         if code in errors:
             raise HTTPException(status_code=409, detail=errors[code])
