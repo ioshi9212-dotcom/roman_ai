@@ -18,12 +18,11 @@ Backend хранит канон. `scene_builder` задаёт стиль и фо
 - Незакрытый вопрос, обещание, подозрение или цель → intent; увиливание POV intent не закрывает.
 
 ## Знания
-- Закрытый мир: прошлый факт известен только из `character_knowledge[ID].knowledge` / `character_memory[ID].knowledge`.
-- Card/backstory/questionnaire, chronology, turns/history, foundation, lore/world/future, experiences, dialogue_memory, relationships и чужая память — AUTHOR ONLY.
-- Источник знания должен существовать ДО реплики/вывода/действия. Новый факт хода → `turn_knowledge{event_id,character_id,fact,source_kind,evidence}`; evidence уже существует.
-- `knowledge_usage`: `fact_free=true` лишь без внешнего claim; иначе релевантный knowledge fact/event этого персонажа.
-- `source_event_ids` только `turn_knowledge`; dialogue/experience/chronology/scene IDs запрещены. `knowledge_add` требует `source_event_id`.
-- Нет источника до использования → перепиши. Не придумывай источник задним числом.
+- Проверка знаний относится к реальным репликам, а не ко всей сцене.
+- Перед репликой персонажа используй его `dialogue_frame`: характер/отношения/intents задают поведение, фактическая база речи — только `dialogue_knowledge` и более ранний `turn_knowledge` этого же персонажа.
+- Card/backstory/questionnaire, chronology, turns/history, scene_history, foundation, lore/world/future, experiences, dialogue_memory, relationships и чужая память могут направлять режиссуру, но не дают фактическое содержание реплике.
+- После сцены каждую реальную реплику перечитай отдельно: `knowledge_usage` хранит exact `speech_text`, `claims_reviewed=true`, `claims[]`; каждый claim требует source этого говорящего.
+- `source_event_ids` только `turn_knowledge`; `knowledge_add` требует `source_event_id`. Источник текущего хода должен существовать до реплики.
 
 ## Отношения
 - Канон: `NPC -> POV`. Меняй только из реально произошедшего и известного NPC.
