@@ -119,7 +119,7 @@ def test_real_speech_still_uses_strict_knowledge_ledger():
         assert exc.value.detail["code"] == "KNOWLEDGE_USAGE_COVERAGE_MISMATCH"
 
 
-def test_speech_about_unknown_dress_remains_blocked():
+def test_speech_claim_without_source_is_blocked():
     with tempfile.TemporaryDirectory() as tmp:
         _setup(tmp)
         sid = storage.create_session(_novel())["session_id"]
@@ -127,17 +127,22 @@ def test_speech_about_unknown_dress_remains_blocked():
 
         payload = _payload(
             "**Лиам** — То синее платье тебе идёт.",
-            [{"unit_id": "speech:1", "character_id": "liam", "fact_free": True}],
+            [{
+                "unit_id": "speech:1",
+                "character_id": "liam",
+                "speech_text": "То синее платье тебе идёт.",
+                "claims_reviewed": True,
+                "claims": [{"claim": "У Елены есть синее платье."}],
+            }],
         )
 
         with pytest.raises(HTTPException) as exc:
             firewall._validate_knowledge_commit(sid, payload)
 
-        assert exc.value.detail["code"] == "KNOWLEDGE_FACT_FREE_SENSITIVE"
-        assert "clothing" in exc.value.detail["reason"]
+        assert exc.value.detail["code"] == "KNOWLEDGE_CLAIM_SOURCE_REQUIRED"
 
 
-def test_speech_about_unknown_scheduled_contact_remains_blocked():
+def test_second_speech_claim_without_source_is_blocked():
     with tempfile.TemporaryDirectory() as tmp:
         _setup(tmp)
         sid = storage.create_session(_novel())["session_id"]
@@ -145,11 +150,16 @@ def test_speech_about_unknown_scheduled_contact_remains_blocked():
 
         payload = _payload(
             "**Лиам** — Завтра ты к Вейлу во сколько?",
-            [{"unit_id": "speech:1", "character_id": "liam", "fact_free": True}],
+            [{
+                "unit_id": "speech:1",
+                "character_id": "liam",
+                "speech_text": "Завтра ты к Вейлу во сколько?",
+                "claims_reviewed": True,
+                "claims": [{"claim": "У Елены завтра есть контакт с Вейлом."}],
+            }],
         )
 
         with pytest.raises(HTTPException) as exc:
             firewall._validate_knowledge_commit(sid, payload)
 
-        assert exc.value.detail["code"] == "KNOWLEDGE_FACT_FREE_SENSITIVE"
-        assert "scheduled_contact" in exc.value.detail["reason"]
+        assert exc.value.detail["code"] == "KNOWLEDGE_CLAIM_SOURCE_REQUIRED"
