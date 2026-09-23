@@ -457,10 +457,11 @@ def _prepare_turn(session_id: str, user_input: str) -> Dict[str, Any]:
     except (TypeError, ValueError, json.JSONDecodeError):
         pass
     result["instruction"] = (
-        "Read every packet chunk before writing. scene_builder and runtime rules are mandatory. "
-        "Use the stable scene_builder paths scene_state, character_cards and character_memory. Full persistent storage remains in Railway; "
-        "the packet contains the complete current-scene working set without duplicate dormant dossiers. If another registered character enters, "
-        "load getCharacterBundle before writing that character. Persist every durable new fact before commit."
+        "Read every packet chunk before writing. runtime_rules and scene_builder are authoritative and must be followed literally; "
+        "do not shorten, reinterpret, merge or override their requirements with generated shortcuts. "
+        "The scene_builder public format is a hard commit gate. Use the stable scene_builder paths scene_state, character_cards and character_memory. "
+        "Full persistent storage remains in backend. The packet contains the complete current-scene working set without duplicate dormant dossiers. "
+        "If another registered character enters, load getCharacterBundle before writing that character. Persist every durable new fact before commit."
     )
     return result
 
