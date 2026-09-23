@@ -172,7 +172,7 @@ def test_runtime_contract_rejects_lost_player_speech():
             validate_runtime_contract(sid, _payload(_scene(include_spoken=False)))
 
 
-def test_turn_packet_exposes_runtime_contract_next_to_full_documents():
+def test_strict_knowledge_packet_keeps_scene_documents_without_hard_runtime_contract():
     with tempfile.TemporaryDirectory() as tmp:
         _setup(tmp)
         sid = storage.create_session(_novel())["session_id"]
@@ -189,8 +189,7 @@ def test_turn_packet_exposes_runtime_contract_next_to_full_documents():
             parts.append(storage.get_turn_packet_chunk(sid, packet["packet_id"], index)["content"])
         context = json.loads("".join(parts))
 
-        assert context["runtime_contract"]["version"] == RUNTIME_CONTRACT_VERSION
-        assert context["runtime_contract"]["mandatory"] is True
+        assert "runtime_contract" not in context
         assert context["runtime_rules"]
         assert context["scene_builder"]
 
