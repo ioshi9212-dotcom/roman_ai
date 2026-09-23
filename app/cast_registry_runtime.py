@@ -294,11 +294,24 @@ def _rotation_pressure(
     current_turn: int,
     *,
     source_character_ids: set[str] | None = None,
+    source: Dict[str, Any] | None = None,
 ) -> List[Dict[str, Any]]:
-    registry = _ensure_registry(state, cards, current_turn, source_character_ids=source_character_ids)
+    registry = _ensure_registry(
+        state,
+        cards,
+        current_turn,
+        source_character_ids=source_character_ids,
+        source=source,
+    )
     pov = state.get("pov") if isinstance(state.get("pov"), dict) else {}
     pov_id = str(pov.get("character_id") or "")
     present = set(storage._present_character_ids(state))
+    current_day = _current_game_day(state)
+    thresholds = {
+        "core": (18, 2),
+        "recurring": (36, 4),
+        "support": (60, 7),
+    }
     scored: List[tuple[float, Dict[str, Any]]] = []
     for cid, row in registry.items():
         if cid == pov_id or cid in present or not isinstance(row, dict) or _is_inactive(row.get("status")):
@@ -309,20 +322,71 @@ def _rotation_pressure(
         inactive_for = max(0, current_turn - last_activity) if last_activity else current_turn
         appearance_baseline = last_appearance or first_registered
         since_appearance = max(0, current_turn - appearance_baseline) if appearance_baseline else current_turn
+
+        last_day = _last_activity_day(row)
+        inactive_days = max(0, current_day - last_day) if current_day and last_day else None
+        last_appearance_day = row.get("last_appearance_game_day") or row.get("first_registered_game_day")
+        try:
+            last_appearance_day_int = int(last_appearance_day or 0)
+        except (TypeError, ValueError):
+            last_appearance_day_int = 0
+        since_appearance_days = (
+            max(0, current_day - last_appearance_day_int)
+            if current_day and last_appearance_day_int
+            else None
+        )
+
         origin = str(row.get("origin") or "story_created")
+        importance = str(row.get("importance") or ("core" if origin == "player_created" else "recurring"))
+        turn_threshold, day_threshold = thresholds.get(importance, thresholds["support"])
         relation = _relation_strength(state, cid)
         has_intent = _has_open_intent(state, cid)
-        player_created = origin == "player_created"
-        due = inactive_for >= (8 if player_created else 15) or has_intent or (relation >= 0.6 and inactive_for >= 5)
+        has_thread = _has_active_thread(state, cid)
+        appearance_count = int(row.get("appearance_count", 0) or 0)
+
+        turn_due = inactive_for >= turn_threshold
+        day_due = inactive_days is not None and inactive_days >= day_threshold
+        relationship_due = relation >= 0.6 and inactive_for >= max(5, turn_threshold // 3)
+        forgotten_core = (
+            importance == "core"
+            and appearance_count <= 1
+            and (
+                since_appearance >= max(30, turn_threshold)
+                or (since_appearance_days is not None and since_appearance_days >= 3)
+            )
+        )
+        due = turn_due or day_due or has_intent or has_thread or relationship_due or forgotten_core
         if not due:
             continue
-        score = float(inactive_for) + (40.0 if player_created else 10.0) + relation * 30.0 + (35.0 if has_intent else 0.0)
+
+        turn_pressure = inactive_for / max(1, turn_threshold)
+        day_pressure = (inactive_days / max(1, day_threshold)) if inactive_days is not None else 0.0
+        importance_bonus = {"core": 45.0, "recurring": 20.0, "support": 5.0}.get(importance, 5.0)
+        score = (
+            max(turn_pressure, day_pressure) * 25.0
+            + importance_bonus
+            + relation * 25.0
+            + (35.0 if has_intent else 0.0)
+            + (30.0 if has_thread else 0.0)
+            + (55.0 if forgotten_core else 0.0)
+        )
         item: Dict[str, Any] = {
             "character_id": cid,
+            "name": row.get("name"),
             "origin": origin,
+            "importance": importance,
+            "story_function": row.get("story_function"),
             "turns_since_activity": inactive_for,
             "turns_since_appearance": since_appearance,
+            "appearance_count": appearance_count,
+            "return_rule": "Ищи ближайшую естественную причинную возможность вернуть персонажа; не телепортируй его ради ротации.",
         }
+        if inactive_days is not None:
+            item["game_days_since_activity"] = inactive_days
+        if since_appearance_days is not None:
+            item["game_days_since_appearance"] = since_appearance_days
+        if forgotten_core:
+            item["forgotten_core"] = True
         if relation:
             item["relationship_salience"] = round(relation, 2)
             signals = _relationship_signals(state, cid)
@@ -334,12 +398,14 @@ def _rotation_pressure(
                 )
         if has_intent:
             item["open_intent"] = True
+        if has_thread:
+            item["active_story_thread"] = True
         summary = row.get("last_meaningful_event")
         if summary:
             item["last_meaningful_event"] = str(summary)[:160]
         scored.append((score, item))
     scored.sort(key=lambda pair: pair[0], reverse=True)
-    return [row for _, row in scored[:8]]
+    return [row for _, row in scored[:10]]
 
 
 def _post_turn_present(state: Dict[str, Any], extracted: Dict[str, Any]) -> set[str]:
@@ -401,6 +467,7 @@ def _with_registry_patch(session_id: str, payload: Dict[str, Any]) -> Dict[str, 
         prepared = scene_presence_runtime._apply_presence_contract(deepcopy(payload), root=root)
         extracted = prepared.get("extracted") if isinstance(prepared.get("extracted"), dict) else {}
         extracted = deepcopy(extracted)
+        _validate_character_upserts(current_cards, extracted, source_ids)
         resulting_cards = storage._apply_character_upserts(current_cards, extracted)
         upsert_ids = {storage._card_id(row) for row in extracted.get("character_upserts", []) if isinstance(row, dict) and storage._card_id(row)}
         registry = _ensure_registry(
@@ -408,24 +475,32 @@ def _with_registry_patch(session_id: str, payload: Dict[str, Any]) -> Dict[str, 
             resulting_cards,
             int(meta.get("turn_number", 0) or 0),
             source_character_ids=source_ids,
+            source=source,
         )
         post_present = _post_turn_present(state, extracted)
         turn_participants = _turn_participant_ids(extracted)
         chronology = extracted.get("chronology") if isinstance(extracted.get("chronology"), list) else []
         card_map = {storage._card_id(card): card for card in resulting_cards}
+        game_day = _post_turn_game_day(state, extracted)
 
         for cid, row in registry.items():
             if cid in source_ids:
                 row["origin"] = "player_created"
                 row["first_registered_turn"] = 0
+                row.setdefault("first_registered_game_day", 1)
             elif cid in upsert_ids or row.get("origin") != "story_created":
                 row["origin"] = "story_created"
                 if not int(row.get("first_registered_turn", 0) or 0):
                     row["first_registered_turn"] = turn_number
+                if game_day and not int(row.get("first_registered_game_day", 0) or 0):
+                    row["first_registered_game_day"] = game_day
 
             if cid in post_present:
                 row["last_appearance_turn"] = turn_number
                 row["last_contact_turn"] = turn_number
+                if game_day:
+                    row["last_appearance_game_day"] = game_day
+                    row["last_contact_game_day"] = game_day
                 if int(row.get("_seen_this_turn", 0) or 0) != turn_number:
                     row["appearance_count"] = int(row.get("appearance_count", 0) or 0) + 1
                     row["_seen_this_turn"] = turn_number
@@ -436,6 +511,8 @@ def _with_registry_patch(session_id: str, payload: Dict[str, Any]) -> Dict[str, 
                 row["last_meaningful_turn"] = turn_number
             if cid in turn_participants:
                 row["last_contact_turn"] = turn_number
+                if game_day:
+                    row["last_contact_game_day"] = game_day
 
         delta = _registry_delta(registry_before, registry)
         if delta:
