@@ -169,9 +169,9 @@ def test_scene_momentum_is_short_and_keeps_meaningful_boundary():
     text = rule["rule"]
     assert "Рутину" in text
     assert "Короткое действие" in text
-    assert "новый самостоятельный этап" in text
-    assert "микротактике" in text
-    assert len(text) < 520
+    assert "следующий самостоятельный этап" in text
+    assert "Важную сцену не проматывай" in text
+    assert len(text) < 360
 
 
 def test_pov_activity_keeps_visible_presence_and_ordinary_dialogue():
@@ -224,7 +224,6 @@ def test_scene_momentum_uses_meaningful_choice_not_literal_last_action_as_bounda
     assert scope["last_segment_kind"] == "stage_direction"
     assert "добраться до смены" in scope["last_segment_text"]
     assert "Рутину веди до конца" in rule["rule"]
-    assert "микротактике" in rule["rule"]
 
 
 def test_scene_momentum_does_not_turn_short_meaningful_action_into_whole_new_phase():
@@ -238,7 +237,7 @@ def test_scene_momentum_does_not_turn_short_meaningful_action_into_whole_new_pha
     rule = guardrails._scene_momentum_rule(context)
     assert rule["player_input_scope"]["boundary"] == "next_meaningful_pov_choice"
     assert "Короткое действие доводи до результата и реакции" in rule["rule"]
-    assert "не начинай за POV новый самостоятельный этап" in rule["rule"]
+    assert "не проживай за POV следующий самостоятельный этап" in rule["rule"]
 
 
 def test_prepare_turn_packet_contains_concise_narrative_guardrails():
@@ -265,7 +264,7 @@ def test_prepare_turn_packet_contains_concise_narrative_guardrails():
         context = json.loads("".join(parts))
 
         signals = context["narrative_guardrails"]
-        assert signals["version"] == 15
+        assert signals["version"] == 16
         assert signals["pov_activity"]["mandatory"] is True
         assert signals["pov_activity"]["min_post_input_presence_beats"] == 2
         assert signals["pov_activity"]["ordinary_dialogue_required_when_natural"] is True
