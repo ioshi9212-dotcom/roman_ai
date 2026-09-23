@@ -8,6 +8,9 @@ SCENE_DIVIDER = "--------------------------------------------------------"
 OPTION_MARKERS = ("Что я могу сделать:", "Что я могу сказать:", "Что я могу подумать:")
 TURN_RE = re.compile(r"^Ход\s+\d+\s*·\s*цикл\s+\d+/15\s*$", re.MULTILINE)
 NUMBERED_RE = re.compile(r"^\s*([1-3])\.\s+\S.*$", re.MULTILINE)
+OPTION_LINE_RE = re.compile(r"^\s*(Что я могу (?:сделать|сказать|подумать):)\s*$")
+STATE_LINE_RE = re.compile(r"^\s*Состояние:\s*\S.*$")
+RELATIONSHIPS_LINE_RE = re.compile(r"^\s*Отношения:\s*$")
 REQUIRED_PREFIXES = ("🎭 ", "🕒 День ", "🌦️ Погода:", "⚙️ Сцена:", "✦ ", "🧥 Одежда, волосы:")
 
 
@@ -52,19 +55,45 @@ def validate_scene_output(scene_output: Any) -> str:
         if divider_line < max(header_indices):
             errors.append("header_order")
 
-    positions = [text.find(marker) for marker in OPTION_MARKERS]
-    if any(pos < 0 for pos in positions):
+    marker_lines: dict[str, int] = {}
+    for index, line in enumerate(lines):
+        match = OPTION_LINE_RE.match(line)
+        if not match:
+            continue
+        marker = match.group(1)
+        if marker in marker_lines:
+            errors.append("option_sections_duplicate")
+        marker_lines.setdefault(marker, index)
+
+    if any(marker not in marker_lines for marker in OPTION_MARKERS):
         errors.append("option_sections")
-    elif positions != sorted(positions):
-        errors.append("option_order")
+        positions = [text.find(marker) for marker in OPTION_MARKERS]
     else:
-        if divider_pos >= 0 and positions[0] < divider_pos:
+        option_line_indices = [marker_lines[marker] for marker in OPTION_MARKERS]
+        positions = [text.find(marker) for marker in OPTION_MARKERS]
+        if option_line_indices != sorted(option_line_indices):
             errors.append("option_order")
-        tails = positions[1:] + [len(text)]
-        for marker, start, end in zip(OPTION_MARKERS, positions, tails):
-            section = text[start + len(marker):end]
-            nums = [int(match.group(1)) for match in NUMBERED_RE.finditer(section)]
-            if nums != [1, 2, 3]:
+        if divider_pos >= 0:
+            divider_line = next((index for index, line in enumerate(lines) if line.strip() == SCENE_DIVIDER), -1)
+            if divider_line >= 0 and option_line_indices[0] <= divider_line:
+                errors.append("option_order")
+
+        state_line = next((index for index, line in enumerate(lines) if line.strip().startswith("Состояние:")), -1)
+        section_ends = [
+            option_line_indices[1],
+            option_line_indices[2],
+            state_line if state_line >= 0 else len(lines),
+        ]
+        for marker, start_line, end_line in zip(OPTION_MARKERS, option_line_indices, section_ends):
+            body = [line.strip() for line in lines[start_line + 1:end_line] if line.strip()]
+            nums: List[int] = []
+            for row in body:
+                match = NUMBERED_RE.fullmatch(row)
+                if match:
+                    nums.append(int(match.group(1)))
+                else:
+                    errors.append(f"{marker}foreign_content")
+            if nums != [1, 2, 3] or len(body) != 3:
                 errors.append(f"{marker}exactly_3")
 
     state_pos = text.find("Состояние:")
@@ -72,9 +101,11 @@ def validate_scene_output(scene_output: Any) -> str:
     turn_matches = list(TURN_RE.finditer(text))
     turn_match = turn_matches[-1] if turn_matches else None
 
-    if state_pos < 0:
+    state_lines = [index for index, line in enumerate(lines) if line.strip().startswith("Состояние:")]
+    relationship_lines = [index for index, line in enumerate(lines) if line.strip() == "Отношения:"]
+    if state_pos < 0 or len(state_lines) != 1 or not STATE_LINE_RE.match(lines[state_lines[0]] if state_lines else ""):
         errors.append("state_footer")
-    if relationships_pos < 0:
+    if relationships_pos < 0 or len(relationship_lines) != 1 or not RELATIONSHIPS_LINE_RE.match(lines[relationship_lines[0]] if relationship_lines else ""):
         errors.append("relationships_footer")
     if not turn_match:
         errors.append("turn_footer")
