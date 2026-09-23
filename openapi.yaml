@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Roman AI
-  version: 1.14.0
+  version: 1.15.0
   description: Persistent isolated novel sessions with bounded writer-first context, transactional memory, living NPC relationships, NPC intents, story threads, recovery, rollback, cast rotation and lossless chunked setup intake.
 servers:
   - url: https://ai-roman-yumikofv.mia0.amvera.tech
@@ -21,7 +21,9 @@ components:
         section_name:
           type: string
           enum: [novel, characters, lore, rules, hidden_lore, world, starting_state, story_direction, foundation, knowledge, intake]
-        section_json: {type: string}
+        section_json:
+          type: string
+          description: JSON for the named section. In draft v3, novel must include core_cast rows with character_id, name and one short director-level story_function for every main player-defined character including POV.
         expected_revision:
           type: integer
           minimum: 0
@@ -305,6 +307,7 @@ components:
             state_patch: {type: object, additionalProperties: true}
             character_upserts:
               type: array
+              description: Persist recurring/important named NPCs. Story-created upserts require story_function: one short director-level sentence explaining why the NPC matters to the story, not the NPC's personal goal.
               items: {type: object, additionalProperties: true}
           additionalProperties: true
     SceneCompaction:
