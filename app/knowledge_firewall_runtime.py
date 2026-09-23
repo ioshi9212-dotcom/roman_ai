@@ -215,12 +215,8 @@ def _dialogue_frames(context: Dict[str, Any], strict_memory: Dict[str, Any]) -> 
         cid = str(row.get("character_id") or "")
         card = row.get("card") if isinstance(row.get("card"), dict) else row
         if cid:
-            card_names[cid] = str(
-                card.get("name")
-                or card.get("full_name")
-                or card.get("identity", {}).get("name") if isinstance(card.get("identity"), dict) else ""
-                or cid
-            )
+            identity = card.get("identity") if isinstance(card.get("identity"), dict) else {}
+            card_names[cid] = str(card.get("name") or card.get("full_name") or identity.get("name") or cid)
 
     result: Dict[str, Any] = {}
     for character_id, bucket in strict_memory.items():
@@ -728,10 +724,13 @@ def _validate_usage_ledger(
             for event_id in source_event_ids:
                 event = turn_events.get(event_id)
                 if event is None:
+                    forbidden_prefix = str(event_id).casefold().startswith(
+                        ("dialogue_", "dialogue_t", "exp_", "experience_", "chrono_", "scene_")
+                    )
                     raise HTTPException(
                         status_code=409,
                         detail={
-                            "code": "KNOWLEDGE_USAGE_UNKNOWN_EVENT",
+                            "code": "KNOWLEDGE_USAGE_FORBIDDEN_SOURCE" if forbidden_prefix else "KNOWLEDGE_USAGE_UNKNOWN_EVENT",
                             "unit_id": unit_id,
                             "claim_index": claim_index,
                             "event_id": event_id,
