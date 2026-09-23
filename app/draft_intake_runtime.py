@@ -471,6 +471,7 @@ def append_intake_chunk(
             )
             if not exact:
                 raise ValueError("INTAKE_UPLOAD_CHUNK_CONFLICT")
+            existing = existing_blocks.get(block_id) if isinstance(existing_blocks.get(block_id), dict) else {}
             return {
                 "draft_id": draft_id,
                 "block_id": block_id,
@@ -479,6 +480,8 @@ def append_intake_chunk(
                 "chunk_count": chunk_count,
                 "char_count": int(receipt.get("char_count", sum(lengths)) or 0),
                 "draft_revision": int(draft.get("revision", 0) or 0),
+                "source_units": deepcopy(existing.get("source_units", [])),
+                "source_unit_count": int(existing.get("source_unit_count", 0) or 0),
             }
 
         if not isinstance(receipt, dict):
@@ -576,6 +579,7 @@ def append_intake_chunk(
         novel_drafts._write(novel_drafts._draft_path(draft_id), draft)
         revision = int(draft.get("revision", 0) or 0)
 
+    source_units = _source_units_for_block(block_id, assembled)
     return {
         "draft_id": draft_id,
         "block_id": block_id,
@@ -584,7 +588,12 @@ def append_intake_chunk(
         "chunk_count": len(hashes),
         "char_count": len(assembled),
         "draft_revision": revision,
-        "instruction": "Raw intake is stored verbatim. Create foundation facts, then map their existing fact_ids to this block without resending raw_text.",
+        "source_units": source_units,
+        "source_unit_count": len(source_units),
+        "instruction": (
+            "Raw intake is stored verbatim. For draft v4+, every returned source_unit_id must be cited by source_unit_ids "
+            "on at least one foundation fact mapped to this block. Do not mark the block reviewed until no substantive unit is omitted."
+        ),
     }
 
 
