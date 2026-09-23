@@ -19,6 +19,7 @@ from .turn_duplicate_guard import (
     recent_duplicate_turn,
 )
 from .turn_rollback import RollbackError, rollback_last_turn
+from .runtime_contract import validate_runtime_contract
 
 
 def _session_root(session_id: str):
