@@ -200,3 +200,55 @@ def test_v4_hook_source_text_is_preserved_exactly_in_canonical_foundation():
     result = draft_intake_runtime.enrich_template_with_source_evidence(draft, template)
     evidence = result["foundation"]["facts"][0]["source_evidence"][0]
     assert evidence["text"] == "Крючок: каждую осень неизвестный оставляет у двери Рины красную нить."
+
+
+
+def test_v4_status_coverage_is_compact_even_with_many_uncovered_units():
+    coverage = {
+        "ok": False,
+        "uncovered_source_units": [
+            {
+                "block_id": "chars",
+                "source_unit_id": f"chars:u{index:04d}",
+                "section_hint": "Внешность",
+                "text": "Очень длинная деталь персонажа " + ("x" * 300),
+            }
+            for index in range(250)
+        ],
+        "unknown_source_unit_ids": [
+            {"fact_id": f"f{index}", "source_unit_id": f"missing:u{index:04d}"}
+            for index in range(100)
+        ],
+        "unknown_fact_ids": [{"block_id": "chars", "fact_id": f"unknown_{index}"} for index in range(20)],
+    }
+    compact = draft_intake_runtime.coverage_for_response(coverage)
+    encoded = json.dumps(compact, ensure_ascii=False)
+    assert compact["uncovered_source_unit_count"] == 250
+    assert len(compact["uncovered_source_unit_ids_sample"]) == 12
+    assert compact["unknown_source_unit_id_count"] == 100
+    assert "Очень длинная деталь персонажа" not in encoded
+    assert len(encoded) < 8000
+
+
+def test_v4_draft_status_does_not_echo_all_uncovered_detail_text_after_large_save():
+    with tempfile.TemporaryDirectory() as tmp:
+        _setup(tmp)
+        draft_id = novel_drafts.create_draft("compact_status", "Compact status", version=4)["draft_id"]
+        raw = "\n".join(
+            f"Деталь {index}: персонаж имеет особенность номер {index}."
+            for index in range(180)
+        )
+        draft_intake_runtime.append_intake_chunk(
+            draft_id,
+            block_id="characters_raw",
+            stage="characters",
+            chunk_index=0,
+            raw_text=raw[:6000],
+            is_last=True,
+        )
+        status = novel_drafts.draft_status(draft_id)
+        intake = status["intake_coverage"]
+        assert intake["response_compacted"] is True
+        assert intake["uncovered_source_unit_count"] > 0
+        assert "uncovered_source_units" not in intake
+        assert len(json.dumps(status, ensure_ascii=False)) < 12000
