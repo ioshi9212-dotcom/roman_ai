@@ -206,35 +206,109 @@ def _intake_upload_status(draft: Dict[str, Any]) -> Dict[str, Any]:
 def _coverage(draft: Dict[str, Any]) -> Dict[str, Any]:
     sections = draft.get("sections") if isinstance(draft.get("sections"), dict) else {}
     intake = sections.get("intake")
+    strict_units = _lossless_detail_coverage_required(draft)
     if not isinstance(intake, dict):
         return {
             "required": False,
+            "lossless_detail_coverage_required": strict_units,
             "ok": True,
             "block_count": 0,
             "reviewed_blocks": 0,
             "unreviewed_blocks": [],
             "unknown_fact_ids": [],
+            "source_unit_count": 0,
+            "covered_source_unit_count": 0,
+            "uncovered_source_units": [],
+            "unknown_source_unit_ids": [],
         }
+
     intake = _normalise_intake(intake)
     foundation = sections.get("foundation") if isinstance(sections.get("foundation"), dict) else {}
     facts = foundation.get("facts") if isinstance(foundation.get("facts"), list) else []
-    known = {str(row.get("fact_id")) for row in facts if isinstance(row, dict) and row.get("fact_id")}
-    unreviewed = []
-    unknown = []
+    fact_rows = {
+        str(row.get("fact_id")): row
+        for row in facts
+        if isinstance(row, dict) and row.get("fact_id")
+    }
+    known = set(fact_rows)
+    all_units = _all_source_units(intake)
+    valid_unit_ids = set(all_units)
+
+    fact_source_units: Dict[str, set[str]] = {}
+    unknown_source_unit_ids: List[Dict[str, str]] = []
+    for fact_id, row in fact_rows.items():
+        refs = row.get("source_unit_ids", [])
+        if refs is None:
+            refs = []
+        if not isinstance(refs, list):
+            refs = []
+        clean = {str(value).strip() for value in refs if str(value).strip()}
+        fact_source_units[fact_id] = clean
+        for unit_id in sorted(clean):
+            if unit_id not in valid_unit_ids:
+                unknown_source_unit_ids.append({"fact_id": fact_id, "source_unit_id": unit_id})
+
+    unreviewed: List[str] = []
+    unknown: List[Dict[str, str]] = []
+    uncovered: List[Dict[str, Any]] = []
+    covered_ids: set[str] = set()
+    no_fact_conflicts: List[str] = []
+
     for block in intake["blocks"]:
+        block_id = str(block["block_id"])
         if not block["reviewed_against_raw"]:
-            unreviewed.append(block["block_id"])
-        for fact_id in block["fact_ids"]:
+            unreviewed.append(block_id)
+
+        block_fact_ids = {str(value) for value in block.get("fact_ids", []) if str(value)}
+        for fact_id in sorted(block_fact_ids):
             if fact_id not in known:
-                unknown.append({"block_id": block["block_id"], "fact_id": fact_id})
+                unknown.append({"block_id": block_id, "fact_id": fact_id})
+
+        units = _source_units_for_block(block_id, str(block.get("raw_text") or ""))
+        if strict_units and block.get("contains_no_facts") and units:
+            no_fact_conflicts.append(block_id)
+
+        for unit in units:
+            unit_id = str(unit["source_unit_id"])
+            covering = sorted(
+                fact_id
+                for fact_id in block_fact_ids
+                if fact_id in known and unit_id in fact_source_units.get(fact_id, set())
+            )
+            if covering:
+                covered_ids.add(unit_id)
+            elif strict_units:
+                uncovered.append({
+                    "block_id": block_id,
+                    "source_unit_id": unit_id,
+                    "section_hint": unit.get("section_hint"),
+                    "text": str(unit.get("text") or "")[:320],
+                })
+
+    ok = not unreviewed and not unknown
+    if strict_units:
+        ok = ok and not uncovered and not unknown_source_unit_ids and not no_fact_conflicts
+
     return {
         "required": True,
-        "ok": not unreviewed and not unknown,
+        "lossless_detail_coverage_required": strict_units,
+        "ok": ok,
         "block_count": len(intake["blocks"]),
         "reviewed_blocks": len(intake["blocks"]) - len(unreviewed),
         "unreviewed_blocks": unreviewed,
         "unknown_fact_ids": unknown,
-        "instruction": "Every raw intake block is immutable, reviewed against its verbatim source, and mapped to existing foundation fact ids before finalize.",
+        "source_unit_count": len(valid_unit_ids),
+        "covered_source_unit_count": len(covered_ids),
+        "uncovered_source_units": uncovered,
+        "unknown_source_unit_ids": unknown_source_unit_ids,
+        "contains_no_facts_conflicts": no_fact_conflicts,
+        "instruction": (
+            "Every raw intake block is immutable and reviewed. For draft v4+, every substantive source_unit "
+            "must be cited by source_unit_ids on at least one mapped foundation fact. Finalize is blocked while "
+            "uncovered_source_units is non-empty; exact source text is later preserved into canonical evidence."
+            if strict_units else
+            "Every raw intake block is immutable, reviewed against its verbatim source, and mapped to existing foundation fact ids before finalize."
+        ),
     }
 
 
