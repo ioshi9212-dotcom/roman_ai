@@ -253,7 +253,7 @@ def _draft_status(draft_id: str) -> Dict[str, Any]:
         "finalize_blocker": blocker,
         "foundation_coverage": foundation_coverage,
         "intake_coverage": {
-            **deepcopy(intake_coverage),
+            **draft_intake_runtime.coverage_for_response(intake_coverage),
             "draft_revision": revision,
             "last_full_read_revision": last_read,
             "full_read_current": full_read_current,
