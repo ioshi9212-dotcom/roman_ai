@@ -5,7 +5,7 @@ import re
 from copy import deepcopy
 from typing import Any, Dict, List
 
-from . import novel_access, novel_drafts
+from . import novel_access, novel_drafts, storage
 from .transactional_storage import session_transaction
 
 
