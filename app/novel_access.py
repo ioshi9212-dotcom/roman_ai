@@ -6,7 +6,7 @@ from typing import Any, Dict
 from . import storage
 
 
-NOVEL_READ_CHUNK_CHARS = 12000
+NOVEL_READ_CHUNK_CHARS = 6000
 
 
 def _reads_dir() -> Path:
