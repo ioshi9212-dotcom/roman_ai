@@ -30,6 +30,7 @@ def test_pov_activity_rule_keeps_pov_active_without_stealing_meaningful_choice()
     assert "POV отвечает словами" in text
     assert "не заменяй естественный ответ" in text
     assert "reserved_for_player" in text
+    assert "ветвящееся/необратимое" in rule["reserved_for_player"]
 
 
 def test_writer_packet_contains_active_pov_guard_and_meaningful_choice_boundary():
@@ -57,7 +58,7 @@ def test_writer_packet_contains_active_pov_guard_and_meaningful_choice_boundary(
         context = json.loads("".join(chunks))
 
         signals = context["narrative_guardrails"]
-        assert signals["version"] == 14
+        assert signals["version"] == 15
         assert signals["pov_activity"]["mandatory"] is True
         assert signals["pov_activity"]["min_post_input_presence_beats"] == 2
         assert signals["pov_activity"]["ordinary_dialogue_required_when_natural"] is True
