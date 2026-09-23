@@ -148,6 +148,9 @@ class TurnExtracted(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     persistence_reviewed: bool
+    runtime_rules_reviewed: bool = False
+    scene_builder_reviewed: bool = False
+    runtime_contract_version: Optional[int] = None
     knowledge_reviewed: bool = False
     knowledge_trace_complete: bool = False
     turn_knowledge: List[Dict[str, Any]] = Field(default_factory=list)

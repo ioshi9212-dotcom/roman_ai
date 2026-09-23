@@ -19,6 +19,7 @@ from .turn_duplicate_guard import (
     recent_duplicate_turn,
 )
 from .turn_rollback import RollbackError, rollback_last_turn
+from .runtime_contract import validate_runtime_contract
 
 
 def _session_root(session_id: str):
@@ -170,6 +171,11 @@ def commit_turn_request(session_id: str, payload: Dict[str, Any]) -> Dict[str, A
     packet = storage._read_json(root / "turn_packet.json", {})
     if not isinstance(packet, dict) or str(packet.get("packet_id") or "") != packet_id:
         raise RuntimeError("TURN_PACKET_REQUIRED")
+
+    # Upgraded Custom GPT clients opt into the hard runtime contract together
+    # with the strict knowledge capability. Legacy clients remain compatible.
+    if bool(packet.get("strict_knowledge_capable")):
+        validate_runtime_contract(session_id, payload)
 
     prepared = deepcopy(payload)
     prepared["_operation_receipt"] = {

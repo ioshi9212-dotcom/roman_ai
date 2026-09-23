@@ -243,6 +243,18 @@ components:
           required: [persistence_reviewed, chronology, knowledge_add, experiences_add, dialogue_memory_add, npc_intent_updates, story_thread_updates]
           properties:
             persistence_reviewed: {type: boolean}
+            runtime_rules_reviewed:
+              type: boolean
+              default: false
+              description: True only after reading and checking the complete runtime_rules document for this exact turn.
+            scene_builder_reviewed:
+              type: boolean
+              default: false
+              description: True only after reading and checking the complete scene_builder document for this exact turn.
+            runtime_contract_version:
+              type: integer
+              minimum: 1
+              description: Echo runtime_contract.version from the current turn packet.
             knowledge_reviewed:
               type: boolean
               default: false
