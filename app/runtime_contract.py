@@ -274,13 +274,20 @@ def validate_runtime_contract(session_id: str, payload: Dict[str, Any]) -> None:
         raise RuntimeContractError("SCENE_BUILDER_POV_MISMATCH")
 
     meta = storage._read_json(root / "meta.json", {})
-    expected_turn = int(meta.get("turn_number", 0) or 0) + 1 if isinstance(meta, dict) else 1
+    committed_turn = int(meta.get("turn_number", 0) or 0) if isinstance(meta, dict) else 0
+    expected_turn = committed_turn + 1
     expected_cycle = ((expected_turn - 1) % 15) + 1
     if parts["turn_number"] != expected_turn or parts["cycle_position"] != expected_cycle:
         raise RuntimeContractError("SCENE_BUILDER_TURN_FOOTER_MISMATCH")
 
-    main_norm = _norm_words(parts["main_scene"])
-    for spoken in _parse_player_input(str(payload.get("user_input") or "")):
-        spoken_norm = _norm_words(spoken)
-        if spoken_norm and spoken_norm not in main_norm:
-            raise RuntimeContractError("RUNTIME_RULE_PLAYER_SPEECH_NOT_PRESERVED")
+    raw_input = str(payload.get("user_input") or "")
+    is_launch_control = (
+        committed_turn == 0
+        and _norm_words(raw_input) == _norm_words("запускай первую сцену")
+    )
+    if not is_launch_control:
+        main_norm = _norm_words(parts["main_scene"])
+        for spoken in _parse_player_input(raw_input):
+            spoken_norm = _norm_words(spoken)
+            if spoken_norm and spoken_norm not in main_norm:
+                raise RuntimeContractError("RUNTIME_RULE_PLAYER_SPEECH_NOT_PRESERVED")
