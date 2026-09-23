@@ -138,6 +138,7 @@ def _normalise_intake(value: Any, *, reject_placeholders: bool = False) -> Dict[
         if no_facts and fact_ids:
             raise ValueError("INTAKE_FACT_IDS_CONFLICT")
         seen.add(block_id)
+        source_units = _source_units_for_block(block_id, raw_text)
         result["blocks"].append({
             "block_id": block_id,
             "stage": stage,
@@ -145,6 +146,8 @@ def _normalise_intake(value: Any, *, reject_placeholders: bool = False) -> Dict[
             "fact_ids": list(dict.fromkeys(fact_ids)),
             "reviewed_against_raw": reviewed,
             "contains_no_facts": no_facts,
+            "source_units": source_units,
+            "source_unit_count": len(source_units),
         })
     return result
 
