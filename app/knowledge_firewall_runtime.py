@@ -12,7 +12,7 @@ from .scene_compaction_runtime import active_memory_records
 from .transactional_storage import session_transaction
 
 
-_VERSION = 7
+_VERSION = 8
 _ORIGINAL_PREPARE = None
 _ORIGINAL_COMMIT = None
 _ORIGINAL_CREATE_SESSION = None
@@ -44,13 +44,6 @@ _FORBIDDEN_SOURCE_KINDS = {
 
 _SPEECH_RE = re.compile(r"(?m)^\s*\*\*(?P<speaker>[^*\n]+)\*\*\s*[—-]\s*(?P<text>.*)$")
 _NUMBER_RE = re.compile(r"(?<!\w)-?\d{2,4}(?!\w)")
-_OPTION_RE = re.compile(r"(?m)^\s*([1-3])\.\s+(\S.*)$")
-_OPTION_MARKERS = (
-    ("Что я могу сделать:", "option_action"),
-    ("Что я могу сказать:", "option_say"),
-    ("Что я могу подумать:", "option_thought"),
-)
-
 _KNOWLEDGE_TOPIC_ROOTS = {
     "meeting_plan": ("встреч", "свидан", "визит", "назнач", "брониров", "резервир", "планир"),
     "clothing": ("плать", "наряд", "одежд"),
@@ -113,21 +106,6 @@ def _has_temporal_marker(text: str) -> bool:
 
 def _fact_free_sensitive_reason(text: str, *, unit_id: str = "") -> str | None:
     topics = _knowledge_topics(text)
-    is_action_option = str(unit_id or "").startswith("option_action:")
-
-    # Action options are proposals, not statements that a fact already exists.
-    # "Поправить платье", "вечером подойти к Вейлу" or "пойти на встречу"
-    # may be a new neutral choice. Do not force a knowledge source merely because
-    # the wording overlaps clothing / meeting / contact heuristics.
-    # We still protect action options that themselves presuppose durable facts.
-    if is_action_option:
-        factual_topics = topics & {"promise", "relationship_history", "secret"}
-        if factual_topics:
-            return "topic:" + ",".join(sorted(factual_topics))
-        if _NUMBER_RE.search(str(text or "")):
-            return "numeric_literal"
-        return None
-
     if topics:
         return "topic:" + ",".join(sorted(topics))
     contacts = _contact_targets(text)
@@ -241,11 +219,10 @@ def _firewall_contract() -> Dict[str, Any]:
         "commit_ledger": {
             "knowledge_trace_complete": True,
             "knowledge_usage": (
-                "Покрой каждую зарегистрированную реплику и каждый POV-вариант действия/реплики/мысли. "
-                "fact_free=true допустим только без внешнего фактического утверждения. Само упоминание темы ещё не claim: "
-                "нейтральный option_action может создать новый выбор про одежду/встречу/контакт без source. "
-                "Реплики/мысли и действия, которые ссылаются на обещание/родство/секрет/конкретное число или утверждают "
-                "уже существующий факт, требуют source_fact_ids/source_event_ids; источник должен поддерживать именно claim."
+                "Покрой каждую зарегистрированную реальную реплику scene_output. "
+                "Нижние варианты 'что сделать/сказать/подумать' — не произошедший канон и в knowledge_usage не входят; "
+                "они не должны раскрывать скрытые авторские факты. fact_free=true допустим только для реплики без внешнего "
+                "фактического утверждения; существующий факт требует source_fact_ids/source_event_ids."
             ),
             "durable_knowledge": (
                 "knowledge_add разрешён только как долговечная копия уже валидного turn_knowledge; "
@@ -334,27 +311,6 @@ def _character_alias_map(cards: List[Dict[str, Any]]) -> Dict[str, str]:
     return result
 
 
-def _option_units(text: str, pov_id: str) -> List[Dict[str, Any]]:
-    result: List[Dict[str, Any]] = []
-    positions = []
-    for marker, kind in _OPTION_MARKERS:
-        positions.append((text.find(marker), marker, kind))
-    found = [(pos, marker, kind) for pos, marker, kind in positions if pos >= 0]
-    found.sort(key=lambda item: item[0])
-    for index, (start, marker, kind) in enumerate(found):
-        end = found[index + 1][0] if index + 1 < len(found) else len(text)
-        section = text[start + len(marker):end]
-        for match in _OPTION_RE.finditer(section):
-            number = int(match.group(1))
-            result.append({
-                "unit_id": f"{kind}:{number}",
-                "character_id": pov_id,
-                "text": match.group(2).strip(),
-                "position": start + len(marker) + match.start(),
-            })
-    return result
-
-
 def _knowledge_units(scene_output: str, cards: List[Dict[str, Any]], pov_id: str) -> List[Dict[str, Any]]:
     aliases = _character_alias_map(cards)
     result: List[Dict[str, Any]] = []
@@ -370,7 +326,6 @@ def _knowledge_units(scene_output: str, cards: List[Dict[str, Any]], pov_id: str
             "text": match.group("text").strip(),
             "position": match.start(),
         })
-    result.extend(_option_units(scene_output, pov_id))
     result.sort(key=lambda row: (int(row["position"]), str(row["unit_id"])))
     return result
 
