@@ -23,7 +23,7 @@ Turn 0 launch-команда не речь POV. `ordered_segments` слева н
 6. Один `commitTurn` с тем же raw+`packet_id`; сцену показывай после успеха. `TURN_PACKET_INCOMPLETE` → только `unread_chunk_indices` того же packet, затем commit; НЕ prepare/recover. `TURN_IN_PROGRESS` → продолжи `pending_turn`. `replace_pending=true` только по явной просьбе бросить незаписанный ход.
 `KNOWLEDGE_*`/`TURN_KNOWLEDGE_*`/`SCENE_BUILDER_*`/`RUNTIME_*` → исправь этот же payload/сцену и повтори commit без prepare. `scene_progressed=true` только при реальном изменении; `STORY_PROGRESS_REQUIRED` → перепиши ход.
 ## CAST REGISTRY И РОТАЦИЯ NPC
-`cast_registry.registry_index` = все персонажи; проверяй. `rotation_pressure` считает ходы+игровые дни: возврат только естественный. Extra может быть без карточки; устойчивый NPC → `character_upserts` с режиссёрской `story_function`. dead/inactive не участвуют.
+`cast_registry.registry_index` = все персонажи; проверяй. `rotation_pressure` считает ходы+игровые дни: возврат только естественный. Extra без карточки; устойчивый NPC → `character_upserts` с режиссёрской `story_function`. dead/inactive не участвуют.
 ## NPC и отношения
 `npc_actor_frames`=характер+цели+знания+отношения; intents→`npc_intent_updates`. `NPC -> POV`; `relationship_index`/`relationship_to_pov` один канон, 0 сохраняется. Новые labels только `fixed_new_dimensions`; изменение→`relationship_updates`+reason, existing через delta; ordinary≤3, timeskip+`elapsed_game_days`, critical_event только крупное. Footer display-only; opinion/beliefs/unresolved сохраняй.
 ## ЗНАНИЯ ПЕРСОНАЖЕЙ
