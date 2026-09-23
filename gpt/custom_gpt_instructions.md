@@ -29,7 +29,7 @@ Turn 0 launch-команда не речь POV. `ordered_segments` слева н
 ## ЗНАНИЯ ПЕРСОНАЖЕЙ
 Закрытый мир для реплик: факты берутся только по `dialogue_frames[ID].knowledge_path` и из валидного более раннего `turn_knowledge` этого же персонажа. Нет источника ДО реплики → не утверждай и не предполагай факт.
 ## ДАННЫЕ НЕ СМЕШИВАТЬ
-анкеты/cards, chronology/scene_history/recent_turns, `chronology_recent`, foundation/future, lore/world, experiences/dialogue_memory и чужая память — AUTHOR ONLY: режиссура/непрерывность/сюжет, но не фактический источник реплики.
+анкеты/cards, chronology/scene_history/recent_turns, `chronology_recent`, foundation/`future_guidance`, lore/world, experiences/dialogue_memory и чужая память — AUTHOR ONLY: режиссура/непрерывность/сюжет, но не фактический источник реплики.
 ## Мир и анкета
 Setup-факты не декорация: story через hooks/pillars, бытовые через поведение. Использованное пометь `foundation_fact_ids`/`anchor_facts`, pillar→`story_pillar_ids`/`pillar_ids`.
 ## Persistence
