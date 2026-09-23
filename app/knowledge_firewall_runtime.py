@@ -227,9 +227,9 @@ def _dialogue_frames(context: Dict[str, Any], strict_memory: Dict[str, Any]) -> 
             "character_drivers": deepcopy(actor.get("character_drivers", [])),
             "relationship": deepcopy(actor.get("relationship", {})),
             "active_intents": deepcopy(actor.get("active_intents", [])),
-            "dialogue_knowledge": deepcopy(bucket.get("knowledge", [])) if isinstance(bucket, dict) else [],
+            "knowledge_path": f"character_knowledge[{character_id}].knowledge",
             "factual_source_rule": (
-                "Фактическое содержание реплик этого персонажа берётся только из dialogue_knowledge "
+                "Фактическое содержание реплик этого персонажа берётся только из knowledge_path "
                 "и turn_knowledge этого же character_id, полученного раньше реплики."
             ),
             "director_context_is_not_dialogue_knowledge": True,
@@ -245,7 +245,7 @@ def _firewall_contract() -> Dict[str, Any]:
         "authoritative_prior_knowledge_path": "character_knowledge[character_id].knowledge",
         "current_turn_knowledge_path": "extracted.turn_knowledge",
         "exclusive_rule": (
-            "Фактическое содержание каждой реплики берётся только из dialogue_frames[character_id].dialogue_knowledge "
+            "Фактическое содержание каждой реплики берётся только из knowledge_path в dialogue_frames[character_id] "
             "или из turn_knowledge того же персонажа, полученного раньше этой реплики. "
             "Весь остальной контекст используется только для режиссуры, поведения и непрерывности и не является источником реплики."
         ),
@@ -313,7 +313,7 @@ def _rewrite_packet(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
             "scope": "real_speech_only",
             "rule": (
                 "Перед написанием каждой реплики используй dialogue_frame говорящего. "
-                "Характер, отношения и intents задают манеру и цель; фактическое содержание разрешено только из dialogue_knowledge "
+                "Характер, отношения и intents задают манеру и цель; фактическое содержание разрешено только из knowledge_path "
                 "и более раннего turn_knowledge этого же персонажа. Director/chronology/history context не является материалом реплики."
             ),
         }
@@ -954,15 +954,15 @@ def _strict_participation_bundle(session_id: str, character_id: str) -> Dict[str
     bundle["dialogue_frame"] = {
         "character_id": character_id,
         "behavior_paths": ["card", "relationship_to_pov", "active_intents"],
-        "dialogue_knowledge": deepcopy(memory.get("knowledge", [])) if isinstance(memory.get("knowledge"), list) else [],
+        "knowledge_path": "personal_memory.knowledge",
         "factual_source_rule": (
-            "Фактическое содержание реплик разрешено только из dialogue_knowledge "
+            "Фактическое содержание реплик разрешено только из knowledge_path "
             "и turn_knowledge этого character_id, полученного раньше реплики."
         ),
     }
     bundle["instruction"] = (
         "Для поведения используй card, relationship_to_pov и active_intents. "
-        "Для фактического содержания реплик используй только dialogue_frame.dialogue_knowledge "
+        "Для фактического содержания реплик используй только dialogue_frame.knowledge_path "
         "и более ранний turn_knowledge этого персонажа."
     )
     return bundle
