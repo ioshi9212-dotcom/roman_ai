@@ -133,8 +133,10 @@ def test_writer_packet_frontloads_closed_world_knowledge_and_strips_fact_authori
 
         assert next(iter(context)) == "knowledge_firewall_v5"
         assert context["knowledge_firewall_v5"]["closed_world"] is True
-        assert context["knowledge_firewall_v5"]["version"] == 8
+        assert context["knowledge_firewall_v5"]["version"] == 9
         assert context["character_knowledge"]["emily"]["knowledge"][0]["fact_id"] == "emily_knows_silas_name"
+        assert context["dialogue_frames"]["emily"]["dialogue_knowledge"][0]["fact_id"] == "emily_knows_silas_name"
+        assert context["dialogue_policy"]["scope"] == "real_speech_only"
         assert "experiences" not in context["character_memory"]["emily"]
         assert context["author_only_recollection_context"]["emily"]["fact_authority"] is False
 
@@ -147,7 +149,13 @@ def test_pov_cannot_use_age_from_silas_card_foundation_or_lore_as_fact_free_dial
 
         payload = _payload(
             "**Эмили** — Тебе четыреста лет.",
-            usage=[{"unit_id": "speech:1", "character_id": "emily", "fact_free": True}],
+            usage=[{
+                "unit_id": "speech:1",
+                "character_id": "emily",
+                "speech_text": "Тебе четыреста лет.",
+                "claims_reviewed": True,
+                "claims": [],
+            }],
         )
 
         with pytest.raises(HTTPException) as exc:
@@ -170,8 +178,12 @@ def test_card_fact_id_cannot_be_forged_as_pov_knowledge_source():
                 {
                     "unit_id": "speech:1",
                     "character_id": "emily",
-                    "fact_free": False,
-                    "source_fact_ids": ["author_silas_age"],
+                    "speech_text": "Тебе 400 лет.",
+                    "claims_reviewed": True,
+                    "claims": [{
+                        "claim": "Сайласу 400 лет.",
+                        "source_fact_ids": ["author_silas_age"],
+                    }],
                 }
             ],
         )
@@ -196,14 +208,22 @@ def test_current_turn_fact_is_usable_only_after_real_evidence_precedes_use():
                 {
                     "unit_id": "speech:1",
                     "character_id": "silas",
-                    "fact_free": False,
-                    "source_fact_ids": ["silas_knows_own_age"],
+                    "speech_text": "Мне четыреста лет.",
+                    "claims_reviewed": True,
+                    "claims": [{
+                        "claim": "Сайласу 400 лет.",
+                        "source_fact_ids": ["silas_knows_own_age"],
+                    }],
                 },
                 {
                     "unit_id": "speech:2",
                     "character_id": "emily",
-                    "fact_free": False,
-                    "source_event_ids": ["emily_hears_age"],
+                    "speech_text": "Тебе четыреста лет?",
+                    "claims_reviewed": True,
+                    "claims": [{
+                        "claim": "Сайласу 400 лет.",
+                        "source_event_ids": ["emily_hears_age"],
+                    }],
                 },
             ],
             turn_knowledge=[
@@ -233,14 +253,22 @@ def test_retroactive_source_after_pov_line_is_rejected():
                 {
                     "unit_id": "speech:1",
                     "character_id": "emily",
-                    "fact_free": False,
-                    "source_event_ids": ["emily_hears_age"],
+                    "speech_text": "Тебе четыреста лет?",
+                    "claims_reviewed": True,
+                    "claims": [{
+                        "claim": "Сайласу 400 лет.",
+                        "source_event_ids": ["emily_hears_age"],
+                    }],
                 },
                 {
                     "unit_id": "speech:2",
                     "character_id": "silas",
-                    "fact_free": False,
-                    "source_fact_ids": ["silas_knows_own_age"],
+                    "speech_text": "Мне четыреста лет.",
+                    "claims_reviewed": True,
+                    "claims": [{
+                        "claim": "Сайласу 400 лет.",
+                        "source_fact_ids": ["silas_knows_own_age"],
+                    }],
                 },
             ],
             turn_knowledge=[
