@@ -208,8 +208,7 @@ def test_actions_schema_and_gpt_instruction_include_story_thread_contract():
     assert "Быстро проверить" not in instructions
 
 
-def test_scene_builder_keeps_hard_format_but_natural_scene_length():
+def test_scene_builder_keeps_hard_format_and_original_scene_length_guidance():
     text = (ROOT / "runtime" / "scene_builder.md").read_text(encoding="utf-8")
     assert text.startswith("Формат scene_builder обязателен")
-    assert "максимум 3000 символов" in text
-    assert "это не минимум" in text
+    assert "2000–3000 символов" in text
