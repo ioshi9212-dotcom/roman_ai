@@ -606,7 +606,7 @@ def turns_commit(session_id: str, body: TurnCommit):
             "SCENE_BUILDER_SCENE_LABEL_TOO_LONG": "Rewrite the scene label to at most 10 words and retry the same commit.",
             "SCENE_BUILDER_DIVIDER_INVALID": "Use exactly one scene_builder divider in the correct position and retry the same commit.",
             "SCENE_BUILDER_OPTIONS_INVALID": "Rewrite the lower block as exactly 3 actions, 3 spoken lines and 3 thoughts, with exact headings and no extra prose between sections.",
-            "SCENE_BUILDER_MAIN_LENGTH_INVALID": "Rewrite only the main scene to 2000-3000 characters, excluding header and lower block, then retry the same commit.",
+            "SCENE_BUILDER_MAIN_LENGTH_INVALID": "Rewrite only the main scene so it is non-empty and no longer than 3000 characters. Do not pad it to a minimum length; then retry the same commit.",
             "SCENE_BUILDER_FOOTER_INVALID": "Rewrite State, Relationships and turn footer in the exact scene_builder order and retry the same commit.",
             "SCENE_BUILDER_STATE_INVALID": "State must be one State: line with no more than 10 words describing only the current POV state.",
             "SCENE_BUILDER_RELATIONSHIP_FORMAT_INVALID": "Rewrite every relationship row as Name - metric number[/delta]; metric number[/delta], with no prose.",
