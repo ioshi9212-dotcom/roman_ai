@@ -10,7 +10,7 @@ from .transactional_storage import session_transaction
 
 _ORIGINAL_PREPARE = None
 _ORIGINAL_COMMIT = None
-_VERSION = 10
+_VERSION = 11
 _TERMINAL = {"dead", "deceased", "inactive", "removed", "мертв", "мёртв", "погиб", "умер", "неактив"}
 
 
@@ -63,17 +63,158 @@ def _has_open_intent(state: Dict[str, Any], character_id: str) -> bool:
     )
 
 
+def _core_cast_map(source: Dict[str, Any] | None) -> Dict[str, Dict[str, Any]]:
+    source = source if isinstance(source, dict) else {}
+    novel = source.get("novel") if isinstance(source.get("novel"), dict) else {}
+    rows = novel.get("core_cast") if isinstance(novel.get("core_cast"), list) else []
+    result: Dict[str, Dict[str, Any]] = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        cid = str(row.get("character_id") or "").strip()
+        if cid:
+            result[cid] = deepcopy(row)
+    return result
+
+
+def _current_game_day(state: Dict[str, Any]) -> int | None:
+    current = state.get("current") if isinstance(state.get("current"), dict) else {}
+    try:
+        value = int(current.get("game_day", 0) or 0)
+    except (TypeError, ValueError):
+        return None
+    return value if value > 0 else None
+
+
+def _post_turn_game_day(state: Dict[str, Any], extracted: Dict[str, Any]) -> int | None:
+    patch = extracted.get("state_patch") if isinstance(extracted.get("state_patch"), dict) else {}
+    current_patch = patch.get("current") if isinstance(patch.get("current"), dict) else {}
+    try:
+        value = int(current_patch.get("game_day", 0) or 0)
+    except (TypeError, ValueError):
+        value = 0
+    return value if value > 0 else _current_game_day(state)
+
+
+def _has_active_thread(state: Dict[str, Any], character_id: str) -> bool:
+    raw = state.get("threads")
+    rows = list(raw.values()) if isinstance(raw, dict) else raw if isinstance(raw, list) else []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        if str(row.get("status") or "active").casefold() in {"resolved", "closed", "done", "abandoned", "cancelled", "canceled"}:
+            continue
+        participants = row.get("participants") or row.get("character_ids") or []
+        if isinstance(participants, str):
+            participants = [participants]
+        if isinstance(participants, list) and character_id in {str(value) for value in participants}:
+            return True
+        for key in ("character_id", "owner_character_id", "target_character_id"):
+            if str(row.get(key) or "") == character_id:
+                return True
+    return False
+
+
+def _importance_for(
+    character_id: str,
+    *,
+    source_character_ids: set[str],
+    core_cast: Dict[str, Dict[str, Any]],
+    card: Dict[str, Any],
+) -> str:
+    if character_id in core_cast:
+        return "core"
+    if character_id in source_character_ids:
+        # Legacy novels predate core_cast. Treat their authored cast as core so old
+        # sessions gain anti-forgetting behavior without rewriting canon.
+        return "support" if core_cast else "core"
+    raw = str(card.get("cast_importance") or "").casefold().strip()
+    return raw if raw in {"core", "recurring", "support"} else "recurring"
+
+
+def _story_function_for(
+    character_id: str,
+    *,
+    core_cast: Dict[str, Dict[str, Any]],
+    card: Dict[str, Any],
+) -> str:
+    core = core_cast.get(character_id) if isinstance(core_cast.get(character_id), dict) else {}
+    text = core.get("story_function") or card.get("story_function")
+    return " ".join(str(text or "").split())[:360]
+
+
+def _last_activity_day(row: Dict[str, Any]) -> int | None:
+    values: List[int] = []
+    for key in ("last_appearance_game_day", "last_contact_game_day", "first_registered_game_day"):
+        try:
+            value = int(row.get(key, 0) or 0)
+        except (TypeError, ValueError):
+            value = 0
+        if value > 0:
+            values.append(value)
+    return max(values) if values else None
+
+
+def _registry_index(registry: Dict[str, Any]) -> List[Dict[str, Any]]:
+    rank = {"core": 0, "recurring": 1, "support": 2}
+    rows: List[Dict[str, Any]] = []
+    for cid, raw in registry.items():
+        if not isinstance(raw, dict):
+            continue
+        row = {
+            key: deepcopy(raw.get(key))
+            for key in (
+                "character_id", "name", "card_ref", "origin", "importance", "story_function",
+                "status", "first_registered_turn", "first_registered_game_day",
+                "last_appearance_turn", "last_appearance_game_day",
+                "last_contact_turn", "last_contact_game_day",
+                "appearance_count", "last_meaningful_turn", "last_meaningful_event",
+            )
+            if raw.get(key) not in (None, "", [], {})
+        }
+        row.setdefault("character_id", cid)
+        rows.append(row)
+    rows.sort(key=lambda row: (
+        rank.get(str(row.get("importance") or "support"), 9),
+        0 if row.get("origin") == "player_created" else 1,
+        str(row.get("name") or row.get("character_id") or "").casefold(),
+    ))
+    return rows
+
+
+def _validate_character_upserts(
+    current_cards: List[Dict[str, Any]],
+    extracted: Dict[str, Any],
+    source_character_ids: set[str],
+) -> None:
+    existing = {storage._card_id(card): card for card in current_cards}
+    rows = extracted.get("character_upserts", []) if isinstance(extracted.get("character_upserts"), list) else []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        cid = storage._card_id(row)
+        if not cid or cid in source_character_ids:
+            continue
+        prior = existing.get(cid) if isinstance(existing.get(cid), dict) else {}
+        story_function = row.get("story_function") or prior.get("story_function")
+        if not str(story_function or "").strip():
+            raise RuntimeError("CAST_STORY_FUNCTION_REQUIRED")
+
+
 def _ensure_registry(
     state: Dict[str, Any],
     cards: List[Dict[str, Any]],
     current_turn: int,
     *,
     source_character_ids: set[str] | None = None,
+    source: Dict[str, Any] | None = None,
 ) -> Dict[str, Any]:
     world = state.get("world") if isinstance(state.get("world"), dict) else {}
     registry = deepcopy(world.get("cast_registry") if isinstance(world.get("cast_registry"), dict) else {})
     runtime = state.get("characters") if isinstance(state.get("characters"), dict) else {}
     source_character_ids = source_character_ids if source_character_ids is not None else {storage._card_id(card) for card in cards}
+    core_cast = _core_cast_map(source)
+    current_day = _current_game_day(state)
     for card in cards:
         cid = storage._card_id(card)
         if not cid:
@@ -82,14 +223,30 @@ def _ensure_registry(
         existed = isinstance(registry.get(cid), dict)
         row = deepcopy(registry.get(cid) if existed else {})
         row.setdefault("character_id", cid)
-        row.setdefault("name", storage._card_name(card))
+        row["card_ref"] = cid
+        row["name"] = storage._card_name(card) or row.get("name") or cid
         row.setdefault("role", storage._card_role(card))
         if not existed:
             row["origin"] = "player_created" if cid in source_character_ids else "story_created"
             row["first_registered_turn"] = 0 if cid in source_character_ids else max(0, current_turn)
+            if cid in source_character_ids:
+                row["first_registered_game_day"] = 1
+            elif current_day:
+                row["first_registered_game_day"] = current_day
         else:
             row.setdefault("origin", "player_created" if cid in source_character_ids else "story_created")
             row.setdefault("first_registered_turn", 0 if cid in source_character_ids else max(0, current_turn))
+            if cid in source_character_ids:
+                row.setdefault("first_registered_game_day", 1)
+        row["importance"] = _importance_for(
+            cid,
+            source_character_ids=source_character_ids,
+            core_cast=core_cast,
+            card=card,
+        )
+        story_function = _story_function_for(cid, core_cast=core_cast, card=card)
+        if story_function:
+            row["story_function"] = story_function
         row.setdefault("appearance_count", 0)
         row["status"] = info.get("status") or card.get("status") or row.get("status") or "active"
         registry[cid] = row
