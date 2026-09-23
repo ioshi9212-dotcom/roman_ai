@@ -141,7 +141,7 @@ def test_runtime_contract_accepts_short_scene_and_rejects_oversized_scene_wrong_
         _setup(tmp)
         sid = storage.create_session(_novel())["session_id"]
 
-        short = _scene().replace(_main_scene(), "Короткая сцена.")
+        short = _scene().replace(_main_scene(), "Проверка речи. Короткая сцена.")
         validate_runtime_contract(sid, _payload(short))
 
         oversized = _scene().replace(_main_scene(), "Длинная сцена. " + ("x" * 3100))
