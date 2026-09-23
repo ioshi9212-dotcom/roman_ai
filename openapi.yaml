@@ -263,19 +263,44 @@ components:
             knowledge_reviewed:
               type: boolean
               default: false
-              description: True only after checking POV and every NPC against the strict closed-world knowledge ledger.
+              description: True only after reviewing every real speech line against the speaker's dialogue frame and earlier current-turn knowledge.
             knowledge_trace_complete:
               type: boolean
               default: false
-              description: True only after knowledge_usage covers every registered real speech unit in scene_output. Hypothetical lower-block action/speech/thought options are non-canon and excluded.
+              description: True only after knowledge_usage covers every registered real speech unit in scene_output with exact speech text and reviewed factual claims. Hypothetical lower-block options are excluded.
             turn_knowledge:
               type: array
               description: Current-turn learned facts. Each row uses character_id, event_id, fact, source_kind and exact evidence already present in user_input or scene_output before use. Card/chronology/foundation/lore are forbidden sources.
               items: {type: object, additionalProperties: true}
             knowledge_usage:
               type: array
-              description: Provenance ledger for registered real speech units only. For each unit_id provide character_id and either fact_free=true or source_fact_ids/source_event_ids. Lower-block options are hypothetical and must not be submitted here. Existing fact IDs must belong to that same character.
-              items: {type: object, additionalProperties: true}
+              description: Per-speech claim ledger. One row per registered real speech unit; chronology/history/cards/foundation are never valid dialogue fact sources.
+              items:
+                type: object
+                required: [unit_id, character_id, speech_text, claims_reviewed, claims]
+                additionalProperties: true
+                properties:
+                  unit_id: {type: string}
+                  character_id: {type: string}
+                  speech_text:
+                    type: string
+                    description: Exact text of the registered speech unit.
+                  claims_reviewed: {type: boolean}
+                  claims:
+                    type: array
+                    description: Every factual assertion or factual presupposition in this speech. Empty only when the speech contains none.
+                    items:
+                      type: object
+                      required: [claim]
+                      additionalProperties: true
+                      properties:
+                        claim: {type: string}
+                        source_fact_ids:
+                          type: array
+                          items: {type: string}
+                        source_event_ids:
+                          type: array
+                          items: {type: string}
             chronology:
               type: array
               items: {type: object, additionalProperties: true}
