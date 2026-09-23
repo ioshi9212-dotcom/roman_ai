@@ -46,7 +46,8 @@ def _knowledge_review_rule() -> Dict[str, Any]:
         "older_memory_retrieval": "prepareCharacterBundleRead(character_id)",
         "rule": (
             "После сцены перечитай каждую реальную реплику отдельно. Зафиксируй exact speech_text и все factual claims/presuppositions; "
-            "каждый claim должен иметь источник говорящего. Нет источника до реплики — перепиши только эту реплику."
+            "каждый claim должен иметь источник говорящего. Нет источника до реплики — перепиши только эту реплику. "
+            "После полной проверки поставь extracted.knowledge_reviewed=true."
         ),
     }
 
