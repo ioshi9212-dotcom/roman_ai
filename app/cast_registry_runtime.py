@@ -548,19 +548,32 @@ def _rewrite_packet(session_id: str, base_result: Dict[str, Any]) -> Dict[str, A
         cards = storage._load_cards(root, source)
         source_ids = {storage._card_id(card) for card in storage._normalise_cards(source.get("characters", []))}
         current_turn = int(storage._read_json(root / "meta.json", {}).get("turn_number", 0) or 0)
-        registry = _ensure_registry(state, cards, current_turn, source_character_ids=source_ids)
-        pressure = _rotation_pressure(state, cards, current_turn, source_character_ids=source_ids)
+        registry = _ensure_registry(
+            state, cards, current_turn, source_character_ids=source_ids, source=source
+        )
+        pressure = _rotation_pressure(
+            state, cards, current_turn, source_character_ids=source_ids, source=source
+        )
         active_rows = [row for row in registry.values() if isinstance(row, dict) and not _is_inactive(row.get("status"))]
         context["cast_registry"] = {
             "version": _VERSION,
             "persistent": True,
-            "registry_index_path": "character_registry",
+            "authoritative_live_roster": True,
+            "registry_index": _registry_index(registry),
             "active_count": len(active_rows),
             "player_created_active_count": sum(1 for row in active_rows if row.get("origin") == "player_created"),
             "story_created_active_count": sum(1 for row in active_rows if row.get("origin") == "story_created"),
+            "core_active_count": sum(1 for row in active_rows if row.get("importance") == "core"),
             "rotation_pressure": pressure,
             "mandatory_rotation_consideration": bool(pressure),
-            "instruction": "Если rotation_pressure не пуст, проверь естественный возврат NPC без запроса POV.",
+            "instruction": (
+                "registry_index = полный компактный каталог всех зарегистрированных персонажей. "
+                "character_id/card_ref ведут к полной карточке. Перед сценой проверь весь каталог, особенно core. "
+                "rotation_pressure не означает телепортацию: ищи ближайшую естественную причинную возможность вернуть персонажа. "
+                "Новый именованный NPC может быть одноразовым extra без карточки; если он стал другом, врагом, конкурентом, "
+                "постоянным коллегой, романтической/сюжетной линией или иной устойчивой фигурой, сохрани character_upsert "
+                "с короткой режиссёрской story_function."
+            ),
         }
 
         cast_index = context.get("cast_index")
