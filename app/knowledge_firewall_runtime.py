@@ -12,7 +12,7 @@ from .scene_compaction_runtime import active_memory_records
 from .transactional_storage import session_transaction
 
 
-_VERSION = 8
+_VERSION = 9
 _ORIGINAL_PREPARE = None
 _ORIGINAL_COMMIT = None
 _ORIGINAL_CREATE_SESSION = None
@@ -198,6 +198,49 @@ def _knowledge_only_bucket(bucket: Any) -> Dict[str, Any]:
     return result
 
 
+def _dialogue_frames(context: Dict[str, Any], strict_memory: Dict[str, Any]) -> Dict[str, Any]:
+    living = context.get("living_world") if isinstance(context.get("living_world"), dict) else {}
+    actor_rows = living.get("npc_actor_frames") if isinstance(living.get("npc_actor_frames"), list) else []
+    actors = {
+        str(row.get("character_id")): row
+        for row in actor_rows
+        if isinstance(row, dict) and row.get("character_id")
+    }
+
+    cards = context.get("character_cards") if isinstance(context.get("character_cards"), list) else []
+    card_names: Dict[str, str] = {}
+    for row in cards:
+        if not isinstance(row, dict):
+            continue
+        cid = str(row.get("character_id") or "")
+        card = row.get("card") if isinstance(row.get("card"), dict) else row
+        if cid:
+            card_names[cid] = str(
+                card.get("name")
+                or card.get("full_name")
+                or card.get("identity", {}).get("name") if isinstance(card.get("identity"), dict) else ""
+                or cid
+            )
+
+    result: Dict[str, Any] = {}
+    for character_id, bucket in strict_memory.items():
+        actor = actors.get(str(character_id), {})
+        result[str(character_id)] = {
+            "character_id": str(character_id),
+            "name": actor.get("name") or card_names.get(str(character_id)) or str(character_id),
+            "character_drivers": deepcopy(actor.get("character_drivers", [])),
+            "relationship": deepcopy(actor.get("relationship", {})),
+            "active_intents": deepcopy(actor.get("active_intents", [])),
+            "dialogue_knowledge": deepcopy(bucket.get("knowledge", [])) if isinstance(bucket, dict) else [],
+            "factual_source_rule": (
+                "Фактическое содержание реплик этого персонажа берётся только из dialogue_knowledge "
+                "и turn_knowledge этого же character_id, полученного раньше реплики."
+            ),
+            "director_context_is_not_dialogue_knowledge": True,
+        }
+    return result
+
+
 def _firewall_contract() -> Dict[str, Any]:
     return {
         "version": _VERSION,
@@ -206,10 +249,9 @@ def _firewall_contract() -> Dict[str, Any]:
         "authoritative_prior_knowledge_path": "character_knowledge[character_id].knowledge",
         "current_turn_knowledge_path": "extracted.turn_knowledge",
         "exclusive_rule": (
-            "Факт считается известным персонажу ТОЛЬКО если он есть в character_knowledge[ID].knowledge "
-            "или сначала оформлен как turn_knowledge с реальным источником, существующим раньше использования. "
-            "Анкета, card, chronology, recent/continuity turns, scene_history, foundation, lore, future_guidance, "
-            "experience/dialogue memory и память другого персонажа НИКОГДА не дают фактическое знание."
+            "Фактическое содержание каждой реплики берётся только из dialogue_frames[character_id].dialogue_knowledge "
+            "или из turn_knowledge того же персонажа, полученного раньше этой реплики. "
+            "Весь остальной контекст используется только для режиссуры, поведения и непрерывности и не является источником реплики."
         ),
         "current_turn_rule": (
             "Нельзя пользоваться сырым 'он увидел/услышал' как обходом. Сначала создай turn_knowledge: "
@@ -219,10 +261,10 @@ def _firewall_contract() -> Dict[str, Any]:
         "commit_ledger": {
             "knowledge_trace_complete": True,
             "knowledge_usage": (
-                "Покрой каждую зарегистрированную реальную реплику scene_output. "
-                "Нижние варианты 'что сделать/сказать/подумать' — не произошедший канон и в knowledge_usage не входят; "
-                "они не должны раскрывать скрытые авторские факты. fact_free=true допустим только для реплики без внешнего "
-                "фактического утверждения; существующий факт требует source_fact_ids/source_event_ids."
+                "Покрой каждую зарегистрированную реальную реплику scene_output. Для каждой строки передай exact speech_text, "
+                "claims_reviewed=true и claims[]. Каждый claim обязан иметь source_fact_ids/source_event_ids говорящего. "
+                "claims=[] допустим только когда в реплике нет фактического утверждения или фактической предпосылки. "
+                "Нижний блок вариантов не является каноном и сюда не входит."
             ),
             "durable_knowledge": (
                 "knowledge_add разрешён только как долговечная копия уже валидного turn_knowledge; "
@@ -269,8 +311,23 @@ def _rewrite_packet(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
         context["character_memory"] = strict_memory
         context["character_knowledge"] = deepcopy(strict_memory)
         context["author_only_recollection_context"] = author_recollection
+        context["dialogue_frames"] = _dialogue_frames(context, strict_memory)
+        context["dialogue_policy"] = {
+            "mandatory": True,
+            "scope": "real_speech_only",
+            "rule": (
+                "Перед написанием каждой реплики используй dialogue_frame говорящего. "
+                "Характер, отношения и intents задают манеру и цель; фактическое содержание разрешено только из dialogue_knowledge "
+                "и более раннего turn_knowledge этого же персонажа. Director/chronology/history context не является материалом реплики."
+            ),
+        }
         context.pop("knowledge_firewall_v5", None)
-        context = {"knowledge_firewall_v5": _firewall_contract(), **context}
+        context = {
+            "knowledge_firewall_v5": _firewall_contract(),
+            "dialogue_policy": context.pop("dialogue_policy"),
+            "dialogue_frames": context.pop("dialogue_frames"),
+            **context,
+        }
 
         text = json.dumps(context, ensure_ascii=False, separators=(",", ":"))
         size = writer_first_runtime.WRITER_PACKET_CHARS
@@ -554,7 +611,7 @@ def _validate_usage_ledger(
     if extracted.get("knowledge_trace_complete") is not True:
         raise HTTPException(
             status_code=409,
-            detail={"code": "KNOWLEDGE_TRACE_REQUIRED", "instruction": "Перед commit поставь extracted.knowledge_trace_complete=true после полного покрытия knowledge-sensitive units."},
+            detail={"code": "KNOWLEDGE_TRACE_REQUIRED", "instruction": "Перед commit заверши проверку всех реальных реплик."},
         )
     usage = extracted.get("knowledge_usage")
     if not isinstance(usage, list):
@@ -596,35 +653,26 @@ def _validate_usage_ledger(
                 detail={"code": "KNOWLEDGE_USAGE_CHARACTER_MISMATCH", "unit_id": unit_id, "expected_character_id": character_id},
             )
 
-        source_fact_ids = [str(value) for value in row.get("source_fact_ids", []) if str(value)]
-        source_event_ids = [str(value) for value in row.get("source_event_ids", []) if str(value)]
-        fact_free = row.get("fact_free") is True
-        if fact_free and (source_fact_ids or source_event_ids):
-            raise HTTPException(status_code=409, detail={"code": "KNOWLEDGE_USAGE_INVALID", "unit_id": unit_id})
-        if fact_free:
-            sensitive_reason = _fact_free_sensitive_reason(
-                str(unit.get("text") or ""),
-                unit_id=unit_id,
-            )
-            if sensitive_reason:
-                raise HTTPException(
-                    status_code=409,
-                    detail={
-                        "code": "KNOWLEDGE_FACT_FREE_SENSITIVE",
-                        "unit_id": unit_id,
-                        "character_id": character_id,
-                        "reason": sensitive_reason,
-                        "instruction": (
-                            "Этот unit содержит фактический claim и не может быть fact_free. "
-                            "Нейтральный новый option_action не требует source только из-за слов про одежду/встречу/контакт; "
-                            "для реального утверждения укажи knowledge source либо перепиши unit."
-                        ),
-                    },
-                )
-        if not fact_free and not (source_fact_ids or source_event_ids):
+        speech_text = str(row.get("speech_text") or "")
+        if _norm(speech_text) != _norm(unit.get("text")):
             raise HTTPException(
                 status_code=409,
-                detail={"code": "KNOWLEDGE_USAGE_SOURCE_REQUIRED", "unit_id": unit_id},
+                detail={
+                    "code": "KNOWLEDGE_SPEECH_TEXT_MISMATCH",
+                    "unit_id": unit_id,
+                    "instruction": "knowledge_usage.speech_text должен соответствовать проверяемой реплике.",
+                },
+            )
+        if row.get("claims_reviewed") is not True:
+            raise HTTPException(
+                status_code=409,
+                detail={"code": "KNOWLEDGE_CLAIMS_REVIEW_REQUIRED", "unit_id": unit_id},
+            )
+        claims = row.get("claims")
+        if not isinstance(claims, list):
+            raise HTTPException(
+                status_code=409,
+                detail={"code": "KNOWLEDGE_CLAIMS_REQUIRED", "unit_id": unit_id},
             )
 
         if character_id not in persistent_cache:
@@ -633,70 +681,94 @@ def _validate_usage_ledger(
                 for item in _persistent_knowledge(root, character_id)
                 if _fact_id(item)
             }
-        unknown_facts = [value for value in source_fact_ids if value not in persistent_cache[character_id]]
-        if unknown_facts:
-            raise HTTPException(
-                status_code=409,
-                detail={"code": "KNOWLEDGE_USAGE_UNKNOWN_FACT", "unit_id": unit_id, "unknown_fact_ids": unknown_facts},
-            )
 
-        source_texts = [
-            _fact_text(persistent_cache[character_id][fact_id])
-            for fact_id in source_fact_ids
-            if fact_id in persistent_cache[character_id]
-        ]
-        for event_id in source_event_ids:
-            event = turn_events.get(event_id)
-            if event is None:
-                forbidden_prefix = str(event_id).casefold().startswith(
-                    ("dialogue_", "dialogue_t", "exp_", "experience_", "chrono_", "scene_")
+        for claim_index, claim in enumerate(claims):
+            if not isinstance(claim, dict):
+                raise HTTPException(
+                    status_code=409,
+                    detail={"code": "KNOWLEDGE_CLAIM_INVALID", "unit_id": unit_id, "claim_index": claim_index},
                 )
+            claim_text = str(claim.get("claim") or "").strip()
+            if not claim_text:
+                raise HTTPException(
+                    status_code=409,
+                    detail={"code": "KNOWLEDGE_CLAIM_INVALID", "unit_id": unit_id, "claim_index": claim_index},
+                )
+
+            source_fact_ids = [str(value) for value in claim.get("source_fact_ids", []) if str(value)]
+            source_event_ids = [str(value) for value in claim.get("source_event_ids", []) if str(value)]
+            if not (source_fact_ids or source_event_ids):
                 raise HTTPException(
                     status_code=409,
                     detail={
-                        "code": "KNOWLEDGE_USAGE_FORBIDDEN_SOURCE" if forbidden_prefix else "KNOWLEDGE_USAGE_UNKNOWN_EVENT",
+                        "code": "KNOWLEDGE_CLAIM_SOURCE_REQUIRED",
                         "unit_id": unit_id,
-                        "event_id": event_id,
-                        "instruction": (
-                            "dialogue_memory/experiences/chronology/scene IDs не являются источниками знания. "
-                            "source_event_ids могут ссылаться только на валидный turn_knowledge текущего хода."
-                            if forbidden_prefix
-                            else "Источник знания не существует в валидном turn_knowledge текущего хода."
-                        ),
+                        "claim_index": claim_index,
+                        "character_id": character_id,
                     },
                 )
-            if str(event.get("character_id") or "") != character_id:
-                raise HTTPException(
-                    status_code=409,
-                    detail={"code": "KNOWLEDGE_USAGE_FOREIGN_EVENT", "unit_id": unit_id, "event_id": event_id},
-                )
-            if int(event.get("_evidence_position", -1)) >= int(unit.get("position", 0)):
+
+            unknown_facts = [value for value in source_fact_ids if value not in persistent_cache[character_id]]
+            if unknown_facts:
                 raise HTTPException(
                     status_code=409,
                     detail={
-                        "code": "KNOWLEDGE_SOURCE_AFTER_USE",
+                        "code": "KNOWLEDGE_USAGE_UNKNOWN_FACT",
                         "unit_id": unit_id,
-                        "event_id": event_id,
-                        "instruction": "Источник появился после использования факта. Перепиши сцену; задним числом источник не засчитывается.",
+                        "claim_index": claim_index,
+                        "unknown_fact_ids": unknown_facts,
                     },
                 )
-            source_texts.append(str(event.get("fact") or ""))
 
-        if not fact_free:
-            relevant, relevance = _source_supports_unit(str(unit.get("text") or ""), source_texts)
+            source_texts = [
+                _fact_text(persistent_cache[character_id][fact_id])
+                for fact_id in source_fact_ids
+                if fact_id in persistent_cache[character_id]
+            ]
+            for event_id in source_event_ids:
+                event = turn_events.get(event_id)
+                if event is None:
+                    raise HTTPException(
+                        status_code=409,
+                        detail={
+                            "code": "KNOWLEDGE_USAGE_UNKNOWN_EVENT",
+                            "unit_id": unit_id,
+                            "claim_index": claim_index,
+                            "event_id": event_id,
+                        },
+                    )
+                if str(event.get("character_id") or "") != character_id:
+                    raise HTTPException(
+                        status_code=409,
+                        detail={
+                            "code": "KNOWLEDGE_USAGE_FOREIGN_EVENT",
+                            "unit_id": unit_id,
+                            "claim_index": claim_index,
+                            "event_id": event_id,
+                        },
+                    )
+                if int(event.get("_evidence_position", -1)) >= int(unit.get("position", 0)):
+                    raise HTTPException(
+                        status_code=409,
+                        detail={
+                            "code": "KNOWLEDGE_SOURCE_AFTER_USE",
+                            "unit_id": unit_id,
+                            "claim_index": claim_index,
+                            "event_id": event_id,
+                        },
+                    )
+                source_texts.append(str(event.get("fact") or ""))
+
+            relevant, relevance = _source_supports_unit(claim_text, source_texts)
             if not relevant:
                 raise HTTPException(
                     status_code=409,
                     detail={
                         "code": "KNOWLEDGE_SOURCE_NOT_RELEVANT",
                         "unit_id": unit_id,
+                        "claim_index": claim_index,
                         "character_id": character_id,
                         **relevance,
-                        "instruction": (
-                            "Указанный knowledge source существует, но не поддерживает фактическое содержание unit. "
-                            "Нельзя прикрывать новый факт старой записью с тем же именем/темой. "
-                            "Укажи источник именно этого факта либо перепиши сцену."
-                        ),
                     },
                 )
 
@@ -880,9 +952,19 @@ def _strict_participation_bundle(session_id: str, character_id: str) -> Dict[str
         "instruction": "CARD и recollection context — авторский материал. Фактическое знание только character_knowledge.knowledge.",
     })
     bundle["knowledge_firewall"] = firewall
+    bundle["dialogue_frame"] = {
+        "character_id": character_id,
+        "behavior_paths": ["card", "relationship_to_pov", "active_intents"],
+        "dialogue_knowledge": deepcopy(memory.get("knowledge", [])) if isinstance(memory.get("knowledge"), list) else [],
+        "factual_source_rule": (
+            "Фактическое содержание реплик разрешено только из dialogue_knowledge "
+            "и turn_knowledge этого character_id, полученного раньше реплики."
+        ),
+    }
     bundle["instruction"] = (
-        "Фактическое знание только personal_memory.knowledge; character_knowledge.path указывает на него. "
-        "Card, chronology, experiences/dialogue_memory и любой другой author context не дают новых фактов."
+        "Для поведения используй card, relationship_to_pov и active_intents. "
+        "Для фактического содержания реплик используй только dialogue_frame.dialogue_knowledge "
+        "и более ранний turn_knowledge этого персонажа."
     )
     return bundle
 
