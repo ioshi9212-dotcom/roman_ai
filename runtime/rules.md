@@ -23,7 +23,7 @@ Backend хранит канон. `scene_builder` задаёт стиль и фо
 - Источник знания должен существовать ДО реплики/вывода/действия. Новый факт хода → `turn_knowledge{event_id,character_id,fact,source_kind,evidence}`; evidence уже существует.
 - `knowledge_usage`: `fact_free=true` лишь без внешнего claim; иначе релевантный knowledge fact/event этого персонажа.
 - `source_event_ids` только `turn_knowledge`; dialogue/experience/chronology/scene IDs запрещены. `knowledge_add` требует `source_event_id`.
-- Нет источника до использования → перепиши; не создавай источник задним числом.
+- Нет источника до использования → перепиши. Не придумывай источник задним числом.
 
 ## Отношения
 - Канон: `NPC -> POV`. Меняй только из реально произошедшего и известного NPC.
