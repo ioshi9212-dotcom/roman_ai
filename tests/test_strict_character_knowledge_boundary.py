@@ -32,9 +32,8 @@ def test_gpt_instruction_says_chronology_and_questionnaires_are_not_character_kn
     assert "анкеты/cards POV/NPC" in instructions
     assert "chronology/scene_history/recent_turns" in instructions
     assert "chronology_recent" in instructions
-    assert "не знание персонажа" in instructions
-    assert "foundation_pressure" in instructions
-    assert "только как авторские сюжетные семена" in instructions
+    assert "никогда не являются фактическим источником реплики" in instructions
+    assert "dialogue_frames[ID].dialogue_knowledge" in instructions
 
 
 
@@ -56,7 +55,7 @@ def test_offscreen_bundle_frontloads_firewall_and_card_is_not_knowledge(monkeypa
 
     assert next(iter(bundle)) == "knowledge_firewall"
     assert bundle["knowledge_firewall"]["card_is_author_only"] is True
-    assert bundle["knowledge_firewall"]["version"] == 8
+    assert bundle["knowledge_firewall"]["version"] == 9
     assert bundle["knowledge_firewall"]["closed_world"] is True
     assert bundle["knowledge_firewall"]["character_id"] == "silas"
     assert "personal_memory" in bundle
@@ -64,7 +63,9 @@ def test_offscreen_bundle_frontloads_firewall_and_card_is_not_knowledge(monkeypa
     assert bundle["character_knowledge"]["path"] == "personal_memory.knowledge"
     assert bundle["character_knowledge"]["fact_authority"] is True
     assert bundle["author_only_recollection_context"]["fact_authority"] is False
-    assert "Фактическое знание только personal_memory.knowledge" in bundle["instruction"]
+    assert bundle["dialogue_frame"]["dialogue_knowledge"] == []
+    assert bundle["dialogue_frame"]["behavior_paths"] == ["card", "relationship_to_pov", "active_intents"]
+    assert "Для фактического содержания реплик" in bundle["instruction"]
 
 
 def test_knowledge_guard_allows_causal_npc_to_npc_information_transfer():
