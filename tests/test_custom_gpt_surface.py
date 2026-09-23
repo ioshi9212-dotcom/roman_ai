@@ -96,6 +96,8 @@ def test_custom_gpt_instruction_stays_small_and_matches_writer_first_transport()
     assert "draft version=4" in text
     assert "source_unit_id" in text
     assert "uncovered_source_units" in text
+    assert "getNovelReadChunk" in text
+    assert "без пауз доведи Actions до reconciliation→finalize" in text
     assert "Новые NPC: только нероссийские имена/фамилии." in text
     assert "простое упоминание ничего не загружает" in text
     assert "[полный текст...]" in text

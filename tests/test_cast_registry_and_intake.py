@@ -7,7 +7,7 @@ from app import cast_registry_runtime, draft_intake_runtime, novel_drafts, sessi
 from app.main import novel_draft_section_save
 from app.models import NovelDraftIntakeChunk, NovelDraftSection
 from fastapi import HTTPException
-from app.novel_access import get_novel_read_chunk
+from app.novel_access import NOVEL_READ_CHUNK_CHARS, get_novel_read_chunk
 from app.novel_drafts import create_draft, create_session_from_draft, finalize_draft, prepare_draft_read, save_section
 
 
@@ -255,7 +255,9 @@ def test_unfinalized_large_draft_can_be_reread_in_chunks_without_losing_raw_inta
         assert manifest["chunk_count"] > 1
         text = ""
         for index in range(manifest["chunk_count"]):
-            text += get_novel_read_chunk(manifest["read_id"], index)["content"]
+            chunk = get_novel_read_chunk(manifest["read_id"], index)["content"]
+            assert len(chunk) <= NOVEL_READ_CHUNK_CHARS <= 6000
+            text += chunk
         snapshot = json.loads(text)
         assert snapshot["finalized"] is False
         assert snapshot["sections"]["intake"]["blocks"][0]["raw_text"] == raw
