@@ -347,12 +347,12 @@ def _participation_bundle(session_id: str, character_id: str) -> Dict[str, Any]:
     return {
         "character_id": character_id,
         "profile": render_character_profile(card),
-        "knowledge_journal": render_knowledge_journal(journal[-_MAX_JOURNAL_ENTRIES:]),
+        "knowledge_journal": render_knowledge_journal(journal),
         "current_state": deepcopy(current_state),
         "relationship_to_pov": deepcopy(relationship),
         "instruction": (
-            "Этот bundle принадлежит только этому персонажу. Для его реплик используй собственный profile, "
-            "собственный knowledge_journal и текущее восприятие. Чужие данные и chronology не являются его знаниями."
+            "Этот bundle принадлежит только этому персонажу. knowledge_journal передан полностью. Для реплик используй "
+            "собственный profile, полный knowledge_journal и текущее восприятие. Чужие данные и chronology не являются его знаниями."
         ),
     }
 
