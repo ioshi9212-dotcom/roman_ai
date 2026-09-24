@@ -313,13 +313,10 @@ def apply_macro_chronology_compaction(
         raise RuntimeError("MACRO_CHRONOLOGY_COMPACTION_REQUIRED")
 
     start_turn, end_turn = macro_range(end_turn)
-    turns = storage.get_turn_range(str(storage._read_json(root / "meta.json", {}).get("session_id") or ""), start_turn, end_turn)
-    # Direct file fallback for test/session roots where session_id metadata is absent.
-    if not turns:
-        turns = [
-            row for row in storage._read_turns(root)
-            if start_turn <= _event_turn(row) <= end_turn
-        ]
+    turns = [
+        row for row in storage._read_turns(root)
+        if start_turn <= _event_turn(row) <= end_turn
+    ]
     turns_by_date = _date_turns(turns, start_turn, end_turn)
 
     source_events = [
