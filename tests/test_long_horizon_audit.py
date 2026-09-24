@@ -8,6 +8,7 @@ from app import storage
 from app.long_horizon_audit import (
     apply_macro_chronology_compaction,
     build_macro_payload,
+    replay_macro_chronology_compaction,
 )
 
 
@@ -162,3 +163,15 @@ def test_legacy_v4_audit_does_not_require_macro_compaction():
         storage._write_json(root / "source.json", {"version": 4})
         result = apply_macro_chronology_compaction(root, [], {}, end_turn=60)
         assert result == []
+
+
+def test_replay_keeps_historical_v5_audit_that_predates_macro_compaction():
+    chronology = [{"event_id": "legacy", "turn_number": 60, "event": "Старый важный факт."}]
+    result = replay_macro_chronology_compaction(
+        {"version": 5, "profile_schema": {"version": 1}},
+        [],
+        chronology,
+        {"scene_compactions": []},
+        end_turn=60,
+    )
+    assert result == chronology
