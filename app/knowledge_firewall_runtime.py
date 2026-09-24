@@ -53,6 +53,19 @@ _KNOWLEDGE_TOPIC_ROOTS = {
 }
 _TEMPORAL_MARKERS = ("завтра", "послезавтра", "сегодня", "вечером", "утром", "ночью", "во сколько")
 _CONTACT_RE = re.compile(r"(?iu)\b(?:к|ко|с|со|у|от)\s+([^\W\d_][\w-]{2,})")
+
+
+
+def _simple_profile_session(root) -> bool:
+    source = storage._read_json(root / "source.json", {})
+    try:
+        if int(source.get("version", 1) or 1) >= 5:
+            return True
+    except (TypeError, ValueError):
+        pass
+    return isinstance(source.get("profile_schema"), dict)
+
+
 _CONTACT_STOP = {
     "тебе", "тебя", "тобой", "нему", "него", "ним", "ней", "нее", "неё",
     "мне", "меня", "мной", "себе", "собой", "нами", "вами", "ними",
@@ -412,6 +425,8 @@ def _firewall_contract() -> Dict[str, Any]:
 
 def _rewrite_packet(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
     root = storage.SESSIONS_DIR / session_id
+    if _simple_profile_session(root):
+        return base
     with session_transaction(root):
         packet = storage._read_json(root / "turn_packet.json", {})
         if not isinstance(packet, dict) or not packet.get("chunks"):
@@ -1010,6 +1025,8 @@ def _validate_knowledge_add(extracted: Dict[str, Any], turn_events: Dict[str, Di
 
 def _validate_knowledge_commit(session_id: str, payload: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
     root = storage.SESSIONS_DIR / session_id
+    if _simple_profile_session(root):
+        return {}
     packet = storage._read_json(root / "turn_packet.json", {})
     if (
         not isinstance(packet, dict)
@@ -1190,6 +1207,9 @@ def _create_session(novel: Dict[str, Any], *, session_id: str | None = None, met
 
 
 def _strict_participation_bundle(session_id: str, character_id: str) -> Dict[str, Any]:
+    root = storage.SESSIONS_DIR / session_id
+    if _simple_profile_session(root):
+        return dict(_ORIGINAL_PARTICIPATION_BUNDLE(session_id, character_id))
     bundle = dict(_ORIGINAL_PARTICIPATION_BUNDLE(session_id, character_id))
     memory = deepcopy(bundle.get("personal_memory", {})) if isinstance(bundle.get("personal_memory"), dict) else {}
     bundle["personal_memory"] = memory
