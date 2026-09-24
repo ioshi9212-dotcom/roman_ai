@@ -224,10 +224,11 @@ def build_macro_payload(
         return None
 
     start_turn, end_turn = macro_range(end_turn)
+    chronology_rows = chronology if isinstance(chronology, list) else []
     events = [
         deepcopy(event)
-        for event in chronology if isinstance(chronology, list) and isinstance(event, dict)
-        and start_turn <= _event_turn(event) <= end_turn
+        for event in chronology_rows
+        if isinstance(event, dict) and start_turn <= _event_turn(event) <= end_turn
     ]
     compact_events = []
     for event in events:
