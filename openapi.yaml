@@ -509,7 +509,7 @@ paths:
     post:
       operationId: appendDraftIntakeChunk
       summary: Append one verbatim chunk of a large intake block
-      description: Prefer 4000-6000 verbatim characters per chunk, in order from 0. Exact retries are idempotent. On completion v4 returns immutable source_units; preserve every source_unit_id in foundation facts. On 422 split only unsaved text. Set is_last only on the final chunk.
+      description: Prefer 4000-6000 verbatim characters per chunk, in order from 0. Exact retries are idempotent. Draft v5 keeps the RAW verbatim and later marks each block reviewed with fact_ids=[]. Legacy v4 retains source-unit/foundation mapping. On 422 split only unsaved text. Set is_last only on the final chunk.
       parameters:
         - {in: path, name: draft_id, required: true, schema: {type: string}}
       requestBody:
@@ -554,7 +554,7 @@ paths:
     post:
       operationId: setDraftLaunchState
       summary: Set the first-scene starting state after setup content is finalized
-      description: v3 only. Stores launch state separately from setup content, so choosing a first scene does not invalidate the reconciled content revision.
+      description: Stores launch state separately from finalized setup content, including v5 drafts, so choosing the first scene does not invalidate the reconciled content revision.
       parameters:
         - {in: path, name: draft_id, required: true, schema: {type: string}}
       requestBody:
@@ -705,7 +705,7 @@ paths:
     post:
       operationId: prepareTurn
       summary: Build or reuse bounded writer-first context from complete persistent canon
-      description: New clients use stable request_id and capability flags. Strict clients set scene_archive_capable, knowledge_review_capable and strict_knowledge_capable=true. Pending turns are replaced only when explicitly requested.
+      description: New clients use stable request_id and capability flags. Profile-v5 clients use scene_archive_capable=true, knowledge_review_capable=true and strict_knowledge_capable=false; legacy strict-ledger clients may set strict_knowledge_capable=true. Pending turns are replaced only when explicitly requested.
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
       requestBody:
