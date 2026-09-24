@@ -564,4 +564,3 @@ def install() -> None:
 
     setup_draft_v3_runtime.confirm_reconciliation = _confirm_reconciliation
     setup_draft_v3_runtime._draft_status = _draft_status
-    setup_draft_v3_runtime._validate_content = _validate_simple_content
