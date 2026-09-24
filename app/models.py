@@ -155,6 +155,7 @@ class TurnExtracted(BaseModel):
     knowledge_trace_complete: bool = False
     turn_knowledge: List[Dict[str, Any]] = Field(default_factory=list)
     knowledge_usage: List[Dict[str, Any]] = Field(default_factory=list)
+    knowledge_journal_add: List[Dict[str, Any]] = Field(default_factory=list)
     chronology: List[Dict[str, Any]]
     knowledge_add: List[Dict[str, Any]]
     experiences_add: List[Dict[str, Any]]
@@ -173,6 +174,7 @@ class TurnExtracted(BaseModel):
         "character_upserts",
         "turn_knowledge",
         "knowledge_usage",
+        "knowledge_journal_add",
         mode="before",
     )
     @classmethod
