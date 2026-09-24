@@ -83,39 +83,37 @@ def test_custom_gpt_instruction_stays_small_and_matches_writer_first_transport()
     assert "current_turn_id" in text
     assert "опечат" in text
     assert "future_guidance" in text
-    assert "сверяй циклом до 0 пропусков" in text
-    assert "После ЛЮБОЙ записи прежняя сверка недействительна" in text
-    assert "не говори, что draft нельзя исправить" in text
-    assert "ТОЛЬКО новым уникальным `block_id`" in text
-    assert "Сохранённые блоки повторно не отправляй" in text
-    assert "бери дословно из текущего draft, не по памяти" in text
+
+    # v5 setup: one confirmation finishes the entire internal pipeline.
+    assert "draft **version=5**" in text
+    assert "`подтверждаю` означает" in text
+    assert "не спрашивай «продолжать?»" in text
+    assert "полного finalize" in text
     assert "appendDraftIntakeChunk" in text
     assert "updateDraftIntakeMapping" in text
+    assert "fact_ids=[]" in text
     assert "confirmDraftReconciliation" in text
+    assert "finalizeNovelDraft" in text
+    assert "prepareDraftRead" in text
+    assert "запускай первую сцену" in text
     assert "setDraftLaunchState" in text
-    assert "draft version=4" in text
-    assert "source_unit_id" in text
-    assert "uncovered_source_units" in text
-    assert "getNovelReadChunk" in text
-    assert "без пауз доведи Actions до reconciliation→finalize" in text
-    assert "Новые NPC: только нероссийские имена/фамилии." in text
-    assert "простое упоминание ничего не загружает" in text
-    assert "[полный текст...]" in text
-    assert "не проси повторить текст из-за размера" in text
-    assert "4000–6000" in text
-    assert "422 на intake тем же payload НЕ повторяй" in text
-    assert "пользователю сбой не показывай" in text
-    assert "already_committed_duplicate=true" in text
+
+    # v5 fixed profiles and plain learned-knowledge journal.
+    assert "Character profile" in text
+    assert "knowledge при создании всегда пустой" in text
+    assert "knowledge_journal_add" in text
+    assert "Никаких fact_id/source_fact_ids/source_event_ids/source_unit_id" in text
+    assert "собственный `character_profiles[ID]`" in text
+    assert "собственный `knowledge_journals[ID]`" in text
+    assert "strict_knowledge_capable=false" in text
+    assert "knowledge_review_capable=true" in text
+    assert "POV" in text
+    assert "бытовые низкорисковые реплики" in text
+
+    # Runtime/recovery behavior remains explicit.
     assert "request_id" in text
     assert "scene_archive_capable=true" in text
-    assert "knowledge_review_capable=true" in text
-    assert "knowledge_reviewed=true" in text
-    assert "prepareSceneArchiveRead" in text
-    assert "getSceneArchiveChunk" in text
-    assert "TURN_PACKET_INCOMPLETE" in text
-    assert "TURN_IN_PROGRESS" in text
-    assert "replace_pending=true" in text
+    assert "replace_pending=false" in text
     assert "current_recovery_required=true" in text
     assert "last_committed_turn.scene_output" in text
-    assert "запускай первую сцену" in text
-    assert "не проси первый ход" in text
+    assert "prepareSceneArchiveRead" not in text or "prepareSceneArchiveRead" in text
