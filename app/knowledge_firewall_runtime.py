@@ -8,7 +8,7 @@ from typing import Any, Dict, Iterable, List
 from fastapi import HTTPException
 
 from . import character_chunk_read, session_runtime, storage, writer_first_runtime
-from .scene_compaction_runtime import active_memory_records
+from .scene_compaction_runtime import active_memory_records, complete_knowledge_records
 from .transactional_storage import session_transaction
 
 
@@ -541,7 +541,7 @@ def _persistent_knowledge(root, character_id: str) -> List[Dict[str, Any]]:
     memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
     buckets = memory.get("characters", {}) if isinstance(memory.get("characters"), dict) else {}
     bucket = buckets.get(character_id, {}) if isinstance(buckets.get(character_id), dict) else {}
-    return active_memory_records(bucket.get("knowledge", []))
+    return complete_knowledge_records(bucket.get("knowledge", []))
 
 
 def _source_evidence_position(event: Dict[str, Any], user_input: str, scene_output: str) -> int:
