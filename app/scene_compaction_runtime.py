@@ -535,6 +535,40 @@ def _apply_memory_compactions(
     return result
 
 
+def complete_knowledge_records(values: Any) -> List[Dict[str, Any]]:
+    """Return lossless factual knowledge for character reasoning.
+
+    Knowledge compaction preserves raw evidence by marking source records with
+    superseded_by and adding a canonical summary. For dialogue, the raw factual
+    records are safer than the lossy summary because every original distinction
+    remains available. Canonical records are used only as a fallback when their
+    raw merged sources are genuinely absent.
+    """
+    if not isinstance(values, list):
+        return []
+
+    rows = [deepcopy(item) for item in values if isinstance(item, dict)]
+    raw = [item for item in rows if item.get("canonical_compaction") is not True]
+    raw_ids = {
+        str(item.get("fact_id"))
+        for item in raw
+        if item.get("fact_id") not in (None, "")
+    }
+
+    fallback_canonical: List[Dict[str, Any]] = []
+    for item in rows:
+        if item.get("canonical_compaction") is not True or item.get("superseded_by"):
+            continue
+        merged = item.get("merged_from")
+        merged_ids = [str(value) for value in merged if value] if isinstance(merged, list) else []
+        if not merged_ids or not any(source_id in raw_ids for source_id in merged_ids):
+            fallback_canonical.append(item)
+
+    result = [*raw, *fallback_canonical]
+    result.sort(key=lambda item: (_record_turn(item), str(item.get("fact_id") or "")))
+    return result
+
+
 def active_memory_records(values: Any) -> List[Dict[str, Any]]:
     if not isinstance(values, list):
         return []
