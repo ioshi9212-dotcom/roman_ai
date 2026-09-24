@@ -401,3 +401,54 @@ def test_retroactive_source_after_pov_line_is_rejected():
             firewall._validate_knowledge_commit(sid, payload)
 
         assert exc.value.detail["code"] == "KNOWLEDGE_SOURCE_AFTER_USE"
+
+
+def test_v11_refreshes_complete_persistent_knowledge_from_stale_v10_pending_packet():
+    with tempfile.TemporaryDirectory() as tmp:
+        _setup_temp_storage(tmp)
+        sid = storage.create_session(_novel())["session_id"]
+        root = storage.SESSIONS_DIR / sid
+
+        memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
+        bucket = storage._memory_bucket(memory, "emily")
+        for index in range(2, 52):
+            bucket["knowledge"].append({
+                "fact_id": f"old_fact_{index}",
+                "fact": f"Старое знание номер {index}.",
+                "learned_turn": index,
+            })
+        storage._write_json(root / "memory.json", memory)
+
+        _prepare_strict_turn(sid)
+        packet = storage._read_json(root / "turn_packet.json", {})
+        context = json.loads("".join(packet["chunks"]))
+        assert len(context["character_memory"]["emily"]["knowledge"]) == 51
+
+        # Emulate a pending packet produced by the previous firewall version with
+        # only one transported fact even though persistent memory is complete.
+        context["knowledge_firewall_v5"]["version"] = 10
+        context["character_memory"]["emily"]["knowledge"] = [
+            context["character_memory"]["emily"]["knowledge"][-1]
+        ]
+        context["character_memory"]["emily"].pop("knowledge_complete_in_transport", None)
+        text = json.dumps(context, ensure_ascii=False, separators=(",", ":"))
+        size = firewall.writer_first_runtime.WRITER_PACKET_CHARS
+        packet["chunks"] = [text[i:i + size] for i in range(0, len(text), size)] or ["{}"]
+        packet["chunk_count"] = len(packet["chunks"])
+        packet["read_chunks"] = [0]
+        packet["strict_knowledge_firewall_version"] = 10
+        storage._write_json(root / "turn_packet.json", packet)
+
+        result = firewall._rewrite_packet(sid, {"packet_id": packet["packet_id"]})
+        assert result["strict_knowledge_firewall_version"] == 11
+
+        refreshed = storage._read_json(root / "turn_packet.json", {})
+        repaired = json.loads("".join(refreshed["chunks"]))
+        facts = repaired["character_memory"]["emily"]["knowledge"]
+        assert len(facts) == 51
+        assert {row["fact_id"] for row in facts} >= {
+            "emily_knows_silas_name",
+            "old_fact_2",
+            "old_fact_51",
+        }
+        assert repaired["character_memory"]["emily"]["knowledge_complete_in_transport"] is True
