@@ -47,13 +47,20 @@ def _simple_intake_coverage(draft: Dict[str, Any]) -> Dict[str, Any]:
             "unreviewed_blocks": [],
             "simple_profile_mode": True,
         }
-    normalized = draft_intake_runtime._normalise_intake(intake)
+    blocks = intake.get("blocks") if isinstance(intake.get("blocks"), list) else []
+    valid_blocks = [
+        row for row in blocks
+        if isinstance(row, dict)
+        and str(row.get("block_id") or "").strip()
+        and str(row.get("stage") or "").strip()
+        and str(row.get("raw_text") or "").strip()
+    ]
     unreviewed = [
         str(row.get("block_id") or "")
-        for row in normalized.get("blocks", [])
-        if isinstance(row, dict) and row.get("reviewed_against_raw") is not True
+        for row in valid_blocks
+        if row.get("reviewed_against_raw") is not True
     ]
-    block_count = len(normalized.get("blocks", []))
+    block_count = len(valid_blocks)
     return {
         "required": True,
         "ok": block_count > 0 and not unreviewed,
