@@ -161,23 +161,24 @@ def _compact_memory(context: Dict[str, Any]) -> None:
             "experiences": len(bucket.get("experiences", [])) if isinstance(bucket.get("experiences"), list) else 0,
             "dialogue_memory": len(bucket.get("dialogue_memory", [])) if isinstance(bucket.get("dialogue_memory"), list) else 0,
         }
-        bucket["knowledge"] = _tail(bucket.get("knowledge"), MAX_WORKING_KNOWLEDGE)
+        # Knowledge is the factual source for character dialogue, so do not apply
+        # a recency cap here. Chunking handles transport size safely.
+        bucket["knowledge"] = deepcopy(active_memory_records(bucket.get("knowledge")))
         bucket["experiences"] = _tail(bucket.get("experiences"), MAX_WORKING_EXPERIENCES)
         bucket["dialogue_memory"] = _tail(bucket.get("dialogue_memory"), MAX_WORKING_DIALOGUE)
-        catalog = bucket.get("historical_knowledge_catalog")
-        if isinstance(catalog, list):
-            bucket["historical_knowledge_catalog"] = deepcopy(catalog[-MAX_HISTORICAL_KNOWLEDGE_CATALOG:])
+        bucket["historical_knowledge_catalog"] = []
         omitted = {
-            "knowledge": max(0, counts["knowledge"] - len(bucket["knowledge"])),
+            "knowledge": 0,
             "experiences": max(0, counts["experiences"] - len(bucket["experiences"])),
             "dialogue_memory": max(0, counts["dialogue_memory"] - len(bucket["dialogue_memory"])),
         }
-        if any(omitted.values()) or (isinstance(catalog, list) and len(catalog) > MAX_HISTORICAL_KNOWLEDGE_CATALOG):
+        bucket["knowledge_complete_in_transport"] = True
+        if omitted["experiences"] or omitted["dialogue_memory"]:
             bucket["older_history_available"] = {
-                "knowledge_records_not_full": omitted["knowledge"],
+                "knowledge_records_not_full": 0,
                 "experience_records_not_full": omitted["experiences"],
                 "dialogue_records_not_full": omitted["dialogue_memory"],
-                "historical_catalog_truncated": bool(isinstance(catalog, list) and len(catalog) > MAX_HISTORICAL_KNOWLEDGE_CATALOG),
+                "historical_catalog_truncated": False,
                 "retrieval": "prepareCharacterBundleRead",
             }
 
@@ -423,7 +424,8 @@ def _rewrite_context(session_id: str, context: Dict[str, Any]) -> Dict[str, Any]
         "continuity_window": CONTINUITY_WINDOW,
         "chronology_selection": {"recent": 12, "per_character": 4, "location": 4, "full_recent_anchors": 12, "audited_scene_events_replaced_by_scene_history": True},
         "scene_history": {"one_dense_sentence_per_audited_scene": True, "raw_turns_remain_persistent": True},
-        "working_memory_caps": {"knowledge": MAX_WORKING_KNOWLEDGE, "experiences": MAX_WORKING_EXPERIENCES, "dialogue_memory": MAX_WORKING_DIALOGUE, "historical_knowledge_catalog": MAX_HISTORICAL_KNOWLEDGE_CATALOG},
+        "working_memory_caps": {"knowledge": "complete", "experiences": MAX_WORKING_EXPERIENCES, "dialogue_memory": MAX_WORKING_DIALOGUE, "historical_knowledge_catalog": 0},
+        "active_character_knowledge_complete": True,
         "active_thread_cap": MAX_ACTIVE_THREADS,
         "runtime_documents_per_turn": ["runtime_rules", "scene_builder"],
         "future_guidance_is_not_history": True,
