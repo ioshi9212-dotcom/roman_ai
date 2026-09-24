@@ -89,7 +89,7 @@ def _participant_ids(
     state_before: Dict[str, Any],
     extracted: Dict[str, Any],
 ) -> set[str]:
-    result = {str(value) for value in storage._present_character_ids(state_before) if value}
+    result = {str(value) for value in storage._scene_participant_ids(state_before) if value}
 
     def add(raw: Any) -> None:
         cid = _resolve_character_id(cards, raw)
@@ -108,6 +108,13 @@ def _participant_ids(
             add(value)
     elif direct not in (None, "", {}, []):
         add(direct)
+
+    remote = current_patch.get("remote_characters")
+    if isinstance(remote, list):
+        for value in remote:
+            add(value)
+    elif remote not in (None, "", {}, []):
+        add(remote)
 
     for row in extracted.get("character_upserts", []) if isinstance(extracted.get("character_upserts"), list) else []:
         if isinstance(row, dict):
