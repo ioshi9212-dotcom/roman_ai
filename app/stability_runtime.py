@@ -12,6 +12,7 @@ from .relationship_runtime import overwrite_relationship_snapshots
 from .operation_receipts import RECEIPTS_FILE, ledger_with_receipt, make_receipt
 from .rollback_snapshot_runtime import PREVIOUS2_SNAPSHOT_FILE, PREVIOUS_SNAPSHOT_FILE, SNAPSHOT_FILE, build_pre_turn_snapshot
 from .scene_compaction_runtime import SCENE_MEMORY_FILE, apply_audit_compactions
+from .long_horizon_audit import apply_macro_chronology_compaction, macro_due
 from .transactional_storage import json_text, recover, session_transaction, write_batch
 from .turn_duplicate_guard import recent_duplicate_turn
 
@@ -357,6 +358,14 @@ def _atomic_commit_audit(session_id: str, payload: Dict[str, Any]) -> Dict[str, 
         repairs = deepcopy(repairs)
         repairs["scene_compactions"] = resolved_scene_rows
 
+        macro_compaction_due = macro_due(source, expected_end)
+        chronology = apply_macro_chronology_compaction(
+            root,
+            chronology,
+            repairs,
+            end_turn=expected_end,
+        )
+
         audits = storage._read_json(root / "audits.json", [])
         if not isinstance(audits, list):
             audits = []
@@ -393,6 +402,7 @@ def _atomic_commit_audit(session_id: str, payload: Dict[str, Any]) -> Dict[str, 
             "transactional_commit": True,
             "relationship_snapshots_atomic": True,
             "scene_compactions_saved": len(resolved_scene_rows),
+            "macro_chronology_compacted": bool(macro_compaction_due),
         }
         audit_id = str(payload.get("audit_id") or "").strip()
         if audit_id:
