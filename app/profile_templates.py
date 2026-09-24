@@ -181,7 +181,8 @@ def normalize_character_profile(raw: Any) -> Dict[str, Any]:
     generated = profile.get("generated_details")
     profile["generated_details"] = deepcopy(generated) if isinstance(generated, dict) else {}
 
-    profile["is_pov"] = bool(profile.get("is_pov"))
+    raw_pov = profile.get("is_pov")
+    profile["is_pov"] = raw_pov is True or str(raw_pov or "").casefold().strip() in {"true", "1", "yes", "да"}
     return profile
 
 
