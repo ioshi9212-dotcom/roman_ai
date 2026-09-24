@@ -468,6 +468,11 @@ def replay_macro_chronology_compaction(
     *,
     end_turn: int,
 ) -> List[Dict[str, Any]]:
+    # Historical v5 audits created before the 60-turn macro feature legitimately
+    # have no chronology_compactions. Replay must preserve them rather than making
+    # an old saved session un-restorable after deployment.
+    if "chronology_compactions" not in repairs:
+        return [deepcopy(row) for row in chronology if isinstance(row, dict)] if isinstance(chronology, list) else []
     return _apply_macro_chronology_compaction_core(
         source,
         turns,
