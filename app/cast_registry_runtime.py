@@ -307,7 +307,7 @@ def _turn_participant_ids(extracted: Dict[str, Any]) -> set[str]:
         "said_by", "heard_by", "asked_by", "asked_to",
     )
     list_keys = ("participants", "participant_ids")
-    for field in ("dialogue_memory_add", "presence_updates"):
+    for field in ("dialogue_memory_add", "presence_updates", "knowledge_journal_add"):
         rows = extracted.get(field, []) if isinstance(extracted.get(field), list) else []
         for row in rows:
             if not isinstance(row, dict):
@@ -464,6 +464,15 @@ def _post_turn_present(state: Dict[str, Any], extracted: Dict[str, Any]) -> set[
     return present
 
 
+def _post_turn_remote(state: Dict[str, Any], extracted: Dict[str, Any]) -> set[str]:
+    patch = extracted.get("state_patch") if isinstance(extracted.get("state_patch"), dict) else {}
+    current_patch = patch.get("current") if isinstance(patch.get("current"), dict) else {}
+    raw = current_patch.get("remote_characters")
+    if isinstance(raw, list):
+        return {str(value) for value in raw if value}
+    return set(storage._remote_character_ids(state))
+
+
 def _event_summary_for(character_id: str, card: Dict[str, Any], chronology: Any) -> str | None:
     names = [str(name).casefold() for name in storage._card_names(card) if str(name).strip()]
     for event in reversed(chronology if isinstance(chronology, list) else []):
@@ -515,6 +524,7 @@ def _with_registry_patch(session_id: str, payload: Dict[str, Any]) -> Dict[str, 
             source=source,
         )
         post_present = _post_turn_present(state, extracted)
+        post_remote = _post_turn_remote(state, extracted)
         turn_participants = _turn_participant_ids(extracted)
         chronology = extracted.get("chronology") if isinstance(extracted.get("chronology"), list) else []
         card_map = {storage._card_id(card): card for card in resulting_cards}
@@ -541,6 +551,10 @@ def _with_registry_patch(session_id: str, payload: Dict[str, Any]) -> Dict[str, 
                 if int(row.get("_seen_this_turn", 0) or 0) != turn_number:
                     row["appearance_count"] = int(row.get("appearance_count", 0) or 0) + 1
                     row["_seen_this_turn"] = turn_number
+            elif cid in post_remote:
+                row["last_contact_turn"] = turn_number
+                if game_day:
+                    row["last_contact_game_day"] = game_day
 
             summary = _event_summary_for(cid, card_map.get(cid, {}), chronology)
             if summary:
