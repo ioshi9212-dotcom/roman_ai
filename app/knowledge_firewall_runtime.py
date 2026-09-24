@@ -339,6 +339,8 @@ def _knowledge_only_bucket(bucket: Any) -> Dict[str, Any]:
         result["historical_knowledge_catalog"] = deepcopy(source["historical_knowledge_catalog"])
     if source.get("older_history_available") not in (None, "", [], {}):
         result["older_history_available"] = deepcopy(source["older_history_available"])
+    if source.get("knowledge_complete_in_transport") is True:
+        result["knowledge_complete_in_transport"] = True
     return result
 
 
