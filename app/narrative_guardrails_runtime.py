@@ -9,7 +9,7 @@ from .transactional_storage import session_transaction
 
 
 _ORIGINAL_PREPARE = None
-_GUARDRAIL_VERSION = 16
+_GUARDRAIL_VERSION = 17
 _TERMINAL = {"resolved", "closed", "expired", "cancelled", "canceled", "done", "abandoned"}
 _HOOK_KEYS = (
     "fear", "страх", "weak", "слаб", "past", "прошл", "history", "истор",
@@ -204,7 +204,12 @@ def _pov_activity_rule() -> Dict[str, Any]:
 def _character_driven_behavior_rule() -> Dict[str, Any]:
     return {
         "mandatory": True,
-        "rule": "NPC действует по характеру, целям, знаниям и отношениям, а не по тому, как правильно. Значимая реакция POV остаётся игроку.",
+        "rule": (
+            "NPC не ждёт инициативы, разрешения, выбора или команды POV. Если по характеру, целям, знаниям, "
+            "отношениям и ситуации он считает нужным говорить, действовать, вмешаться, решить или инициировать контакт, "
+            "он делает это сам. Не перекладывай на POV выбор, который принадлежит NPC, и не ставь мир на паузу ради её хода. "
+            "Игроку оставляй только значимую реакцию или решение самой POV."
+        ),
     }
 
 

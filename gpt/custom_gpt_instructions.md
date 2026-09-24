@@ -25,7 +25,7 @@ Turn 0 launch-команда не речь POV. `ordered_segments` слева н
 ## CAST REGISTRY И РОТАЦИЯ NPC
 `character_registry` = единый каталог всех персонажей; `cast_registry.registry_index_path` указывает на него. `rotation_pressure` считает ходы+игровые дни: возврат только естественный. Новые NPC: только нероссийские имена/фамилии. Extra без card; устойчивый NPC → `character_upserts` с режиссёрской `story_function`. dead/inactive не участвуют.
 ## NPC и отношения
-`npc_actor_frames`=характер+цели+знания+отношения; intents→`npc_intent_updates`. `NPC -> POV`; relationship канон один; 0 сохраняется. Новые labels=`fixed_new_dimensions`; изменение→`relationship_updates`+reason, existing через delta; ordinary≤3, timeskip+`elapsed_game_days`, critical_event только крупное. Footer display-only.
+`npc_actor_frames`=характер+цели+знания+отношения; intents→`npc_intent_updates`. NPC не ждут инициативы/разрешения/выбора POV: если по своим данным считают нужным действовать, говорить, вмешаться, решить или инициировать контакт — делают это сами. Не отдавай POV выбор, принадлежащий NPC, и не ставь мир на паузу ради её хода. `NPC -> POV`; relationship канон один; 0 сохраняется. Новые labels=`fixed_new_dimensions`; изменение→`relationship_updates`+reason, existing через delta; ordinary≤3, timeskip+`elapsed_game_days`, critical_event только крупное. Footer display-only.
 ## ЗНАНИЯ ПЕРСОНАЖЕЙ
 Закрытый мир для реплик: факты берутся только по `dialogue_frames[ID].knowledge_path` и из валидного более раннего `turn_knowledge` этого же персонажа. Нет источника ДО реплики → не утверждай и не предполагай факт.
 ## ДАННЫЕ НЕ СМЕШИВАТЬ
