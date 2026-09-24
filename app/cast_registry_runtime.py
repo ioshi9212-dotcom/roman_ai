@@ -307,7 +307,7 @@ def _turn_participant_ids(extracted: Dict[str, Any]) -> set[str]:
         "said_by", "heard_by", "asked_by", "asked_to",
     )
     list_keys = ("participants", "participant_ids")
-    for field in ("dialogue_memory_add", "presence_updates", "knowledge_journal_add"):
+    for field in ("dialogue_memory_add", "presence_updates"):
         rows = extracted.get(field, []) if isinstance(extracted.get(field), list) else []
         for row in rows:
             if not isinstance(row, dict):
