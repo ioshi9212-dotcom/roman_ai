@@ -158,11 +158,9 @@ def test_v5_session_packet_exposes_plain_profiles_and_journals_without_fact_ledg
 
         manifest = session_runtime.prepare_turn_packet(sid, "(посмотреть на Сайласа)")
         chunks = [manifest["content"]]
-        index = manifest.get("next_chunk_index")
-        while index is not None:
+        for index in range(1, manifest["chunk_count"]):
             row = storage.get_turn_packet_chunk(sid, manifest["packet_id"], index)
             chunks.append(row["content"])
-            index = row.get("next_chunk_index")
         context = json.loads("".join(chunks))
 
         assert context["character_profiles"]["silas"].startswith("Имя: Сайлас")
