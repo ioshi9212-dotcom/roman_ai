@@ -240,6 +240,28 @@ def _present_character_ids(state: Dict[str, Any]) -> List[str]:
     return list(dict.fromkeys(result))
 
 
+def _remote_character_ids(state: Dict[str, Any]) -> List[str]:
+    current = state.get("current", {}) if isinstance(state.get("current"), dict) else {}
+    raw = current.get("remote_characters", [])
+    if isinstance(raw, dict):
+        raw = list(raw.keys())
+    if isinstance(raw, str):
+        raw = [raw]
+    result: List[str] = []
+    for value in raw if isinstance(raw, list) else []:
+        if isinstance(value, dict):
+            value = value.get("character_id") or value.get("id") or value.get("name")
+        if value:
+            result.append(str(value))
+    pov = state.get("pov", {}) if isinstance(state.get("pov"), dict) else {}
+    pov_id = str(pov.get("character_id") or "")
+    return [cid for cid in dict.fromkeys(result) if cid and cid != pov_id]
+
+
+def _scene_participant_ids(state: Dict[str, Any]) -> List[str]:
+    return list(dict.fromkeys([*_present_character_ids(state), *_remote_character_ids(state)]))
+
+
 def _thread_character_ids(state: Dict[str, Any]) -> List[str]:
     result: List[str] = []
     threads = state.get("threads", {})
@@ -359,14 +381,18 @@ def _refresh_runtime_presence(state: Dict[str, Any], cards: List[Dict[str, Any]]
         present = [present]
     present_ids = set(str(x.get("character_id") or x.get("id") or x.get("name")) if isinstance(x, dict) else str(x) for x in present if x)
     location = current.get("location")
+    current_day = current.get("game_day")
     for card in cards:
         cid = _card_id(card)
         info = state["characters"].setdefault(cid, {})
         if cid in present_ids:
             info["present"] = True
             info["last_seen_turn"] = turn_number
+            if current_day not in (None, ""):
+                info["last_seen_game_day"] = current_day
             if location is not None:
                 info["location"] = location
+                info["last_location"] = location
         elif info.get("present") is True:
             info["present"] = False
     return state
