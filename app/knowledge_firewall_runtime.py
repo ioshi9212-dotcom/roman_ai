@@ -555,6 +555,9 @@ def _validate_turn_knowledge(
 
     result: Dict[str, Dict[str, Any]] = {}
     persistent_ids: Dict[str, set[str]] = {}
+    source = storage._read_json(root / "source.json", {})
+    cards = storage._load_cards(root, source)
+    card_by_id = {storage._card_id(card): card for card in cards if storage._card_id(card)}
     for raw in rows:
         if not isinstance(raw, dict):
             raise HTTPException(status_code=409, detail={"code": "TURN_KNOWLEDGE_INVALID"})
@@ -582,6 +585,46 @@ def _validate_turn_knowledge(
                     detail={"code": "TURN_KNOWLEDGE_EVIDENCE_MISSING", "event_id": event_id},
                 )
             event["_evidence_position"] = pos
+        elif source_kind == "canon_fill":
+            subject_id = str(event.get("subject_character_id") or "").strip()
+            detail_key = str(event.get("detail_key") or "").strip()
+            gap_kind = str(event.get("gap_kind") or "").casefold().strip()
+            if (
+                event.get("canon_gap") is not True
+                or gap_kind != "self_detail"
+                or not detail_key
+                or subject_id != character_id
+            ):
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "code": "TURN_KNOWLEDGE_CANON_FILL_INVALID",
+                        "event_id": event_id,
+                        "instruction": (
+                            "canon_fill разрешён только для реально отсутствующей личной детали: "
+                            "canon_gap=true, gap_kind=self_detail, subject_character_id=character_id, detail_key."
+                        ),
+                    },
+                )
+            card = card_by_id.get(character_id)
+            if not isinstance(card, dict):
+                raise HTTPException(
+                    status_code=409,
+                    detail={"code": "TURN_KNOWLEDGE_CANON_FILL_UNKNOWN_CHARACTER", "event_id": event_id},
+                )
+            if _card_has_detail_key(card, detail_key) or _memory_has_generated_detail(root, character_id, detail_key):
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "code": "TURN_KNOWLEDGE_CANON_FILL_NOT_A_GAP",
+                        "event_id": event_id,
+                        "detail_key": detail_key,
+                        "instruction": "Эта деталь уже задана; используй существующий канон, а не canon_fill.",
+                    },
+                )
+            event["generated_detail_key"] = _canonical_detail_key(detail_key) or detail_key
+            event["_evidence_position"] = -1
+            event["_canon_fill"] = True
         else:
             source_fact_ids = [str(value) for value in event.get("source_fact_ids", []) if str(value)]
             if not source_fact_ids:
@@ -681,6 +724,11 @@ def _authorized_corpus(
     pov_id: str,
 ) -> str:
     parts = [_fact_text(item) for item in _persistent_knowledge(root, character_id)]
+    source = storage._read_json(root / "source.json", {})
+    cards = storage._load_cards(root, source)
+    own_card = next((card for card in cards if storage._card_id(card) == character_id), None)
+    if isinstance(own_card, dict):
+        parts.extend(_iter_self_card_texts(own_card))
     parts.extend(str(event.get("fact") or "") for event in turn_events.values() if str(event.get("character_id")) == character_id)
     if character_id == pov_id:
         parts.append(user_input)
@@ -778,6 +826,9 @@ def _validate_usage_ledger(
             },
         )
 
+    source = storage._read_json(root / "source.json", {})
+    cards = storage._load_cards(root, source)
+    card_by_id = {storage._card_id(card): card for card in cards if storage._card_id(card)}
     persistent_cache: Dict[str, Dict[str, Dict[str, Any]]] = {}
     for unit_id, unit in expected.items():
         row = provided[unit_id]
@@ -832,7 +883,8 @@ def _validate_usage_ledger(
 
             source_fact_ids = [str(value) for value in claim.get("source_fact_ids", []) if str(value)]
             source_event_ids = [str(value) for value in claim.get("source_event_ids", []) if str(value)]
-            if not (source_fact_ids or source_event_ids):
+            source_self_paths = [str(value) for value in claim.get("source_self_paths", []) if str(value)]
+            if not (source_fact_ids or source_event_ids or source_self_paths):
                 raise HTTPException(
                     status_code=409,
                     detail={
@@ -860,6 +912,25 @@ def _validate_usage_ledger(
                 for fact_id in source_fact_ids
                 if fact_id in persistent_cache[character_id]
             ]
+            own_card = card_by_id.get(character_id)
+            for self_path in source_self_paths:
+                source_text = _self_card_source_text(own_card, self_path) if isinstance(own_card, dict) else None
+                if not source_text:
+                    raise HTTPException(
+                        status_code=409,
+                        detail={
+                            "code": "KNOWLEDGE_SELF_SOURCE_INVALID",
+                            "unit_id": unit_id,
+                            "claim_index": claim_index,
+                            "character_id": character_id,
+                            "source_self_path": self_path,
+                            "instruction": (
+                                "source_self_paths может ссылаться только на self-known путь собственной card говорящего; "
+                                "unknown_to_self/hidden_from_self/author_only и чужая card запрещены."
+                            ),
+                        },
+                    )
+                source_texts.append(source_text)
             for event_id in source_event_ids:
                 event = turn_events.get(event_id)
                 if event is None:
@@ -937,7 +1008,7 @@ def _validate_knowledge_add(extracted: Dict[str, Any], turn_events: Dict[str, Di
             )
 
 
-def _validate_knowledge_commit(session_id: str, payload: Dict[str, Any]) -> None:
+def _validate_knowledge_commit(session_id: str, payload: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
     root = storage.SESSIONS_DIR / session_id
     packet = storage._read_json(root / "turn_packet.json", {})
     if (
@@ -987,10 +1058,62 @@ def _validate_knowledge_commit(session_id: str, payload: Dict[str, Any]) -> None
         pov_id=pov_id,
     )
     _validate_knowledge_add(extracted, turn_events)
+    return turn_events
+
+
+def _augment_canon_fill_persistence(payload: Dict[str, Any], turn_events: Dict[str, Dict[str, Any]]) -> None:
+    extracted = payload.get("extracted") if isinstance(payload.get("extracted"), dict) else None
+    if extracted is None:
+        return
+    knowledge_add = extracted.setdefault("knowledge_add", [])
+    if not isinstance(knowledge_add, list):
+        knowledge_add = []
+        extracted["knowledge_add"] = knowledge_add
+    upserts = extracted.setdefault("character_upserts", [])
+    if not isinstance(upserts, list):
+        upserts = []
+        extracted["character_upserts"] = upserts
+
+    for event_id, event in turn_events.items():
+        if str(event.get("source_kind") or "").casefold() != "canon_fill":
+            continue
+        character_id = str(event.get("character_id") or "")
+        fact = str(event.get("fact") or "")
+        detail_key = str(event.get("generated_detail_key") or event.get("detail_key") or "")
+        if not character_id or not fact or not detail_key:
+            continue
+
+        if not any(isinstance(row, dict) and str(row.get("source_event_id") or "") == event_id for row in knowledge_add):
+            knowledge_add.append({
+                "fact_id": f"canon_fill_{_safe_id(event_id)}",
+                "character_id": character_id,
+                "fact": fact,
+                "source_event_id": event_id,
+                "generated_detail_key": detail_key,
+                "source_kind": "canon_fill",
+            })
+
+        target = next(
+            (
+                row for row in upserts
+                if isinstance(row, dict) and storage._card_id(row) == character_id
+            ),
+            None,
+        )
+        if target is None:
+            target = {"character_id": character_id}
+            upserts.append(target)
+        generated = target.get("generated_details")
+        if not isinstance(generated, dict):
+            generated = {}
+            target["generated_details"] = generated
+        generated[detail_key] = fact
 
 
 def _commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
-    _validate_knowledge_commit(session_id, payload)
+    turn_events = _validate_knowledge_commit(session_id, payload)
+    if turn_events:
+        _augment_canon_fill_persistence(payload, turn_events)
     return _ORIGINAL_COMMIT(session_id, payload)
 
 
