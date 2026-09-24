@@ -116,4 +116,3 @@ def test_custom_gpt_instruction_stays_small_and_matches_writer_first_transport()
     assert "replace_pending=false" in text
     assert "current_recovery_required=true" in text
     assert "last_committed_turn.scene_output" in text
-    assert "prepareSceneArchiveRead" not in text or "prepareSceneArchiveRead" in text
