@@ -59,6 +59,7 @@ def _audit_character_ids(
         if not isinstance(bucket, dict):
             continue
         records = [
+            *(bucket.get("knowledge_journal", []) if isinstance(bucket.get("knowledge_journal"), list) else []),
             *(bucket.get("knowledge", []) if isinstance(bucket.get("knowledge"), list) else []),
             *(bucket.get("experiences", []) if isinstance(bucket.get("experiences"), list) else []),
             *(bucket.get("dialogue_memory", []) if isinstance(bucket.get("dialogue_memory"), list) else []),
@@ -90,7 +91,7 @@ def _audit_memory(memory: Dict[str, Any], character_ids: List[str], start_turn: 
     for cid in character_ids:
         bucket = buckets.get(cid, {}) if isinstance(buckets.get(cid), dict) else {}
         scoped: Dict[str, Any] = {}
-        for field in ("knowledge", "experiences", "dialogue_memory"):
+        for field in ("knowledge_journal", "knowledge", "experiences", "dialogue_memory"):
             values = bucket.get(field, []) if isinstance(bucket.get(field), list) else []
             scoped[field] = [
                 deepcopy(item)
@@ -99,7 +100,7 @@ def _audit_memory(memory: Dict[str, Any], character_ids: List[str], start_turn: 
             ]
         scoped["persistent_counts"] = {
             field: len(bucket.get(field, [])) if isinstance(bucket.get(field), list) else 0
-            for field in ("knowledge", "experiences", "dialogue_memory")
+            for field in ("knowledge_journal", "knowledge", "experiences", "dialogue_memory")
         }
         result["characters"][cid] = scoped
     return result
