@@ -55,4 +55,4 @@ Backend хранит канон. `scene_builder` задаёт стиль и фо
 5. Проверь знания, presence, отношения, intents, threads, persistence.
 6. Один `commitTurn`; сцену покажи только после успеха.
 
-Каждые 15 ходов один audit этого цикла.
+Audit каждые 15 ходов.
