@@ -157,9 +157,11 @@ def test_character_driven_behavior_is_short_and_character_driven():
     assert "целям" in text
     assert "знаниям" in text
     assert "отношениям" in text
-    assert "не по тому, как правильно" in text
-    assert "Значимая реакция POV" in text
-    assert len(text) < 180
+    assert "не ждёт инициативы" in text
+    assert "не перекладывай на POV выбор" in text
+    assert "не ставь мир на паузу" in text
+    assert "значимую реакцию или решение самой POV" in text
+    assert len(text) < 500
 
 
 def test_scene_momentum_is_short_and_keeps_meaningful_boundary():
@@ -264,7 +266,7 @@ def test_prepare_turn_packet_contains_concise_narrative_guardrails():
         context = json.loads("".join(parts))
 
         signals = context["narrative_guardrails"]
-        assert signals["version"] == 16
+        assert signals["version"] == 17
         assert signals["pov_activity"]["mandatory"] is True
         assert signals["pov_activity"]["min_post_input_presence_beats"] == 2
         assert signals["pov_activity"]["ordinary_dialogue_required_when_natural"] is True
