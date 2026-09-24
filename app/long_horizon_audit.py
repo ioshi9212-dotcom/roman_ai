@@ -296,15 +296,15 @@ def build_macro_payload(
     }
 
 
-def apply_macro_chronology_compaction(
-    root,
+def _apply_macro_chronology_compaction_core(
+    source: Dict[str, Any],
+    turns: List[Dict[str, Any]],
     chronology: Any,
     repairs: Dict[str, Any],
     *,
     end_turn: int,
 ) -> List[Dict[str, Any]]:
     values = [deepcopy(row) for row in chronology if isinstance(row, dict)] if isinstance(chronology, list) else []
-    source = storage._read_json(root / "source.json", {})
     if not macro_due(source, end_turn):
         return values
 
@@ -314,7 +314,7 @@ def apply_macro_chronology_compaction(
 
     start_turn, end_turn = macro_range(end_turn)
     turns = [
-        row for row in storage._read_turns(root)
+        row for row in turns
         if start_turn <= _event_turn(row) <= end_turn
     ]
     turns_by_date = _date_turns(turns, start_turn, end_turn)
@@ -395,4 +395,39 @@ def apply_macro_chronology_compaction(
     return sorted(
         [*kept, *normalized],
         key=lambda row: (_event_turn(row), str(row.get("event_id") or "")),
+    )
+
+
+def apply_macro_chronology_compaction(
+    root,
+    chronology: Any,
+    repairs: Dict[str, Any],
+    *,
+    end_turn: int,
+) -> List[Dict[str, Any]]:
+    source = storage._read_json(root / "source.json", {})
+    turns = storage._read_turns(root)
+    return _apply_macro_chronology_compaction_core(
+        source,
+        turns,
+        chronology,
+        repairs,
+        end_turn=end_turn,
+    )
+
+
+def replay_macro_chronology_compaction(
+    source: Dict[str, Any],
+    turns: List[Dict[str, Any]],
+    chronology: Any,
+    repairs: Dict[str, Any],
+    *,
+    end_turn: int,
+) -> List[Dict[str, Any]]:
+    return _apply_macro_chronology_compaction_core(
+        source,
+        turns,
+        chronology,
+        repairs,
+        end_turn=end_turn,
     )
