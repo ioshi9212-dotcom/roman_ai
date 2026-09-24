@@ -59,7 +59,7 @@ def test_offscreen_bundle_frontloads_firewall_with_self_card_exception(monkeypat
     assert "card_is_author_only" not in bundle["knowledge_firewall"]
     assert bundle["knowledge_firewall"]["card_is_author_only_for_other_characters"] is True
     assert bundle["knowledge_firewall"]["self_card_facts_are_speaker_knowledge"] is True
-    assert bundle["knowledge_firewall"]["version"] == 10
+    assert bundle["knowledge_firewall"]["version"] == 11
     assert bundle["knowledge_firewall"]["closed_world"] is True
     assert bundle["knowledge_firewall"]["character_id"] == "silas"
     assert "personal_memory" in bundle
