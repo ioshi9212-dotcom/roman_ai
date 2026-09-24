@@ -50,7 +50,7 @@ def _present_npc_candidates(cards: List[Dict[str, Any]], state: Dict[str, Any], 
         if isinstance(item, dict) and item.get("owner_character_id")
     }
     result: List[Dict[str, Any]] = []
-    for character_id in storage._present_character_ids(state):
+    for character_id in storage._scene_participant_ids(state):
         character_id = str(character_id)
         if not character_id or character_id == pov_id:
             continue
@@ -107,7 +107,7 @@ def _scene_character_ids(context: Dict[str, Any], state: Dict[str, Any], cards: 
     pov = state.get("pov") if isinstance(state.get("pov"), dict) else {}
     if pov.get("character_id"):
         values.append(str(pov["character_id"]))
-    values.extend(str(value) for value in storage._present_character_ids(state) if value)
+    values.extend(str(value) for value in storage._scene_participant_ids(state) if value)
     # A name mention alone must not pull an offscreen dossier into the working set.
     # Offscreen participation is loaded explicitly through prepareCharacterBundleRead.
     valid = {storage._card_id(card) for card in cards}
@@ -299,7 +299,7 @@ def inject_required_turn_context(context: Dict[str, Any], cards: List[Dict[str, 
     relationship_lens = build_relationship_lens(
         state,
         cards=cards,
-        present_character_ids=storage._present_character_ids,
+        present_character_ids=storage._scene_participant_ids,
         resolve_character_id=_resolve_character_id,
     )
     relationship_lens["present_npc_candidates"] = _present_npc_candidates(cards, state, relationship_lens)
@@ -331,6 +331,7 @@ def inject_required_turn_context(context: Dict[str, Any], cards: List[Dict[str, 
         "turn_packet_is_scene_scoped": True,
         "no_persistent_data_deleted": True,
         "full_cards_only_for_active_participants": True,
+        "remote_calls_and_messages_count_as_scene_participation": True,
         "lifetime_memory_stays_persistent": True,
         "scene_state_relationship_stores_omitted": True,
         "single_runtime_document_copy": True,
