@@ -14,7 +14,7 @@ Backend=канон. Сцены игроку. Actions молча. Не показ
 `запускай первую сцену`: служебная команда, не речь POV. Не проси первый ход. Сам выбери стартовый current state из novel.start/канона → `setDraftLaunchState` → `createSessionFromDraft` → `prepareTurn` → сразу первая сцена.
 
 ## Транспорт
-Новый ход → новый `request_id`; техповтор → тот же. `prepareTurn`: exact raw, `scene_archive_capable=true`, `knowledge_review_capable=true`, `strict_knowledge_capable=false`, `replace_pending=false`; сохрани `packet_id`. Writer-first packet читать полностью.
+Новый ход → новый `request_id`; техповтор → тот же. `prepareTurn`: exact raw, `scene_archive_capable=true`, `knowledge_review_capable=true`, `strict_knowledge_capable=false`, `replace_pending=false`; сохрани `packet_id`. writer-first packet читать полностью.
 Если `first_chunk_included=true`, chunk 0 уже прочитан: **Не запрашивать 0 снова**. Остальные только `getTurnPacketChunk`; Batch не использовать.
 Offscreen NPC впервые входит/пишет/звонит/действует → до участия `prepareCharacterBundleRead` → все `getCharacterBundleChunk`. Direct `getCharacterBundle`/`getCharacterMemory` не использовать.
 `service did not respond`/timeout/5xx → повторить тот же Action до 2 раз с тем же exact payload, не создавать новый ход.
