@@ -561,7 +561,7 @@ def complete_knowledge_records(values: Any) -> List[Dict[str, Any]]:
             continue
         merged = item.get("merged_from")
         merged_ids = [str(value) for value in merged if value] if isinstance(merged, list) else []
-        if not merged_ids or not any(source_id in raw_ids for source_id in merged_ids):
+        if not merged_ids or not all(source_id in raw_ids for source_id in merged_ids):
             fallback_canonical.append(item)
 
     result = [*raw, *fallback_canonical]
