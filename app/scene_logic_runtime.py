@@ -11,7 +11,7 @@ from .transactional_storage import session_transaction
 
 _ORIGINAL_PREPARE = None
 _ORIGINAL_COMMIT = None
-_GUARD_VERSION = 5
+_GUARD_VERSION = 6
 
 
 def _knowledge_causality_rule() -> Dict[str, Any]:
@@ -23,18 +23,20 @@ def _knowledge_causality_rule() -> Dict[str, Any]:
         "character_knowledge_is_closed_world": True,
         "allowed_sources": [
             "dialogue_frames[character_id].knowledge_path",
-            "earlier turn_knowledge for the same character_id",
+            "speaker self-known facts from dialogue_frames[character_id].self_card_path via source_self_paths",
+            "earlier turn_knowledge for the same character_id, including valid canon_fill",
         ],
         "author_only_not_character_knowledge": [
-            "questionnaire and character card facts",
+            "questionnaire and another character's card facts",
+            "own card branches marked unknown_to_self/hidden_from_self/author_only",
             "chronology/recent_turns/continuity_turns/scene_history",
             "foundation/future_guidance/lore/world canon",
             "another character's memory or private information",
         ],
         "rule": (
-            "Перед каждой реальной репликой используй dialogue_frame говорящего. "
-            "Характер, отношения и intents задают поведение; фактическое содержание речи разрешено только из knowledge_path "
-            "и более раннего turn_knowledge этого же персонажа. Остальной контекст не является источником реплики."
+            "Перед репликой используй dialogue_frame говорящего: knowledge_path, собственные self-known card paths "
+            "или более ранний turn_knowledge. Если личная деталь нигде не задана, допустим canon_fill; "
+            "уже заданный канон не переписывай. Чужой/author context не источник."
         ),
     }
 
