@@ -119,6 +119,49 @@ def _scene_rows_for_range(root, start_turn: int, end_turn: int) -> List[Dict[str
     return result
 
 
+def _compact_relationship_doc(raw: Dict[str, Any]) -> Dict[str, Any]:
+    result: Dict[str, Any] = {}
+    owner = raw.get("owner_character_id")
+    if owner not in (None, ""):
+        result["owner_character_id"] = owner
+    compact_relations: List[Dict[str, Any]] = []
+    relations = raw.get("relations") if isinstance(raw.get("relations"), list) else []
+    for relation in relations[:8]:
+        if not isinstance(relation, dict):
+            continue
+        row: Dict[str, Any] = {}
+        for key in ("target_character_id", "relationship_type", "last_changed_turn"):
+            value = relation.get(key)
+            if value not in (None, "", [], {}):
+                row[key] = deepcopy(value)
+        for key, limit in (("relationship_context", 600), ("current_dynamic", 900)):
+            value = relation.get(key)
+            if isinstance(value, str) and value.strip():
+                row[key] = " ".join(value.split())[:limit]
+        dimensions = relation.get("dimensions")
+        if isinstance(dimensions, list):
+            row["dimensions"] = [
+                {
+                    key: deepcopy(item[key])
+                    for key in ("key", "label", "value")
+                    if key in item
+                }
+                for item in dimensions[:12]
+                if isinstance(item, dict)
+            ]
+        for key in ("beliefs_about_target", "unresolved_between_them", "dynamic_constraints"):
+            values = relation.get(key)
+            if isinstance(values, list):
+                row[key] = deepcopy(values[-8:])
+        reasons = relation.get("change_reasons")
+        if isinstance(reasons, list):
+            row["change_reasons"] = deepcopy(reasons[-8:])
+        compact_relations.append(row)
+    if compact_relations:
+        result["relations"] = compact_relations
+    return result
+
+
 def relationship_audit(
     state: Dict[str, Any],
     turns: List[Dict[str, Any]],
@@ -153,7 +196,7 @@ def relationship_audit(
             if isinstance(flat.get(cid), dict)
         },
         "current_documents": {
-            cid: deepcopy(docs[cid])
+            cid: _compact_relationship_doc(docs[cid])
             for cid in wanted
             if isinstance(docs.get(cid), dict)
         },
