@@ -18,25 +18,28 @@ def test_character_knowledge_contract_excludes_author_only_sources():
     assert "chronology" in author_only
     assert "recent_turns" in author_only
     assert "continuity_turns" in author_only
-    assert "character card" in author_only
+    assert "another character" in author_only
+    assert "unknown_to_self" in author_only
     assert "another character's memory" in author_only
     allowed = " ".join(rule["allowed_sources"]).casefold()
     assert "knowledge_path" in allowed
     assert "turn_knowledge" in allowed
+    assert "self_card_path" in allowed
+    assert "canon_fill" in allowed
 
 
-def test_gpt_instruction_says_chronology_and_questionnaires_are_not_character_knowledge():
+def test_gpt_instruction_keeps_other_author_context_out_but_allows_self_facts():
     instructions = (ROOT / "gpt" / "custom_gpt_instructions.md").read_text(encoding="utf-8")
 
-    assert "анкеты/cards" in instructions
-    assert "chronology/scene_history/recent_turns" in instructions
-    assert "chronology_recent" in instructions
-    assert "не фактический источник реплики" in instructions
-    assert "dialogue_frames[ID].knowledge_path" in instructions
+    assert "Чужие cards" in instructions
+    assert "chronology/history" in instructions
+    assert "self-known" in instructions
+    assert "source_self_paths" in instructions
+    assert "canon_fill" in instructions
 
 
 
-def test_offscreen_bundle_frontloads_firewall_and_card_is_not_knowledge(monkeypatch):
+def test_offscreen_bundle_frontloads_firewall_with_self_card_exception(monkeypatch):
     monkeypatch.setattr(
         character_chunk_read,
         "get_character_bundle",
@@ -53,8 +56,10 @@ def test_offscreen_bundle_frontloads_firewall_and_card_is_not_knowledge(monkeypa
     bundle = character_chunk_read._participation_bundle("session", "silas")
 
     assert next(iter(bundle)) == "knowledge_firewall"
-    assert bundle["knowledge_firewall"]["card_is_author_only"] is True
-    assert bundle["knowledge_firewall"]["version"] == 9
+    assert "card_is_author_only" not in bundle["knowledge_firewall"]
+    assert bundle["knowledge_firewall"]["card_is_author_only_for_other_characters"] is True
+    assert bundle["knowledge_firewall"]["self_card_facts_are_speaker_knowledge"] is True
+    assert bundle["knowledge_firewall"]["version"] == 10
     assert bundle["knowledge_firewall"]["closed_world"] is True
     assert bundle["knowledge_firewall"]["character_id"] == "silas"
     assert "personal_memory" in bundle
@@ -63,8 +68,9 @@ def test_offscreen_bundle_frontloads_firewall_and_card_is_not_knowledge(monkeypa
     assert bundle["character_knowledge"]["fact_authority"] is True
     assert bundle["author_only_recollection_context"]["fact_authority"] is False
     assert bundle["dialogue_frame"]["knowledge_path"] == "personal_memory.knowledge"
+    assert bundle["dialogue_frame"]["self_card_path"] == "card"
     assert bundle["dialogue_frame"]["behavior_paths"] == ["card", "relationship_to_pov", "active_intents"]
-    assert "Для фактического содержания реплик" in bundle["instruction"]
+    assert "self-known card paths" in bundle["instruction"]
 
 
 def test_knowledge_guard_routes_new_information_through_turn_knowledge():

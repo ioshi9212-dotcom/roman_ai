@@ -488,7 +488,7 @@ def _augment_packet(session_id: str, manifest: Dict[str, Any]) -> Dict[str, Any]
     author_context["chronology_recent"] = chronology_context
     author_context["chronology_context_rule"] = (
         "This is a selected long-range chronology slice, not merely the last turns: recent significant events plus anchors and events relevant to current characters/location. "
-        "Use it for objective continuity only. Personal knowledge still comes only from each character's personal_memory and current perception."
+        "Use it for objective continuity only. Personal speech facts come from personal_memory, self-known facts in that character's own card, current perception, or a valid canon_fill for an undefined self detail."
     )
     context["author_context"] = author_context
     context = inject_required_turn_context(context, snapshot["cards"], snapshot["state"])

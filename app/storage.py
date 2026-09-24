@@ -295,10 +295,9 @@ def _character_knowledge_lenses(
             "personal_memory": deepcopy(_memory_bucket(memory, cid)),
             "relationship_to_pov": _relationship_hint(state, cid),
             "knowledge_rule": (
-                "For this character's speech, decisions, questions, assumptions and recognition of past facts, "
-                "personal_memory is the only authoritative source of prior learned information. Author chronology, "
-                "recent turns, cards and lore do not become this character's knowledge. During the current scene, "
-                "the character may learn only what they personally see, hear, receive or are explicitly told while present."
+                "For speech, prior learned information comes from personal_memory plus self-known facts in this character's own card. "
+                "Own card branches marked unknown_to_self/hidden_from_self/author_only remain unavailable; other cards, chronology and lore "
+                "do not become knowledge. Current-scene facts require personal evidence; an undefined personal detail may be created as canon_fill."
             ),
         }
     return result

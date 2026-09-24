@@ -19,10 +19,10 @@ Backend хранит канон. `scene_builder` задаёт стиль и фо
 
 ## Знания
 - Проверка знаний относится к реальным репликам, а не ко всей сцене.
-- Перед репликой используй `dialogue_frame`: `actor_frame_path` → характер/отношения/intents, `knowledge_path` → единственная база фактов; плюс более ранний `turn_knowledge` этого персонажа.
-- Card/backstory/questionnaire, chronology, turns/history, scene_history, foundation, lore/world/future, experiences, dialogue_memory, relationships и чужая память могут направлять режиссуру, но не дают фактическое содержание реплике.
+- Реплика: из `dialogue_frame` говорящего — `knowledge_path`, self-known пути своей `self_card_path` или более ранний `turn_knowledge`.
+- Чужие cards/history/lore не источник. В своей card запрещены unknown_to_self/hidden_from_self/author_only. Нет личной детали в каноне → `canon_fill`; существующий факт не переписывать.
 - После сцены каждую реальную реплику перечитай отдельно: `knowledge_usage` хранит exact `speech_text`, `claims_reviewed=true`, `claims[]`; каждый claim требует source этого говорящего.
-- `source_event_ids` только `turn_knowledge`; `knowledge_add` требует `source_event_id`. Источник текущего хода должен существовать до реплики.
+- Claim: `source_fact_ids`/`source_event_ids`/`source_self_paths`. Новый факт требует источник до реплики; исключение — отсутствующая self-detail через `canon_fill`.
 
 ## Отношения
 - Канон: `NPC -> POV`. Меняй только из реально произошедшего и известного NPC.

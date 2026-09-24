@@ -12,7 +12,7 @@ from .scene_compaction_runtime import active_memory_records
 from .transactional_storage import session_transaction
 
 
-_VERSION = 9
+_VERSION = 10
 _ORIGINAL_PREPARE = None
 _ORIGINAL_COMMIT = None
 _ORIGINAL_CREATE_SESSION = None
@@ -26,7 +26,7 @@ _DIRECT_SOURCE_KINDS = {
     "told",
     "user_input",
 }
-_ALLOWED_SOURCE_KINDS = _DIRECT_SOURCE_KINDS | {"inference"}
+_ALLOWED_SOURCE_KINDS = _DIRECT_SOURCE_KINDS | {"inference", "canon_fill"}
 _FORBIDDEN_SOURCE_KINDS = {
     "card",
     "character_card",
@@ -186,6 +186,137 @@ def _fact_id(item: Any) -> str | None:
     return None
 
 
+_SELF_CONTROL_KEYS = {
+    "known_to_self", "unknown_to_self", "hidden_from_self", "not_known_to_self", "author_only",
+}
+_SELF_STRUCTURAL_KEYS = {
+    "character_id", "id", "is_pov", "role", "story_role", "story_function", "card_hint", "short_role",
+    "importance", "origin", "status", "pov_familiarity", "known_to_pov", "hooks", "story_pillars",
+    "future_guidance", "story_direction", "setup_integrity", "source_evidence", "source_unit_ids",
+    "fact_ids", "pillar_ids", "category",
+}
+_DETAIL_KEY_GROUPS = (
+    {"work", "workplace", "job", "occupation", "profession", "работа", "место_работы", "профессия"},
+    {"home", "residence", "address", "housing", "дом", "адрес", "место_жительства"},
+    {"age", "возраст"},
+    {"birthday", "birth_date", "date_of_birth", "дата_рождения", "день_рождения"},
+    {"hobby", "hobbies", "увлечение", "увлечения"},
+    {"car", "vehicle", "машина", "автомобиль"},
+)
+
+
+def _truthy(value: Any) -> bool:
+    return value is True or str(value or "").casefold().strip() in {"true", "yes", "1", "да"}
+
+
+def _self_node_blocked(value: Any) -> bool:
+    if not isinstance(value, dict):
+        return False
+    if value.get("known_to_self") is False:
+        return True
+    return any(_truthy(value.get(key)) for key in ("unknown_to_self", "hidden_from_self", "not_known_to_self", "author_only"))
+
+
+def _path_tokens(path: str) -> List[Any]:
+    tokens: List[Any] = []
+    for match in re.finditer(r"([^.\[\]]+)|\[(\d+)\]", str(path or "")):
+        if match.group(1) is not None:
+            tokens.append(match.group(1))
+        else:
+            tokens.append(int(match.group(2)))
+    return tokens
+
+
+def _self_card_value(card: Dict[str, Any], path: str) -> Any:
+    node: Any = card
+    for token in _path_tokens(path):
+        if _self_node_blocked(node):
+            return None
+        if isinstance(token, int):
+            if not isinstance(node, list) or token < 0 or token >= len(node):
+                return None
+            node = node[token]
+            continue
+        key = str(token)
+        if key.casefold() in _SELF_CONTROL_KEYS or key.casefold() in _SELF_STRUCTURAL_KEYS:
+            return None
+        if not isinstance(node, dict) or key not in node:
+            return None
+        node = node[key]
+    if _self_node_blocked(node):
+        return None
+    return node
+
+
+def _self_card_source_text(card: Dict[str, Any], path: str) -> str | None:
+    value = _self_card_value(card, path)
+    if isinstance(value, (str, int, float, bool)) and value not in ("", None):
+        return f"{path}: {value}"
+    if isinstance(value, list) and value and all(isinstance(item, (str, int, float, bool)) for item in value[:12]):
+        return f"{path}: " + "; ".join(str(item) for item in value[:12])
+    return None
+
+
+def _iter_self_card_texts(value: Any, path: str = "") -> Iterable[str]:
+    if _self_node_blocked(value):
+        return
+    if isinstance(value, dict):
+        for key, child in value.items():
+            key_norm = str(key).casefold()
+            if key_norm in _SELF_CONTROL_KEYS or key_norm in _SELF_STRUCTURAL_KEYS or str(key).startswith("_"):
+                continue
+            child_path = f"{path}.{key}" if path else str(key)
+            yield from _iter_self_card_texts(child, child_path)
+        return
+    if isinstance(value, list):
+        if value and all(isinstance(item, (str, int, float, bool)) for item in value[:12]):
+            if path:
+                yield f"{path}: " + "; ".join(str(item) for item in value[:12])
+            return
+        for index, child in enumerate(value[:24]):
+            yield from _iter_self_card_texts(child, f"{path}[{index}]")
+        return
+    if value not in (None, "") and path:
+        yield f"{path}: {value}"
+
+
+def _canonical_detail_key(value: Any) -> str:
+    key = _norm(value).replace(" ", "_").replace("-", "_")
+    for group in _DETAIL_KEY_GROUPS:
+        if key in group:
+            return sorted(group)[0]
+    return key
+
+
+def _card_has_detail_key(card: Dict[str, Any], detail_key: str) -> bool:
+    target = _canonical_detail_key(detail_key)
+    if not target:
+        return False
+
+    def walk(value: Any) -> bool:
+        if _self_node_blocked(value):
+            return False
+        if isinstance(value, dict):
+            for key, child in value.items():
+                if _canonical_detail_key(key) == target and key.casefold() not in _SELF_CONTROL_KEYS:
+                    return True
+                if walk(child):
+                    return True
+        elif isinstance(value, list):
+            return any(walk(item) for item in value[:24])
+        return False
+
+    return walk(card)
+
+
+def _memory_has_generated_detail(root, character_id: str, detail_key: str) -> bool:
+    target = _canonical_detail_key(detail_key)
+    for row in _persistent_knowledge(root, character_id):
+        if _canonical_detail_key(row.get("generated_detail_key")) == target and target:
+            return True
+    return False
+
+
 def _knowledge_only_bucket(bucket: Any) -> Dict[str, Any]:
     source = bucket if isinstance(bucket, dict) else {}
     result: Dict[str, Any] = {
@@ -208,6 +339,13 @@ def _dialogue_frames(context: Dict[str, Any], strict_memory: Dict[str, Any]) -> 
         if isinstance(row, dict) and row.get("character_id")
     }
 
+    card_rows = context.get("character_cards") if isinstance(context.get("character_cards"), list) else []
+    card_ids = {
+        str(row.get("character_id"))
+        for row in card_rows
+        if isinstance(row, dict) and row.get("character_id")
+    }
+
     result: Dict[str, Any] = {}
     for character_id in strict_memory:
         cid = str(character_id)
@@ -218,9 +356,13 @@ def _dialogue_frames(context: Dict[str, Any], strict_memory: Dict[str, Any]) -> 
                 if cid in actor_ids else None
             ),
             "knowledge_path": f"character_memory[{cid}].knowledge",
+            "self_card_path": (
+                f"character_cards[character_id={cid}].card"
+                if cid in card_ids else None
+            ),
             "factual_source_rule": (
-                "Манеру и цель бери из actor_frame_path, если он есть; факты реплики — только из knowledge_path "
-                "и turn_knowledge этого же character_id, полученного раньше реплики."
+                "Факты реплики: knowledge_path, собственные self-known факты из self_card_path, "
+                "или более ранний turn_knowledge этого character_id. Чужие cards не источник."
             ),
             "director_context_is_not_dialogue_knowledge": True,
         }
@@ -235,20 +377,27 @@ def _firewall_contract() -> Dict[str, Any]:
         "authoritative_prior_knowledge_path": "character_memory[character_id].knowledge",
         "current_turn_knowledge_path": "extracted.turn_knowledge",
         "exclusive_rule": (
-            "Фактическое содержание каждой реплики берётся только из knowledge_path в dialogue_frames[character_id] "
-            "или из turn_knowledge того же персонажа, полученного раньше этой реплики. "
-            "Весь остальной контекст используется только для режиссуры, поведения и непрерывности и не является источником реплики."
+            "Реплика может опираться на knowledge_path говорящего, его собственные self-known факты из self_card_path "
+            "(source_self_paths), либо на более ранний turn_knowledge того же character_id. Чужие cards и author context не источник."
+        ),
+        "self_knowledge_rule": (
+            "Персонаж знает факты о себе из собственной card, кроме веток, явно помеченных unknown_to_self/"
+            "hidden_from_self/not_known_to_self/known_to_self=false/author_only. source_self_paths всегда читаются только из card говорящего."
+        ),
+        "canon_fill_rule": (
+            "Если личная деталь персонажа нигде не задана каноном, её можно создать: turn_knowledge source_kind=canon_fill, "
+            "canon_gap=true, gap_kind=self_detail, subject_character_id=character_id, detail_key. Нельзя так переписать уже заданный факт. "
+            "Backend закрепит detail в knowledge и generated_details."
         ),
         "current_turn_rule": (
-            "Нельзя пользоваться сырым 'он увидел/услышал' как обходом. Сначала создай turn_knowledge: "
-            "character_id, event_id, fact, source_kind, evidence. evidence должен дословно существовать в user_input "
-            "или scene_output ДО реплики/мысли/действия, которое опирается на факт."
+            "Обычное новое знание требует evidence ДО использования. Исключение canon_fill: это создание отсутствующей личной детали, "
+            "а не получение знания из сцены."
         ),
         "commit_ledger": {
             "knowledge_trace_complete": True,
             "knowledge_usage": (
                 "Покрой каждую зарегистрированную реальную реплику scene_output. Для каждой строки передай exact speech_text, "
-                "claims_reviewed=true и claims[]. Каждый claim обязан иметь source_fact_ids/source_event_ids говорящего. "
+                "claims_reviewed=true и claims[]. Каждый claim обязан иметь source_fact_ids/source_event_ids/source_self_paths говорящего. "
                 "claims=[] допустим только когда в реплике нет фактического утверждения или фактической предпосылки. "
                 "Нижний блок вариантов не является каноном и сюда не входит."
             ),
@@ -303,8 +452,8 @@ def _rewrite_packet(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
             "scope": "real_speech_only",
             "rule": (
                 "Перед написанием каждой реплики используй dialogue_frame говорящего. "
-                "actor_frame_path задаёт характер, отношения и intents без их копирования; фактическое содержание разрешено только из knowledge_path "
-                "и более раннего turn_knowledge этого же персонажа. Director/chronology/history context не является материалом реплики."
+                "actor_frame_path задаёт поведение; факты разрешены из knowledge_path, self-known путей self_card_path "
+                "и более раннего turn_knowledge этого персонажа. Чужие cards/chronology/history не источник реплики."
             ),
         }
         context.pop("knowledge_firewall_v5", None)
@@ -406,6 +555,9 @@ def _validate_turn_knowledge(
 
     result: Dict[str, Dict[str, Any]] = {}
     persistent_ids: Dict[str, set[str]] = {}
+    source = storage._read_json(root / "source.json", {})
+    cards = storage._load_cards(root, source)
+    card_by_id = {storage._card_id(card): card for card in cards if storage._card_id(card)}
     for raw in rows:
         if not isinstance(raw, dict):
             raise HTTPException(status_code=409, detail={"code": "TURN_KNOWLEDGE_INVALID"})
@@ -433,6 +585,46 @@ def _validate_turn_knowledge(
                     detail={"code": "TURN_KNOWLEDGE_EVIDENCE_MISSING", "event_id": event_id},
                 )
             event["_evidence_position"] = pos
+        elif source_kind == "canon_fill":
+            subject_id = str(event.get("subject_character_id") or "").strip()
+            detail_key = str(event.get("detail_key") or "").strip()
+            gap_kind = str(event.get("gap_kind") or "").casefold().strip()
+            if (
+                event.get("canon_gap") is not True
+                or gap_kind != "self_detail"
+                or not detail_key
+                or subject_id != character_id
+            ):
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "code": "TURN_KNOWLEDGE_CANON_FILL_INVALID",
+                        "event_id": event_id,
+                        "instruction": (
+                            "canon_fill разрешён только для реально отсутствующей личной детали: "
+                            "canon_gap=true, gap_kind=self_detail, subject_character_id=character_id, detail_key."
+                        ),
+                    },
+                )
+            card = card_by_id.get(character_id)
+            if not isinstance(card, dict):
+                raise HTTPException(
+                    status_code=409,
+                    detail={"code": "TURN_KNOWLEDGE_CANON_FILL_UNKNOWN_CHARACTER", "event_id": event_id},
+                )
+            if _card_has_detail_key(card, detail_key) or _memory_has_generated_detail(root, character_id, detail_key):
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "code": "TURN_KNOWLEDGE_CANON_FILL_NOT_A_GAP",
+                        "event_id": event_id,
+                        "detail_key": detail_key,
+                        "instruction": "Эта деталь уже задана; используй существующий канон, а не canon_fill.",
+                    },
+                )
+            event["generated_detail_key"] = _canonical_detail_key(detail_key) or detail_key
+            event["_evidence_position"] = -1
+            event["_canon_fill"] = True
         else:
             source_fact_ids = [str(value) for value in event.get("source_fact_ids", []) if str(value)]
             if not source_fact_ids:
@@ -532,6 +724,11 @@ def _authorized_corpus(
     pov_id: str,
 ) -> str:
     parts = [_fact_text(item) for item in _persistent_knowledge(root, character_id)]
+    source = storage._read_json(root / "source.json", {})
+    cards = storage._load_cards(root, source)
+    own_card = next((card for card in cards if storage._card_id(card) == character_id), None)
+    if isinstance(own_card, dict):
+        parts.extend(_iter_self_card_texts(own_card))
     parts.extend(str(event.get("fact") or "") for event in turn_events.values() if str(event.get("character_id")) == character_id)
     if character_id == pov_id:
         parts.append(user_input)
@@ -629,6 +826,9 @@ def _validate_usage_ledger(
             },
         )
 
+    source = storage._read_json(root / "source.json", {})
+    cards = storage._load_cards(root, source)
+    card_by_id = {storage._card_id(card): card for card in cards if storage._card_id(card)}
     persistent_cache: Dict[str, Dict[str, Dict[str, Any]]] = {}
     for unit_id, unit in expected.items():
         row = provided[unit_id]
@@ -683,7 +883,8 @@ def _validate_usage_ledger(
 
             source_fact_ids = [str(value) for value in claim.get("source_fact_ids", []) if str(value)]
             source_event_ids = [str(value) for value in claim.get("source_event_ids", []) if str(value)]
-            if not (source_fact_ids or source_event_ids):
+            source_self_paths = [str(value) for value in claim.get("source_self_paths", []) if str(value)]
+            if not (source_fact_ids or source_event_ids or source_self_paths):
                 raise HTTPException(
                     status_code=409,
                     detail={
@@ -711,6 +912,25 @@ def _validate_usage_ledger(
                 for fact_id in source_fact_ids
                 if fact_id in persistent_cache[character_id]
             ]
+            own_card = card_by_id.get(character_id)
+            for self_path in source_self_paths:
+                source_text = _self_card_source_text(own_card, self_path) if isinstance(own_card, dict) else None
+                if not source_text:
+                    raise HTTPException(
+                        status_code=409,
+                        detail={
+                            "code": "KNOWLEDGE_SELF_SOURCE_INVALID",
+                            "unit_id": unit_id,
+                            "claim_index": claim_index,
+                            "character_id": character_id,
+                            "source_self_path": self_path,
+                            "instruction": (
+                                "source_self_paths может ссылаться только на self-known путь собственной card говорящего; "
+                                "unknown_to_self/hidden_from_self/author_only и чужая card запрещены."
+                            ),
+                        },
+                    )
+                source_texts.append(source_text)
             for event_id in source_event_ids:
                 event = turn_events.get(event_id)
                 if event is None:
@@ -788,7 +1008,7 @@ def _validate_knowledge_add(extracted: Dict[str, Any], turn_events: Dict[str, Di
             )
 
 
-def _validate_knowledge_commit(session_id: str, payload: Dict[str, Any]) -> None:
+def _validate_knowledge_commit(session_id: str, payload: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
     root = storage.SESSIONS_DIR / session_id
     packet = storage._read_json(root / "turn_packet.json", {})
     if (
@@ -838,10 +1058,62 @@ def _validate_knowledge_commit(session_id: str, payload: Dict[str, Any]) -> None
         pov_id=pov_id,
     )
     _validate_knowledge_add(extracted, turn_events)
+    return turn_events
+
+
+def _augment_canon_fill_persistence(payload: Dict[str, Any], turn_events: Dict[str, Dict[str, Any]]) -> None:
+    extracted = payload.get("extracted") if isinstance(payload.get("extracted"), dict) else None
+    if extracted is None:
+        return
+    knowledge_add = extracted.setdefault("knowledge_add", [])
+    if not isinstance(knowledge_add, list):
+        knowledge_add = []
+        extracted["knowledge_add"] = knowledge_add
+    upserts = extracted.setdefault("character_upserts", [])
+    if not isinstance(upserts, list):
+        upserts = []
+        extracted["character_upserts"] = upserts
+
+    for event_id, event in turn_events.items():
+        if str(event.get("source_kind") or "").casefold() != "canon_fill":
+            continue
+        character_id = str(event.get("character_id") or "")
+        fact = str(event.get("fact") or "")
+        detail_key = str(event.get("generated_detail_key") or event.get("detail_key") or "")
+        if not character_id or not fact or not detail_key:
+            continue
+
+        if not any(isinstance(row, dict) and str(row.get("source_event_id") or "") == event_id for row in knowledge_add):
+            knowledge_add.append({
+                "fact_id": f"canon_fill_{_safe_id(event_id)}",
+                "character_id": character_id,
+                "fact": fact,
+                "source_event_id": event_id,
+                "generated_detail_key": detail_key,
+                "source_kind": "canon_fill",
+            })
+
+        target = next(
+            (
+                row for row in upserts
+                if isinstance(row, dict) and storage._card_id(row) == character_id
+            ),
+            None,
+        )
+        if target is None:
+            target = {"character_id": character_id}
+            upserts.append(target)
+        generated = target.get("generated_details")
+        if not isinstance(generated, dict):
+            generated = {}
+            target["generated_details"] = generated
+        generated[detail_key] = fact
 
 
 def _commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
-    _validate_knowledge_commit(session_id, payload)
+    turn_events = _validate_knowledge_commit(session_id, payload)
+    if turn_events:
+        _augment_canon_fill_persistence(payload, turn_events)
     return _ORIGINAL_COMMIT(session_id, payload)
 
 
@@ -931,29 +1203,48 @@ def _strict_participation_bundle(session_id: str, character_id: str) -> Dict[str
         "fact_authority": False,
     }
     firewall = bundle.get("knowledge_firewall") if isinstance(bundle.get("knowledge_firewall"), dict) else {}
+    firewall.pop("card_is_author_only", None)
     firewall.update({
+        "allowed_sources": [
+            "personal_memory",
+            "self-known paths from this character's own card",
+            "real perception/contact",
+            "inference from known facts",
+            "canon_fill for a truly undefined self detail",
+        ],
+        "forbidden_sources": [
+            "other character cards/backstory",
+            "own unknown_to_self/hidden_from_self/author_only branches",
+            "chronology/lore/foundation/future",
+            "other private data",
+        ],
         "version": _VERSION,
         "closed_world": True,
         "authoritative_prior_knowledge_path": "personal_memory.knowledge",
-        "card_is_author_only": True,
+        "card_is_author_only_for_other_characters": True,
+        "self_card_facts_are_speaker_knowledge": True,
         "experiences_are_not_fact_authority": True,
         "dialogue_memory_is_not_fact_authority": True,
-        "instruction": "CARD и recollection context — авторский материал. Фактическое знание только character_knowledge.knowledge.",
+        "instruction": (
+            "CARD не даёт знания другим персонажам. Сам персонаж может использовать собственные self-known card facts; "
+            "unknown_to_self/hidden_from_self/author_only остаются запрещены."
+        ),
     })
     bundle["knowledge_firewall"] = firewall
     bundle["dialogue_frame"] = {
         "character_id": character_id,
         "behavior_paths": ["card", "relationship_to_pov", "active_intents"],
         "knowledge_path": "personal_memory.knowledge",
+        "self_card_path": "card",
         "factual_source_rule": (
-            "Фактическое содержание реплик разрешено только из knowledge_path "
-            "и turn_knowledge этого character_id, полученного раньше реплики."
+            "Факты реплики: knowledge_path, собственные self-known факты из self_card_path, "
+            "или turn_knowledge этого character_id."
         ),
     }
     bundle["instruction"] = (
         "Для поведения используй card, relationship_to_pov и active_intents. "
-        "Для фактического содержания реплик используй только dialogue_frame.knowledge_path "
-        "и более ранний turn_knowledge этого персонажа."
+        "Для фактов реплики используй dialogue_frame.knowledge_path, собственные self-known card paths "
+        "или более ранний turn_knowledge этого персонажа."
     )
     return bundle
 
