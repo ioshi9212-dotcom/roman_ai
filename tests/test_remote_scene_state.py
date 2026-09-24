@@ -103,4 +103,4 @@ def test_remote_roster_can_be_ended_without_physical_leave():
         prepared = _apply_presence_contract(payload, root=root)
         current = prepared["extracted"]["state_patch"]["current"]
         assert current["remote_characters"] == []
-        assert current["present_characters"] if "present_characters" in current else ["pov"]
+        assert "present_characters" not in current
