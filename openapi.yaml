@@ -274,7 +274,7 @@ components:
               items: {type: object, additionalProperties: true}
             knowledge_usage:
               type: array
-              description: Per-speech claim ledger. Sources are the speaker's persistent fact ids, earlier turn event ids, or self-known paths from that speaker's own card. Other cards/chronology/history/foundation are invalid.
+              description: Legacy strict-mode claim ledger. Leave empty in profile draft v5 sessions.
               items:
                 type: object
                 required: [unit_id, character_id, speech_text, claims_reviewed, claims]
@@ -305,6 +305,12 @@ components:
                           type: array
                           description: Paths in the speaking character's own card that are self-known. Paths under unknown_to_self, hidden_from_self, not_known_to_self, known_to_self=false or author_only are invalid.
                           items: {type: string}
+            knowledge_journal_add:
+              type: array
+              description: Plain learned-knowledge journal entries for profile draft v5. Each item uses character_id, optional date/period, and human-readable text. No fact/source ids.
+              items:
+                type: object
+                additionalProperties: true
             chronology:
               type: array
               items: {type: object, additionalProperties: true}
@@ -487,8 +493,8 @@ paths:
   /novel-drafts/{draft_id}/intake/{block_id}/mapping:
     post:
       operationId: updateDraftIntakeMapping
-      summary: Map a stored raw intake block to existing foundation facts
-      description: Add fact_ids without resending raw_text. In v4 reviewed_against_raw=true is rejected until every substantive source_unit in this block is cited by source_unit_ids on mapped foundation facts.
+      summary: Mark a stored raw intake block reviewed or map legacy foundation facts
+      description: In draft v5 send fact_ids=[] and reviewed_against_raw=true after the verbatim RAW block has been fully represented in the fixed profiles. Legacy v4 drafts keep fact/source-unit mapping behavior.
       parameters:
         - {in: path, name: draft_id, required: true, schema: {type: string}}
         - {in: path, name: block_id, required: true, schema: {type: string}}
