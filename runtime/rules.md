@@ -19,7 +19,7 @@ Backend хранит канон. `scene_builder` задаёт стиль и фо
 
 ## Знания
 - Проверка знаний относится к реальным репликам, а не ко всей сцене.
-- Реплика: `knowledge_path`, self-known пути своей `self_card_path` или более ранний `turn_knowledge`.
+- Реплика: из `dialogue_frame` говорящего — `knowledge_path`, self-known пути своей `self_card_path` или более ранний `turn_knowledge`.
 - Чужие cards/history/lore не источник. В своей card запрещены unknown_to_self/hidden_from_self/author_only. Нет личной детали в каноне → `canon_fill`; существующий факт не переписывать.
 - После сцены каждую реальную реплику перечитай отдельно: `knowledge_usage` хранит exact `speech_text`, `claims_reviewed=true`, `claims[]`; каждый claim требует source этого говорящего.
 - Claim: `source_fact_ids`/`source_event_ids`/`source_self_paths`. Новый факт требует источник до реплики; исключение — отсутствующая self-detail через `canon_fill`.
