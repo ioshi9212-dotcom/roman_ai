@@ -36,7 +36,7 @@ def _knowledge_causality_rule() -> Dict[str, Any]:
         "rule": (
             "Перед репликой используй dialogue_frame говорящего: knowledge_path, собственные self-known card paths "
             "или более ранний turn_knowledge. Если личная деталь нигде не задана, допустим canon_fill; "
-            "уже заданный канон не переписывай. Чужой/author context не источник."
+            "уже заданный канон не переписывай. Чужой/author context не является источником реплики."
         ),
     }
 
