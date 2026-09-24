@@ -1203,7 +1203,21 @@ def _strict_participation_bundle(session_id: str, character_id: str) -> Dict[str
         "fact_authority": False,
     }
     firewall = bundle.get("knowledge_firewall") if isinstance(bundle.get("knowledge_firewall"), dict) else {}
+    firewall.pop("card_is_author_only", None)
     firewall.update({
+        "allowed_sources": [
+            "personal_memory",
+            "self-known paths from this character's own card",
+            "real perception/contact",
+            "inference from known facts",
+            "canon_fill for a truly undefined self detail",
+        ],
+        "forbidden_sources": [
+            "other character cards/backstory",
+            "own unknown_to_self/hidden_from_self/author_only branches",
+            "chronology/lore/foundation/future",
+            "other private data",
+        ],
         "version": _VERSION,
         "closed_world": True,
         "authoritative_prior_knowledge_path": "personal_memory.knowledge",
