@@ -124,6 +124,19 @@ def _rewrite_packet(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
                 author.pop(key, None)
             context["author_context"] = author
 
+        scene_presence = context.get("scene_presence")
+        if isinstance(scene_presence, dict):
+            scene_presence = deepcopy(scene_presence)
+            roster = scene_presence.get("roster")
+            if isinstance(roster, list):
+                for row in roster:
+                    if not isinstance(row, dict) or not row.get("character_id"):
+                        continue
+                    cid = str(row["character_id"])
+                    row["full_card_path"] = f"character_profiles[{cid}]"
+                    row["memory_path"] = f"knowledge_journals[{cid}]"
+            context["scene_presence"] = scene_presence
+
         context["novel_profile"] = render_novel_profile(source.get("novel", {}))
         context["character_profiles"] = profiles
         context["knowledge_journals"] = journals
