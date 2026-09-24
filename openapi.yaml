@@ -391,6 +391,28 @@ components:
           maxLength: 900
           description: Compact wording that preserves every distinct fact from all source records.
       additionalProperties: false
+    ChronologyCompaction:
+      type: object
+      required: [date, summary]
+      properties:
+        date:
+          type: string
+          description: Story date in DD.MM.YYYY format.
+        summary:
+          type: string
+          minLength: 20
+          maxLength: 1800
+          description: Important events for this date only; omit routine actions and repetition.
+        participants:
+          type: array
+          items: {type: string}
+        importance:
+          type: string
+          enum: [normal, major, anchor, critical]
+        exact_time:
+          type: string
+          description: Optional. Use only when the exact clock time is itself causally important.
+      additionalProperties: false
     AuditRepairs:
       type: object
       required: [scene_compactions]
@@ -405,6 +427,13 @@ components:
           description: Optional lossless merging of repeated or fragmented character memory. Raw evidence remains persistent.
           items: {$ref: '#/components/schemas/MemoryCompaction'}
         chronology_add:
+          type: array
+          items: {type: object, additionalProperties: true}
+        chronology_compactions:
+          type: array
+          description: Required only when macro_audit_60.required=true. Replaces raw chronology events for the 60-turn macro range with concise dated paragraphs.
+          items: {$ref: '#/components/schemas/ChronologyCompaction'}
+        knowledge_journal_add:
           type: array
           items: {type: object, additionalProperties: true}
         knowledge_add:
@@ -652,8 +681,8 @@ paths:
   /sessions/{session_id}/audit-snapshot:
     get:
       operationId: getAuditSnapshot
-      summary: Prepare the exact 15-turn evidence for reconciliation and scene compaction
-      description: Response includes audit_id and may include chunk 0. Read every remaining chunk. The payload contains full persisted scene text plus the mandatory scene-compaction contract.
+      summary: Prepare the exact 15-turn audit evidence and optional 60-turn macro compaction
+      description: Response includes audit_id and may include chunk 0. Every 15 turns it audits state, relationships, cast activity and scene compaction. On each 60th turn the payload additionally requires concise date-based chronology_compactions.
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
       responses:
