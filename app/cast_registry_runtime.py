@@ -525,7 +525,8 @@ def _with_registry_patch(session_id: str, payload: Dict[str, Any]) -> Dict[str, 
         )
         post_present = _post_turn_present(state, extracted)
         post_remote = _post_turn_remote(state, extracted)
-        turn_participants = _turn_participant_ids(extracted)
+        start_remote = set(storage._remote_character_ids(state))
+        turn_participants = _turn_participant_ids(extracted) | start_remote | post_remote
         chronology = extracted.get("chronology") if isinstance(extracted.get("chronology"), list) else []
         card_map = {storage._card_id(card): card for card in resulting_cards}
         game_day = _post_turn_game_day(state, extracted)
