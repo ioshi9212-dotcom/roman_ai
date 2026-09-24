@@ -29,7 +29,7 @@ Turn 0 launch-команда не речь POV. `ordered_segments` слева н
 ## ЗНАНИЯ ПЕРСОНАЖЕЙ
 Закрытый мир: `knowledge_path` + self-known факты собственной card + валидный `turn_knowledge`. Собственные факты персонаж может сообщать сам. Если личной детали нет в каноне, `canon_fill` создаёт и закрепляет её.
 ## ДАННЫЕ НЕ СМЕШИВАТЬ
-Чужие cards, chronology/history, foundation/`future_guidance`, lore/world, experiences/dialogue_memory и чужая память — AUTHOR ONLY. Своя card допустима только для self-known путей; `unknown_to_self`/`hidden_from_self`/`author_only` не использовать.
+Чужие cards, chronology/history, foundation/`future_guidance`, lore/world, experiences/dialogue_memory и чужая память — AUTHOR ONLY, не фактический источник реплики. Своя card допустима только для self-known путей; `unknown_to_self`/`hidden_from_self`/`author_only` не использовать.
 ## Мир и анкета
 Setup-факты не декорация: story через hooks/pillars, бытовые через поведение. Использованное пометь `foundation_fact_ids`/`anchor_facts`, pillar→`story_pillar_ids`/`pillar_ids`.
 ## Persistence
