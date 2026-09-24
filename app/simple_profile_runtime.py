@@ -16,7 +16,6 @@ from .transactional_storage import session_transaction
 
 
 _PROFILE_RUNTIME_VERSION = 1
-_MAX_JOURNAL_ENTRIES = 80
 _ORIGINAL_PREPARE = None
 _ORIGINAL_COMMIT = None
 _ORIGINAL_PARTICIPATION_BUNDLE = None
@@ -50,7 +49,7 @@ def _journal_map(memory: Dict[str, Any], ids: List[str]) -> Dict[str, str]:
         journal = bucket.get("knowledge_journal", [])
         if not isinstance(journal, list):
             journal = []
-        result[cid] = render_knowledge_journal(journal[-_MAX_JOURNAL_ENTRIES:])
+        result[cid] = render_knowledge_journal(journal)
     return result
 
 
@@ -204,6 +203,9 @@ def _rewrite_packet(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
                 "ИИ может самостоятельно писать за POV только обычные бытовые и низкорисковые реплики. "
                 "Не раскрывать за игрока личные сведения, тайны, признания, обещания, согласие/отказ, позицию в конфликте "
                 "или информацию, способную заметно изменить сюжет или отношения."
+            ),
+            "knowledge_transport": (
+                "Для каждого участника сцены knowledge_journal передаётся полностью, без лимита по числу записей."
             ),
             "learned_facts": (
                 "Новые знания о других и мире сохраняй простыми записями knowledge_journal_add: "
