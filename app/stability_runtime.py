@@ -81,6 +81,16 @@ def _clean_scene_pointer(state: Dict[str, Any], extracted: Dict[str, Any]) -> Di
             for character_id, position in positions.items()
             if str(character_id) in present
         }
+
+    remote = set(str(value) for value in storage._remote_character_ids(state) if value)
+    current["remote_characters"] = list(dict.fromkeys(storage._remote_character_ids(state)))
+    channels = current.get("remote_channels") if isinstance(current.get("remote_channels"), dict) else None
+    if channels is not None:
+        current["remote_channels"] = {
+            str(character_id): deepcopy(channel)
+            for character_id, channel in channels.items()
+            if str(character_id) in remote
+        }
     return state
 
 
