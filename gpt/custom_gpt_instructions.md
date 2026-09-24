@@ -40,7 +40,7 @@ Backend=канон. Сцены игроку. Actions молча. Не показ
 ## STATE СЦЕНЫ
 `state.current` = актуальная физическая непрерывность: date/time/location, `present_characters`, `remote_characters`, `remote_channels`, `positions`, `scene_items`, `unfinished_actions`.
 - `present_characters` только физически рядом. Звонок/переписка → `remote_characters`; после контакта убрать. Remote NPC не получает физическую position.
-- Значимый предмет → `scene_items`: кто держит/где оставлен/состояние. Не сохраняй каждую кружку.
+- Значимый предмет → `scene_items`: кто держит/где оставлен/состояние. При изменении передавай полный актуальный снимок `scene_items`, чтобы перенесённая вещь не осталась в старом месте. Не сохраняй каждую кружку.
 - POV clothing/inventory → `state_patch.pov`; актуальное NPC при необходимости → `state_patch.characters[ID]`.
 - Вход/выход/перемещение и значимые изменения вещей/инвентаря сохраняй в этом же ходе.
 - Последнее подтверждённое место/появление NPC не стирай при выходе.
