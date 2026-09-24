@@ -135,6 +135,42 @@ def _rewrite_packet(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
                 "They never become POV or NPC knowledge by themselves."
             ),
         }
+        living = context.get("living_world")
+        if isinstance(living, dict):
+            living = deepcopy(living)
+            frames = living.get("npc_actor_frames")
+            if isinstance(frames, list):
+                for frame in frames:
+                    if not isinstance(frame, dict):
+                        continue
+                    cid = str(frame.get("character_id") or "")
+                    frame["memory_path"] = f"knowledge_journals[{cid}]"
+                    frame["instruction"] = (
+                        "Поведение: character_drivers + отношения + intents. Фактическое знание: только собственный "
+                        "profile, knowledge_journal и текущее восприятие."
+                    )
+            context["living_world"] = living
+
+        guards = context.get("scene_logic_guardrails")
+        if isinstance(guards, dict):
+            guards = deepcopy(guards)
+            guards["knowledge_causality"] = {
+                "mandatory": True,
+                "applies_to": "speech, POV narration and POV inner view",
+                "rule": (
+                    "NPC: own profile + own knowledge_journal + current perception. POV: own profile + own "
+                    "knowledge_journal + current perception. Chronology, hidden lore and other profiles are director-only."
+                ),
+            }
+            guards["knowledge_review"] = {
+                "mandatory": True,
+                "rule": (
+                    "Before commit check every speaking character separately against speaker_context. "
+                    "No fact/source ledger is required in simple-profile mode."
+                ),
+            }
+            context["scene_logic_guardrails"] = guards
+
         context["simple_knowledge_rules"] = {
             "version": _PROFILE_RUNTIME_VERSION,
             "npc": (
