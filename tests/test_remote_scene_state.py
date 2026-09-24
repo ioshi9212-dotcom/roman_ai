@@ -3,6 +3,7 @@ from pathlib import Path
 
 from app import storage
 from app.scene_presence_runtime import _apply_presence_contract
+from app.stability_runtime import _merge_state_patch_exact_relationships
 from app.turn_context import _scene_character_ids
 
 
@@ -104,3 +105,27 @@ def test_remote_roster_can_be_ended_without_physical_leave():
         current = prepared["extracted"]["state_patch"]["current"]
         assert current["remote_characters"] == []
         assert "present_characters" not in current
+
+
+def test_scene_items_patch_replaces_old_snapshot_instead_of_leaving_ghost_location():
+    state = {
+        "current": {
+            "scene_items": {
+                "lighter": {"location": "стол"},
+                "phone": {"holder": "pov"},
+            }
+        }
+    }
+    updated = _merge_state_patch_exact_relationships(
+        state,
+        {
+            "current": {
+                "scene_items": {
+                    "lighter": {"holder": "pov"},
+                }
+            }
+        },
+    )
+    assert updated["current"]["scene_items"] == {
+        "lighter": {"holder": "pov"}
+    }
