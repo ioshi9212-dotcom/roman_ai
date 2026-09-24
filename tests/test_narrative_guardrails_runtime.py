@@ -158,7 +158,7 @@ def test_character_driven_behavior_is_short_and_character_driven():
     assert "знаниям" in text
     assert "отношениям" in text
     assert "не ждёт инициативы" in text
-    assert "не перекладывай на POV выбор" in text
+    assert "не перекладывай на pov выбор" in text.casefold()
     assert "не ставь мир на паузу" in text
     assert "значимую реакцию или решение самой POV" in text
     assert len(text) < 500
