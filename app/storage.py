@@ -72,6 +72,7 @@ def _normalise_memory(memory: Dict[str, Any]) -> Dict[str, Any]:
 def _memory_bucket(memory: Dict[str, Any], character_id: str) -> Dict[str, List[Dict[str, Any]]]:
     memory.setdefault("characters", {})
     bucket = memory["characters"].setdefault(character_id, {})
+    bucket.setdefault("knowledge_journal", [])
     bucket.setdefault("knowledge", [])
     bucket.setdefault("experiences", [])
     bucket.setdefault("dialogue_memory", [])
@@ -91,6 +92,26 @@ def _upsert_by_id(items: List[Dict[str, Any]], item: Dict[str, Any], id_key: str
 
 def _apply_memory_events(memory: Dict[str, Any], extracted: Dict[str, Any], turn_number: int) -> Dict[str, Any]:
     result = _normalise_memory(deepcopy(memory))
+    journal_rows = extracted.get("knowledge_journal_add", [])
+    if isinstance(journal_rows, list):
+        counters: Dict[str, int] = {}
+        for item in journal_rows:
+            if not isinstance(item, dict):
+                continue
+            character_id = item.get("character_id")
+            text = str(item.get("text") or item.get("fact") or item.get("summary") or "").strip()
+            if not character_id or not text:
+                continue
+            cid = str(character_id)
+            counters[cid] = counters.get(cid, 0) + 1
+            record = {
+                "entry_id": str(item.get("entry_id") or f"journal_t{turn_number}_{counters[cid]}"),
+                "date": item.get("date"),
+                "period": item.get("period"),
+                "text": text,
+                "turn": turn_number,
+            }
+            _upsert_by_id(_memory_bucket(result, cid)["knowledge_journal"], record, "entry_id")
     for item in extracted.get("knowledge_add", []) if isinstance(extracted.get("knowledge_add"), list) else []:
         character_id = item.get("character_id")
         if not character_id:
