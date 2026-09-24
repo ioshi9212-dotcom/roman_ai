@@ -99,6 +99,15 @@ def _merge_state_patch_exact_relationships(state: Dict[str, Any], patch: Any) ->
     if not isinstance(patch, dict):
         return state
     result = storage._deep_merge(state, patch)
+
+    # Some scene containers are snapshots, not merge-only maps. Without exact
+    # replacement a picked-up/removed item could remain forever at its old location.
+    current_patch = patch.get("current") if isinstance(patch.get("current"), dict) else {}
+    if "scene_items" in current_patch and isinstance(current_patch.get("scene_items"), dict):
+        current = result.get("current") if isinstance(result.get("current"), dict) else {}
+        current["scene_items"] = deepcopy(current_patch["scene_items"])
+        result["current"] = current
+
     relationship_patch = {
         key: deepcopy(patch[key])
         for key in ("relationships", "relationship_documents")
