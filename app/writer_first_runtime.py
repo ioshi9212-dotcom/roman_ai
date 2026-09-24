@@ -7,7 +7,7 @@ from typing import Any, Dict, List
 
 from . import session_runtime, storage
 from .npc_intent import active_intents_for
-from .scene_compaction_runtime import active_memory_records, covered_turns, load_scene_history
+from .scene_compaction_runtime import active_memory_records, complete_knowledge_records, covered_turns, load_scene_history
 from .transactional_storage import session_transaction
 
 
@@ -163,7 +163,7 @@ def _compact_memory(context: Dict[str, Any]) -> None:
         }
         # Knowledge is the factual source for character dialogue, so do not apply
         # a recency cap here. Chunking handles transport size safely.
-        bucket["knowledge"] = deepcopy(active_memory_records(bucket.get("knowledge")))
+        bucket["knowledge"] = deepcopy(complete_knowledge_records(bucket.get("knowledge")))
         bucket["experiences"] = _tail(bucket.get("experiences"), MAX_WORKING_EXPERIENCES)
         bucket["dialogue_memory"] = _tail(bucket.get("dialogue_memory"), MAX_WORKING_DIALOGUE)
         bucket["historical_knowledge_catalog"] = []
