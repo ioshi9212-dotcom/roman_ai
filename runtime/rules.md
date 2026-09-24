@@ -18,11 +18,14 @@ Backend хранит канон. `scene_builder` задаёт стиль и фо
 - Незакрытый вопрос, обещание, подозрение или цель → intent; увиливание POV intent не закрывает.
 
 ## Знания
-- Проверка знаний относится к реальным репликам, а не ко всей сцене.
-- Реплика: из `dialogue_frame` говорящего — `knowledge_path`, self-known пути своей `self_card_path` или более ранний `turn_knowledge`.
-- Чужие cards/history/lore не источник. В своей card запрещены unknown_to_self/hidden_from_self/author_only. Нет личной детали в каноне → `canon_fill`; существующий факт не переписывать.
-- После сцены каждую реальную реплику перечитай отдельно: `knowledge_usage` хранит exact `speech_text`, `claims_reviewed=true`, `claims[]`; каждый claim требует source этого говорящего.
-- Claim: `source_fact_ids`/`source_event_ids`/`source_self_paths`. Новый факт требует источник до реплики; исключение — отсутствующая self-detail через `canon_fill`.
+- В profile-сессиях каждый персонаж разбирается отдельно.
+- NPC: его собственный `character_profiles[ID]` + его собственный `knowledge_journals[ID]` + то, что он реально видит/слышит/получает в текущей сцене + его отношения.
+- Собственный профиль = самознание NPC. Не нужно дублировать возраст, работу, прошлое, привычки и способности в знания.
+- Если в профиле отсутствует обычная личная деталь, которая понадобилась сцене, можно непротиворечиво придумать её и сразу закрепить через `character_upserts` в фиксированном поле профиля.
+- Чужие профили, чужие журналы, chronology/scene_history, hidden_lore, foundation и future guidance не являются знаниями персонажа.
+- POV: собственный профиль + собственный журнал знаний + текущее восприятие. Режиссура не раскрывает POV информацию, которую она ещё не узнала.
+- ИИ самостоятельно даёт POV только бытовые, низкорисковые реплики. Личные сведения, тайны, признания, обещания, согласие/отказ, конфликтная позиция и значимая информация остаются игроку.
+- Новые знания о других и мире сохраняй простыми `knowledge_journal_add`: `character_id`, необязательные `date`/`period`, обычный `text`. Не создавай fact/source IDs.
 
 ## Отношения
 - Канон: `NPC -> POV`. Меняй только из реально произошедшего и известного NPC.
@@ -44,7 +47,8 @@ Backend хранит канон. `scene_builder` задаёт стиль и фо
 - Простое перемещение, ожидание или течение времени не сюжетный прогресс.
 
 ## Persistence
-Перед `commitTurn`: `persistence_reviewed=true`, `knowledge_reviewed=true`, `knowledge_trace_complete=true`, `turn_knowledge`, `knowledge_usage`, `chronology`, `knowledge_add`, `experiences_add`, `dialogue_memory_add`, `npc_intent_updates`, `story_thread_updates`. Пусто допустимо после проверки.
+Перед `commitTurn`: `persistence_reviewed=true`, `knowledge_reviewed=true`, `chronology`, `knowledge_journal_add`, `knowledge_add`, `experiences_add`, `dialogue_memory_add`, `npc_intent_updates`, `story_thread_updates`. Legacy-массивы можно оставлять пустыми после проверки.
+`knowledge_journal_add` хранит только то, что персонаж реально узнал о других или мире. Собственную анкету туда не копируй.
 Сохраняй важные факты, обещания, договорённости, конфликты, открытия и последствия; бытовой шум без будущего значения не сохраняй.
 
 ## Ход
