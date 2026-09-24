@@ -58,7 +58,7 @@ def test_writer_packet_contains_active_pov_guard_and_meaningful_choice_boundary(
         context = json.loads("".join(chunks))
 
         signals = context["narrative_guardrails"]
-        assert signals["version"] == 16
+        assert signals["version"] == 17
         assert signals["pov_activity"]["mandatory"] is True
         assert signals["pov_activity"]["min_post_input_presence_beats"] == 2
         assert signals["pov_activity"]["ordinary_dialogue_required_when_natural"] is True
