@@ -82,10 +82,10 @@ def test_final_writer_packet_contains_scene_logic_guardrails():
         context = json.loads("".join(chunks))
 
         assert next(iter(context)) == "knowledge_firewall_v5"
-        assert context["knowledge_firewall_v5"]["version"] == 9
+        assert context["knowledge_firewall_v5"]["version"] == 10
         assert context["knowledge_firewall_v5"]["closed_world"] is True
         guards = context["scene_logic_guardrails"]
-        assert guards["version"] == 5
+        assert guards["version"] == 6
         assert guards["knowledge_causality"]["mandatory"] is True
         assert guards["knowledge_causality"]["source_before_use"] is True
         assert guards["knowledge_causality"]["character_knowledge_is_closed_world"] is True
@@ -104,7 +104,8 @@ def test_runtime_and_custom_gpt_repeat_source_order_and_spelling_policy():
     instructions = (ROOT / "gpt" / "custom_gpt_instructions.md").read_text(encoding="utf-8")
 
     assert "каждую реальную реплику" in rules
-    assert "Источник текущего хода должен существовать до реплики" in rules
+    assert "source_self_paths" in rules
+    assert "canon_fill" in rules
     assert "опечатки" in rules
     assert "орфографию" in rules
     assert "безопасную пунктуацию" in rules
