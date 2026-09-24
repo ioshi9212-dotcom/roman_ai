@@ -14,6 +14,7 @@ Backend хранит канон. `scene_builder` задаёт формат сц�
 - Присутствующий NPC не исчезает без leave. Незакрытый вопрос/обещание/подозрение/цель → intent; увиливание POV intent не закрывает.
 
 ## Знания
+- Для каждого участника сцены его factual knowledge передаётся **полностью**, без recency/quantity cap. Legacy NPC получает полный `character_memory[ID].knowledge`; V5 NPC получает полный `knowledge_journals[ID]`.
 - V5 NPC: свой `character_profiles[ID]` + свой `knowledge_journals[ID]` + текущее восприятие + отношения; свой profile = самознание. POV: свой profile + journal + восприятие.
 - Чужие profiles/journals, chronology/history, hidden_lore, foundation и future_guidance не являются знаниями персонажа.
 - Отсутствующую обычную self-detail можно непротиворечиво создать через `character_upserts`; новое знание о других/мире → `knowledge_journal_add`.
