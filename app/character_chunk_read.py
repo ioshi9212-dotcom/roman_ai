@@ -110,41 +110,21 @@ def _intent_source_ids(bundle: Dict[str, Any]) -> set[str]:
 def _working_memory(bundle: Dict[str, Any]) -> Dict[str, Any]:
     memory = bundle.get("personal_memory") if isinstance(bundle.get("personal_memory"), dict) else {}
     all_knowledge = active_memory_records(memory.get("knowledge"))
-    recent_knowledge = _tail(all_knowledge, CHARACTER_WORKING_KNOWLEDGE)
-    selected_ids = {_id(item) for item in recent_knowledge if _id(item)}
 
-    # If an active intent was born from an old fact, keep that known premise beside
-    # the intent so autonomous follow-up cannot drift into invented knowledge.
-    source_ids = _intent_source_ids(bundle)
-    source_rows = [
-        deepcopy(item)
-        for item in all_knowledge
-        if _id(item) in source_ids and _id(item) not in selected_ids
-    ][:MAX_INTENT_SOURCE_FACTS]
-    knowledge = [*source_rows, *recent_knowledge]
-
-    selected_ids = {_id(item) for item in knowledge if _id(item)}
-    older = [item for item in all_knowledge if _id(item) not in selected_ids]
-    catalog = [
-        {
-            "fact_id": _id(item),
-            "learned_turn": _turn(item),
-            "last_learned_turn": item.get("last_learned_turn"),
-            "summary": _summary(item),
-        }
-        for item in older[-CHARACTER_HISTORICAL_CATALOG:]
-    ]
+    # Knowledge is factual authority for this character. Do not replace old facts
+    # with a tiny historical catalog: the bundle is chunked, so all active facts can
+    # be transported safely.
+    knowledge = deepcopy(all_knowledge)
 
     experiences = _tail(memory.get("experiences"), CHARACTER_WORKING_EXPERIENCES)
     dialogue = _tail(memory.get("dialogue_memory"), CHARACTER_WORKING_DIALOGUE)
     return {
-        "knowledge": _bound_memory_value(knowledge),
+        "knowledge": knowledge,
         "experiences": _bound_memory_value(experiences),
         "dialogue_memory": _bound_memory_value(dialogue),
-        "historical_knowledge_catalog": [
-            {key: value for key, value in row.items() if value not in (None, "", 0)}
-            for row in catalog
-        ],
+        "historical_knowledge_catalog": [],
+        "knowledge_complete_in_transport": True,
+        "knowledge_text_not_truncated_in_transport": True,
         "persistent_counts": {
             "knowledge": len(memory.get("knowledge", [])) if isinstance(memory.get("knowledge"), list) else 0,
             "experiences": len(memory.get("experiences", [])) if isinstance(memory.get("experiences"), list) else 0,
@@ -155,7 +135,10 @@ def _working_memory(bundle: Dict[str, Any]) -> Dict[str, Any]:
             "experiences": len(active_memory_records(memory.get("experiences"))),
             "dialogue_memory": len(active_memory_records(memory.get("dialogue_memory"))),
         },
-        "older_history_available": True,
+        "older_history_available": bool(
+            len(active_memory_records(memory.get("experiences"))) > len(experiences)
+            or len(active_memory_records(memory.get("dialogue_memory"))) > len(dialogue)
+        ),
         "oversized_record_text_bounded_in_transport": True,
         "memory_text_chars_max": CHARACTER_MEMORY_TEXT_CHARS,
     }
@@ -174,7 +157,7 @@ def _participation_bundle(session_id: str, character_id: str) -> Dict[str, Any]:
         "active_intents": deepcopy(full.get("active_intents", [])),
         "working_bundle": True,
         "persistent_lifetime_memory_complete": True,
-        "instruction": "CARD — авторский контекст. Прошлые факты персонаж знает только из personal_memory/реального источника. Полная память остаётся в Railway.",
+        "instruction": "CARD — авторский контекст. personal_memory.knowledge передаётся полностью и является фактическим источником персонажа; experiences/dialogue могут быть bounded.",
     }
 
 
