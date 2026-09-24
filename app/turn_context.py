@@ -8,7 +8,7 @@ from typing import Any, Dict, List
 from . import storage
 from .relationship_runtime import build_relationship_lens
 from .runtime_access import runtime_documents
-from .scene_compaction_runtime import active_memory_records
+from .scene_compaction_runtime import active_memory_records, complete_knowledge_records
 
 
 RECENT_MEMORY_TURNS = 30
@@ -197,7 +197,7 @@ def _working_memory_bucket(bucket: Any, current_turn: int) -> Dict[str, Any]:
     # Knowledge is factual authority for dialogue. Every active knowledge record for
     # a scene participant must therefore reach the model; a recency cap can make a
     # character "forget" an older fact even though it is still persisted.
-    knowledge = active_memory_records(source.get("knowledge", []))
+    knowledge = complete_knowledge_records(source.get("knowledge", []))
 
     # Experiences and dialogue recollection are supporting context rather than the
     # factual knowledge authority, so they can stay bounded for packet size.
