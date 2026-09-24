@@ -16,7 +16,7 @@ components:
         version:
           type: integer
           default: 1
-          description: Use 4 for new Custom GPT drafts. v4 adds lossless per-detail source-unit coverage; v3 remains readable for legacy drafts.
+          description: Custom GPT must pass version 5 explicitly for new simple-profile drafts. Omit version only for legacy behavior; v4 and earlier drafts remain readable.
     NovelDraftSection:
       type: object
       required: [section_name, section_json]
@@ -26,7 +26,7 @@ components:
           enum: [novel, characters, lore, rules, hidden_lore, world, starting_state, story_direction, foundation, knowledge, intake]
         section_json:
           type: string
-          description: JSON for the named section. v3+ novel needs core_cast. In v4 foundation facts cite every substantive intake source_unit via source_unit_ids so no appearance, habit, hook or other detail can silently disappear.
+          description: JSON for the named section. v5 uses simple novel/character profiles and keeps setup knowledge empty; v4 and earlier legacy drafts retain their existing foundation/source-unit rules.
         expected_revision:
           type: integer
           minimum: 0
