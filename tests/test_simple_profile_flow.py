@@ -168,7 +168,7 @@ def test_v5_session_packet_exposes_plain_profiles_and_journals_without_fact_ledg
         assert context["knowledge_journals"]["silas"] == ""
         assert "knowledge_firewall_v5" not in context
         assert "dialogue_frames" not in context
-        assert "source_fact_ids" not in json.dumps(context["simple_knowledge_rules"], ensure_ascii=False)
+        assert "source_fact_ids" not in context.get("speaker_context", {}).get("silas", {})
         assert "own profile + own knowledge_journal" in context["scene_logic_guardrails"]["knowledge_causality"]["rule"]
 
 
