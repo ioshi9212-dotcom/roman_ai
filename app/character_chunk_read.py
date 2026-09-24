@@ -6,7 +6,7 @@ from copy import deepcopy
 from typing import Any, Dict, List
 
 from .character_access import get_character_bundle
-from .scene_compaction_runtime import active_memory_records
+from .scene_compaction_runtime import active_memory_records, complete_knowledge_records
 
 
 CHARACTER_CHUNK_CHARS = 12000
@@ -109,7 +109,7 @@ def _intent_source_ids(bundle: Dict[str, Any]) -> set[str]:
 
 def _working_memory(bundle: Dict[str, Any]) -> Dict[str, Any]:
     memory = bundle.get("personal_memory") if isinstance(bundle.get("personal_memory"), dict) else {}
-    all_knowledge = active_memory_records(memory.get("knowledge"))
+    all_knowledge = complete_knowledge_records(memory.get("knowledge"))
 
     # Knowledge is factual authority for this character. Do not replace old facts
     # with a tiny historical catalog: the bundle is chunked, so all active facts can
