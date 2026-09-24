@@ -5,7 +5,7 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any, Dict, Iterable, List
 
-from . import storage
+PROFILE_ROOT = Path(__file__).resolve().parent.parent / "state_templates"
 
 
 PROFILE_VERSION = 1
@@ -97,13 +97,16 @@ _NOVEL_LABELS = (
 
 def _template_path(name: str) -> Path:
     filename = _TEMPLATE_FILES[name]
-    return storage.TEMPLATE_DIR / filename
+    return PROFILE_ROOT / filename
 
 
 def load_profile_template(name: str) -> Dict[str, Any]:
     if name not in _TEMPLATE_FILES:
         raise KeyError(name)
-    value = storage._read_json(_template_path(name), {})
+    path = _template_path(name)
+    if not path.exists():
+        raise RuntimeError(f"PROFILE_TEMPLATE_MISSING:{name}")
+    value = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(value, dict):
         raise RuntimeError(f"PROFILE_TEMPLATE_INVALID:{name}")
     return deepcopy(value)
