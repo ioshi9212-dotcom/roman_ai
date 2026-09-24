@@ -3,7 +3,7 @@ from pathlib import Path
 
 from app import storage
 from app.character_chunk_read import _tail
-from app.scene_compaction_runtime import active_memory_records, apply_audit_compactions
+from app.scene_compaction_runtime import active_memory_records, apply_audit_compactions, complete_knowledge_records
 from app.turn_context import _working_records
 
 
@@ -241,3 +241,44 @@ def test_legacy_knowledge_without_confidence_does_not_gain_fake_certainty():
         current = active_memory_records(memory["characters"]["npc"]["knowledge"])[0]
         assert "confidence" not in current
         assert "source_confidences" not in current
+
+
+def test_complete_knowledge_records_restores_raw_facts_hidden_by_old_compaction():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(novel())["session_id"]
+        root = storage.SESSIONS_DIR / sid
+        memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
+        bucket = storage._memory_bucket(memory, "npc")
+        bucket["knowledge"].extend([
+            {"fact_id": "a", "character_id": "npc", "learned_turn": 2, "fact": "Первый точный факт."},
+            {"fact_id": "b", "character_id": "npc", "learned_turn": 7, "fact": "Второй отдельный факт."},
+        ])
+
+        memory, _, _, _ = apply_audit_compactions(
+            root,
+            {
+                "scene_compactions": [scene(1, 15)],
+                "memory_compactions": [{
+                    "character_id": "npc",
+                    "memory_type": "knowledge",
+                    "source_ids": ["a", "b"],
+                    "summary": "Сжатая версия двух фактов.",
+                }],
+            },
+            start_turn=1,
+            end_turn=15,
+            memory=memory,
+            chronology=[],
+        )
+
+        active = active_memory_records(memory["characters"]["npc"]["knowledge"])
+        assert len(active) == 1
+        assert active[0]["canonical_compaction"] is True
+
+        complete = complete_knowledge_records(memory["characters"]["npc"]["knowledge"])
+        assert [row["fact_id"] for row in complete] == ["a", "b"]
+        assert [row["fact"] for row in complete] == [
+            "Первый точный факт.",
+            "Второй отдельный факт.",
+        ]
