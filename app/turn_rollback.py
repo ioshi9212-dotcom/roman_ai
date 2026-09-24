@@ -19,6 +19,7 @@ from .operation_receipts import (
 )
 from .session_runtime import _canonicalize_state_character_refs, _resolve_character_id
 from .scene_compaction_runtime import SCENE_MEMORY_FILE, replay_audit_compactions, scene_store_from_audits
+from .long_horizon_audit import replay_macro_chronology_compaction
 from .stability_runtime import (
     _clean_scene_pointer,
     _merge_state_patch_exact_relationships,
@@ -147,6 +148,13 @@ def _apply_saved_audit(
             start_turn=start_turn,
             end_turn=end_turn,
         )
+    chronology = replay_macro_chronology_compaction(
+        source,
+        turns_so_far,
+        chronology,
+        repairs,
+        end_turn=end_turn,
+    )
     state = _refresh_derived_state(source, cards, state, memory, chronology, turns_so_far, end_turn)
     return state, memory, chronology
 

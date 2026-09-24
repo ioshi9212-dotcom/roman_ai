@@ -12,6 +12,7 @@ from .relationship_runtime import overwrite_relationship_snapshots
 from .operation_receipts import RECEIPTS_FILE, ledger_with_receipt, make_receipt
 from .rollback_snapshot_runtime import PREVIOUS2_SNAPSHOT_FILE, PREVIOUS_SNAPSHOT_FILE, SNAPSHOT_FILE, build_pre_turn_snapshot
 from .scene_compaction_runtime import SCENE_MEMORY_FILE, apply_audit_compactions
+from .long_horizon_audit import apply_macro_chronology_compaction, macro_due
 from .transactional_storage import json_text, recover, session_transaction, write_batch
 from .turn_duplicate_guard import recent_duplicate_turn
 
@@ -81,6 +82,16 @@ def _clean_scene_pointer(state: Dict[str, Any], extracted: Dict[str, Any]) -> Di
             for character_id, position in positions.items()
             if str(character_id) in present
         }
+
+    remote = set(str(value) for value in storage._remote_character_ids(state) if value)
+    current["remote_characters"] = list(dict.fromkeys(storage._remote_character_ids(state)))
+    channels = current.get("remote_channels") if isinstance(current.get("remote_channels"), dict) else None
+    if channels is not None:
+        current["remote_channels"] = {
+            str(character_id): deepcopy(channel)
+            for character_id, channel in channels.items()
+            if str(character_id) in remote
+        }
     return state
 
 
@@ -88,6 +99,15 @@ def _merge_state_patch_exact_relationships(state: Dict[str, Any], patch: Any) ->
     if not isinstance(patch, dict):
         return state
     result = storage._deep_merge(state, patch)
+
+    # Some scene containers are snapshots, not merge-only maps. Without exact
+    # replacement a picked-up/removed item could remain forever at its old location.
+    current_patch = patch.get("current") if isinstance(patch.get("current"), dict) else {}
+    if "scene_items" in current_patch and isinstance(current_patch.get("scene_items"), dict):
+        current = result.get("current") if isinstance(result.get("current"), dict) else {}
+        current["scene_items"] = deepcopy(current_patch["scene_items"])
+        result["current"] = current
+
     relationship_patch = {
         key: deepcopy(patch[key])
         for key in ("relationships", "relationship_documents")
@@ -347,6 +367,14 @@ def _atomic_commit_audit(session_id: str, payload: Dict[str, Any]) -> Dict[str, 
         repairs = deepcopy(repairs)
         repairs["scene_compactions"] = resolved_scene_rows
 
+        macro_compaction_due = macro_due(source, expected_end)
+        chronology = apply_macro_chronology_compaction(
+            root,
+            chronology,
+            repairs,
+            end_turn=expected_end,
+        )
+
         audits = storage._read_json(root / "audits.json", [])
         if not isinstance(audits, list):
             audits = []
@@ -383,6 +411,7 @@ def _atomic_commit_audit(session_id: str, payload: Dict[str, Any]) -> Dict[str, 
             "transactional_commit": True,
             "relationship_snapshots_atomic": True,
             "scene_compactions_saved": len(resolved_scene_rows),
+            "macro_chronology_compacted": bool(macro_compaction_due),
         }
         audit_id = str(payload.get("audit_id") or "").strip()
         if audit_id:

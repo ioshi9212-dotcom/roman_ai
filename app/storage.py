@@ -72,6 +72,7 @@ def _normalise_memory(memory: Dict[str, Any]) -> Dict[str, Any]:
 def _memory_bucket(memory: Dict[str, Any], character_id: str) -> Dict[str, List[Dict[str, Any]]]:
     memory.setdefault("characters", {})
     bucket = memory["characters"].setdefault(character_id, {})
+    bucket.setdefault("knowledge_journal", [])
     bucket.setdefault("knowledge", [])
     bucket.setdefault("experiences", [])
     bucket.setdefault("dialogue_memory", [])
@@ -91,6 +92,26 @@ def _upsert_by_id(items: List[Dict[str, Any]], item: Dict[str, Any], id_key: str
 
 def _apply_memory_events(memory: Dict[str, Any], extracted: Dict[str, Any], turn_number: int) -> Dict[str, Any]:
     result = _normalise_memory(deepcopy(memory))
+    journal_rows = extracted.get("knowledge_journal_add", [])
+    if isinstance(journal_rows, list):
+        counters: Dict[str, int] = {}
+        for item in journal_rows:
+            if not isinstance(item, dict):
+                continue
+            character_id = item.get("character_id")
+            text = str(item.get("text") or item.get("fact") or item.get("summary") or "").strip()
+            if not character_id or not text:
+                continue
+            cid = str(character_id)
+            counters[cid] = counters.get(cid, 0) + 1
+            record = {
+                "entry_id": str(item.get("entry_id") or f"journal_t{turn_number}_{counters[cid]}"),
+                "date": item.get("date"),
+                "period": item.get("period"),
+                "text": text,
+                "turn": turn_number,
+            }
+            _upsert_by_id(_memory_bucket(result, cid)["knowledge_journal"], record, "entry_id")
     for item in extracted.get("knowledge_add", []) if isinstance(extracted.get("knowledge_add"), list) else []:
         character_id = item.get("character_id")
         if not character_id:
@@ -219,6 +240,28 @@ def _present_character_ids(state: Dict[str, Any]) -> List[str]:
     return list(dict.fromkeys(result))
 
 
+def _remote_character_ids(state: Dict[str, Any]) -> List[str]:
+    current = state.get("current", {}) if isinstance(state.get("current"), dict) else {}
+    raw = current.get("remote_characters", [])
+    if isinstance(raw, dict):
+        raw = list(raw.keys())
+    if isinstance(raw, str):
+        raw = [raw]
+    result: List[str] = []
+    for value in raw if isinstance(raw, list) else []:
+        if isinstance(value, dict):
+            value = value.get("character_id") or value.get("id") or value.get("name")
+        if value:
+            result.append(str(value))
+    pov = state.get("pov", {}) if isinstance(state.get("pov"), dict) else {}
+    pov_id = str(pov.get("character_id") or "")
+    return [cid for cid in dict.fromkeys(result) if cid and cid != pov_id]
+
+
+def _scene_participant_ids(state: Dict[str, Any]) -> List[str]:
+    return list(dict.fromkeys([*_present_character_ids(state), *_remote_character_ids(state)]))
+
+
 def _thread_character_ids(state: Dict[str, Any]) -> List[str]:
     result: List[str] = []
     threads = state.get("threads", {})
@@ -338,14 +381,18 @@ def _refresh_runtime_presence(state: Dict[str, Any], cards: List[Dict[str, Any]]
         present = [present]
     present_ids = set(str(x.get("character_id") or x.get("id") or x.get("name")) if isinstance(x, dict) else str(x) for x in present if x)
     location = current.get("location")
+    current_day = current.get("game_day")
     for card in cards:
         cid = _card_id(card)
         info = state["characters"].setdefault(cid, {})
         if cid in present_ids:
             info["present"] = True
             info["last_seen_turn"] = turn_number
+            if current_day not in (None, ""):
+                info["last_seen_game_day"] = current_day
             if location is not None:
                 info["location"] = location
+                info["last_location"] = location
         elif info.get("present") is True:
             info["present"] = False
     return state

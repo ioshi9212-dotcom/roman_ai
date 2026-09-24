@@ -5,7 +5,10 @@
     "location": null,
     "scene": null,
     "present_characters": [],
+    "remote_characters": [],
+    "remote_channels": {},
     "positions": {},
+    "scene_items": {},
     "unfinished_actions": []
   },
   "pov": {

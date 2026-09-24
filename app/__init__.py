@@ -20,7 +20,9 @@ from .draft_intake_runtime import install as _install_draft_intake_runtime
 from .cast_registry_runtime import install as _install_cast_registry_runtime
 from .relationship_policy_runtime import install as _install_relationship_policy_runtime
 from .setup_draft_v3_runtime import install as _install_setup_draft_v3_runtime
+from .simple_setup_runtime import install as _install_simple_setup_runtime
 from .knowledge_firewall_runtime import install as _install_knowledge_firewall_runtime
+from .simple_profile_runtime import install as _install_simple_profile_runtime
 
 _install_runtime_fixes()
 _install_foundation_coverage_runtime()
@@ -44,7 +46,9 @@ _install_draft_intake_runtime()
 _install_cast_registry_runtime()
 _install_relationship_policy_runtime()
 _install_setup_draft_v3_runtime()
+_install_simple_setup_runtime()
 _install_knowledge_firewall_runtime()
+_install_simple_profile_runtime()
 del _install_runtime_fixes
 del _install_foundation_coverage_runtime
 del _install_relationship_growth_runtime
@@ -67,4 +71,6 @@ del _install_draft_intake_runtime
 del _install_cast_registry_runtime
 del _install_relationship_policy_runtime
 del _install_setup_draft_v3_runtime
+del _install_simple_setup_runtime
 del _install_knowledge_firewall_runtime
+del _install_simple_profile_runtime
