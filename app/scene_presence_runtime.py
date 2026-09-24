@@ -39,6 +39,27 @@ def _present_ids(cards, state: Dict[str, Any]) -> List[str]:
     return list(dict.fromkeys(result))
 
 
+def _remote_ids(cards, state: Dict[str, Any]) -> List[str]:
+    current = state.get("current") if isinstance(state.get("current"), dict) else {}
+    raw = current.get("remote_characters", [])
+    values = list(raw.keys()) if isinstance(raw, dict) else [raw] if isinstance(raw, str) else raw if isinstance(raw, list) else []
+    result: List[str] = []
+    for value in values:
+        resolved = _resolve_character_id(cards, value)
+        if resolved:
+            result.append(resolved)
+        elif isinstance(value, dict):
+            raw_value = value.get("character_id") or value.get("id") or value.get("name")
+            if raw_value:
+                result.append(str(raw_value))
+        elif value:
+            result.append(str(value))
+    pov = state.get("pov") if isinstance(state.get("pov"), dict) else {}
+    pov_id = _resolve_character_id(cards, pov.get("character_id")) or str(pov.get("character_id") or "")
+    physical = set(_present_ids(cards, state))
+    return [cid for cid in dict.fromkeys(result) if cid and cid != pov_id and cid not in physical]
+
+
 def _card_name(cards, character_id: str) -> str:
     for card in cards:
         cid = storage._card_id(card)
@@ -104,6 +125,16 @@ def _apply_presence_contract(payload: Dict[str, Any], *, root) -> Dict[str, Any]
 
     direct_supplied = "present_characters" in current_patch
     raw_direct = current_patch.get("present_characters")
+
+    remote_supplied = "remote_characters" in current_patch
+    remote_before = _remote_ids(cards, state_before)
+    raw_remote = current_patch.get("remote_characters")
+    remote_ids: List[str] = []
+    if remote_supplied:
+        remote_state = {"current": {"remote_characters": raw_remote}, "pov": state_before.get("pov", {})}
+        remote_ids = _remote_ids(cards, remote_state)
+    else:
+        remote_ids = list(remote_before)
     if direct_supplied and raw_direct in (None, "", [], {}):
         base._http_error(
             409,
@@ -165,6 +196,12 @@ def _apply_presence_contract(payload: Dict[str, Any], *, root) -> Dict[str, Any]
         final_set.add(pov_id)
     final = list(dict.fromkeys(final))
 
+    # A character is either physically present or participating remotely, never both.
+    remote_ids = [
+        cid for cid in dict.fromkeys(remote_ids)
+        if cid and cid != pov_id and cid not in final_set
+    ]
+
     transition_supplied = bool(updates) or direct_supplied
     if transition_supplied:
         current_patch["present_characters"] = final
@@ -172,6 +209,8 @@ def _apply_presence_contract(payload: Dict[str, Any], *, root) -> Dict[str, Any]
         current_patch["left_characters"] = left
     if positions != positions_before:
         current_patch["positions"] = positions
+    if remote_supplied or remote_ids != remote_before:
+        current_patch["remote_characters"] = remote_ids
     if current_patch:
         state_patch["current"] = current_patch
     extracted["state_patch"] = state_patch
@@ -207,6 +246,8 @@ def _rewrite_turn_packet(session_id: str, manifest: Dict[str, Any]) -> Dict[str,
     cards = storage._load_cards(root, source)
     state = context.get("scene_state") if isinstance(context.get("scene_state"), dict) else storage._read_json(root / "state.json", {})
     start_roster = _present_ids(cards, state)
+    remote_roster = _remote_ids(cards, state)
+    scene_roster = list(dict.fromkeys([*start_roster, *remote_roster]))
     pov = state.get("pov") if isinstance(state.get("pov"), dict) else {}
     pov_id = _resolve_character_id(cards, pov.get("character_id")) or str(pov.get("character_id") or "")
 
@@ -218,17 +259,22 @@ def _rewrite_turn_packet(session_id: str, manifest: Dict[str, Any]) -> Dict[str,
             "memory_path": f"memory_full.characters[{character_id}]",
             "relationship_path": f"relationship_lens owner_character_id={character_id}",
         }
-        for character_id in start_roster
+        for character_id in scene_roster
     ]
 
     context["scene_focus"] = {
         "pov_character_id": pov_id or None,
         "present_character_ids": start_roster,
-        "required_full_character_ids": start_roster,
-        "instruction": "Все listed персонажи остаются в сцене до явного leave.",
+        "remote_character_ids": remote_roster,
+        "required_full_character_ids": scene_roster,
+        "instruction": (
+            "Физически present остаются до явного leave. remote_character_ids — активный звонок/переписка; "
+            "они считаются участниками сцены для карточки, знаний и отношений, но не имеют физической позиции."
+        ),
     }
     context["scene_presence"] = {
         "start_present_character_ids": start_roster,
+        "start_remote_character_ids": remote_roster,
         "roster": roster,
         "final_roster_formula": "start roster + enter - leave; move does not change membership",
         "pov_must_remain_present": True,
@@ -237,7 +283,10 @@ def _rewrite_turn_packet(session_id: str, manifest: Dict[str, Any]) -> Dict[str,
             "field": "extracted.presence_updates",
             "actions": ["enter", "leave", "move"],
         },
-        "instruction": "Start roster сохраняется. enter/leave/move используй только при реальном физическом изменении; молчание не меняет presence.",
+        "instruction": (
+            "Start roster сохраняется. enter/leave/move только при физическом изменении. "
+            "Активный звонок/переписка хранится в state_patch.current.remote_characters; при завершении контакта убери персонажа из этого списка."
+        ),
     }
 
     persistence = context.get("persistence_contract") if isinstance(context.get("persistence_contract"), dict) else {}
