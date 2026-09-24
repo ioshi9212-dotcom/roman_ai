@@ -316,11 +316,14 @@ def inject_required_turn_context(context: Dict[str, Any], cards: List[Dict[str, 
         "personal_memory_path": "character_memory[character_id]",
         "present_at_turn_start_path": "present_character_ids_at_turn_start",
         "author_only_paths": [
-            "character_cards", "character_registry", "cast_index", "scene_state", "relationships", "active_threads",
+            "character_cards[OTHER_CHARACTER_ID]", "character_registry", "cast_index", "scene_state", "relationships", "active_threads",
             "novel", "novel_rules", "novel_lore", "hidden_lore", "world_canon", "story_direction",
             "chronology_recent", "recent_turns", "character_memory[OTHER_CHARACTER_ID]",
         ],
-        "instruction": "NPC использует только свою память и реально полученную информацию. Нет источника — факт не использовать.",
+        "instruction": (
+            "NPC использует свою память, self-known факты собственной card и реально полученную информацию. "
+            "Если личная деталь нигде не задана, её можно создать через canon_fill и закрепить; чужой/author canon не подмешивать."
+        ),
         "offscreen_contact_rule": "Offscreen контакт требует bundle и реального источника знания.",
     }
     context["working_context_contract"] = {
