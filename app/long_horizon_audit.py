@@ -194,8 +194,8 @@ def cast_audit(
             for key in (
                 "character_id", "name", "importance", "story_function", "status",
                 "last_appearance_turn", "last_appearance_game_day",
-                "last_contact_turn", "last_contact_game_day",
-                "appearance_count", "last_meaningful_turn", "last_meaningful_event",
+                "last_contact_turn", "last_contact_game_day", "last_contact_mode",
+                "last_appearance_location", "appearance_count", "last_meaningful_turn", "last_meaningful_event",
             )
             if raw.get(key) not in (None, "", [], {})
         })
