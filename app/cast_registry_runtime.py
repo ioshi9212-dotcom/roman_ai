@@ -167,8 +167,8 @@ def _registry_index(registry: Dict[str, Any]) -> List[Dict[str, Any]]:
                 "character_id", "name", "card_ref", "origin", "importance", "story_function",
                 "status", "first_registered_turn", "first_registered_game_day",
                 "last_appearance_turn", "last_appearance_game_day",
-                "last_contact_turn", "last_contact_game_day",
-                "appearance_count", "last_meaningful_turn", "last_meaningful_event",
+                "last_contact_turn", "last_contact_game_day", "last_contact_mode",
+                "last_appearance_location", "appearance_count", "last_meaningful_turn", "last_meaningful_event",
             )
             if raw.get(key) not in (None, "", [], {})
         }
@@ -530,6 +530,20 @@ def _with_registry_patch(session_id: str, payload: Dict[str, Any]) -> Dict[str, 
         chronology = extracted.get("chronology") if isinstance(extracted.get("chronology"), list) else []
         card_map = {storage._card_id(card): card for card in resulting_cards}
         game_day = _post_turn_game_day(state, extracted)
+        state_current = state.get("current") if isinstance(state.get("current"), dict) else {}
+        patch = extracted.get("state_patch") if isinstance(extracted.get("state_patch"), dict) else {}
+        patch_current = patch.get("current") if isinstance(patch.get("current"), dict) else {}
+        current_location = (
+            patch_current.get("location")
+            or patch_current.get("place")
+            or patch_current.get("area")
+            or state_current.get("location")
+            or state_current.get("place")
+            or state_current.get("area")
+        )
+        remote_channels = patch_current.get("remote_channels")
+        if not isinstance(remote_channels, dict):
+            remote_channels = state_current.get("remote_channels") if isinstance(state_current.get("remote_channels"), dict) else {}
 
         for cid, row in registry.items():
             if cid in source_ids:
@@ -546,6 +560,9 @@ def _with_registry_patch(session_id: str, payload: Dict[str, Any]) -> Dict[str, 
             if cid in post_present:
                 row["last_appearance_turn"] = turn_number
                 row["last_contact_turn"] = turn_number
+                row["last_contact_mode"] = "physical"
+                if current_location not in (None, ""):
+                    row["last_appearance_location"] = current_location
                 if game_day:
                     row["last_appearance_game_day"] = game_day
                     row["last_contact_game_day"] = game_day
@@ -554,6 +571,8 @@ def _with_registry_patch(session_id: str, payload: Dict[str, Any]) -> Dict[str, 
                     row["_seen_this_turn"] = turn_number
             elif cid in post_remote:
                 row["last_contact_turn"] = turn_number
+                mode = remote_channels.get(cid)
+                row["last_contact_mode"] = str(mode) if mode not in (None, "") else "remote"
                 if game_day:
                     row["last_contact_game_day"] = game_day
 
@@ -563,6 +582,8 @@ def _with_registry_patch(session_id: str, payload: Dict[str, Any]) -> Dict[str, 
                 row["last_meaningful_turn"] = turn_number
             if cid in turn_participants:
                 row["last_contact_turn"] = turn_number
+                if cid not in post_present and cid not in post_remote:
+                    row["last_contact_mode"] = row.get("last_contact_mode") or "dialogue"
                 if game_day:
                     row["last_contact_game_day"] = game_day
 
