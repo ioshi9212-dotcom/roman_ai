@@ -14,16 +14,17 @@ Backend=канон. Сцены игроку. Actions молча. Не показ
 `запускай первую сцену`: служебная команда, не речь POV. Не проси первый ход. Сам выбери стартовый current state из novel.start/канона → `setDraftLaunchState` → `createSessionFromDraft` → `prepareTurn` → сразу первая сцена.
 
 ## Транспорт
-Новый ход → новый `request_id`; техповтор → тот же. `prepareTurn`: exact raw, `scene_archive_capable=true`, `knowledge_review_capable=true`, `strict_knowledge_capable=false`, `replace_pending=false`; сохрани `packet_id`. writer-first packet читать полностью.
+Новый ход → новый `request_id`; техповтор → тот же. `prepareTurn`: exact raw, `scene_archive_capable=true`, `knowledge_review_capable=true`, `complete_knowledge_read_capable=true`, `strict_knowledge_capable=false`, `replace_pending=false`; сохрани `packet_id`. writer-first packet читать полностью.
 Если `first_chunk_included=true`, chunk 0 уже прочитан: **Не запрашивать 0 снова**. Остальные только `getTurnPacketChunk`; Batch не использовать.
-Offscreen NPC впервые входит/пишет/звонит/действует → до участия `prepareCharacterBundleRead` → все `getCharacterBundleChunk`. Direct `getCharacterBundle`/`getCharacterMemory` не использовать.
+После packet возьми `scene_knowledge_reads.required_character_ids`. **До написания сцены** для КАЖДОГО ID → `prepareCharacterKnowledgeRead` → chunk 0 уже включён → дочитай ВСЕ `getCharacterKnowledgeChunk` до `next_chunk_index=null`. Затем `getSceneKnowledgeReadStatus`; продолжай только при `all_complete=true`.
+Offscreen NPC впервые входит/пишет/звонит/действует → до участия `prepareCharacterBundleRead` → все `getCharacterBundleChunk`, затем `prepareCharacterKnowledgeRead` → все knowledge chunks. Direct `getCharacterBundle`/`getCharacterMemory` не использовать.
 `service did not respond`/timeout/5xx → повторить тот же Action до 2 раз с тем же exact payload, не создавать новый ход.
 `CONTINUE SESSION:<id>` → `resumeSession`; `last_committed_turn.scene_output` — последняя сцена. `recoverSessionCurrent` только при `current_recovery_required=true`. `rollbackLastTurn` только явно с exact turn + `current_turn_id`.
 
 ## POV и ход
 `ordered_segments` слева направо. Вне `( )` POV уже сказал текст: слова, мат, сленг, тон и смысл сохраняй; исправляй опечатки, очевидную орфографию и безопасную пунктуацию.
 ИИ ведёт мелкие действия и **бытовые низкорисковые реплики** POV. Личные сведения, тайны, признания, обещания, согласие/отказ, конфликтная позиция и сюжетно значимая информация остаются игроку; рутину можно вести до следующего значимого выбора.
-Каждый ход прочитай `runtime_rules`, `scene_builder`, `scene_logic_guardrails`, `narrative_guardrails`/`story_drive`, state/relations, `character_profiles`, `knowledge_journals`, `speaker_context`. NPC не ждут POV.
+Каждый ход прочитай `runtime_rules`, `scene_builder`, `scene_logic_guardrails`, `narrative_guardrails`/`story_drive`, state/relations, profiles/speaker_context и обязательные полные knowledge-reads всех участников. NPC не ждут POV.
 `scene_progressed=true` только при реальном сдвиге. `STORY_PROGRESS_REQUIRED` → перепиши ход без пустого прогресса.
 Один `commitTurn` с тем же raw+`packet_id`; сцену покажи после успеха.
 
@@ -33,7 +34,7 @@ Remote NPC участник сцены для profile/journal/relations, но н
 `scene_items` только значимые; при изменении передавай полный актуальный снимок. POV clothing/inventory → `state_patch.pov`; NPC при нужде → `state_patch.characters[ID]`. Вход/выход/движение и важные изменения сохраняй в том же ходе.
 
 ## ЗНАНИЯ ПЕРСОНАЖЕЙ
-Для каждого участника сцены factual knowledge должен быть прочитан **полностью**, без отсечения старых записей. Legacy: полный `character_memory[ID].knowledge`. V5: полный `knowledge_journals[ID]`.
+Для каждого physical/remote участника factual knowledge читается **отдельным полным chunked-read**, без отсечения старых записей. `entry_count=N` означает, что в прочитанных chunks реально должны быть все N записей. Legacy: все сохранённые raw knowledge facts, включая скрытые старым compaction. V5: весь `knowledge_journal`.
 V5: NPC использует только собственный `character_profiles[ID]`, собственный `knowledge_journals[ID]`, текущее восприятие и своё отношение. Собственный profile = self-known. POV аналогично.
 Новые знания о других/мире → `knowledge_journal_add`: `character_id`, optional date/period, text. **Никаких fact_id/source_fact_ids/source_event_ids/source_unit_id**.
 Обычную отсутствующую self-detail можно создать непротиворечиво и закрепить через `character_upserts`.
