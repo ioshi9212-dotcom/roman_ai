@@ -172,6 +172,25 @@ def test_runtime_contract_rejects_lost_player_speech():
             validate_runtime_contract(sid, _payload(_scene(include_spoken=False)))
 
 
+def test_runtime_contract_requires_player_spoken_segments_in_left_to_right_order():
+    with tempfile.TemporaryDirectory() as tmp:
+        _setup(tmp)
+        sid = storage.create_session(_novel())["session_id"]
+
+        ordered_main = "Первая реплика. Елена убрала телефон. Вторая реплика."
+        ordered_scene = _scene().replace(_main_scene(), ordered_main)
+        ordered_payload = _payload(ordered_scene)
+        ordered_payload["user_input"] = "Первая реплика. (убрать телефон) Вторая реплика."
+        validate_runtime_contract(sid, ordered_payload)
+
+        reversed_main = "Вторая реплика. Елена убрала телефон. Первая реплика."
+        reversed_scene = _scene().replace(_main_scene(), reversed_main)
+        reversed_payload = _payload(reversed_scene)
+        reversed_payload["user_input"] = "Первая реплика. (убрать телефон) Вторая реплика."
+        with pytest.raises(RuntimeContractError, match="RUNTIME_RULE_PLAYER_SPEECH_ORDER_INVALID"):
+            validate_runtime_contract(sid, reversed_payload)
+
+
 def test_strict_knowledge_packet_keeps_scene_documents_without_hard_runtime_contract():
     with tempfile.TemporaryDirectory() as tmp:
         _setup(tmp)
