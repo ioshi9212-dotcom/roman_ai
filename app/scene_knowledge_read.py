@@ -101,13 +101,21 @@ def prepare_character_knowledge_read(session_id: str, character_id: str) -> Dict
     packet_id = str(payload["packet_id"])
 
     with session_transaction(root):
+        state = _read_state(root)
+        characters = state.get("characters") if (
+            str(state.get("packet_id") or "") == packet_id and isinstance(state.get("characters"), dict)
+        ) else {}
+        row = characters.get(str(character_id)) if isinstance(characters.get(str(character_id)), dict) else {}
+        previous = row.get("read_chunks") if (
+            str(row.get("read_id") or "") == read_id and isinstance(row.get("read_chunks"), list)
+        ) else []
         _write_progress(
             root,
             packet_id=packet_id,
             character_id=character_id,
             read_id=read_id,
             chunk_count=len(chunks),
-            read_chunks=[0] if chunks else [],
+            read_chunks=[*previous, 0] if chunks else previous,
             entry_count=int(payload["entry_count"]),
         )
 
@@ -146,17 +154,21 @@ def get_character_knowledge_chunk(
         state = _read_state(root)
         characters = state.get("characters") if isinstance(state.get("characters"), dict) else {}
         row = characters.get(str(character_id)) if isinstance(characters.get(str(character_id)), dict) else {}
-        already = row.get("read_chunks") if isinstance(row.get("read_chunks"), list) else []
+        already = row.get("read_chunks") if (
+            str(row.get("read_id") or "") == read_id and isinstance(row.get("read_chunks"), list)
+        ) else []
+        read_chunks = sorted(set([*already, int(chunk_index)]))
         _write_progress(
             root,
             packet_id=packet_id,
             character_id=character_id,
             read_id=read_id,
             chunk_count=len(chunks),
-            read_chunks=[*already, int(chunk_index)],
+            read_chunks=read_chunks,
             entry_count=int(payload["entry_count"]),
         )
 
+    unread = [index for index in range(len(chunks)) if index not in set(read_chunks)]
     return {
         "session_id": session_id,
         "packet_id": packet_id,
@@ -165,8 +177,8 @@ def get_character_knowledge_chunk(
         "chunk_index": int(chunk_index),
         "chunk_count": len(chunks),
         "content": chunks[chunk_index],
-        "all_chunks_read": int(chunk_index) + 1 >= len(chunks),
-        "next_chunk_index": None if int(chunk_index) + 1 >= len(chunks) else int(chunk_index) + 1,
+        "all_chunks_read": not unread,
+        "next_chunk_index": unread[0] if unread else None,
     }
 
 
