@@ -14,7 +14,7 @@ Backend хранит канон. `scene_builder` задаёт формат сц�
 - Присутствующий NPC не исчезает без leave. Незакрытый вопрос/обещание/подозрение/цель → intent; увиливание POV intent не закрывает.
 
 ## Знания
-- Factual knowledge каждого участника передаётся **полностью**: legacy `character_memory[ID].knowledge`, V5 `knowledge_journals[ID]`. Без recency/quantity cap.
+- Каждый physical/remote участник: до сцены `prepareCharacterKnowledgeRead` + все `getCharacterKnowledgeChunk`; без recency/quantity cap, дочитать весь `entry_count`.
 - V5 NPC: свой `character_profiles[ID]` + свой `knowledge_journals[ID]` + текущее восприятие + отношения; свой profile = самознание. POV: свой profile + journal + восприятие.
 - Чужие profiles/journals, chronology/history, hidden_lore, foundation и future_guidance не являются его знаниями.
 - Отсутствующую обычную self-detail можно непротиворечиво создать через `character_upserts`; новое знание о других/мире → `knowledge_journal_add`.
@@ -37,7 +37,7 @@ Backend хранит канон. `scene_builder` задаёт формат сц�
 - `foundation` и `future_guidance` — материал на будущее, не уже произошедшие события. Перемещение, ожидание и течение времени сами по себе не прогресс.
 
 ## Ход
-1. `prepareTurn` с exact raw; прочитай packet, при нужде догрузи NPC.
+1. `prepareTurn`: прочитай packet; для всех `scene_knowledge_reads.required_character_ids` дочитай knowledge chunks; до сцены `getSceneKnowledgeReadStatus.all_complete=true`.
 2. Сцена строго по `scene_builder`; проверь знания, presence, отношения, intents, threads.
 3. Перед `commitTurn`: `persistence_reviewed=true`, `knowledge_reviewed=true`, chronology/journal/memory/intents/threads. Один commit; сцену покажи после успеха.
 

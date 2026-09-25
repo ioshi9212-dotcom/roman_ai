@@ -18,6 +18,9 @@ def test_oversized_direct_character_reads_are_not_exposed_in_openapi():
     assert "getCharacterMemory" not in operation_ids
     assert "prepareCharacterBundleRead" in operation_ids
     assert "getCharacterBundleChunk" in operation_ids
+    assert "prepareCharacterKnowledgeRead" in operation_ids
+    assert "getCharacterKnowledgeChunk" in operation_ids
+    assert "getSceneKnowledgeReadStatus" in operation_ids
     assert "getTurnPacketChunkBatch" not in operation_ids
     assert "getAuditSnapshotChunkBatch" not in operation_ids
 
@@ -43,6 +46,8 @@ def test_gpt_instructions_use_single_safe_chunks_and_on_demand_dossier():
     assert "getTurnPacketChunk" in text
     assert "prepareCharacterBundleRead" in text
     assert "getCharacterBundleChunk" in text
+    assert "prepareCharacterKnowledgeRead" in text
+    assert "getCharacterKnowledgeChunk" in text
     assert "getCharacterBundle`/`getCharacterMemory" in text
     assert "getTurnPacketChunkBatch" not in text
     assert len(text) <= 8000

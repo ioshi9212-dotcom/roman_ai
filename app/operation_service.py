@@ -12,6 +12,7 @@ from .operation_receipts import (
     request_fingerprint,
 )
 from .scene_archive_read import apply_bounded_scene_history
+from .scene_knowledge_read import require_complete_scene_knowledge_reads, scene_knowledge_read_status
 from .transactional_storage import session_transaction
 from .turn_duplicate_guard import (
     committed_request_turn,
@@ -50,6 +51,7 @@ def _packet_status(packet: Any) -> Dict[str, Any] | None:
         "status": "ready_for_commit" if not unread else "reading",
         "scene_archive_capable": bool(packet.get("scene_archive_capable")),
         "knowledge_review_capable": bool(packet.get("knowledge_review_capable")),
+        "complete_knowledge_read_capable": bool(packet.get("complete_knowledge_read_capable")),
         "strict_knowledge_capable": bool(packet.get("strict_knowledge_capable")),
     }
 
@@ -81,6 +83,7 @@ def prepare_turn_request(
     *,
     scene_archive_capable: bool = False,
     knowledge_review_capable: bool = False,
+    complete_knowledge_read_capable: bool = False,
     strict_knowledge_capable: bool = False,
     replace_pending: bool = False,
 ) -> Dict[str, Any]:
@@ -106,13 +109,27 @@ def prepare_turn_request(
                     raise RuntimeError("TURN_IN_PROGRESS")
                 if identity and not pending_id:
                     packet["request_id"] = identity
-                    storage._write_json(root / "turn_packet.json", packet)
+                # Capability upgrades are safe on an existing identical pending turn.
+                # This lets an old session adopt mandatory chunked knowledge reads
+                # without abandoning or recreating its already prepared gameplay turn.
+                if scene_archive_capable:
+                    packet["scene_archive_capable"] = True
+                if knowledge_review_capable:
+                    packet["knowledge_review_capable"] = True
+                if complete_knowledge_read_capable:
+                    packet["complete_knowledge_read_capable"] = True
+                if strict_knowledge_capable:
+                    packet["strict_knowledge_capable"] = True
+                storage._write_json(root / "turn_packet.json", packet)
                 result = dict(session_runtime.prepare_turn_packet(session_id, user_input))
                 if identity:
                     result["request_id"] = identity
                 result["scene_archive_capable"] = bool(packet.get("scene_archive_capable"))
                 result["knowledge_review_capable"] = bool(packet.get("knowledge_review_capable"))
+                result["complete_knowledge_read_capable"] = bool(packet.get("complete_knowledge_read_capable"))
                 result["strict_knowledge_capable"] = bool(packet.get("strict_knowledge_capable"))
+                if bool(packet.get("complete_knowledge_read_capable")):
+                    result["scene_knowledge_reads"] = scene_knowledge_read_status(session_id)
                 result["pending_turn"] = pending_turn_status(session_id)
                 return result
 
@@ -136,6 +153,7 @@ def prepare_turn_request(
                 packet["request_id"] = identity
             packet["scene_archive_capable"] = bool(scene_archive_capable)
             packet["knowledge_review_capable"] = bool(knowledge_review_capable)
+            packet["complete_knowledge_read_capable"] = bool(complete_knowledge_read_capable)
             packet["strict_knowledge_capable"] = bool(strict_knowledge_capable)
             storage._write_json(root / "turn_packet.json", packet)
 
@@ -146,9 +164,46 @@ def prepare_turn_request(
             result["request_id"] = identity
         result["scene_archive_capable"] = bool(scene_archive_capable)
         result["knowledge_review_capable"] = bool(knowledge_review_capable)
+        result["complete_knowledge_read_capable"] = bool(complete_knowledge_read_capable)
         result["strict_knowledge_capable"] = bool(strict_knowledge_capable)
+        if bool(complete_knowledge_read_capable):
+            result["scene_knowledge_reads"] = scene_knowledge_read_status(session_id)
         result["pending_turn"] = pending_turn_status(session_id)
         return result
+
+
+
+
+def _turn_participant_ids_from_payload(payload: Dict[str, Any]) -> list[str]:
+    extracted = payload.get("extracted") if isinstance(payload.get("extracted"), dict) else {}
+    result: list[str] = []
+
+    def add(value: Any) -> None:
+        if isinstance(value, dict):
+            value = value.get("character_id") or value.get("id") or value.get("name")
+        if value not in (None, ""):
+            text_value = str(value)
+            if text_value not in result:
+                result.append(text_value)
+
+    for field in ("presence_updates", "dialogue_memory_add", "relationship_updates"):
+        rows = extracted.get(field)
+        if not isinstance(rows, list):
+            continue
+        for row in rows:
+            if isinstance(row, dict):
+                add(row.get("character_id"))
+
+    patch = extracted.get("state_patch") if isinstance(extracted.get("state_patch"), dict) else {}
+    current = patch.get("current") if isinstance(patch.get("current"), dict) else {}
+    remote = current.get("remote_characters")
+    if isinstance(remote, list):
+        for value in remote:
+            add(value)
+    elif remote not in (None, "", {}):
+        add(remote)
+
+    return result
 
 
 def commit_turn_request(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -170,6 +225,11 @@ def commit_turn_request(session_id: str, payload: Dict[str, Any]) -> Dict[str, A
     packet = storage._read_json(root / "turn_packet.json", {})
     if not isinstance(packet, dict) or str(packet.get("packet_id") or "") != packet_id:
         raise RuntimeError("TURN_PACKET_REQUIRED")
+    if bool(packet.get("complete_knowledge_read_capable")):
+        require_complete_scene_knowledge_reads(
+            session_id,
+            extra_character_ids=_turn_participant_ids_from_payload(payload),
+        )
 
     prepared = deepcopy(payload)
     prepared["_operation_receipt"] = {

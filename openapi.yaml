@@ -97,6 +97,10 @@ components:
           type: boolean
           default: false
           description: Set true when the client performs the POV+NPC knowledge review before commit.
+        complete_knowledge_read_capable:
+          type: boolean
+          default: false
+          description: Set true when the client supports mandatory per-character full knowledge reads through prepareCharacterKnowledgeRead/getCharacterKnowledgeChunk.
         strict_knowledge_capable:
           type: boolean
           default: false
@@ -607,20 +611,6 @@ paths:
         - {in: path, name: draft_id, required: true, schema: {type: string}}
       responses:
         '200': {description: Draft published}
-  /novels:
-    get:
-      operationId: listNovels
-      summary: List reusable library novels
-      responses:
-        '200': {description: Novel list}
-  /novels/{novel_id}/read:
-    post:
-      operationId: prepareNovelRead
-      summary: Prepare chunked reading of a library novel
-      parameters:
-        - {in: path, name: novel_id, required: true, schema: {type: string}}
-      responses:
-        '200': {description: Prepared read}
   /novel-reads/{read_id}/{chunk_index}:
     get:
       operationId: getNovelReadChunk
@@ -630,17 +620,6 @@ paths:
         - {in: path, name: chunk_index, required: true, schema: {type: integer}}
       responses:
         '200': {description: One chunk}
-  /sessions:
-    post:
-      operationId: createSession
-      summary: Create an isolated session from a library novel
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: {$ref: '#/components/schemas/SessionCreate'}
-      responses:
-        '200': {description: Session metadata}
   /sessions/{session_id}/resume:
     post:
       operationId: resumeSession
@@ -705,7 +684,7 @@ paths:
     post:
       operationId: prepareTurn
       summary: Build or reuse bounded writer-first context from complete persistent canon
-      description: New clients use stable request_id and capability flags. Profile-v5 clients use scene_archive_capable=true, knowledge_review_capable=true and strict_knowledge_capable=false; legacy strict-ledger clients may set strict_knowledge_capable=true. Pending turns are replaced only when explicitly requested.
+      description: Roman GPT uses stable request_id plus scene_archive_capable=true, knowledge_review_capable=true and complete_knowledge_read_capable=true. prepareTurn returns required scene knowledge reads; read them fully before the scene.
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
       requestBody:
@@ -758,6 +737,42 @@ paths:
         '200': {description: One remaining scene archive chunk}
         '404': {description: Session, scene or chunk not found}
         '409': {description: Scene archive changed during reading}
+  /sessions/{session_id}/knowledge-read-status:
+    get:
+      operationId: getSceneKnowledgeReadStatus
+      summary: Check mandatory full-knowledge reads for the current turn
+      description: Lists every physical or remote scene participant and whether all of that character's factual knowledge chunks were read for the exact current packet.
+      parameters:
+        - {in: path, name: session_id, required: true, schema: {type: string}}
+      responses:
+        '200': {description: Per-character knowledge read completion status}
+        '409': {description: Current turn packet is missing}
+  /sessions/{session_id}/characters/{character_id}/knowledge-read:
+    post:
+      operationId: prepareCharacterKnowledgeRead
+      summary: Prepare the complete factual knowledge of one scene participant
+      description: Bound to the exact current packet. Includes chunk 0. Legacy sessions return every preserved knowledge fact, including facts hidden by old compactions; v5 sessions return the complete knowledge_journal. No recency or quantity cap.
+      parameters:
+        - {in: path, name: session_id, required: true, schema: {type: string}}
+        - {in: path, name: character_id, required: true, schema: {type: string}}
+      responses:
+        '200': {description: Complete-knowledge read manifest plus inline chunk 0}
+        '404': {description: Session not found}
+        '409': {description: Current turn packet is missing}
+  /sessions/{session_id}/characters/{character_id}/knowledge-read/{read_id}/{chunk_index}:
+    get:
+      operationId: getCharacterKnowledgeChunk
+      summary: Read one remaining complete-knowledge chunk
+      description: Start at next_chunk_index because chunk 0 is already included. Read every chunk before writing the scene. A changed knowledge snapshot or different current packet invalidates the read_id.
+      parameters:
+        - {in: path, name: session_id, required: true, schema: {type: string}}
+        - {in: path, name: character_id, required: true, schema: {type: string}}
+        - {in: path, name: read_id, required: true, schema: {type: string}}
+        - {in: path, name: chunk_index, required: true, schema: {type: integer, minimum: 0}}
+      responses:
+        '200': {description: One remaining full-knowledge chunk}
+        '404': {description: Session or chunk not found}
+        '409': {description: Character knowledge changed or read belongs to another packet}
   /sessions/{session_id}/characters/{character_id}/read:
     post:
       operationId: prepareCharacterBundleRead
@@ -787,7 +802,7 @@ paths:
     post:
       operationId: commitTurn
       summary: Save one complete turn after required writer chunks were read
-      description: Echo packet_id from prepareTurn. For knowledge-review-capable packets, set extracted.knowledge_reviewed=true only after checking POV and NPC knowledge. KNOWLEDGE_REVIEW_REQUIRED means rewrite unsupported knowledge and retry the same commit.
+      description: Echo packet_id from prepareTurn. When complete_knowledge_read_capable=true, commit is rejected until every required physical/remote scene participant has completed prepareCharacterKnowledgeRead plus all getCharacterKnowledgeChunk chunks. Then perform the normal knowledge review and commit.
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
       requestBody:
