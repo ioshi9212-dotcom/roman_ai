@@ -182,12 +182,18 @@ def get_character_knowledge_chunk(
     }
 
 
-def scene_knowledge_read_status(session_id: str) -> Dict[str, Any]:
+def scene_knowledge_read_status(
+    session_id: str,
+    extra_character_ids: List[str] | None = None,
+) -> Dict[str, Any]:
     root = _root(session_id)
     packet = _packet(root)
     packet_id = str(packet["packet_id"])
     state = storage._read_json(root / "state.json", {})
     required = [str(value) for value in storage._scene_participant_ids(state) if value]
+    for value in extra_character_ids or []:
+        if value and str(value) not in required:
+            required.append(str(value))
 
     progress = _read_state(root)
     rows = progress.get("characters") if (
@@ -227,7 +233,10 @@ def scene_knowledge_read_status(session_id: str) -> Dict[str, Any]:
     }
 
 
-def require_complete_scene_knowledge_reads(session_id: str) -> None:
-    status = scene_knowledge_read_status(session_id)
+def require_complete_scene_knowledge_reads(
+    session_id: str,
+    extra_character_ids: List[str] | None = None,
+) -> None:
+    status = scene_knowledge_read_status(session_id, extra_character_ids=extra_character_ids)
     if status["incomplete_character_ids"]:
         raise RuntimeError("CHARACTER_KNOWLEDGE_READ_REQUIRED")
