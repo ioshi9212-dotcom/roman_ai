@@ -266,6 +266,7 @@ def test_old_prepare_schema_remains_backward_compatible_without_request_id():
     value = TurnPrepare(user_input="Продолжить.")
     assert value.request_id is None
     assert value.scene_archive_capable is False
+    assert value.complete_knowledge_read_capable is False
     assert value.replace_pending is False
 
 
