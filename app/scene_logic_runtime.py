@@ -11,7 +11,7 @@ from .transactional_storage import session_transaction
 
 _ORIGINAL_PREPARE = None
 _ORIGINAL_COMMIT = None
-_GUARD_VERSION = 6
+_GUARD_VERSION = 7
 
 
 def _knowledge_causality_rule() -> Dict[str, Any]:
@@ -60,7 +60,16 @@ def _player_input_order_rule() -> Dict[str, Any]:
         "source_path": "player_input_map.ordered_segments",
         "left_to_right": True,
         "no_reordering": True,
-        "instruction": "ordered_segments: left-to-right; no reordering by kind.",
+        "sequential_execution": True,
+        "world_may_interleave": True,
+        "no_batching_player_segments": True,
+        "instruction": (
+            "Исполняй ordered_segments строго слева направо как последовательность моментов сцены. "
+            "Реплика вне скобок произносится в своей позиции; содержимое ( ) происходит/мыслится в своей позиции ДО следующего сегмента. "
+            "Не склеивай все реплики POV вместе и не переноси действия/мысли после более поздних реплик. "
+            "Между соседними сегментами могут естественно вклиниваться реакция NPC, пауза или событие, если это логично; "
+            "не вставляй реакцию искусственно после каждого сегмента."
+        ),
     }
 
 

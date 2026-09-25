@@ -41,6 +41,11 @@ def test_player_input_order_rule_forbids_reordering_segments():
     assert rule["mandatory"] is True
     assert rule["left_to_right"] is True
     assert rule["no_reordering"] is True
+    assert rule["sequential_execution"] is True
+    assert rule["world_may_interleave"] is True
+    assert rule["no_batching_player_segments"] is True
+    assert "Не склеивай все реплики POV вместе" in rule["instruction"]
+    assert "реакция NPC" in rule["instruction"]
     assert rule["source_path"] == "player_input_map.ordered_segments"
 
 
@@ -85,7 +90,7 @@ def test_final_writer_packet_contains_scene_logic_guardrails():
         assert context["knowledge_firewall_v5"]["version"] == 11
         assert context["knowledge_firewall_v5"]["closed_world"] is True
         guards = context["scene_logic_guardrails"]
-        assert guards["version"] == 6
+        assert guards["version"] == 7
         assert guards["knowledge_causality"]["mandatory"] is True
         assert guards["knowledge_causality"]["source_before_use"] is True
         assert guards["knowledge_causality"]["character_knowledge_is_closed_world"] is True
@@ -112,8 +117,12 @@ def test_runtime_and_custom_gpt_repeat_source_order_and_spelling_policy():
     assert "слова, мат, сленг, тон и смысл не меняй" in rules
     assert "ordered_segments" in rules
     assert "слева направо" in rules
+    assert "реакция NPC/пауза между ними" in rules
+    assert "Не склеивай" in rules
     assert "scene_logic_guardrails" in instructions
     assert "ordered_segments" in instructions
+    assert "Между сегментами" in instructions
+    assert "не склеивай реплики" in instructions
     assert "knowledge_path" in instructions
     assert "очевидную орфографию" in instructions
     assert len(instructions) <= 8000

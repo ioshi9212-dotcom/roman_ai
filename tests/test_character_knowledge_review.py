@@ -107,7 +107,7 @@ def test_packet_knowledge_review_applies_to_pov_and_npcs_and_quarantines_author_
         context = read_packet(sid, manifest)
 
         guards = context["scene_logic_guardrails"]
-        assert guards["version"] == 6
+        assert guards["version"] == 7
         assert guards["knowledge_causality"]["applies_to"] == "real speech only"
         author_only = " ".join(guards["knowledge_causality"]["author_only_not_character_knowledge"]).casefold()
         assert "chronology" in author_only

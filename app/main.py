@@ -664,6 +664,7 @@ def turns_commit(session_id: str, body: TurnCommit):
             "SCENE_BUILDER_POV_MISMATCH": "The POV name in the scene header must match the session POV exactly.",
             "SCENE_BUILDER_TURN_FOOTER_MISMATCH": "The final turn number and cycle must match the backend's current turn exactly.",
             "RUNTIME_RULE_PLAYER_SPEECH_NOT_PRESERVED": "The player's spoken text outside parentheses was lost or rewritten. Preserve those words in the main scene and retry the same commit.",
+            "RUNTIME_RULE_PLAYER_SPEECH_ORDER_INVALID": "The player's spoken segments were rendered out of left-to-right order. Replay ordered_segments sequentially, keeping each parenthesized action/thought before the later spoken segment; natural NPC reactions or pauses may occur between them.",
             "CAST_STORY_FUNCTION_REQUIRED": "A recurring/important story-created NPC needs character_upserts.story_function: one short director-level sentence explaining why this NPC matters to the story, not the NPC's personal goal.",
             "CHARACTER_KNOWLEDGE_READ_REQUIRED": "Before writing/committing this scene, fully read every required scene participant via prepareCharacterKnowledgeRead and all getCharacterKnowledgeChunk chunks. Then retry the same commit.",
         }
