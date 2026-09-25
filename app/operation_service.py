@@ -172,6 +172,40 @@ def prepare_turn_request(
         return result
 
 
+
+
+def _turn_participant_ids_from_payload(payload: Dict[str, Any]) -> list[str]:
+    extracted = payload.get("extracted") if isinstance(payload.get("extracted"), dict) else {}
+    result: list[str] = []
+
+    def add(value: Any) -> None:
+        if isinstance(value, dict):
+            value = value.get("character_id") or value.get("id") or value.get("name")
+        if value not in (None, ""):
+            text_value = str(value)
+            if text_value not in result:
+                result.append(text_value)
+
+    for field in ("presence_updates", "dialogue_memory_add", "relationship_updates"):
+        rows = extracted.get(field)
+        if not isinstance(rows, list):
+            continue
+        for row in rows:
+            if isinstance(row, dict):
+                add(row.get("character_id"))
+
+    patch = extracted.get("state_patch") if isinstance(extracted.get("state_patch"), dict) else {}
+    current = patch.get("current") if isinstance(patch.get("current"), dict) else {}
+    remote = current.get("remote_characters")
+    if isinstance(remote, list):
+        for value in remote:
+            add(value)
+    elif remote not in (None, "", {}):
+        add(remote)
+
+    return result
+
+
 def commit_turn_request(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     root = _session_root(session_id)
     packet_id = str(payload.get("packet_id") or "").strip()
@@ -192,7 +226,10 @@ def commit_turn_request(session_id: str, payload: Dict[str, Any]) -> Dict[str, A
     if not isinstance(packet, dict) or str(packet.get("packet_id") or "") != packet_id:
         raise RuntimeError("TURN_PACKET_REQUIRED")
     if bool(packet.get("complete_knowledge_read_capable")):
-        require_complete_scene_knowledge_reads(session_id)
+        require_complete_scene_knowledge_reads(
+            session_id,
+            extra_character_ids=_turn_participant_ids_from_payload(payload),
+        )
 
     prepared = deepcopy(payload)
     prepared["_operation_receipt"] = {
