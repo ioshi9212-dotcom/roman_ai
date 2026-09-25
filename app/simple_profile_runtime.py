@@ -16,7 +16,6 @@ from .transactional_storage import session_transaction
 
 
 _PROFILE_RUNTIME_VERSION = 1
-_MAX_JOURNAL_ENTRIES = 80
 _ORIGINAL_PREPARE = None
 _ORIGINAL_COMMIT = None
 _ORIGINAL_PARTICIPATION_BUNDLE = None
@@ -50,7 +49,7 @@ def _journal_map(memory: Dict[str, Any], ids: List[str]) -> Dict[str, str]:
         journal = bucket.get("knowledge_journal", [])
         if not isinstance(journal, list):
             journal = []
-        result[cid] = render_knowledge_journal(journal[-_MAX_JOURNAL_ENTRIES:])
+        result[cid] = render_knowledge_journal(journal)
     return result
 
 
@@ -205,6 +204,9 @@ def _rewrite_packet(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
                 "Не раскрывать за игрока личные сведения, тайны, признания, обещания, согласие/отказ, позицию в конфликте "
                 "или информацию, способную заметно изменить сюжет или отношения."
             ),
+            "knowledge_transport": (
+                "Для каждого участника сцены knowledge_journal передаётся полностью, без лимита по числу записей."
+            ),
             "learned_facts": (
                 "Новые знания о других и мире сохраняй простыми записями knowledge_journal_add: "
                 "{character_id, date?, period?, text}. Никаких fact_id/source_fact_ids/source_unit_id."
@@ -345,12 +347,12 @@ def _participation_bundle(session_id: str, character_id: str) -> Dict[str, Any]:
     return {
         "character_id": character_id,
         "profile": render_character_profile(card),
-        "knowledge_journal": render_knowledge_journal(journal[-_MAX_JOURNAL_ENTRIES:]),
+        "knowledge_journal": render_knowledge_journal(journal),
         "current_state": deepcopy(current_state),
         "relationship_to_pov": deepcopy(relationship),
         "instruction": (
-            "Этот bundle принадлежит только этому персонажу. Для его реплик используй собственный profile, "
-            "собственный knowledge_journal и текущее восприятие. Чужие данные и chronology не являются его знаниями."
+            "Этот bundle принадлежит только этому персонажу. knowledge_journal передан полностью. Для реплик используй "
+            "собственный profile, полный knowledge_journal и текущее восприятие. Чужие данные и chronology не являются его знаниями."
         ),
     }
 

@@ -4,6 +4,7 @@ from pathlib import Path
 
 from app import draft_intake_runtime, novel_drafts, session_runtime, setup_draft_v3_runtime, storage
 from app.novel_access import get_novel_read_chunk
+from app.character_chunk_read import get_character_bundle_chunk, prepare_character_bundle_read
 
 
 def _setup(tmp: str) -> None:
@@ -194,3 +195,102 @@ def test_plain_journal_entries_are_persisted_without_model_supplied_ids():
     assert entry["period"] == "утро"
     assert entry["turn"] == 7
     assert entry["entry_id"].startswith("journal_t7_")
+
+
+def test_v5_active_character_receives_complete_knowledge_journal_over_old_80_entry_limit():
+    with tempfile.TemporaryDirectory() as tmp:
+        _setup(tmp)
+        draft_id = _build_simple_draft()
+        novel_drafts.finalize_draft(draft_id)
+
+        finalized_revision = novel_drafts._read(draft_id)["finalized_revision"]
+        setup_draft_v3_runtime.set_launch_state(
+            draft_id,
+            expected_finalized_revision=finalized_revision,
+            starting_state_json=json.dumps({
+                "current": {
+                    "date": "24.09.2026",
+                    "time": "09:10",
+                    "location": "квартира",
+                    "present_characters": ["rinata", "silas"],
+                },
+                "pov": {"character_id": "rinata"},
+            }, ensure_ascii=False),
+        )
+        session = novel_drafts.create_session_from_draft(draft_id)
+        sid = session["session_id"]
+        root = storage.SESSIONS_DIR / sid
+        memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
+        bucket = storage._memory_bucket(memory, "silas")
+        bucket["knowledge_journal"] = [
+            {
+                "entry_id": f"j{i}",
+                "date": "24.09.2026",
+                "period": "утро",
+                "text": f"Знание номер {i}.",
+                "turn": i,
+            }
+            for i in range(1, 121)
+        ]
+        storage._write_json(root / "memory.json", memory)
+
+        manifest = session_runtime.prepare_turn_packet(sid, "(посмотреть на Сайласа)")
+        chunks = [manifest["content"]]
+        for index in range(1, manifest["chunk_count"]):
+            row = storage.get_turn_packet_chunk(sid, manifest["packet_id"], index)
+            chunks.append(row["content"])
+        context = json.loads("".join(chunks))
+        journal = context["knowledge_journals"]["silas"]
+
+        assert "Знание номер 1." in journal
+        assert "Знание номер 120." in journal
+        assert journal.count("Знание номер ") == 120
+
+
+def test_v5_offscreen_bundle_receives_complete_knowledge_journal_too():
+    with tempfile.TemporaryDirectory() as tmp:
+        _setup(tmp)
+        draft_id = _build_simple_draft()
+        novel_drafts.finalize_draft(draft_id)
+
+        finalized_revision = novel_drafts._read(draft_id)["finalized_revision"]
+        setup_draft_v3_runtime.set_launch_state(
+            draft_id,
+            expected_finalized_revision=finalized_revision,
+            starting_state_json=json.dumps({
+                "current": {
+                    "date": "24.09.2026",
+                    "time": "09:10",
+                    "location": "квартира",
+                    "present_characters": ["rinata"],
+                },
+                "pov": {"character_id": "rinata"},
+            }, ensure_ascii=False),
+        )
+        session = novel_drafts.create_session_from_draft(draft_id)
+        sid = session["session_id"]
+        root = storage.SESSIONS_DIR / sid
+        memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
+        bucket = storage._memory_bucket(memory, "silas")
+        bucket["knowledge_journal"] = [
+            {
+                "entry_id": f"j{i}",
+                "date": "24.09.2026",
+                "period": "утро",
+                "text": f"Удалённое знание номер {i}.",
+                "turn": i,
+            }
+            for i in range(1, 121)
+        ]
+        storage._write_json(root / "memory.json", memory)
+
+        manifest = prepare_character_bundle_read(sid, "silas")
+        pieces = [manifest["content"]]
+        for index in range(1, manifest["chunk_count"]):
+            pieces.append(get_character_bundle_chunk(sid, "silas", manifest["read_id"], index)["content"])
+        bundle = json.loads("".join(pieces))
+        journal = bundle["knowledge_journal"]
+
+        assert "Удалённое знание номер 1." in journal
+        assert "Удалённое знание номер 120." in journal
+        assert journal.count("Удалённое знание номер ") == 120

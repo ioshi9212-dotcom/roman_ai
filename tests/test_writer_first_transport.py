@@ -78,7 +78,10 @@ def test_writer_first_packet_has_small_runtime_surface_and_first_chunk_inline():
         memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
         bucket = storage._memory_bucket(memory, "npc")
         for turn in range(1, 250):
-            bucket["knowledge"].append({"fact_id": f"f{turn}", "learned_turn": turn, "fact": f"fact {turn}"})
+            fact = f"fact {turn}"
+            if turn == 1:
+                fact += " " + ("OLD_KNOWLEDGE_" * 120)
+            bucket["knowledge"].append({"fact_id": f"f{turn}", "learned_turn": turn, "fact": fact})
         storage._write_json(root / "memory.json", memory)
 
         manifest, context = read_context(sid, "(посмотреть на NPC)")
@@ -97,7 +100,13 @@ def test_writer_first_packet_has_small_runtime_surface_and_first_chunk_inline():
         assert len(context["continuity_turns"]) == CONTINUITY_WINDOW - RECENT_FULL_TURNS
         assert len(context["active_threads"]) <= MAX_ACTIVE_THREADS
         assert all(item.get("status") != "closed" for item in context["active_threads"].values())
-        assert len(context["character_memory"]["npc"]["historical_knowledge_catalog"]) <= MAX_HISTORICAL_KNOWLEDGE_CATALOG
+        npc_knowledge = context["character_memory"]["npc"]["knowledge"]
+        assert len(npc_knowledge) == 249
+        assert npc_knowledge[0]["fact_id"] == "f1"
+        assert "OLD_KNOWLEDGE_" * 120 in npc_knowledge[0]["fact"]
+        assert npc_knowledge[-1]["fact_id"] == "f249"
+        assert context["character_memory"]["npc"]["historical_knowledge_catalog"] == []
+        assert context["character_memory"]["npc"]["knowledge_complete_in_transport"] is True
         assert set(context["runtime_document_paths"]) == {"rules", "scene_builder"}
         assert context["player_input_map"]["stage_directions"] == ["посмотреть на NPC"]
 

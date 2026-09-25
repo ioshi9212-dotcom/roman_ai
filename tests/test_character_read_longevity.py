@@ -13,7 +13,7 @@ def setup_temp_storage(tmp: str):
     storage.ensure_dirs()
 
 
-def test_offscreen_character_read_stays_bounded_with_large_lifetime_memory_and_keeps_intent_sources():
+def test_offscreen_character_read_chunks_complete_knowledge_and_keeps_intent_sources():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         novel = {
@@ -70,7 +70,7 @@ def test_offscreen_character_read_stays_bounded_with_large_lifetime_memory_and_k
         manifest = prepare_character_bundle_read(sid, "ren")
         assert manifest["first_chunk_included"] is True
         assert manifest["chunk_index"] == 0
-        assert manifest["chunk_count"] <= 5
+        assert manifest["chunk_count"] > 5  # complete knowledge is chunked instead of discarded
         pieces = [manifest["content"]]
         for index in range(1, manifest["chunk_count"]):
             pieces.append(get_character_bundle_chunk(sid, "ren", manifest["read_id"], index)["content"])
@@ -80,10 +80,16 @@ def test_offscreen_character_read_stays_bounded_with_large_lifetime_memory_and_k
         assert payload["persistent_lifetime_memory_complete"] is True
         assert payload["card"]["bio"] == "full-card-marker"
         assert payload["active_intents"][0]["intent_id"] == "old-clue-followup"
-        knowledge_ids = {item.get("fact_id") for item in payload["personal_memory"]["knowledge"]}
+        knowledge = payload["personal_memory"]["knowledge"]
+        knowledge_ids = {item.get("fact_id") for item in knowledge}
+        assert len(knowledge) == 300
+        assert "fact-1" in knowledge_ids
         assert "fact-25" in knowledge_ids
         assert "fact-300" in knowledge_ids
+        assert next(item for item in knowledge if item["fact_id"] == "fact-1")["fact"].endswith("K" * 1200)
+        assert payload["personal_memory"]["knowledge_complete_in_transport"] is True
+        assert payload["personal_memory"]["knowledge_text_not_truncated_in_transport"] is True
         assert len(payload["personal_memory"]["experiences"]) <= 12
         assert len(payload["personal_memory"]["dialogue_memory"]) <= 12
-        assert len(payload["personal_memory"]["historical_knowledge_catalog"]) <= 8
+        assert payload["personal_memory"]["historical_knowledge_catalog"] == []
         assert payload["personal_memory"]["persistent_counts"]["knowledge"] == 300

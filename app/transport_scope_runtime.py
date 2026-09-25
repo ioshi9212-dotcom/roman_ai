@@ -36,7 +36,21 @@ def _compact_starting_state(value: Any) -> Dict[str, Any]:
 def _compact_character_memory(value: Any) -> Dict[str, Any]:
     if not isinstance(value, dict):
         return {}
-    return _bounded_transport_value(value, max_text=_MAX_MEMORY_FIELD_TEXT)
+    result: Dict[str, Any] = {}
+    for character_id, bucket in value.items():
+        if not isinstance(bucket, dict):
+            result[str(character_id)] = _bounded_transport_value(bucket, max_text=_MAX_MEMORY_FIELD_TEXT)
+            continue
+        row: Dict[str, Any] = {}
+        for key, item in bucket.items():
+            if key == "knowledge":
+                # Knowledge is factual authority and must not be text-truncated in
+                # transport. Packet chunking already provides the size boundary.
+                row[key] = deepcopy(item)
+            else:
+                row[key] = _bounded_transport_value(item, max_text=_MAX_MEMORY_FIELD_TEXT)
+        result[str(character_id)] = row
+    return result
 
 
 def _relationship_snapshot_from_persistent_state(state: Dict[str, Any]) -> Dict[str, Any]:
@@ -130,7 +144,7 @@ def _strip_legacy_full_payloads(context: Dict[str, Any], *, persistent_state: Di
     policy["authoritative_start_snapshot_note"] = "Стартовые значения взяты из persistent state."
     result["relationship_policy"] = policy
 
-    result["character_context_instruction"] = "Packet bounded. Offscreen NPC перед участием → prepareCharacterBundleRead; полный канон остаётся в Railway."
+    result["character_context_instruction"] = "Knowledge активных персонажей передаётся полностью; прочая память bounded. Offscreen NPC перед участием → prepareCharacterBundleRead."
     contract = result.get("working_context_contract") if isinstance(result.get("working_context_contract"), dict) else {}
     contract.update(
         {
@@ -138,6 +152,8 @@ def _strip_legacy_full_payloads(context: Dict[str, Any], *, persistent_state: Di
             "legacy_full_state_memory_chronology_in_packet": False,
             "dormant_full_dossiers_in_packet": False,
             "lifetime_memory_in_packet": False,
+            "active_character_knowledge_complete": True,
+            "knowledge_text_not_truncated_in_transport": True,
             "oversized_memory_text_bounded_in_transport": True,
             "full_relationship_documents_in_packet": False,
             "full_starting_state_in_packet": False,

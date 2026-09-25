@@ -4,8 +4,8 @@ Backend хранит канон. `scene_builder` задаёт формат сц�
 
 ## POV
 - `ordered_segments` выполняй слева направо.
-- Вне `( )` POV уже сказал текст: слова, мат, сленг, тон и смысл не меняй; исправляй только опечатки, очевидную орфографию и безопасную пунктуацию.
-- POV может сам делать мелкие бытовые действия и низкорисковые реплики. Значимые решения, тайны, признания, обещания, согласие/отказ и конфликтная позиция остаются игроку.
+- Вне `( )` POV уже сказал текст: слова, мат, сленг, тон и смысл не меняй; исправляй только опечатки, орфографию и безопасную пунктуацию.
+- POV может сам делать мелкие бытовые действия и низкорисковые реплики. Значимые решения, тайны, признания, обещания и выбор остаются игроку.
 - `запускай первую сцену` на turn 0 — служебная команда, не реплика POV.
 
 ## NPC
@@ -14,20 +14,21 @@ Backend хранит канон. `scene_builder` задаёт формат сц�
 - Присутствующий NPC не исчезает без leave. Незакрытый вопрос/обещание/подозрение/цель → intent; увиливание POV intent не закрывает.
 
 ## Знания
+- Factual knowledge каждого участника передаётся **полностью**: legacy `character_memory[ID].knowledge`, V5 `knowledge_journals[ID]`. Без recency/quantity cap.
 - V5 NPC: свой `character_profiles[ID]` + свой `knowledge_journals[ID]` + текущее восприятие + отношения; свой profile = самознание. POV: свой profile + journal + восприятие.
-- Чужие profiles/journals, chronology/history, hidden_lore, foundation и future_guidance не являются знаниями персонажа.
+- Чужие profiles/journals, chronology/history, hidden_lore, foundation и future_guidance не являются его знаниями.
 - Отсутствующую обычную self-detail можно непротиворечиво создать через `character_upserts`; новое знание о других/мире → `knowledge_journal_add`.
 - Legacy: каждую реальную реплику проверяй до реплики по `dialogue_frame`, `knowledge_path`, `turn_knowledge`, self-known/`source_self_paths`; `canon_fill` только для отсутствующей self-detail. Это правило реальным репликам, не вариантам будущего.
 
 ## State
-- `state.current`: date/time/location, физические `present_characters`, удалённые `remote_characters`, `remote_channels`, `positions`, `scene_items`, `unfinished_actions`.
-- Remote NPC участвует для profile/journal/relations, но без position. После контакта убери его из `remote_characters`; контакт, целиком прошедший за ход, зафиксируй участниками в `dialogue_memory_add`.
+- `state.current`: date/time/location, `present_characters`, `remote_characters`, `remote_channels`, `positions`, `scene_items`, `unfinished_actions`.
+- Remote NPC участвует для profile/journal/relations без position. После контакта убери его; однопроходный контакт зафиксируй в `dialogue_memory_add`.
 - `scene_items` только значимые; при изменении передавай полный актуальный снимок, чтобы вещь не оставалась в старом месте.
 - POV clothing/inventory → `state.pov`; NPC при нужде → `state.characters[ID]`. Вход/выход/движение и важные изменения сохраняй через `state_patch`.
 - Последнее подтверждённое место/появление NPC не стирай при выходе.
 
 ## Хронология и отношения
-- `chronology` — долгосрочная история. Не сохраняй отдельными событиями еду, душ, туалет, сигарету, обычный сон/дорогу/переодевание без последствия. Сохраняй раскрытия, решения, договорённости, важные конфликты/знакомства/разрывы, угрозы и последствия. Exact time только когда оно причинно важно.
+- `chronology` — долгосрочная история. Бытовую рутину без последствий не сохраняй. Сохраняй раскрытия, решения, договорённости, конфликты, угрозы и последствия. Exact time только когда причинно важно.
 - Отношения: NPC → POV. Существующие показатели не переименовывай; `relationship_updates` требуют причину, существующее число меняется через `delta`.
 
 ## Мир и сюжет

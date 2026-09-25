@@ -8,11 +8,11 @@ from typing import Any, Dict, Iterable, List
 from fastapi import HTTPException
 
 from . import character_chunk_read, session_runtime, storage, writer_first_runtime
-from .scene_compaction_runtime import active_memory_records
+from .scene_compaction_runtime import active_memory_records, complete_knowledge_records
 from .transactional_storage import session_transaction
 
 
-_VERSION = 10
+_VERSION = 11
 _ORIGINAL_PREPARE = None
 _ORIGINAL_COMMIT = None
 _ORIGINAL_CREATE_SESSION = None
@@ -339,6 +339,8 @@ def _knowledge_only_bucket(bucket: Any) -> Dict[str, Any]:
         result["historical_knowledge_catalog"] = deepcopy(source["historical_knowledge_catalog"])
     if source.get("older_history_available") not in (None, "", [], {}):
         result["older_history_available"] = deepcopy(source["older_history_available"])
+    if source.get("knowledge_complete_in_transport") is True:
+        result["knowledge_complete_in_transport"] = True
     return result
 
 
@@ -446,6 +448,30 @@ def _rewrite_packet(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
             return base
 
         memory = context.get("character_memory") if isinstance(context.get("character_memory"), dict) else {}
+
+        # Upgrade old pending packets too. A packet prepared before this hotfix may
+        # contain only the historical 12/36-fact working slice. Do not trust that
+        # slice as factual authority: reload complete persisted knowledge for every
+        # character already participating in this packet.
+        persisted_memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
+        persisted_buckets = (
+            persisted_memory.get("characters", {})
+            if isinstance(persisted_memory.get("characters"), dict)
+            else {}
+        )
+        for character_id, bucket in list(memory.items()):
+            if not isinstance(bucket, dict):
+                continue
+            persisted = (
+                persisted_buckets.get(str(character_id), {})
+                if isinstance(persisted_buckets.get(str(character_id)), dict)
+                else {}
+            )
+            repaired = deepcopy(bucket)
+            repaired["knowledge"] = complete_knowledge_records(persisted.get("knowledge", []))
+            repaired["knowledge_complete_in_transport"] = True
+            memory[str(character_id)] = repaired
+
         author_recollection: Dict[str, Any] = {}
         strict_memory: Dict[str, Any] = {}
         for character_id, bucket in memory.items():
@@ -541,7 +567,7 @@ def _persistent_knowledge(root, character_id: str) -> List[Dict[str, Any]]:
     memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
     buckets = memory.get("characters", {}) if isinstance(memory.get("characters"), dict) else {}
     bucket = buckets.get(character_id, {}) if isinstance(buckets.get(character_id), dict) else {}
-    return active_memory_records(bucket.get("knowledge", []))
+    return complete_knowledge_records(bucket.get("knowledge", []))
 
 
 def _source_evidence_position(event: Dict[str, Any], user_input: str, scene_output: str) -> int:

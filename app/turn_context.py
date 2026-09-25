@@ -8,7 +8,7 @@ from typing import Any, Dict, List
 from . import storage
 from .relationship_runtime import build_relationship_lens
 from .runtime_access import runtime_documents
-from .scene_compaction_runtime import active_memory_records
+from .scene_compaction_runtime import active_memory_records, complete_knowledge_records
 
 
 RECENT_MEMORY_TURNS = 30
@@ -193,28 +193,24 @@ def _working_records(records: Any, current_turn: int) -> tuple[List[Dict[str, An
 
 def _working_memory_bucket(bucket: Any, current_turn: int) -> Dict[str, Any]:
     source = bucket if isinstance(bucket, dict) else {}
-    knowledge, old_knowledge = _working_records(source.get("knowledge", []), current_turn)
+
+    # Knowledge is factual authority for dialogue. Every active knowledge record for
+    # a scene participant must therefore reach the model; a recency cap can make a
+    # character "forget" an older fact even though it is still persisted.
+    knowledge = complete_knowledge_records(source.get("knowledge", []))
+
+    # Experiences and dialogue recollection are supporting context rather than the
+    # factual knowledge authority, so they can stay bounded for packet size.
     experiences, old_experiences = _working_records(source.get("experiences", []), current_turn)
     dialogue, old_dialogue = _working_records(source.get("dialogue_memory", []), current_turn)
-    historical_knowledge_catalog = []
-    for item in old_knowledge:
-        row = {
-            "fact_id": _record_id(item),
-            "learned_turn": _record_turn(item),
-            "summary": _memory_summary(item),
-        }
-        if item.get("last_learned_turn") not in (None, ""):
-            row["last_learned_turn"] = item.get("last_learned_turn")
-        if item.get("confidence") is not None:
-            row["confidence"] = item.get("confidence")
-        historical_knowledge_catalog.append({key: value for key, value in row.items() if value not in (None, "", 0)})
     return {
-        "knowledge": knowledge,
+        "knowledge": deepcopy(knowledge),
         "experiences": experiences,
         "dialogue_memory": dialogue,
-        "historical_knowledge_catalog": historical_knowledge_catalog,
+        "historical_knowledge_catalog": [],
+        "knowledge_complete_in_transport": True,
         "older_history_available": {
-            "knowledge_records_not_full": len(old_knowledge),
+            "knowledge_records_not_full": 0,
             "experience_records_not_full": len(old_experiences),
             "dialogue_records_not_full": len(old_dialogue),
             "retrieval": "prepareCharacterBundleRead -> getCharacterBundleChunk",
@@ -310,7 +306,7 @@ def inject_required_turn_context(context: Dict[str, Any], cards: List[Dict[str, 
 
     context["character_cards"] = scene_cards
     context["character_memory"] = scene_memory
-    context["character_context_instruction"] = "Offscreen NPC перед участием → полный character bundle. character_memory в packet bounded; полный архив остаётся в Railway."
+    context["character_context_instruction"] = "Для участников сцены knowledge передаётся полностью; experiences/dialogue могут быть bounded. Offscreen NPC перед участием → полный character bundle."
     context["knowledge_guard"] = {
         "mandatory": True,
         "personal_memory_path": "character_memory[character_id]",
@@ -333,6 +329,7 @@ def inject_required_turn_context(context: Dict[str, Any], cards: List[Dict[str, 
         "full_cards_only_for_active_participants": True,
         "remote_calls_and_messages_count_as_scene_participation": True,
         "lifetime_memory_stays_persistent": True,
+        "active_character_knowledge_complete": True,
         "scene_state_relationship_stores_omitted": True,
         "single_runtime_document_copy": True,
         "stable_scene_builder_paths": True,

@@ -128,7 +128,7 @@ def prepare_size(session_id: str):
     return manifest["total_chars"], manifest["chunk_count"], stats.get("top_level_chars", {})
 
 
-def test_turn_300_writer_packet_stays_same_order_of_magnitude_as_turn_30():
+def test_turn_300_writer_packet_growth_is_explained_by_complete_character_knowledge():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         short_sid = storage.create_session(novel())["session_id"]
@@ -151,9 +151,17 @@ def test_turn_300_writer_packet_stays_same_order_of_magnitude_as_turn_30():
             print("writer-first longevity diagnostic", {"chars_30": chars_30, "chunks_30": chunks_30, "chars_300": chars_300, "chunks_300": chunks_300, "largest_growth": growth[:15]})
 
         assert chunks_30 <= 8
-        assert chunks_300 <= 8
-        assert chars_300 <= chars_30 * 1.35
-        assert chunks_300 <= chunks_30 + 2
+        assert chunks_300 <= 24
+
+        memory_30 = int(top_30.get("character_memory", 0))
+        memory_300 = int(top_300.get("character_memory", 0))
+        assert memory_300 > memory_30
+
+        # Non-memory working context should remain bounded. Packet growth is now
+        # intentionally driven by complete factual knowledge for active characters.
+        non_memory_30 = max(1, chars_30 - memory_30)
+        non_memory_300 = max(1, chars_300 - memory_300)
+        assert non_memory_300 <= non_memory_30 * 1.35
 
 
 def test_turn_300_fast_audit_is_compact_and_inlines_first_chunk():

@@ -33,6 +33,7 @@ Remote NPC участник сцены для profile/journal/relations, но н
 `scene_items` только значимые; при изменении передавай полный актуальный снимок. POV clothing/inventory → `state_patch.pov`; NPC при нужде → `state_patch.characters[ID]`. Вход/выход/движение и важные изменения сохраняй в том же ходе.
 
 ## ЗНАНИЯ ПЕРСОНАЖЕЙ
+Для каждого участника сцены factual knowledge должен быть прочитан **полностью**, без отсечения старых записей. Legacy: полный `character_memory[ID].knowledge`. V5: полный `knowledge_journals[ID]`.
 V5: NPC использует только собственный `character_profiles[ID]`, собственный `knowledge_journals[ID]`, текущее восприятие и своё отношение. Собственный profile = self-known. POV аналогично.
 Новые знания о других/мире → `knowledge_journal_add`: `character_id`, optional date/period, text. **Никаких fact_id/source_fact_ids/source_event_ids/source_unit_id**.
 Обычную отсутствующую self-detail можно создать непротиворечиво и закрепить через `character_upserts`.
