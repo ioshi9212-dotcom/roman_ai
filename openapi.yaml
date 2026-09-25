@@ -611,20 +611,6 @@ paths:
         - {in: path, name: draft_id, required: true, schema: {type: string}}
       responses:
         '200': {description: Draft published}
-  /novels:
-    get:
-      operationId: listNovels
-      summary: List reusable library novels
-      responses:
-        '200': {description: Novel list}
-  /novels/{novel_id}/read:
-    post:
-      operationId: prepareNovelRead
-      summary: Prepare chunked reading of a library novel
-      parameters:
-        - {in: path, name: novel_id, required: true, schema: {type: string}}
-      responses:
-        '200': {description: Prepared read}
   /novel-reads/{read_id}/{chunk_index}:
     get:
       operationId: getNovelReadChunk
@@ -634,17 +620,6 @@ paths:
         - {in: path, name: chunk_index, required: true, schema: {type: integer}}
       responses:
         '200': {description: One chunk}
-  /sessions:
-    post:
-      operationId: createSession
-      summary: Create an isolated session from a library novel
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: {$ref: '#/components/schemas/SessionCreate'}
-      responses:
-        '200': {description: Session metadata}
   /sessions/{session_id}/resume:
     post:
       operationId: resumeSession
@@ -709,7 +684,7 @@ paths:
     post:
       operationId: prepareTurn
       summary: Build or reuse bounded writer-first context from complete persistent canon
-      description: New clients use stable request_id and capability flags. Roman GPT uses scene_archive_capable=true, knowledge_review_capable=true, complete_knowledge_read_capable=true and strict_knowledge_capable=false. prepareTurn then returns scene_knowledge_reads listing every current physical/remote scene participant whose complete factual knowledge must be read before the scene. Pending turns are replaced only when explicitly requested.
+      description: Roman GPT uses stable request_id plus scene_archive_capable=true, knowledge_review_capable=true and complete_knowledge_read_capable=true. prepareTurn returns required scene knowledge reads; read them fully before the scene.
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
       requestBody:
