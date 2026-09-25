@@ -26,6 +26,11 @@ from .session_preview import get_session_preview
 from .session_recovery import recover_session_current
 from .session_runtime import continue_session, prepare_turn_packet
 from .scene_archive_read import get_scene_archive_chunk, prepare_scene_archive_read
+from .scene_knowledge_read import (
+    get_character_knowledge_chunk,
+    prepare_character_knowledge_read,
+    scene_knowledge_read_status,
+)
 from .operation_service import (
     OperationReceiptConflict,
     commit_audit_request,
@@ -441,6 +446,7 @@ def turn_packet_prepare(session_id: str, body: TurnPrepare):
             body.request_id,
             scene_archive_capable=bool(body.scene_archive_capable),
             knowledge_review_capable=bool(body.knowledge_review_capable),
+            complete_knowledge_read_capable=bool(body.complete_knowledge_read_capable),
             strict_knowledge_capable=bool(body.strict_knowledge_capable),
             replace_pending=bool(body.replace_pending),
         )
@@ -508,6 +514,49 @@ def scene_archive_chunk_get(session_id: str, read_id: str, chunk_index: int, sce
         raise HTTPException(status_code=409, detail="Scene archive changed; restart the prepared read")
     except IndexError:
         raise HTTPException(status_code=404, detail="Scene archive chunk index out of range")
+
+
+
+
+
+@app.post("/sessions/{session_id}/characters/{character_id}/knowledge-read", operation_id="prepareCharacterKnowledgeRead")
+def character_knowledge_read_prepare(session_id: str, character_id: str):
+    try:
+        return prepare_character_knowledge_read(session_id, character_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Session not found")
+    except RuntimeError as exc:
+        if str(exc) == "TURN_PACKET_REQUIRED":
+            raise HTTPException(status_code=409, detail="Prepare the current turn packet before reading character knowledge")
+        raise
+
+
+@app.get("/sessions/{session_id}/characters/{character_id}/knowledge-read/{read_id}/{chunk_index}", operation_id="getCharacterKnowledgeChunk")
+def character_knowledge_chunk_get(session_id: str, character_id: str, read_id: str, chunk_index: int):
+    try:
+        return get_character_knowledge_chunk(session_id, character_id, read_id, chunk_index)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Session not found")
+    except RuntimeError as exc:
+        if str(exc) == "TURN_PACKET_REQUIRED":
+            raise HTTPException(status_code=409, detail="Current turn packet is missing")
+        raise
+    except PermissionError:
+        raise HTTPException(status_code=409, detail="Character knowledge changed or belongs to another packet; restart the knowledge read")
+    except IndexError:
+        raise HTTPException(status_code=404, detail="Character knowledge chunk index out of range")
+
+
+@app.get("/sessions/{session_id}/knowledge-read-status", operation_id="getSceneKnowledgeReadStatus")
+def scene_knowledge_read_status_get(session_id: str):
+    try:
+        return scene_knowledge_read_status(session_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Session not found")
+    except RuntimeError as exc:
+        if str(exc) == "TURN_PACKET_REQUIRED":
+            raise HTTPException(status_code=409, detail="Prepare the current turn packet first")
+        raise
 
 
 @app.post("/sessions/{session_id}/characters/{character_id}/read", operation_id="prepareCharacterBundleRead")
@@ -616,6 +665,7 @@ def turns_commit(session_id: str, body: TurnCommit):
             "SCENE_BUILDER_TURN_FOOTER_MISMATCH": "The final turn number and cycle must match the backend's current turn exactly.",
             "RUNTIME_RULE_PLAYER_SPEECH_NOT_PRESERVED": "The player's spoken text outside parentheses was lost or rewritten. Preserve those words in the main scene and retry the same commit.",
             "CAST_STORY_FUNCTION_REQUIRED": "A recurring/important story-created NPC needs character_upserts.story_function: one short director-level sentence explaining why this NPC matters to the story, not the NPC's personal goal.",
+            "CHARACTER_KNOWLEDGE_READ_REQUIRED": "Before writing/committing this scene, fully read every required scene participant via prepareCharacterKnowledgeRead and all getCharacterKnowledgeChunk chunks. Then retry the same commit.",
         }
         if code in errors:
             raise HTTPException(status_code=409, detail=errors[code])
