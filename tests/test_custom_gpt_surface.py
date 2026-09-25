@@ -14,6 +14,9 @@ def test_custom_gpt_schema_exposes_response_safe_single_context_character_and_ro
     audit_path = "/sessions/{session_id}/audit-snapshot/{audit_id}/{chunk_index}"
     character_prepare = "/sessions/{session_id}/characters/{character_id}/read"
     character_chunk = "/sessions/{session_id}/characters/{character_id}/read/{read_id}/{chunk_index}"
+    knowledge_prepare = "/sessions/{session_id}/characters/{character_id}/knowledge-read"
+    knowledge_chunk = "/sessions/{session_id}/characters/{character_id}/knowledge-read/{read_id}/{chunk_index}"
+    knowledge_status = "/sessions/{session_id}/knowledge-read-status"
     rollback_path = "/sessions/{session_id}/rollback-last-turn"
     intake_chunk = "/novel-drafts/{draft_id}/intake/chunks"
     intake_mapping = "/novel-drafts/{draft_id}/intake/{block_id}/mapping"
@@ -26,6 +29,9 @@ def test_custom_gpt_schema_exposes_response_safe_single_context_character_and_ro
     assert paths[audit_path]["get"]["operationId"] == "getAuditSnapshotChunk"
     assert paths[character_prepare]["post"]["operationId"] == "prepareCharacterBundleRead"
     assert paths[character_chunk]["get"]["operationId"] == "getCharacterBundleChunk"
+    assert paths[knowledge_prepare]["post"]["operationId"] == "prepareCharacterKnowledgeRead"
+    assert paths[knowledge_chunk]["get"]["operationId"] == "getCharacterKnowledgeChunk"
+    assert paths[knowledge_status]["get"]["operationId"] == "getSceneKnowledgeReadStatus"
     assert paths[rollback_path]["post"]["operationId"] == "rollbackLastTurn"
     assert paths[intake_chunk]["post"]["operationId"] == "appendDraftIntakeChunk"
     assert paths[intake_mapping]["post"]["operationId"] == "updateDraftIntakeMapping"
@@ -42,6 +48,7 @@ def test_custom_gpt_schema_exposes_response_safe_single_context_character_and_ro
     assert turn_prepare["required"] == ["user_input"]
     assert "request_id" in turn_prepare["properties"]
     assert "scene_archive_capable" in turn_prepare["properties"]
+    assert "complete_knowledge_read_capable" in turn_prepare["properties"]
     assert "replace_pending" in turn_prepare["properties"]
     assert "audit_id" in schema["components"]["schemas"]["AuditCommit"]["required"]
 
@@ -77,6 +84,9 @@ def test_custom_gpt_instruction_stays_small_and_matches_writer_first_transport()
     assert "getAuditSnapshotChunk" in text
     assert "prepareCharacterBundleRead" in text
     assert "getCharacterBundleChunk" in text
+    assert "prepareCharacterKnowledgeRead" in text
+    assert "getCharacterKnowledgeChunk" in text
+    assert "getSceneKnowledgeReadStatus" in text
     assert "rollbackLastTurn" in text
     assert "packet_id" in text
     assert "audit_id" in text
@@ -107,6 +117,7 @@ def test_custom_gpt_instruction_stays_small_and_matches_writer_first_transport()
     assert "собственный `knowledge_journals[ID]`" in text
     assert "strict_knowledge_capable=false" in text
     assert "knowledge_review_capable=true" in text
+    assert "complete_knowledge_read_capable=true" in text
     assert "POV" in text
     assert "бытовые низкорисковые реплики" in text
 
