@@ -48,7 +48,7 @@ def contract_packet() -> Dict[str, Any]:
             "main_scene_max_3000_chars",
             "fixed_novel_title",
             "exact_turn_and_cycle_footer",
-            "player_spoken_segments_preserved",
+            "player_spoken_segments_preserved_in_order",
             "state_max_10_words",
             "relationship_footer_shape",
         ],
@@ -287,7 +287,14 @@ def validate_runtime_contract(session_id: str, payload: Dict[str, Any]) -> None:
     )
     if not is_launch_control:
         main_norm = _norm_words(parts["main_scene"])
+        search_from = 0
         for spoken in _parse_player_input(raw_input):
             spoken_norm = _norm_words(spoken)
-            if spoken_norm and spoken_norm not in main_norm:
+            if not spoken_norm:
+                continue
+            position = main_norm.find(spoken_norm, search_from)
+            if position < 0:
+                if spoken_norm in main_norm:
+                    raise RuntimeContractError("RUNTIME_RULE_PLAYER_SPEECH_ORDER_INVALID")
                 raise RuntimeContractError("RUNTIME_RULE_PLAYER_SPEECH_NOT_PRESERVED")
+            search_from = position + len(spoken_norm)
