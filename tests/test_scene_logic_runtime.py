@@ -118,7 +118,7 @@ def test_runtime_and_custom_gpt_repeat_source_order_and_spelling_policy():
     assert "ordered_segments" in rules
     assert "слева направо" in rules
     assert "Между сегментами" in rules
-    assert "не склеивай реплики POV" in rules
+    assert "Не склеивай" in rules
     assert "scene_logic_guardrails" in instructions
     assert "ordered_segments" in instructions
     assert "Между сегментами" in instructions
