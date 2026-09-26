@@ -152,6 +152,38 @@ def _block_range(migration: Dict[str, Any], block_index: int) -> tuple[int, int]
     return start, end
 
 
+def _compact_memory_row(item: Dict[str, Any], memory_type: str) -> Dict[str, Any]:
+    text_keys = {
+        "knowledge_journal": ("text", "fact", "summary"),
+        "knowledge": ("fact", "text", "summary"),
+        "experiences": ("summary", "event", "text", "description"),
+        "dialogue_memory": ("summary", "topic", "text", "description"),
+    }
+    text = ""
+    for key in text_keys.get(memory_type, ("text", "summary")):
+        if item.get(key) not in (None, ""):
+            text = " ".join(str(item.get(key)).split())
+            break
+    row: Dict[str, Any] = {}
+    if text:
+        row["text"] = text
+    turn = _record_turn(item)
+    if turn:
+        row["turn"] = turn
+    for key in ("date", "period", "story_date"):
+        if item.get(key) not in (None, ""):
+            row[key] = deepcopy(item[key])
+    if memory_type == "dialogue_memory":
+        participants = item.get("participants")
+        if isinstance(participants, str):
+            participants = [participants]
+        if isinstance(participants, list) and participants:
+            row["participants"] = [str(v) for v in participants if v]
+    if item.get("confidence") not in (None, "", "certain"):
+        row["confidence"] = deepcopy(item["confidence"])
+    return row
+
+
 def _memory_for_range(memory: Dict[str, Any], start: int, end: int) -> Dict[str, Any]:
     result: Dict[str, Any] = {}
     characters = memory.get("characters") if isinstance(memory.get("characters"), dict) else {}
@@ -163,13 +195,14 @@ def _memory_for_range(memory: Dict[str, Any], start: int, end: int) -> Dict[str,
             values = raw.get(key) if isinstance(raw.get(key), list) else []
             values = active_memory_records(values)
             rows = [
-                deepcopy(x) for x in values
+                _compact_memory_row(x, key) for x in values
                 if isinstance(x, dict)
                 and (
                     start <= _record_turn(x) <= end
                     or (start == 1 and _record_turn(x) == 0)
                 )
             ]
+            rows = [row for row in rows if row.get("text")]
             if rows:
                 bucket[key] = rows
         if bucket:
