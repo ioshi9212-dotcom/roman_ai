@@ -54,6 +54,8 @@ def test_same_session_runs_through_45_and_60_without_handoff_block():
         novel = {
             "novel_id": "cycle61",
             "title": "Cycle 61",
+            "version": 5,
+            "profile_schema": {"version": 1},
             "novel": {"pov_character": "pov"},
             "characters": [{"character_id": "pov", "name": "POV", "is_pov": True}],
             "starting_state": {
@@ -89,6 +91,9 @@ def test_same_session_runs_through_45_and_60_without_handoff_block():
                 audit_result = close_audit(sid, [turn - 14, turn])
                 audited.append(turn)
                 assert audit_result["handoff_required"] is False
+                if turn == 60:
+                    assert audit_result["macro_chronology_deferred"] is True
+                    assert audit_result["macro_chronology_compacted"] is False
 
             if turn == 45:
                 # The exact failure point from the real incident: next packet must exist.
