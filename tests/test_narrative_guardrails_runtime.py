@@ -180,6 +180,8 @@ def test_pov_activity_keeps_visible_presence_and_ordinary_dialogue():
     rule = guardrails._pov_activity_rule()
     assert rule["mandatory"] is True
     assert rule["min_post_input_presence_beats"] == 2
+    assert rule["min_active_post_input_beats"] == 1
+    assert rule["passive_observation_alone_is_not_activity"] is True
     assert rule["ordinary_dialogue_required_when_natural"] is True
     assert rule["multiple_pov_lines_allowed"] is True
     assert rule["silence_requires_character_or_scene_reason"] is True
@@ -188,6 +190,7 @@ def test_pov_activity_keeps_visible_presence_and_ordinary_dialogue():
     assert "не камера и не мебель" in text
     assert "минимум дважды" in text
     assert "сам user_input не засчитывай" in text
+    assert "одни ощущения, наблюдения и описание состояния не считаются" in text
     assert "POV отвечает словами" in text
     assert "не заменяй естественный ответ" in text
 
@@ -266,7 +269,7 @@ def test_prepare_turn_packet_contains_concise_narrative_guardrails():
         context = json.loads("".join(parts))
 
         signals = context["narrative_guardrails"]
-        assert signals["version"] == 17
+        assert signals["version"] == 18
         assert signals["pov_activity"]["mandatory"] is True
         assert signals["pov_activity"]["min_post_input_presence_beats"] == 2
         assert signals["pov_activity"]["ordinary_dialogue_required_when_natural"] is True

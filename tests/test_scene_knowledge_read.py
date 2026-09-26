@@ -182,3 +182,26 @@ def test_identical_pending_turn_can_upgrade_to_complete_knowledge_reads():
         assert "scene_knowledge_reads" in upgraded
         packet = storage._read_json(storage.SESSIONS_DIR / sid / "turn_packet.json", {})
         assert packet["complete_knowledge_read_capable"] is True
+
+
+def test_completed_knowledge_status_restores_scene_direction_after_large_reads():
+    with tempfile.TemporaryDirectory() as tmp:
+        _setup(tmp)
+        sid = storage.create_session(_novel(version=5))["session_id"]
+        prepare_turn_request(
+            sid,
+            "(продолжить)",
+            "scene-direction-reminder",
+            knowledge_review_capable=True,
+            complete_knowledge_read_capable=True,
+        )
+        _read_all(sid, "pov")
+        _read_all(sid, "aiden")
+        status = scene_knowledge_read_status(sid)
+        assert status["all_complete"] is True
+        reminder = status["scene_directing_reminder"]
+        assert "не перечисляй, чего персонажи НЕ сделали" in reminder
+        assert "POV остаётся активным живым участником" in reminder
+        assert "пассивных ощущений/наблюдений" in reminder
+        assert "фоновые одноразовые NPC" in reminder
+        assert "без карточки и полного knowledge-read" in reminder
