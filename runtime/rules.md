@@ -41,4 +41,4 @@ Backend хранит канон. `scene_builder` задаёт формат сц�
 2. Сцена строго по `scene_builder`; проверь знания, presence, отношения, intents, threads.
 3. Перед `commitTurn`: после проверки отношений `relationship_reviewed=true`; также `persistence_reviewed=true`, `knowledge_reviewed=true`, chronology/journal/memory/intents/threads. Один commit; сцену покажи после успеха.
 
-Audit каждые 15 ходов: state, отношения, cast last-seen/contact, journal/memory/intents/chronology. Каждый 60-й ход при `macro_audit_60` создай `repairs.chronology_compactions`: короткие абзацы по датам только с важным; они заменяют raw chronology диапазона, время оставляй только если причинно важно.
+Audit каждые 15 ходов: state, отношения, cast last-seen/contact, journal/memory/intents/chronology. Каждый 60-й ход при `macro_audit_60` создай `repairs.chronology_compactions`: короткие абзацы по датам только с важным. Если корректно собрать macro-compaction нельзя, не блокируй audit: поле не отправляй, raw chronology сохранится без потерь.
