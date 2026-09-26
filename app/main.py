@@ -447,6 +447,7 @@ def turn_packet_prepare(session_id: str, body: TurnPrepare):
             scene_archive_capable=bool(body.scene_archive_capable),
             knowledge_review_capable=bool(body.knowledge_review_capable),
             complete_knowledge_read_capable=bool(body.complete_knowledge_read_capable),
+            relationship_review_capable=bool(body.relationship_review_capable),
             strict_knowledge_capable=bool(body.strict_knowledge_capable),
             replace_pending=bool(body.replace_pending),
         )
@@ -667,6 +668,7 @@ def turns_commit(session_id: str, body: TurnCommit):
             "RUNTIME_RULE_PLAYER_SPEECH_ORDER_INVALID": "The player's spoken segments were rendered out of left-to-right order. Replay ordered_segments sequentially, keeping each parenthesized action/thought before the later spoken segment; natural NPC reactions or pauses may occur between them.",
             "CAST_STORY_FUNCTION_REQUIRED": "A recurring/important story-created NPC needs character_upserts.story_function: one short director-level sentence explaining why this NPC matters to the story, not the NPC's personal goal.",
             "CHARACTER_KNOWLEDGE_READ_REQUIRED": "Before writing/committing this scene, fully read every required scene participant via prepareCharacterKnowledgeRead and all getCharacterKnowledgeChunk chunks. Then retry the same commit.",
+            "RELATIONSHIP_REVIEW_REQUIRED": "Before commit, review whether this turn changed each participating NPC's relationship to POV. Persist every causal change through relationship_updates with reason and delta for existing metrics; if nothing changed, keep relationship_updates empty. Then set extracted.relationship_reviewed=true and retry the same commit.",
         }
         if code in errors:
             raise HTTPException(status_code=409, detail=errors[code])

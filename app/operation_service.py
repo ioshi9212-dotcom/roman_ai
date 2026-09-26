@@ -52,6 +52,7 @@ def _packet_status(packet: Any) -> Dict[str, Any] | None:
         "scene_archive_capable": bool(packet.get("scene_archive_capable")),
         "knowledge_review_capable": bool(packet.get("knowledge_review_capable")),
         "complete_knowledge_read_capable": bool(packet.get("complete_knowledge_read_capable")),
+        "relationship_review_capable": bool(packet.get("relationship_review_capable")),
         "strict_knowledge_capable": bool(packet.get("strict_knowledge_capable")),
     }
 
@@ -84,6 +85,7 @@ def prepare_turn_request(
     scene_archive_capable: bool = False,
     knowledge_review_capable: bool = False,
     complete_knowledge_read_capable: bool = False,
+    relationship_review_capable: bool = False,
     strict_knowledge_capable: bool = False,
     replace_pending: bool = False,
 ) -> Dict[str, Any]:
@@ -118,6 +120,8 @@ def prepare_turn_request(
                     packet["knowledge_review_capable"] = True
                 if complete_knowledge_read_capable:
                     packet["complete_knowledge_read_capable"] = True
+                if relationship_review_capable:
+                    packet["relationship_review_capable"] = True
                 if strict_knowledge_capable:
                     packet["strict_knowledge_capable"] = True
                 storage._write_json(root / "turn_packet.json", packet)
@@ -127,6 +131,7 @@ def prepare_turn_request(
                 result["scene_archive_capable"] = bool(packet.get("scene_archive_capable"))
                 result["knowledge_review_capable"] = bool(packet.get("knowledge_review_capable"))
                 result["complete_knowledge_read_capable"] = bool(packet.get("complete_knowledge_read_capable"))
+                result["relationship_review_capable"] = bool(packet.get("relationship_review_capable"))
                 result["strict_knowledge_capable"] = bool(packet.get("strict_knowledge_capable"))
                 if bool(packet.get("complete_knowledge_read_capable")):
                     result["scene_knowledge_reads"] = scene_knowledge_read_status(session_id)
@@ -154,6 +159,7 @@ def prepare_turn_request(
             packet["scene_archive_capable"] = bool(scene_archive_capable)
             packet["knowledge_review_capable"] = bool(knowledge_review_capable)
             packet["complete_knowledge_read_capable"] = bool(complete_knowledge_read_capable)
+            packet["relationship_review_capable"] = bool(relationship_review_capable)
             packet["strict_knowledge_capable"] = bool(strict_knowledge_capable)
             storage._write_json(root / "turn_packet.json", packet)
 
@@ -165,6 +171,7 @@ def prepare_turn_request(
         result["scene_archive_capable"] = bool(scene_archive_capable)
         result["knowledge_review_capable"] = bool(knowledge_review_capable)
         result["complete_knowledge_read_capable"] = bool(complete_knowledge_read_capable)
+        result["relationship_review_capable"] = bool(relationship_review_capable)
         result["strict_knowledge_capable"] = bool(strict_knowledge_capable)
         if bool(complete_knowledge_read_capable):
             result["scene_knowledge_reads"] = scene_knowledge_read_status(session_id)
@@ -230,6 +237,10 @@ def commit_turn_request(session_id: str, payload: Dict[str, Any]) -> Dict[str, A
             session_id,
             extra_character_ids=_turn_participant_ids_from_payload(payload),
         )
+    if bool(packet.get("relationship_review_capable")):
+        extracted = payload.get("extracted") if isinstance(payload.get("extracted"), dict) else {}
+        if extracted.get("relationship_reviewed") is not True:
+            raise RuntimeError("RELATIONSHIP_REVIEW_REQUIRED")
 
     prepared = deepcopy(payload)
     prepared["_operation_receipt"] = {
