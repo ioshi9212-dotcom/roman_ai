@@ -9,7 +9,7 @@ from .transactional_storage import session_transaction
 
 
 _ORIGINAL_PREPARE = None
-_GUARDRAIL_VERSION = 17
+_GUARDRAIL_VERSION = 18
 _TERMINAL = {"resolved", "closed", "expired", "cancelled", "canceled", "done", "abandoned"}
 _HOOK_KEYS = (
     "fear", "страх", "weak", "слаб", "past", "прошл", "history", "истор",
@@ -247,6 +247,22 @@ def _scene_momentum_rule(context: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _observational_narration_rule() -> Dict[str, Any]:
+    return {
+        "mandatory": True,
+        "camera_only": True,
+        "omit_non_events": True,
+        "no_author_commentary": True,
+        "rule": (
+            "Режиссура работает как камера: описывай только происходящее сейчас, наблюдаемую реакцию, физическое изменение "
+            "или доступное POV ощущение/мысль. Отсутствие действия не является отдельным событием: не перечисляй, чего NPC "
+            "не спросил, не предложил, не потребовал, не напомнил или не сделал. Не объясняй автором, почему персонаж выбрал "
+            "этот вариант, что он мог бы сделать иначе, насколько его поведение правильное/бережное и какой вывод должна "
+            "сделать POV. Характер, отношения и травмы проявляются через реальные слова и поступки."
+        ),
+    }
+
+
 def _rewrite_packet(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
     root = storage.SESSIONS_DIR / session_id
     with session_transaction(root):
@@ -270,6 +286,7 @@ def _rewrite_packet(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
             "character_driven_behavior": _character_driven_behavior_rule(),
             "npc_intent_drive": _npc_intent_drive_rule(context),
             "scene_momentum": _scene_momentum_rule(context),
+            "observational_narration": _observational_narration_rule(),
             "cast_pressure": _cast_pressure(context, state if isinstance(state, dict) else {}, current_turn),
             "story_pressure": _story_pressure(context, current_turn),
             "character_relevance": _character_relevance(context),
