@@ -50,7 +50,7 @@ def test_relationship_review_capability_is_stored_and_can_upgrade_pending_turn()
         assert packet["relationship_review_capable"] is True
 
 
-def test_commit_is_rejected_when_enabled_relationship_review_was_skipped():
+def test_missing_relationship_review_flag_does_not_brick_live_pending_turn():
     with tempfile.TemporaryDirectory() as tmp:
         _setup(tmp)
         sid = storage.create_session(_novel())["session_id"]
@@ -64,17 +64,16 @@ def test_commit_is_rejected_when_enabled_relationship_review_was_skipped():
         for index in range(start, manifest["chunk_count"]):
             storage.get_turn_packet_chunk(sid, manifest["packet_id"], index)
 
-        with pytest.raises(RuntimeError) as exc:
-            commit_turn_request(
-                sid,
-                {
-                    "packet_id": manifest["packet_id"],
-                    "user_input": "(молча посмотреть)",
-                    "scene_output": "not reached",
-                    "extracted": {
-                        "persistence_reviewed": True,
-                        "relationship_reviewed": False,
-                    },
+        result = commit_turn_request(
+            sid,
+            {
+                "packet_id": manifest["packet_id"],
+                "user_input": "(молча посмотреть)",
+                "scene_output": "not reached",
+                "extracted": {
+                    "persistence_reviewed": True,
+                    "relationship_reviewed": False,
                 },
-            )
-        assert str(exc.value) == "RELATIONSHIP_REVIEW_REQUIRED"
+            },
+        )
+        assert result["already_committed"] is False
