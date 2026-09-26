@@ -73,6 +73,12 @@ def test_missing_relationship_review_flag_does_not_brick_live_pending_turn():
                 "extracted": {
                     "persistence_reviewed": True,
                     "relationship_reviewed": False,
+                    "chronology": [],
+                    "knowledge_add": [],
+                    "experiences_add": [],
+                    "dialogue_memory_add": [],
+                    "npc_intent_updates": [],
+                    "story_thread_updates": [],
                 },
             },
         )
