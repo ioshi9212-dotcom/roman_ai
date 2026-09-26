@@ -1,12 +1,31 @@
 openapi: 3.1.0
 info:
   title: Roman AI
-  version: 1.16.0
+  version: 1.17.0
   description: Persistent isolated novel sessions with bounded writer-first context, transactional memory, living NPC relationships, NPC intents, story threads, recovery, rollback, cast rotation and lossless chunked setup intake.
 servers:
   - url: https://ai-roman-yumikofv.mia0.amvera.tech
 components:
   schemas:
+    ContinuationBlockCommit:
+      type: object
+      required: [migration_id, block_index, summary]
+      properties:
+        migration_id: {type: string}
+        block_index: {type: integer, minimum: 0}
+        summary:
+          type: object
+          additionalProperties: true
+      additionalProperties: false
+    ContinuationFinalCommit:
+      type: object
+      required: [migration_id, package]
+      properties:
+        migration_id: {type: string}
+        package:
+          type: object
+          additionalProperties: true
+      additionalProperties: false
     NovelDraftCreate:
       type: object
       required: [novel_id, title]
@@ -638,16 +657,83 @@ paths:
       responses:
         '200': {description: Continuation compaction preview}
         '404': {description: Session not found}
+  /sessions/{session_id}/continuation/compaction:
+    post:
+      operationId: prepareContinuationCompaction
+      summary: Start or resume semantic compaction of a long session
+      parameters:
+        - {in: path, name: session_id, required: true, schema: {type: string}}
+      responses:
+        '200': {description: Migration manifest and next block}
+        '404': {description: Session not found}
+  /sessions/{session_id}/continuation/blocks/{block_index}/read:
+    post:
+      operationId: prepareContinuationBlockRead
+      summary: Prepare one 100-turn semantic-compaction block
+      parameters:
+        - {in: path, name: session_id, required: true, schema: {type: string}}
+        - {in: path, name: block_index, required: true, schema: {type: integer}}
+        - {in: query, name: migration_id, required: true, schema: {type: string}}
+      responses:
+        '200': {description: Chunked block read with chunk 0 included}
+  /sessions/{session_id}/continuation/read/{read_id}/{chunk_index}:
+    get:
+      operationId: getContinuationCompactionChunk
+      summary: Read a continuation-compaction chunk
+      parameters:
+        - {in: path, name: session_id, required: true, schema: {type: string}}
+        - {in: path, name: read_id, required: true, schema: {type: string}}
+        - {in: path, name: chunk_index, required: true, schema: {type: integer}}
+        - {in: query, name: migration_id, required: true, schema: {type: string}}
+      responses:
+        '200': {description: One continuation chunk}
+  /sessions/{session_id}/continuation/blocks/{block_index}/commit:
+    post:
+      operationId: commitContinuationBlock
+      summary: Commit the semantic summary of one continuation block
+      parameters:
+        - {in: path, name: session_id, required: true, schema: {type: string}}
+        - {in: path, name: block_index, required: true, schema: {type: integer}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ContinuationBlockCommit'}
+      responses:
+        '200': {description: Block summary saved}
+  /sessions/{session_id}/continuation/final/read:
+    post:
+      operationId: prepareContinuationFinalRead
+      summary: Prepare final cross-block reconciliation for a continuation
+      parameters:
+        - {in: path, name: session_id, required: true, schema: {type: string}}
+        - {in: query, name: migration_id, required: true, schema: {type: string}}
+      responses:
+        '200': {description: Chunked final reconciliation read}
+  /sessions/{session_id}/continuation/final/commit:
+    post:
+      operationId: commitContinuationFinal
+      summary: Commit globally deduplicated history, personal memories, corrected current state and threads
+      parameters:
+        - {in: path, name: session_id, required: true, schema: {type: string}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ContinuationFinalCommit'}
+      responses:
+        '200': {description: Final continuation package saved}
   /sessions/{session_id}/continuation:
     post:
       operationId: createContinuationSession
-      summary: Create a new compact session that canonically continues an existing long session
-      description: Preserves live cards, current state and relationships, per-character memory, compact chronology, and source provenance. The old session is never modified.
+      summary: Create a new compact session after semantic compaction is finalized
+      description: Requires completed block compaction and final reconciliation. Copies current relationship stores unchanged, preserves a 15-turn exact bridge, and never modifies the source session canon.
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
       responses:
         '200': {description: New continuation session created}
         '404': {description: Session not found}
+        '409': {description: Semantic compaction or finalization is incomplete}
   /sessions/{session_id}/resume:
     post:
       operationId: resumeSession
