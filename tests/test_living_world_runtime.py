@@ -169,9 +169,12 @@ def test_social_reactivity_allows_grounded_ambient_people_to_intervene_without_u
         packet = read_packet(sid, "Сесть за общий стол и продолжить разговор")
         instruction = packet["living_world"]["social_reactivity"]["instruction"].casefold()
 
-        assert "говорить" in instruction
-        assert "вмешиваться" in instruction
-        assert "одноразовому extra карточка не нужна" in instruction
+        assert "не стерилизуй фон" in instruction
+        assert "одноразовые люди" in instruction
+        assert "говорят между собой" in instruction
+        assert "вмешиваются" in instruction
+        assert "карточка и полный knowledge-read не нужны" in instruction
+        assert "повторяющийся/важный" in instruction
 
 
 def test_social_reactivity_allows_npc_to_npc_reports_without_turning_them_into_truth():
