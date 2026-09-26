@@ -241,13 +241,11 @@ def _reviewed_footer_delta_fallbacks(
 
     Persistent state remains authoritative. This bridge accepts only an existing metric, a non-zero
     ordinary delta within +/-3, a final footer value equal to saved+delta, and a concretely
-    participating NPC. Explicit relationship_updates always win. It is disabled unless the client
-    explicitly completed the per-turn relationship review.
+    participating NPC. Explicit relationship_updates always win. This remains compatibility-safe
+    for older clients because an explicit, arithmetically valid /delta is itself required.
     """
     result = deepcopy(payload)
     extracted = result.get("extracted") if isinstance(result.get("extracted"), dict) else {}
-    if extracted.get("relationship_reviewed") is not True:
-        return result
 
     footer = relationship_runtime._parse_footer(
         str(result.get("scene_output") or ""),
@@ -318,7 +316,7 @@ def _reviewed_footer_delta_fallbacks(
         if target is None:
             target = {
                 "character_id": owner_id,
-                "reason": "Fallback from mandatory relationship review: the scene footer recorded an explicit causal delta.",
+                "reason": "Compatibility fallback: the scene footer recorded an explicit causal delta.",
                 "change_scale": "ordinary",
                 "dimensions": [],
             }
@@ -327,7 +325,7 @@ def _reviewed_footer_delta_fallbacks(
         else:
             target.setdefault(
                 "reason",
-                "Fallback from mandatory relationship review: the scene footer recorded an explicit causal delta.",
+                "Compatibility fallback: the scene footer recorded an explicit causal delta.",
             )
             target.setdefault("change_scale", "ordinary")
 
@@ -522,7 +520,7 @@ def _rewrite_packet(session_id: str, base_result: Dict[str, Any]) -> Dict[str, A
                 "Не замораживай одни и те же показатели на многих ходах, если отношения явно развиваются или ухудшаются; "
                 "не меняй их механически без реального основания. Основной канал изменения — causal relationship_updates с reason+delta. "
                 "Footer остаётся display-only, но backend может восстановить забытый ordinary update только из явного /delta, "
-                "если relationship_reviewed=true и final=saved+delta; кривой, большой или неучаствующий delta игнорируется."
+                "если final=saved+delta; кривой, большой или неучаствующий delta игнорируется."
             ),
         }
 
