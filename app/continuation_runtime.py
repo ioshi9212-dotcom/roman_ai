@@ -5,6 +5,7 @@ from typing import Any, Dict, List
 
 from . import storage
 from .transactional_storage import json_text, write_batch
+from .scene_compaction_runtime import load_scene_history
 
 
 RECENT_TURN_COUNT = 15
@@ -128,7 +129,7 @@ def _load_source_parts(session_id: str) -> Dict[str, Any]:
     chronology = storage._read_json(root / "chronology.json", [])
     meta = storage._read_json(root / "meta.json", {})
     turns = storage._read_turns(root)
-    scenes = storage._read_json(root / "scene_memory.json", [])
+    scenes = load_scene_history(root)
 
     return {
         "root": root,
@@ -139,7 +140,7 @@ def _load_source_parts(session_id: str) -> Dict[str, Any]:
         "chronology": chronology,
         "meta": meta,
         "turns": turns,
-        "scenes": scenes if isinstance(scenes, list) else [],
+        "scenes": scenes,
     }
 
 
@@ -207,6 +208,15 @@ def create_continuation_session(session_id: str) -> Dict[str, Any]:
     source["continuation"] = {
         "continuation_of_session_id": session_id,
         "source_turn": current_turn,
+        "recent_scene_bridge": [
+            {
+                key: deepcopy(scene.get(key))
+                for key in ("scene_id", "start_turn", "end_turn", "summary", "participants", "locations")
+                if scene.get(key) not in (None, "", [], {})
+            }
+            for scene in recent_scenes
+            if isinstance(scene, dict)
+        ],
         "history_contract": (
             "Events before the new session live in chronology and the exact recent-turn bridge. "
             "They are prior canon, not events that happened at new-session turn 0."
@@ -241,7 +251,6 @@ def create_continuation_session(session_id: str) -> Dict[str, Any]:
             "state.json": json_text(state),
             "memory.json": json_text(compacted_memory),
             "chronology.json": json_text(compacted_chronology),
-            "scene_memory.json": json_text(recent_scenes),
             "handoff_tail.json": json_text(handoff_tail),
         },
     )
