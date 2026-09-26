@@ -29,7 +29,7 @@ Backend хранит канон. `scene_builder` задаёт формат сц�
 
 ## Хронология и отношения
 - `chronology` — долгосрочная история. Бытовую рутину без последствий не сохраняй. Сохраняй раскрытия, решения, договорённости, конфликты, угрозы и последствия. Exact time только когда причинно важно.
-- Отношения: NPC → POV. Существующие показатели не переименовывай; `relationship_updates` требуют причину, существующее число меняется через `delta`.
+- Отношения: NPC → POV. После сцены обязательно оцени каждого участвовавшего NPC: изменило ли произошедшее его отношение к POV. Реальное изменение → `relationship_updates` с причиной; существующее число через `delta`. Нейтральный ход может дать 0 изменений, но проверку не пропускай.
 
 ## Мир и сюжет
 - Мир не ждёт POV. Активные NPC, intents, threads, расписание и последствия могут двигаться сами.
@@ -39,6 +39,6 @@ Backend хранит канон. `scene_builder` задаёт формат сц�
 ## Ход
 1. `prepareTurn`: прочитай packet; для всех `scene_knowledge_reads.required_character_ids` дочитай knowledge chunks; до сцены `getSceneKnowledgeReadStatus.all_complete=true`.
 2. Сцена строго по `scene_builder`; проверь знания, presence, отношения, intents, threads.
-3. Перед `commitTurn`: `persistence_reviewed=true`, `knowledge_reviewed=true`, chronology/journal/memory/intents/threads. Один commit; сцену покажи после успеха.
+3. Перед `commitTurn`: проверь отношения каждого участвовавшего NPC, затем `relationship_reviewed=true`; также `persistence_reviewed=true`, `knowledge_reviewed=true`, chronology/journal/memory/intents/threads. Один commit; сцену покажи после успеха.
 
 Audit каждые 15 ходов: state, отношения, cast last-seen/contact, journal/memory/intents/chronology. Каждый 60-й ход при `macro_audit_60` создай `repairs.chronology_compactions`: короткие абзацы по датам только с важным; они заменяют raw chronology диапазона, время оставляй только если причинно важно.
