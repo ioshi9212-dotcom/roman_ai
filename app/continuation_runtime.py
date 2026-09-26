@@ -7,7 +7,7 @@ from copy import deepcopy
 from typing import Any, Dict, List
 
 from . import storage
-from .scene_compaction_runtime import load_scene_history
+from .scene_compaction_runtime import active_memory_records, load_scene_history
 from .transactional_storage import json_text, write_batch
 
 BLOCK_SIZE = 100
@@ -161,6 +161,7 @@ def _memory_for_range(memory: Dict[str, Any], start: int, end: int) -> Dict[str,
         bucket: Dict[str, Any] = {}
         for key in ("knowledge_journal", "knowledge", "experiences", "dialogue_memory"):
             values = raw.get(key) if isinstance(raw.get(key), list) else []
+            values = active_memory_records(values)
             rows = [
                 deepcopy(x) for x in values
                 if isinstance(x, dict)
@@ -215,10 +216,51 @@ def prepare_continuation_block_read(session_id: str, migration_id: str, block_in
         user_input = str(turn.get("user_input") or "").strip()
         if user_input:
             evidence["user_input"] = user_input[:1200]
-        for key in ("chronology", "relationship_updates", "story_thread_updates", "character_upserts"):
-            value = extracted.get(key)
-            if isinstance(value, list) and value:
-                evidence[key] = deepcopy(value)
+        chronology_updates = extracted.get("chronology")
+        if isinstance(chronology_updates, list) and chronology_updates:
+            evidence["chronology"] = [
+                {
+                    k: deepcopy(row[k])
+                    for k in ("event_id", "turn_number", "turn", "date", "story_date", "event", "summary", "importance", "participants_present", "participants", "location")
+                    if isinstance(row, dict) and k in row and row[k] not in (None, "", [], {})
+                }
+                for row in chronology_updates if isinstance(row, dict)
+            ]
+        relationship_updates = extracted.get("relationship_updates")
+        if isinstance(relationship_updates, list) and relationship_updates:
+            evidence["relationship_updates"] = [
+                {
+                    k: deepcopy(row[k])
+                    for k in ("character_id", "reason", "change_scale", "opinion", "current_dynamic", "relationship_type", "relationship_context", "dimensions")
+                    if isinstance(row, dict) and k in row and row[k] not in (None, "", [], {})
+                }
+                for row in relationship_updates if isinstance(row, dict)
+            ]
+        thread_updates = extracted.get("story_thread_updates")
+        if isinstance(thread_updates, list) and thread_updates:
+            compact_threads = []
+            for row in thread_updates:
+                if not isinstance(row, dict):
+                    continue
+                compact = {
+                    k: deepcopy(row[k])
+                    for k in ("thread_id", "operation", "title", "status", "summary", "current_goal", "current_phase", "progress_summary", "resolution")
+                    if k in row and row[k] not in (None, "", [], {})
+                }
+                if compact:
+                    compact_threads.append(compact)
+            if compact_threads:
+                evidence["story_thread_updates"] = compact_threads
+        upserts = extracted.get("character_upserts")
+        if isinstance(upserts, list) and upserts:
+            evidence["character_upserts"] = [
+                {
+                    k: deepcopy(row[k])
+                    for k in ("character_id", "name", "surname", "status", "role", "work", "residence", "relationships", "abilities", "weaknesses", "goals", "generated_details")
+                    if isinstance(row, dict) and k in row and row[k] not in (None, "", [], {})
+                }
+                for row in upserts if isinstance(row, dict)
+            ]
         state_patch = extracted.get("state_patch")
         if isinstance(state_patch, dict) and isinstance(state_patch.get("current"), dict) and state_patch["current"]:
             evidence["current_patch"] = deepcopy(state_patch["current"])
