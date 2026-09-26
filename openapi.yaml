@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Roman AI
-  version: 1.15.0
+  version: 1.16.0
   description: Persistent isolated novel sessions with bounded writer-first context, transactional memory, living NPC relationships, NPC intents, story threads, recovery, rollback, cast rotation and lossless chunked setup intake.
 servers:
   - url: https://ai-roman-yumikofv.mia0.amvera.tech
@@ -628,6 +628,26 @@ paths:
         - {in: path, name: chunk_index, required: true, schema: {type: integer}}
       responses:
         '200': {description: One chunk}
+  /sessions/{session_id}/continuation-preview:
+    get:
+      operationId: previewContinuationSession
+      summary: Preview a compact direct continuation of a long session
+      description: Read-only. Reports what will be carried into a new technical session without modifying the source session.
+      parameters:
+        - {in: path, name: session_id, required: true, schema: {type: string}}
+      responses:
+        '200': {description: Continuation compaction preview}
+        '404': {description: Session not found}
+  /sessions/{session_id}/continuation:
+    post:
+      operationId: createContinuationSession
+      summary: Create a new compact session that canonically continues an existing long session
+      description: Preserves live cards, current state and relationships, per-character memory, compact chronology, and source provenance. The old session is never modified.
+      parameters:
+        - {in: path, name: session_id, required: true, schema: {type: string}}
+      responses:
+        '200': {description: New continuation session created}
+        '404': {description: Session not found}
   /sessions/{session_id}/resume:
     post:
       operationId: resumeSession
