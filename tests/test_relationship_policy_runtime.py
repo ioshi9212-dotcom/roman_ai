@@ -382,7 +382,7 @@ def test_reviewed_footer_delta_recovers_omitted_relationship_update():
         assert relation["change_reasons"][-1]["changes"][0]["delta"] == 1
 
 
-def test_footer_delta_fallback_requires_explicit_relationship_review():
+def test_footer_delta_fallback_supports_legacy_client_without_review_flag():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         sid = storage.create_session(novel())["session_id"]
@@ -398,7 +398,7 @@ def test_footer_delta_fallback_requires_explicit_relationship_review():
         )
 
         state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
-        assert state["relationships"]["liam"]["симпатия"] == 1
+        assert state["relationships"]["liam"]["симпатия"] == 2
 
 
 def test_footer_delta_fallback_ignores_bad_arithmetic_and_large_jump():
