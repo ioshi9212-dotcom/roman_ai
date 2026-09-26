@@ -496,22 +496,6 @@ components:
           type: array
           items: {type: string}
 paths:
-  /runtime:
-    get:
-      operationId: getRuntime
-      summary: Prepare the complete setup-time runtime documents as safe chunks
-      description: Returns a manifest. During new-novel setup read every getRuntimeChunk from 0 through chunk_count-1.
-      responses:
-        '200': {description: Runtime chunk manifest}
-  /runtime/{chunk_index}:
-    get:
-      operationId: getRuntimeChunk
-      summary: Read one setup-time runtime chunk
-      parameters:
-        - {in: path, name: chunk_index, required: true, schema: {type: integer}}
-      responses:
-        '200': {description: One runtime chunk}
-        '404': {description: Chunk index out of range}
   /novel-drafts:
     post:
       operationId: createNovelDraft
@@ -597,14 +581,6 @@ paths:
         '200': {description: Launch state validated and stored}
         '409': {description: Draft or launch state is not valid}
 
-  /novel-drafts/{draft_id}:
-    get:
-      operationId: getNovelDraftStatus
-      summary: Check saved sections and finalized state
-      parameters:
-        - {in: path, name: draft_id, required: true, schema: {type: string}}
-      responses:
-        '200': {description: Draft status}
   /novel-drafts/{draft_id}/finalize:
     post:
       operationId: finalizeNovelDraft
@@ -630,14 +606,6 @@ paths:
         - {in: path, name: draft_id, required: true, schema: {type: string}}
       responses:
         '200': {description: Session metadata}
-  /novel-drafts/{draft_id}/publish:
-    post:
-      operationId: saveDraftToLibrary
-      summary: Explicitly publish a finalized draft to the reusable library
-      parameters:
-        - {in: path, name: draft_id, required: true, schema: {type: string}}
-      responses:
-        '200': {description: Draft published}
   /novel-reads/{read_id}/{chunk_index}:
     get:
       operationId: getNovelReadChunk
@@ -647,16 +615,6 @@ paths:
         - {in: path, name: chunk_index, required: true, schema: {type: integer}}
       responses:
         '200': {description: One chunk}
-  /sessions/{session_id}/continuation-preview:
-    get:
-      operationId: previewContinuationSession
-      summary: Preview a compact direct continuation of a long session
-      description: Read-only. Reports what will be carried into a new technical session without modifying the source session.
-      parameters:
-        - {in: path, name: session_id, required: true, schema: {type: string}}
-      responses:
-        '200': {description: Continuation compaction preview}
-        '404': {description: Session not found}
   /sessions/{session_id}/continuation/compaction:
     post:
       operationId: prepareContinuationCompaction
@@ -755,22 +713,6 @@ paths:
         '200': {description: Technical current pointer repaired or already usable}
         '404': {description: Session not found}
         '409': {description: Not enough persistent evidence to repair safely}
-  /sessions/{session_id}/rollback-last-turn:
-    post:
-      operationId: rollbackLastTurn
-      summary: Roll back only the latest saved canonical turn after explicit user request
-      description: Resume first and pass exact current turn number plus current_turn_id with confirm=true. Exact retries are safe; a replacement turn has a different identity.
-      parameters:
-        - {in: path, name: session_id, required: true, schema: {type: string}}
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: {$ref: '#/components/schemas/RollbackLastTurn'}
-      responses:
-        '200': {description: Latest turn rolled back and same turn number is ready to retry}
-        '404': {description: Session not found}
-        '409': {description: Confirmation, expected turn or exact reconstruction check failed; no mutation performed}
   /sessions/{session_id}/audit-snapshot:
     get:
       operationId: getAuditSnapshot
@@ -822,35 +764,6 @@ paths:
         '200': {description: One remaining writer packet chunk}
         '403': {description: Invalid or stale packet_id}
         '404': {description: Chunk index out of range}
-  /sessions/{session_id}/scene-archive/read:
-    post:
-      operationId: prepareSceneArchiveRead
-      summary: Prepare chunked persistent scene history or exact old-scene evidence
-      description: Omit scene_id for the complete compacted-scene index. Provide scene_id for that scene plus exact raw turns from its source ranges. Chunk 0 is included.
-      parameters:
-        - {in: path, name: session_id, required: true, schema: {type: string}}
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: {$ref: '#/components/schemas/SceneArchiveRead'}
-      responses:
-        '200': {description: Scene archive manifest plus inline chunk 0}
-        '404': {description: Session or scene not found}
-  /sessions/{session_id}/scene-archive/read/{read_id}/{chunk_index}:
-    get:
-      operationId: getSceneArchiveChunk
-      summary: Read one remaining chunk from a prepared scene archive read
-      description: Start at next_chunk_index because chunk 0 is already included. Echo scene_id only when the prepare request used one.
-      parameters:
-        - {in: path, name: session_id, required: true, schema: {type: string}}
-        - {in: path, name: read_id, required: true, schema: {type: string}}
-        - {in: path, name: chunk_index, required: true, schema: {type: integer, minimum: 0}}
-        - {in: query, name: scene_id, required: false, schema: {type: string}}
-      responses:
-        '200': {description: One remaining scene archive chunk}
-        '404': {description: Session, scene or chunk not found}
-        '409': {description: Scene archive changed during reading}
   /sessions/{session_id}/knowledge-read-status:
     get:
       operationId: getSceneKnowledgeReadStatus
