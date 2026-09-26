@@ -6,6 +6,7 @@ from typing import Any, Dict, Iterable, List
 
 from fastapi import HTTPException
 
+from . import relationship_runtime
 from . import runtime_fixes as base
 from . import runtime_fixes_compat as compat
 from . import session_runtime, storage, writer_first_runtime
@@ -16,7 +17,8 @@ _ORIGINAL_PREPARE = None
 _ORIGINAL_COMMIT = None
 _VERSION = 4
 
-# New labels come from one small shared vocabulary. Existing labels in old sessions remain valid.
+# Suggested common labels for the model. This is guidance, not a closed vocabulary.
+# New durable relationship qualities may be introduced later when the story gives them a real basis.
 RELATIONSHIP_DIMENSIONS: Dict[str, str] = {
     "доверие": "верит POV",
     "близость": "личная дистанция",
@@ -32,7 +34,6 @@ RELATIONSHIP_DIMENSIONS: Dict[str, str] = {
     "страх": "ожидание угрозы",
     "соперничество": "желание не уступать",
 }
-_ALLOWED_NORMS = {base._relationship_norm(label) for label in RELATIONSHIP_DIMENSIONS}
 _HOOK_WORDS = (
     "past", "history", "background", "family", "brother", "sister", "mother", "father",
     "fear", "weak", "goal", "secret", "trauma", "прошл", "истор", "семь", "брат", "сестр",
@@ -88,9 +89,9 @@ def _validate_labels(owner_id: str, dimensions: Any, state: Dict[str, Any]) -> N
     if not isinstance(dimensions, list):
         return
     saved = _existing_metrics(state, owner_id)
-    # relationship_updates are patches, so omitted saved labels are expected and remain persistent.
-    # Validate only labels that are actually being introduced by this update.
-    legacy = set(saved)
+    # Existing labels stay valid. New labels are intentionally open-ended, but must be compact
+    # footer-safe names. Semantic discipline (durable quality, not a synonym/transient emotion)
+    # is supplied to the writer in the relationship model and policy.
     for item in dimensions:
         if not isinstance(item, dict):
             continue
@@ -98,15 +99,17 @@ def _validate_labels(owner_id: str, dimensions: Any, state: Dict[str, Any]) -> N
         if not label:
             continue
         normalized = base._relationship_norm(label)
-        if normalized in legacy or normalized in _ALLOWED_NORMS:
+        if normalized in saved:
+            continue
+        if relationship_runtime.valid_dimension_label(label):
             continue
         raise HTTPException(
             status_code=409,
             detail={
-                "code": "RELATIONSHIP_DIMENSION_UNKNOWN",
+                "code": "RELATIONSHIP_DIMENSION_LABEL_INVALID",
                 "message": (
-                    f"{owner_id}: do not invent relationship metric {label!r}. "
-                    "Use the fixed relationship vocabulary from living_world; old saved labels stay valid."
+                    f"{owner_id}: relationship metric {label!r} must be a short single-line label "
+                    "without footer separators."
                 ),
             },
         )
@@ -117,8 +120,8 @@ def _validate_relationship_vocabulary(session_id: str, payload: Dict[str, Any]) 
     state = storage._read_json(root / "state.json", {})
     source = storage._read_json(root / "source.json", {})
     cards = storage._load_cards(root, source)
-    # The visible footer is display-only. Invalid display labels must not block a gameplay commit.
-    # Canonical numeric writes are validated only from extracted.relationship_updates.
+    # The visible footer is display-only. Canonical new labels are validated only for safe
+    # transport/formatting; the vocabulary itself is open-ended.
     extracted = payload.get("extracted") if isinstance(payload.get("extracted"), dict) else {}
     updates = extracted.get("relationship_updates") if isinstance(extracted.get("relationship_updates"), list) else []
     for raw in updates:
@@ -503,8 +506,14 @@ def _rewrite_packet(session_id: str, base_result: Dict[str, Any]) -> Dict[str, A
         context["living_world"] = {
             "mandatory": True,
             "relationship_model": {
-                "fixed_new_dimensions": deepcopy(RELATIONSHIP_DIMENSIONS),
-                "legacy_rule": "Старые labels не переименовывай.",
+                "suggested_dimensions": deepcopy(RELATIONSHIP_DIMENSIONS),
+                "open_vocabulary": True,
+                "new_dimension_rule": (
+                    "Новая dimension может появиться на любом этапе, если возникло устойчивое, "
+                    "поведенчески значимое качество отношений, не покрытое уже существующей шкалой. "
+                    "Не создавай синонимы существующих dimensions и не превращай краткую эмоцию в постоянную шкалу."
+                ),
+                "legacy_rule": "Старые labels не переименовывай и не удаляй без отдельной миграции.",
                 "rule": "Числа и мнение влияют на поведение; мнение может быть ошибочным.",
             },
             "npc_actor_frames": _actor_frames(context, state, cards),

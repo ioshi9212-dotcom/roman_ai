@@ -8,7 +8,6 @@ from typing import Any, Dict, Iterable, List
 from fastapi import HTTPException
 
 from . import relationship_runtime, session_runtime, storage, writer_first_runtime
-from .living_world_runtime import RELATIONSHIP_DIMENSIONS
 from .transactional_storage import session_transaction
 
 
@@ -371,7 +370,6 @@ def _validate_update_rows(
         dimensions = raw.get("dimensions") if isinstance(raw.get("dimensions"), list) else []
         metadata_change = any(raw.get(key) is not None for key in _META_KEYS)
         baseline = _numeric_baseline(state_before, owner_id)
-        allowed_new = {_norm(label) for label in RELATIONSHIP_DIMENSIONS}
         changed = metadata_change
         owner_dims: Dict[str, Dict[str, Any]] = {}
 
@@ -382,10 +380,10 @@ def _validate_update_rows(
             if not label:
                 _error("RELATIONSHIP_UPDATES_INVALID", "Relationship dimension requires label.")
             key = _norm(label)
-            if key not in baseline and key not in allowed_new:
+            if key not in baseline and not relationship_runtime.valid_dimension_label(label):
                 _error(
-                    "RELATIONSHIP_DIMENSION_UNKNOWN",
-                    f"{owner_id}: unknown relationship metric {label!r}. Use the fixed relationship vocabulary.",
+                    "RELATIONSHIP_DIMENSION_LABEL_INVALID",
+                    f"{owner_id}: new relationship metric {label!r} must be a short single-line label without footer separators.",
                 )
             value = dim.get("value")
             delta = dim.get("delta")
@@ -417,6 +415,14 @@ def _validate_update_rows(
                 "delta": delta_value,
                 "is_new": key not in baseline,
             }
+
+        new_keys = {key for key, dim in owner_dims.items() if dim.get("is_new")}
+        if len(baseline) + len(new_keys) > relationship_runtime.MAX_DIMENSIONS:
+            _error(
+                "RELATIONSHIP_DIMENSION_LIMIT",
+                f"{owner_id}: relationship dimension limit is {relationship_runtime.MAX_DIMENSIONS}; "
+                "do not silently drop a new metric.",
+            )
 
         if changed:
             reason = str(raw.get("reason") or "").strip()
@@ -514,13 +520,17 @@ def _rewrite_packet(session_id: str, base_result: Dict[str, Any]) -> Dict[str, A
             "footer_required_for_every_present_npc": False,
             "fresh_baseline_required": False,
             "new_dimensions_may_be_appended": True,
+            "open_dimension_vocabulary": True,
             "zero_dimensions_may_be_hidden": False,
             "change_requires_reason": True,
             "limits": {"ordinary": 3, "timeskip_per_day": 3, "timeskip_cap": 30, "critical_event": 25},
             "instruction": (
                 "После всей сцены обязательно переоцени отношение каждого участвовавшего NPC к POV. "
                 "Не замораживай одни и те же показатели на многих ходах, если отношения явно развиваются или ухудшаются; "
-                "не меняй их механически без реального основания. Основной канал изменения — causal relationship_updates с reason+delta. "
+                "если появляется новое устойчивое качество отношений, которого нет среди сохранённых шкал, добавь новую dimension "
+                "с конкретным reason и начальным value. Она не обязана быть в стартовом наборе. Не создавай синонимы уже существующих "
+                "шкал и не превращай краткую эмоцию в постоянную dimension. "
+                "Не меняй показатели механически без реального основания. Основной канал изменения — causal relationship_updates с reason+delta. "
                 "Footer остаётся display-only, но backend может восстановить забытый ordinary update только из явного /delta, "
                 "если final=saved+delta; кривой, большой или неучаствующий delta игнорируется."
             ),
@@ -533,7 +543,9 @@ def _rewrite_packet(session_id: str, base_result: Dict[str, Any]) -> Dict[str, A
             "when": "После обязательной проверки: только real causal NPC->POV change.",
             "fields": "character_id, reason, change_scale, elapsed_game_days(timeskip), dimensions[label,value,delta(existing)]",
             "instruction": (
-                "Existing metric → delta+reason. ordinary<=3; timeskip 3/day cap30; critical_event<=25. "
+                "Existing metric → delta+reason. New durable metric → initial value+reason; новый label разрешён "
+                "и может появиться на любом ходу, если это самостоятельное устойчивое качество, а не синоним/мимолётная эмоция. "
+                "ordinary<=3; timeskip 3/day cap30; critical_event<=25. "
                 "Явный корректный footer /delta — только аварийный fallback, не замена relationship_updates."
             ),
         }

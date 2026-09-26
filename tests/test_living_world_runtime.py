@@ -91,7 +91,9 @@ def test_packet_builds_actor_frame_from_character_relationship_opinion_and_unres
         packet = read_packet(sid, "Пожать плечами")
         living = packet["living_world"]
         assert living["mandatory"] is True
-        assert set(living["relationship_model"]["fixed_new_dimensions"]) == set(RELATIONSHIP_DIMENSIONS)
+        assert set(living["relationship_model"]["suggested_dimensions"]) == set(RELATIONSHIP_DIMENSIONS)
+        assert living["relationship_model"]["open_vocabulary"] is True
+        assert "любом этапе" in living["relationship_model"]["new_dimension_rule"]
         frame = next(row for row in living["npc_actor_frames"] if row["character_id"] == "adrian")
         assert "упрямый" in json.dumps(frame["character_drivers"], ensure_ascii=False)
         assert "уходить от неудобных ответов" in frame["relationship"]["current_opinion"]
