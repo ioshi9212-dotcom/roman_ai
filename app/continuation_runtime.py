@@ -189,6 +189,42 @@ def prepare_continuation_block_read(session_id: str, migration_id: str, block_in
             or (start == 1 and _record_turn(x) == 0)
         )
     ] if isinstance(p["chronology"], list) else []
+    scene_summaries = []
+    for scene in p["scenes"]:
+        if not isinstance(scene, dict):
+            continue
+        try:
+            scene_start = int(scene.get("start_turn") or 0)
+            scene_end = int(scene.get("end_turn") or 0)
+        except (TypeError, ValueError):
+            continue
+        if scene_end < start or scene_start > end:
+            continue
+        scene_summaries.append(deepcopy(scene))
+
+    turn_evidence = []
+    for turn in p["turns"]:
+        try:
+            turn_number = int(turn.get("turn_number", 0) or 0)
+        except (TypeError, ValueError):
+            continue
+        if not start <= turn_number <= end:
+            continue
+        extracted = turn.get("extracted") if isinstance(turn.get("extracted"), dict) else {}
+        evidence = {"turn_number": turn_number}
+        user_input = str(turn.get("user_input") or "").strip()
+        if user_input:
+            evidence["user_input"] = user_input[:1200]
+        for key in ("chronology", "relationship_updates", "story_thread_updates", "character_upserts"):
+            value = extracted.get(key)
+            if isinstance(value, list) and value:
+                evidence[key] = deepcopy(value)
+        state_patch = extracted.get("state_patch")
+        if isinstance(state_patch, dict) and isinstance(state_patch.get("current"), dict) and state_patch["current"]:
+            evidence["current_patch"] = deepcopy(state_patch["current"])
+        if len(evidence) > 1:
+            turn_evidence.append(evidence)
+
     payload = {
         "migration_id": migration_id,
         "block_index": block_index,
@@ -197,14 +233,15 @@ def prepare_continuation_block_read(session_id: str, migration_id: str, block_in
             {"character_id": storage._card_id(c), "name": storage._card_name(c), "role": storage._card_role(c)}
             for c in p["cards"] if storage._card_id(c)
         ],
-        "turns_exact": [deepcopy(t) for t in p["turns"] if start <= int(t.get("turn_number", 0) or 0) <= end],
+        "scene_summaries": scene_summaries,
+        "turn_evidence": turn_evidence,
         "chronology_records": chronology,
         "personal_memory_records": _memory_for_range(p["memory"], start, end),
         "output_contract": {
             "chronology": "Short dated durable events only; merge repetitions; preserve causality and unresolved consequences.",
             "characters": "For EACH character present in personal_memory_records, summarize only that character's own knowledge/experiences/dialogue memory. Never import chronology or another character's memory as personal knowledge.",
-            "relationship_events": "Only durable relationship changes evidenced in exact turns.",
-            "thread_events": "Only plot-thread changes evidenced in exact turns.",
+            "relationship_events": "Only durable relationship changes evidenced by relationship_updates/scene summaries.",
+            "thread_events": "Only plot-thread changes evidenced by thread updates/scene summaries.",
             "state_evidence": "Facts useful for reconstructing the true end-state; do not guess.",
         },
         "required_summary_shape": {
@@ -214,7 +251,7 @@ def prepare_continuation_block_read(session_id: str, migration_id: str, block_in
             "thread_events": [],
             "state_evidence": [],
         },
-        "instruction": "Semantic compaction block. Preserve facts, not wording. No invented facts. Keep uncertainty as uncertainty.",
+        "instruction": "Semantic compaction block. Scene prose is intentionally omitted. Use scene summaries, durable extracted updates, chronology and strictly personal memory. Preserve facts, not wording. No invented facts.",
     }
     raw = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
     chunks = [raw[i:i + storage.MAX_PACKET_CHARS] for i in range(0, len(raw), storage.MAX_PACKET_CHARS)] or ["{}"]
