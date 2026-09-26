@@ -216,6 +216,6 @@ def test_custom_gpt_retries_transient_transport_failures_without_advancing_turn(
     assert "service did not respond" in text
     assert "до 2 раз" in text
     assert "exact payload" in text
-    assert len(text) <= 9000
+    assert len(text) <= 8000
 
 # Relationship growth regression suite intentionally lives outside legacy schema-lock tests.
