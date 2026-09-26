@@ -9,10 +9,9 @@ components:
   schemas:
     ContinuationBlockCommit:
       type: object
-      required: [migration_id, block_index, summary]
+      required: [migration_id, summary]
       properties:
         migration_id: {type: string}
-        block_index: {type: integer, minimum: 0}
         summary:
           type: object
           additionalProperties: true
