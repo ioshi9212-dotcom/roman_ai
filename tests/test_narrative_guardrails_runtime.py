@@ -269,7 +269,7 @@ def test_prepare_turn_packet_contains_concise_narrative_guardrails():
         context = json.loads("".join(parts))
 
         signals = context["narrative_guardrails"]
-        assert signals["version"] == 17
+        assert signals["version"] == 18
         assert signals["pov_activity"]["mandatory"] is True
         assert signals["pov_activity"]["min_post_input_presence_beats"] == 2
         assert signals["pov_activity"]["ordinary_dialogue_required_when_natural"] is True
