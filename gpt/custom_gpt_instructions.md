@@ -55,5 +55,5 @@ Legacy v4 compatibility: для каждой реальной реплики `di
 После `audit_due=true` → `getAuditSnapshot`; если chunk 0 включён, Не запрашивать 0 снова; остальные только `getAuditSnapshotChunk`.
 Каждые 15 ходов проверь state, physical/remote participation, items/inventory, `relationship_audit`, `cast_activity_audit`, journal/memory/intents/chronology.
 `repairs.scene_compactions`: каждый audited turn ровно раз; **15 ходов одной сцены = ОДНА запись**. `repairs.memory_compactions` только без потери фактов.
-Если `macro_audit_60.required=true`, обязательно `repairs.chronology_compactions`: короткие абзацы по игровым датам, только важное, без бытовой воды; они заменяют raw chronology диапазона. Exact time только если причинно важно.
+Если `macro_audit_60.required=true`, добавь `repairs.chronology_compactions`: кратко по датам, только важное. Если корректно собрать нельзя, поле не отправляй: backend сохранит raw chronology и завершит обычный audit.
 Затем один `commitAudit` с тем же `audit_id`.

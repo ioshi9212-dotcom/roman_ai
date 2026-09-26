@@ -138,21 +138,31 @@ def test_macro_compaction_replaces_raw_60_turn_chronology_with_dated_paragraphs(
         assert second["source_turn_range"] == [31, 60]
 
 
-def test_macro_compaction_requires_output_on_v5_turn_60():
+def test_missing_macro_compaction_defers_without_losing_chronology_on_v5_turn_60():
     with tempfile.TemporaryDirectory() as tmp:
         _setup(tmp)
         root = storage.SESSIONS_DIR / "sid"
         root.mkdir(parents=True)
         storage._write_json(root / "source.json", {"version": 5, "profile_schema": {"version": 1}})
         (root / "turns.jsonl").write_text("", encoding="utf-8")
+        chronology = [
+            {
+                "event_id": "keep-me",
+                "turn_number": 20,
+                "story_date": "24.09.2026",
+                "event": "Важный факт остаётся в сырой chronology.",
+                "importance": "major",
+            }
+        ]
 
-        with pytest.raises(RuntimeError, match="MACRO_CHRONOLOGY_COMPACTION_REQUIRED"):
-            apply_macro_chronology_compaction(
-                root,
-                [],
-                {},
-                end_turn=60,
-            )
+        result = apply_macro_chronology_compaction(
+            root,
+            chronology,
+            {},
+            end_turn=60,
+        )
+
+        assert result == chronology
 
 
 def test_legacy_v4_audit_does_not_require_macro_compaction():
@@ -175,3 +185,44 @@ def test_replay_keeps_historical_v5_audit_that_predates_macro_compaction():
         end_turn=60,
     )
     assert result == chronology
+
+
+def test_second_macro_boundary_at_120_can_defer_safely():
+    with tempfile.TemporaryDirectory() as tmp:
+        _setup(tmp)
+        root = storage.SESSIONS_DIR / "sid"
+        root.mkdir(parents=True)
+        storage._write_json(root / "source.json", {"version": 5, "profile_schema": {"version": 1}})
+        turns = [_turn(i, "25.09.2026" if i <= 60 else "26.09.2026") for i in range(1, 121)]
+        (root / "turns.jsonl").write_text(
+            "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in turns),
+            encoding="utf-8",
+        )
+        chronology = [
+            {
+                "event_id": "macro_60_1",
+                "turn_number": 60,
+                "story_date": "25.09.2026",
+                "event": "Старый уже сжатый диапазон 1–60.",
+                "importance": "major",
+                "canonical_macro_compaction": True,
+                "source_turn_range": [1, 60],
+            },
+            {
+                "event_id": "raw-90",
+                "turn_number": 90,
+                "story_date": "26.09.2026",
+                "event": "Важное событие второго шестидесятиходового диапазона.",
+                "importance": "major",
+            },
+        ]
+
+        result = apply_macro_chronology_compaction(
+            root,
+            chronology,
+            {},
+            end_turn=120,
+        )
+
+        assert result == chronology
+        assert any(row["event_id"] == "raw-90" for row in result)

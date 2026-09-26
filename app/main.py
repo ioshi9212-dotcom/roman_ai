@@ -698,6 +698,9 @@ def audit_commit(session_id: str, body: AuditCommit):
             "MEMORY_COMPACTION_SOURCE_REUSED": "One source memory record cannot be compacted into multiple canonical records in the same audit.",
             "MEMORY_COMPACTION_SOURCE_UNKNOWN": "A memory_compaction referenced a missing or already superseded source record.",
             "MEMORY_COMPACTION_SOURCE_OUT_OF_RANGE": "memory_compactions may only supersede records created inside this exact audit range.",
+            "MACRO_CHRONOLOGY_COMPACTION_REQUIRED": "The 60-turn macro chronology compaction is missing. Retry the same audit_id with repairs.chronology_compactions, or omit the field entirely to preserve raw chronology and complete the normal 15-turn audit.",
+            "MACRO_CHRONOLOGY_COMPACTION_INVALID": "repairs.chronology_compactions is malformed. Each row needs DD.MM.YYYY date and a 20-1800 character summary.",
+            "MACRO_CHRONOLOGY_IMPORTANT_DATE_MISSING": "The macro compaction omitted a story date that contains major/anchor/critical chronology. Add a dated summary for every important date and retry the same audit_id.",
         }
         if str(exc) in errors:
             raise HTTPException(status_code=409, detail=errors[str(exc)])
