@@ -22,8 +22,8 @@ Backend хранит канон. `scene_builder` задаёт формат сц�
 
 ## State
 - `state.current`: date/time/location, `present_characters`, `remote_characters`, `remote_channels`, `positions`, `scene_items`, `unfinished_actions`.
-- Remote NPC участвует для profile/journal/relations без position. После контакта убери его; однопроходный контакт зафиксируй в `dialogue_memory_add`.
-- `scene_items` только значимые; при изменении передавай полный актуальный снимок, чтобы вещь не оставалась в старом месте.
+- Remote NPC участвует без position. После контакта убери его; завершённый контакт → `dialogue_memory_add`.
+- `scene_items` только значимые; при изменении передавай полный актуальный снимок.
 - POV clothing/inventory → `state.pov`; NPC → `state.characters[ID]`. Вход/выход/движение сохраняй через `state_patch`.
 - Последнее место/появление NPC не стирай при выходе.
 
