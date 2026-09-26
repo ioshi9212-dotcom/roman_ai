@@ -808,3 +808,9 @@ def session_resume(session_id: str):
         return continue_session(session_id)
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Session not found")
+
+
+# Install last so all existing REST handlers remain authoritative.
+from .mcp_transport import install_mcp
+
+mcp_server = install_mcp(app)
