@@ -161,7 +161,14 @@ def _memory_for_range(memory: Dict[str, Any], start: int, end: int) -> Dict[str,
         bucket: Dict[str, Any] = {}
         for key in ("knowledge_journal", "knowledge", "experiences", "dialogue_memory"):
             values = raw.get(key) if isinstance(raw.get(key), list) else []
-            rows = [deepcopy(x) for x in values if isinstance(x, dict) and start <= _record_turn(x) <= end]
+            rows = [
+                deepcopy(x) for x in values
+                if isinstance(x, dict)
+                and (
+                    start <= _record_turn(x) <= end
+                    or (start == 1 and _record_turn(x) == 0)
+                )
+            ]
             if rows:
                 bucket[key] = rows
         if bucket:
@@ -176,7 +183,11 @@ def prepare_continuation_block_read(session_id: str, migration_id: str, block_in
     p = _load_source_parts(session_id)
     chronology = [
         deepcopy(x) for x in p["chronology"]
-        if isinstance(x, dict) and start <= _record_turn(x) <= end
+        if isinstance(x, dict)
+        and (
+            start <= _record_turn(x) <= end
+            or (start == 1 and _record_turn(x) == 0)
+        )
     ] if isinstance(p["chronology"], list) else []
     payload = {
         "migration_id": migration_id,
