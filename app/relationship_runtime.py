@@ -8,7 +8,8 @@ from typing import Any, Callable, Dict, Iterable, List
 _METRIC_RE = re.compile(
     r"^(.+?)\s+(-?\d+(?:\.\d+)?)(?:\s*/\s*([+-]?\d+(?:\.\d+)?))?$"
 )
-MAX_DIMENSIONS = 8
+MAX_DIMENSIONS = 24
+MAX_DIMENSION_LABEL_CHARS = 48
 
 
 def _is_number(value: Any) -> bool:
@@ -22,6 +23,17 @@ def _number(value: str) -> int | float:
 
 def _norm(value: Any) -> str:
     return " ".join(str(value).casefold().replace("ё", "е").split())
+
+
+def valid_dimension_label(value: Any) -> bool:
+    """Allow durable relationship qualities without locking the story to a fixed vocabulary."""
+    raw = str(value or "")
+    if any(char in raw for char in ("\n", "\r", ";", "/")):
+        return False
+    text = " ".join(raw.split())
+    if not text or len(text) > MAX_DIMENSION_LABEL_CHARS:
+        return False
+    return any(char.isalnum() for char in text)
 
 
 def _dimension_key(label: str) -> str:
