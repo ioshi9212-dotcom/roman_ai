@@ -8,8 +8,8 @@ from .audit_runtime import get_audit_snapshot, get_audit_snapshot_chunk
 from .character_access import get_character_bundle
 from .character_chunk_read import get_character_bundle_chunk, prepare_character_bundle_read
 from .context_stats import session_context_stats
-from .continuation_runtime import build_continuation_preview, create_continuation_session
-from .models import AuditCommit, NovelDraftCreate, NovelDraftIntakeChunk, NovelDraftIntakeMapping, NovelDraftLaunchState, NovelDraftReconciliation, NovelDraftSection, NovelRawSave, NovelTemplate, RollbackLastTurn, SceneArchiveRead, SessionCreate, TurnCommit, TurnPrepare
+from .continuation_runtime import build_continuation_preview, commit_continuation_block, commit_continuation_final, create_continuation_session, get_continuation_read_chunk, prepare_continuation_block_read, prepare_continuation_compaction, prepare_continuation_final_read
+from .models import AuditCommit, ContinuationBlockCommit, ContinuationFinalCommit, NovelDraftCreate, NovelDraftIntakeChunk, NovelDraftIntakeMapping, NovelDraftLaunchState, NovelDraftReconciliation, NovelDraftSection, NovelRawSave, NovelTemplate, RollbackLastTurn, SceneArchiveRead, SessionCreate, TurnCommit, TurnPrepare
 from .novel_access import get_novel_read_chunk, prepare_novel_read, verify_novel
 from .novel_drafts import (
     create_draft,
@@ -55,7 +55,7 @@ from .startup_migration import read_migration_status, run_startup_session_migrat
 
 app = FastAPI(
     title="Roman AI",
-    version="1.16.0",
+    version="1.17.0",
     description="Persistent isolated novel sessions with bounded writer-first context, lossless chunked setup intake, living cast rotation, memory, chronology, relationships, NPC intents, persistent story threads, recovery, rollback and audits.",
 )
 
@@ -377,12 +377,88 @@ def continuation_preview_get(session_id: str):
         raise HTTPException(status_code=404, detail="Session not found")
 
 
+@app.post("/sessions/{session_id}/continuation/compaction", operation_id="prepareContinuationCompaction")
+def continuation_compaction_prepare(session_id: str):
+    try:
+        return prepare_continuation_compaction(session_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+
+@app.post("/sessions/{session_id}/continuation/blocks/{block_index}/read", operation_id="prepareContinuationBlockRead")
+def continuation_block_read_prepare(session_id: str, block_index: int, migration_id: str):
+    try:
+        return prepare_continuation_block_read(session_id, migration_id, block_index)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Session not found")
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="Invalid continuation migration")
+    except IndexError:
+        raise HTTPException(status_code=404, detail="Continuation block out of range")
+
+
+@app.get("/sessions/{session_id}/continuation/read/{read_id}/{chunk_index}", operation_id="getContinuationCompactionChunk")
+def continuation_read_chunk_get(session_id: str, read_id: str, chunk_index: int, migration_id: str):
+    try:
+        return get_continuation_read_chunk(session_id, migration_id, read_id, chunk_index)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Session not found")
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="Invalid continuation read")
+    except IndexError:
+        raise HTTPException(status_code=404, detail="Continuation chunk out of range")
+
+
+@app.post("/sessions/{session_id}/continuation/blocks/{block_index}/commit", operation_id="commitContinuationBlock")
+def continuation_block_commit(session_id: str, block_index: int, body: ContinuationBlockCommit):
+    try:
+        if body.block_index != block_index:
+            raise HTTPException(status_code=409, detail="block_index mismatch")
+        return commit_continuation_block(session_id, body.migration_id, block_index, body.summary)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Session not found")
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="Invalid continuation migration")
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+
+@app.post("/sessions/{session_id}/continuation/final/read", operation_id="prepareContinuationFinalRead")
+def continuation_final_read_prepare(session_id: str, migration_id: str):
+    try:
+        return prepare_continuation_final_read(session_id, migration_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Session not found")
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="Invalid continuation migration")
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+
+
+@app.post("/sessions/{session_id}/continuation/final/commit", operation_id="commitContinuationFinal")
+def continuation_final_commit(session_id: str, body: ContinuationFinalCommit):
+    try:
+        return commit_continuation_final(session_id, body.migration_id, body.package)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Session not found")
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="Invalid continuation migration")
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+
 @app.post("/sessions/{session_id}/continuation", operation_id="createContinuationSession")
 def continuation_create(session_id: str):
     try:
         return create_continuation_session(session_id)
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Session not found")
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
 
 
 @app.get("/sessions/{session_id}", operation_id="getSession")
