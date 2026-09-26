@@ -237,11 +237,10 @@ def commit_turn_request(session_id: str, payload: Dict[str, Any]) -> Dict[str, A
             session_id,
             extra_character_ids=_turn_participant_ids_from_payload(payload),
         )
-    if bool(packet.get("relationship_review_capable")):
-        extracted = payload.get("extracted") if isinstance(payload.get("extracted"), dict) else {}
-        if extracted.get("relationship_reviewed") is not True:
-            raise RuntimeError("RELATIONSHIP_REVIEW_REQUIRED")
-
+    # Relationship review is a writer/persistence requirement, not a transaction-killing gate.
+    # Older live GPT schemas and long-running pending turns may omit relationship_reviewed even
+    # though the scene contains a valid relationship footer/update. Do not brick the whole scene:
+    # final relationship policy plus validated relationship_updates/footer-delta fallback handle it.
     prepared = deepcopy(payload)
     prepared["_operation_receipt"] = {
         "operation": "commit_turn",
