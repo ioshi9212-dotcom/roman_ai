@@ -218,7 +218,6 @@ class SessionSnapshot(BaseModel):
 
 class ContinuationBlockCommit(BaseModel):
     migration_id: str = Field(min_length=1)
-    block_index: int = Field(ge=0)
     summary: Dict[str, Any] = Field(default_factory=dict)
 
 
