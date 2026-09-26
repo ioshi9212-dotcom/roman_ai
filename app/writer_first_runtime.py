@@ -333,7 +333,14 @@ def _rolling_turn_context(root) -> tuple[List[Dict[str, Any]], List[Dict[str, An
         turn for turn in turns
         if int(turn.get("turn_number", 0) or 0) not in compacted
     ]
-    window = working_turns[-CONTINUITY_WINDOW:]
+    bridge = storage._read_json(root / "handoff_tail.json", [])
+    if not isinstance(bridge, list):
+        bridge = []
+    # A continuation session starts its technical turn counter at 0, but the
+    # exact tail of the source session remains writer-only continuity. As new
+    # turns accumulate, they naturally push the bridge out of the 15-turn window.
+    combined = [*bridge, *working_turns] if bridge else working_turns
+    window = combined[-CONTINUITY_WINDOW:]
     return (
         [_compact_full_turn(turn) for turn in window[-RECENT_FULL_TURNS:]],
         [_compact_continuity_turn(turn) for turn in window[:-RECENT_FULL_TURNS]],
