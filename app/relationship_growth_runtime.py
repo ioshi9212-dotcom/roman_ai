@@ -11,29 +11,12 @@ from . import runtime_fixes_compat as compat
 from . import storage
 
 
-MAX_RELATIONSHIP_DIMENSIONS = 12
+MAX_RELATIONSHIP_DIMENSIONS = 24
 _RELATIONSHIP_GROWTH_VERSION = 3
 _ORIGINAL_PREPARE_EXTRACTED_FOR_COMMIT = None
 
-# New labels are intentionally small and stable. Existing legacy labels remain valid.
-_FIXED_NEW_LABELS = {
-    base._relationship_norm(label)
-    for label in (
-        "доверие",
-        "близость",
-        "привязанность",
-        "симпатия",
-        "влечение",
-        "уважение",
-        "подозрение",
-        "настороженность",
-        "раздражение",
-        "обида",
-        "ревность",
-        "страх",
-        "соперничество",
-    )
-}
+# Relationship dimensions are open-ended. A compact suggested vocabulary is exposed
+# in living_world_runtime, but the backend does not lock new durable qualities to it.
 _RELATIONSHIP_BLOCK = re.compile(
     r"(?ms)^Отношения:\s*\n.*?(?=^\s*Ход\s+\d+\s*·\s*цикл\b)"
 )
@@ -122,7 +105,7 @@ def _merge_footer_delta_fallbacks(
             value = dim.get("value")
             if (
                 not label
-                or base._relationship_norm(label) not in _FIXED_NEW_LABELS
+                or not relationship_runtime.valid_dimension_label(label)
                 or not _is_number(value)
             ):
                 continue
@@ -281,7 +264,10 @@ def _install_packet_policy_wrapper() -> None:
 
         lens = context.get("relationship_lens") if isinstance(context.get("relationship_lens"), dict) else {}
         lens["initialization_required"] = False
-        lens["initialization_instruction"] = "Новые dimensions только по реальному основанию; старые сохраняются."
+        lens["initialization_instruction"] = (
+            "Новые dimensions могут появляться в любой момент по реальному устойчивому основанию; "
+            "они не ограничены стартовым набором. Старые сохраняются; не создавай синонимы и мимолётные эмоции."
+        )
         context["relationship_lens"] = lens
         context["relationship_lens_instruction"] = "relationship_lens — текущий канон NPC->POV."
 
@@ -294,7 +280,11 @@ def _install_packet_policy_wrapper() -> None:
             "fresh_baseline_required": False,
             "zero_dimensions_may_be_hidden": True,
             "new_dimensions_may_be_appended": True,
-            "instruction": "Изменения только через causal relationship_updates; footer display-only.",
+            "instruction": (
+                "Изменения только через causal relationship_updates; footer display-only. "
+                "Новая устойчивая dimension может быть добавлена позже с начальным value+reason, "
+                "даже если её не было на старте; не плодить синонимы и временные эмоции."
+            ),
         })
         context["relationship_policy"] = policy
 
@@ -303,7 +293,11 @@ def _install_packet_policy_wrapper() -> None:
             "optional": True,
             "when": "Только при реальном изменении.",
             "format": '[{"character_id":"npc_id","dimensions":[{"label":"доверие","value":12,"delta":2}]}]',
-            "instruction": "Existing metric → delta; неизменённое не отправляй.",
+            "instruction": (
+                "Existing metric → delta; неизменённое не отправляй. "
+                "New durable metric → value+reason; новый label допустим, если это не синоним существующего "
+                "и не кратковременная эмоция."
+            ),
         }
         context["persistence_contract"] = persistence
 
