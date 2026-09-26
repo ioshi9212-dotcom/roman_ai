@@ -215,3 +215,13 @@ class SessionSnapshot(BaseModel):
     state: Dict[str, Any] = Field(default_factory=dict)
     chronology: List[Dict[str, Any]] = Field(default_factory=list)
     recent_turns: List[Dict[str, Any]] = Field(default_factory=list)
+
+class ContinuationBlockCommit(BaseModel):
+    migration_id: str = Field(min_length=1)
+    block_index: int = Field(ge=0)
+    summary: Dict[str, Any] = Field(default_factory=dict)
+
+
+class ContinuationFinalCommit(BaseModel):
+    migration_id: str = Field(min_length=1)
+    package: Dict[str, Any] = Field(default_factory=dict)
