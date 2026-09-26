@@ -14,6 +14,7 @@ BLOCK_SIZE = 100
 RECENT_TURN_COUNT = 15
 RECENT_SCENE_COUNT = 8
 MIGRATION_VERSION = 2
+CONTINUATION_CHUNK_CHARS = 48000
 
 
 def _migration_path(session_id: str):
@@ -329,7 +330,7 @@ def prepare_continuation_block_read(session_id: str, migration_id: str, block_in
         "instruction": "Semantic compaction block. Scene prose is intentionally omitted. Use scene summaries, durable extracted updates, chronology and strictly personal memory. Preserve facts, not wording. No invented facts.",
     }
     raw = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
-    chunks = [raw[i:i + storage.MAX_PACKET_CHARS] for i in range(0, len(raw), storage.MAX_PACKET_CHARS)] or ["{}"]
+    chunks = [raw[i:i + CONTINUATION_CHUNK_CHARS] for i in range(0, len(raw), CONTINUATION_CHUNK_CHARS)] or ["{}"]
     read = {
         "kind": "block",
         "read_id": secrets.token_urlsafe(12),
@@ -450,7 +451,7 @@ def prepare_continuation_final_read(session_id: str, migration_id: str) -> Dict[
         ],
     }
     raw = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
-    chunks = [raw[i:i + storage.MAX_PACKET_CHARS] for i in range(0, len(raw), storage.MAX_PACKET_CHARS)] or ["{}"]
+    chunks = [raw[i:i + CONTINUATION_CHUNK_CHARS] for i in range(0, len(raw), CONTINUATION_CHUNK_CHARS)] or ["{}"]
     read = {"kind": "final", "read_id": secrets.token_urlsafe(12), "chunks": chunks, "read_chunks": [0]}
     migration["active_read"] = read
     _save_migration(session_id, migration)
