@@ -416,6 +416,14 @@ def _validate_update_rows(
                 "is_new": key not in baseline,
             }
 
+        new_keys = {key for key, dim in owner_dims.items() if dim.get("is_new")}
+        if len(baseline) + len(new_keys) > relationship_runtime.MAX_DIMENSIONS:
+            _error(
+                "RELATIONSHIP_DIMENSION_LIMIT",
+                f"{owner_id}: relationship dimension limit is {relationship_runtime.MAX_DIMENSIONS}; "
+                "do not silently drop a new metric.",
+            )
+
         if changed:
             reason = str(raw.get("reason") or "").strip()
             if not reason:
