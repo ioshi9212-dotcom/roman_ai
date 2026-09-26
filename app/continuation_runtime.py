@@ -14,7 +14,7 @@ BLOCK_SIZE = 100
 RECENT_TURN_COUNT = 15
 RECENT_SCENE_COUNT = 8
 MIGRATION_VERSION = 2
-CONTINUATION_CHUNK_CHARS = 48000
+CONTINUATION_CHUNK_CHARS = 12000
 
 
 def _migration_path(session_id: str):
@@ -336,7 +336,7 @@ def prepare_continuation_block_read(session_id: str, migration_id: str, block_in
         "read_id": secrets.token_urlsafe(12),
         "block_index": block_index,
         "chunks": chunks,
-        "read_chunks": [0] if chunks else [],
+        "read_chunks": [],
     }
     migration["active_read"] = read
     _save_migration(session_id, migration)
@@ -346,9 +346,8 @@ def prepare_continuation_block_read(session_id: str, migration_id: str, block_in
         "block_index": block_index,
         "turn_range": [start, end],
         "chunk_count": len(chunks),
-        "first_chunk_included": True,
-        "content": chunks[0],
-        "next_chunk_index": 1 if len(chunks) > 1 else None,
+        "first_chunk_included": False,
+        "next_chunk_index": 0 if chunks else None,
     }
 
 
