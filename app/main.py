@@ -412,8 +412,6 @@ def continuation_read_chunk_get(session_id: str, read_id: str, chunk_index: int,
 @app.post("/sessions/{session_id}/continuation/blocks/{block_index}/commit", operation_id="commitContinuationBlock")
 def continuation_block_commit(session_id: str, block_index: int, body: ContinuationBlockCommit):
     try:
-        if body.block_index != block_index:
-            raise HTTPException(status_code=409, detail="block_index mismatch")
         return commit_continuation_block(session_id, body.migration_id, block_index, body.summary)
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Session not found")
