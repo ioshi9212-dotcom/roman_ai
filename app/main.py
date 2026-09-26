@@ -8,6 +8,7 @@ from .audit_runtime import get_audit_snapshot, get_audit_snapshot_chunk
 from .character_access import get_character_bundle
 from .character_chunk_read import get_character_bundle_chunk, prepare_character_bundle_read
 from .context_stats import session_context_stats
+from .continuation_runtime import build_continuation_preview, create_continuation_session
 from .models import AuditCommit, NovelDraftCreate, NovelDraftIntakeChunk, NovelDraftIntakeMapping, NovelDraftLaunchState, NovelDraftReconciliation, NovelDraftSection, NovelRawSave, NovelTemplate, RollbackLastTurn, SceneArchiveRead, SessionCreate, TurnCommit, TurnPrepare
 from .novel_access import get_novel_read_chunk, prepare_novel_read, verify_novel
 from .novel_drafts import (
@@ -364,6 +365,22 @@ def sessions_create(body: SessionCreate):
 def session_preview_get(session_id: str):
     try:
         return get_session_preview(session_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+
+@app.get("/sessions/{session_id}/continuation-preview", operation_id="previewContinuationSession")
+def continuation_preview_get(session_id: str):
+    try:
+        return build_continuation_preview(session_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+
+@app.post("/sessions/{session_id}/continuation", operation_id="createContinuationSession")
+def continuation_create(session_id: str):
+    try:
+        return create_continuation_session(session_id)
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Session not found")
 
