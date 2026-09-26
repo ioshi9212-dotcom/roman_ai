@@ -101,6 +101,10 @@ components:
           type: boolean
           default: false
           description: Set true when the client supports mandatory per-character full knowledge reads through prepareCharacterKnowledgeRead/getCharacterKnowledgeChunk.
+        relationship_review_capable:
+          type: boolean
+          default: false
+          description: Set true when the client explicitly reviews NPC->POV relationship changes before every commit.
         strict_knowledge_capable:
           type: boolean
           default: false
@@ -268,6 +272,10 @@ components:
               type: boolean
               default: false
               description: True only after reviewing every real speech line against the speaker's dialogue frame and earlier current-turn knowledge.
+            relationship_reviewed:
+              type: boolean
+              default: false
+              description: True only after checking every participating NPC for causal NPC->POV relationship changes in this exact turn and persisting any real changes through relationship_updates.
             knowledge_trace_complete:
               type: boolean
               default: false
@@ -684,7 +692,7 @@ paths:
     post:
       operationId: prepareTurn
       summary: Build or reuse bounded writer-first context from complete persistent canon
-      description: Roman GPT uses stable request_id plus scene_archive_capable=true, knowledge_review_capable=true and complete_knowledge_read_capable=true. prepareTurn returns required scene knowledge reads; read them fully before the scene.
+      description: Roman GPT uses stable request_id plus scene_archive_capable=true, knowledge_review_capable=true, complete_knowledge_read_capable=true and relationship_review_capable=true. Read required knowledge fully before the scene.
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
       requestBody:
@@ -802,7 +810,7 @@ paths:
     post:
       operationId: commitTurn
       summary: Save one complete turn after required writer chunks were read
-      description: Echo packet_id from prepareTurn. When complete_knowledge_read_capable=true, commit is rejected until every required physical/remote scene participant has completed prepareCharacterKnowledgeRead plus all getCharacterKnowledgeChunk chunks. Then perform the normal knowledge review and commit.
+      description: Echo packet_id from prepareTurn. Full knowledge reads and, when enabled, explicit relationship review must complete before commit. Persist causal relationship changes via relationship_updates.
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
       requestBody:
