@@ -368,6 +368,7 @@ def _atomic_commit_audit(session_id: str, payload: Dict[str, Any]) -> Dict[str, 
         repairs["scene_compactions"] = resolved_scene_rows
 
         macro_compaction_due = macro_due(source, expected_end)
+        macro_compaction_requested = isinstance(repairs.get("chronology_compactions"), list)
         chronology = apply_macro_chronology_compaction(
             root,
             chronology,
@@ -411,7 +412,8 @@ def _atomic_commit_audit(session_id: str, payload: Dict[str, Any]) -> Dict[str, 
             "transactional_commit": True,
             "relationship_snapshots_atomic": True,
             "scene_compactions_saved": len(resolved_scene_rows),
-            "macro_chronology_compacted": bool(macro_compaction_due),
+            "macro_chronology_compacted": bool(macro_compaction_due and macro_compaction_requested),
+            "macro_chronology_deferred": bool(macro_compaction_due and not macro_compaction_requested),
         }
         audit_id = str(payload.get("audit_id") or "").strip()
         if audit_id:
