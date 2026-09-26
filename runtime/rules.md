@@ -24,17 +24,17 @@ Backend хранит канон. `scene_builder` задаёт формат сц�
 - `state.current`: date/time/location, `present_characters`, `remote_characters`, `remote_channels`, `positions`, `scene_items`, `unfinished_actions`.
 - Remote NPC участвует для profile/journal/relations без position. После контакта убери его; однопроходный контакт зафиксируй в `dialogue_memory_add`.
 - `scene_items` только значимые; при изменении передавай полный актуальный снимок, чтобы вещь не оставалась в старом месте.
-- POV clothing/inventory → `state.pov`; NPC при нужде → `state.characters[ID]`. Вход/выход/движение и важные изменения сохраняй через `state_patch`.
+- POV clothing/inventory → `state.pov`; NPC → `state.characters[ID]`. Вход/выход/движение сохраняй через `state_patch`.
 - Последнее подтверждённое место/появление NPC не стирай при выходе.
 
 ## Хронология и отношения
-- `chronology` — долгосрочная история. Бытовую рутину без последствий не сохраняй. Сохраняй раскрытия, решения, договорённости, конфликты, угрозы и последствия. Exact time только когда причинно важно.
+- `chronology` — долгосрочная история: раскрытия, решения, договорённости, конфликты, угрозы, последствия. Рутину без последствий не сохраняй; exact time только если причинно важно.
 - Отношения NPC→POV: после сцены обязательно проверь каждого участника. Реальный сдвиг → `relationship_updates` с причиной; existing число через `delta`. Нет сдвига → без update.
 
 ## Мир и сюжет
 - Мир не ждёт POV. Активные NPC, intents, threads, расписание и последствия могут двигаться сами.
 - Проверяй `character_registry`; устойчивый новый NPC → `character_upserts` с `story_function`. Offscreen NPC входит/пишет/звонит/действует → сначала character bundle.
-- `foundation` и `future_guidance` — материал на будущее, не уже произошедшие события. Перемещение, ожидание и течение времени сами по себе не прогресс.
+- `foundation` и `future_guidance` — будущее, не произошедшее. Перемещение/ожидание/течение времени сами по себе не прогресс.
 
 ## Ход
 1. `prepareTurn`: прочитай packet; для всех `scene_knowledge_reads.required_character_ids` дочитай knowledge chunks; до сцены `getSceneKnowledgeReadStatus.all_complete=true`.
