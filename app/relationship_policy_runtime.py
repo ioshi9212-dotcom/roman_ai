@@ -14,7 +14,7 @@ from .transactional_storage import session_transaction
 
 _ORIGINAL_PREPARE = None
 _ORIGINAL_COMMIT = None
-_VERSION = 1
+_VERSION = 2
 
 _META_KEYS = (
     "opinion",
@@ -227,6 +227,122 @@ def _numeric_baseline(state: Dict[str, Any], owner_id: str) -> Dict[str, tuple[s
     }
 
 
+def _clamp_relationship_value(value: float) -> float:
+    return max(0.0, min(100.0, float(value)))
+
+
+def _reviewed_footer_delta_fallbacks(
+    payload: Dict[str, Any],
+    *,
+    cards: List[Dict[str, Any]],
+    state_before: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Recover an omitted relationship_update from a reviewed, arithmetically valid footer delta.
+
+    Persistent state remains authoritative. This bridge accepts only an existing metric, a non-zero
+    ordinary delta within +/-3, a final footer value equal to saved+delta, and a concretely
+    participating NPC. Explicit relationship_updates always win. It is disabled unless the client
+    explicitly completed the per-turn relationship review.
+    """
+    result = deepcopy(payload)
+    extracted = result.get("extracted") if isinstance(result.get("extracted"), dict) else {}
+    if extracted.get("relationship_reviewed") is not True:
+        return result
+
+    footer = relationship_runtime._parse_footer(
+        str(result.get("scene_output") or ""),
+        cards=cards,
+        resolve_character_id=_resolve_character_id,
+    )
+    if not footer:
+        return result
+
+    participants = _participant_ids(cards, state_before, extracted)
+    rows = deepcopy(extracted.get("relationship_updates"))
+    if not isinstance(rows, list):
+        rows = []
+
+    row_by_owner: Dict[str, Dict[str, Any]] = {}
+    explicit_labels: Dict[str, set[str]] = {}
+    for raw in rows:
+        if not isinstance(raw, dict):
+            continue
+        owner_id = _resolve_character_id(cards, raw.get("character_id"))
+        if not owner_id:
+            continue
+        owner_id = str(owner_id)
+        row_by_owner.setdefault(owner_id, raw)
+        for dim in raw.get("dimensions", []) if isinstance(raw.get("dimensions"), list) else []:
+            if not isinstance(dim, dict):
+                continue
+            label = _norm(dim.get("label") or dim.get("key"))
+            if label:
+                explicit_labels.setdefault(owner_id, set()).add(label)
+
+    for owner_id, dimensions in footer.items():
+        owner_id = str(owner_id)
+        if owner_id not in participants:
+            continue
+        baseline = _numeric_baseline(state_before, owner_id)
+        if not baseline:
+            continue
+
+        recovered: List[Dict[str, Any]] = []
+        for dim in dimensions:
+            if not isinstance(dim, dict):
+                continue
+            key = _norm(dim.get("label") or dim.get("key"))
+            if not key or key not in baseline or key in explicit_labels.get(owner_id, set()):
+                continue
+            delta = dim.get("delta")
+            value = dim.get("value")
+            if not _is_number(delta) or not _is_number(value):
+                continue
+            delta_value = float(delta)
+            if abs(delta_value) < 1e-9 or abs(delta_value) > 3.0:
+                continue
+            saved_label, old_value = baseline[key]
+            expected = _clamp_relationship_value(old_value + delta_value)
+            if abs(float(value) - expected) > 1e-9:
+                continue
+            recovered.append({
+                "label": saved_label,
+                "value": expected,
+                "delta": delta_value,
+            })
+
+        if not recovered:
+            continue
+
+        target = row_by_owner.get(owner_id)
+        if target is None:
+            target = {
+                "character_id": owner_id,
+                "reason": "Fallback from mandatory relationship review: the scene footer recorded an explicit causal delta.",
+                "change_scale": "ordinary",
+                "dimensions": [],
+            }
+            rows.append(target)
+            row_by_owner[owner_id] = target
+        else:
+            target.setdefault(
+                "reason",
+                "Fallback from mandatory relationship review: the scene footer recorded an explicit causal delta.",
+            )
+            target.setdefault("change_scale", "ordinary")
+
+        target_dims = target.get("dimensions")
+        if not isinstance(target_dims, list):
+            target_dims = []
+            target["dimensions"] = target_dims
+        target_dims.extend(recovered)
+
+    extracted = deepcopy(extracted)
+    extracted["relationship_updates"] = rows
+    result["extracted"] = extracted
+    return result
+
+
 def _validate_update_rows(
     payload: Dict[str, Any],
     *,
@@ -346,14 +462,20 @@ def _validate_footer(
     """
     return
 
-def _validate_relationship_commit(session_id: str, payload: Dict[str, Any]) -> None:
+def _validate_relationship_commit(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     root = storage.SESSIONS_DIR / session_id
     state = storage._read_json(root / "state.json", {})
     source = storage._read_json(root / "source.json", {})
     extracted = payload.get("extracted") if isinstance(payload.get("extracted"), dict) else {}
     cards = storage._apply_character_upserts(storage._load_cards(root, source), extracted)
-    explicit = _validate_update_rows(payload, cards=cards, state_before=state)
-    _validate_footer(payload, cards=cards, state_before=state, explicit=explicit)
+    prepared = _reviewed_footer_delta_fallbacks(
+        payload,
+        cards=cards,
+        state_before=state,
+    )
+    explicit = _validate_update_rows(prepared, cards=cards, state_before=state)
+    _validate_footer(prepared, cards=cards, state_before=state, explicit=explicit)
+    return prepared
 
 
 def _rewrite_packet(session_id: str, base_result: Dict[str, Any]) -> Dict[str, Any]:
@@ -385,7 +507,9 @@ def _rewrite_packet(session_id: str, base_result: Dict[str, Any]) -> Dict[str, A
             "authoritative_start_snapshot": previous_policy.get("authoritative_start_snapshot", {}),
             "source_of_truth": "persistent relationship_documents synchronized to relationships",
             "common_index_path": "relationship_index.characters",
+            "required_review_every_turn": True,
             "footer_is_display_only": True,
+            "footer_explicit_delta_fallback": True,
             "footer_is_transaction_gate": False,
             "footer_required_for_every_present_npc": False,
             "fresh_baseline_required": False,
@@ -393,14 +517,25 @@ def _rewrite_packet(session_id: str, base_result: Dict[str, Any]) -> Dict[str, A
             "zero_dimensions_may_be_hidden": False,
             "change_requires_reason": True,
             "limits": {"ordinary": 3, "timeskip_per_day": 3, "timeskip_cap": 30, "critical_event": 25},
+            "instruction": (
+                "После всей сцены обязательно переоцени отношение каждого участвовавшего NPC к POV. "
+                "Не замораживай одни и те же показатели на многих ходах, если отношения явно развиваются или ухудшаются; "
+                "не меняй их механически без реального основания. Основной канал изменения — causal relationship_updates с reason+delta. "
+                "Footer остаётся display-only, но backend может восстановить забытый ordinary update только из явного /delta, "
+                "если relationship_reviewed=true и final=saved+delta; кривой, большой или неучаствующий delta игнорируется."
+            ),
         }
 
         persistence = context.get("persistence_contract") if isinstance(context.get("persistence_contract"), dict) else {}
         persistence["relationship_updates"] = {
             "optional": True,
-            "when": "Только causal NPC->POV change.",
+            "review_required": True,
+            "when": "После обязательной проверки: только real causal NPC->POV change.",
             "fields": "character_id, reason, change_scale, elapsed_game_days(timeskip), dimensions[label,value,delta(existing)]",
-            "instruction": "Existing metric → delta+reason. ordinary<=3; timeskip 3/day cap30; critical_event<=25.",
+            "instruction": (
+                "Existing metric → delta+reason. ordinary<=3; timeskip 3/day cap30; critical_event<=25. "
+                "Явный корректный footer /delta — только аварийный fallback, не замена relationship_updates."
+            ),
         }
         context["persistence_contract"] = persistence
 
@@ -440,8 +575,8 @@ def _prepare_turn(session_id: str, user_input: str) -> Dict[str, Any]:
 
 
 def _commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
-    _validate_relationship_commit(session_id, payload)
-    return dict(_ORIGINAL_COMMIT(session_id, payload))
+    prepared = _validate_relationship_commit(session_id, payload)
+    return dict(_ORIGINAL_COMMIT(session_id, prepared))
 
 
 def install() -> None:
