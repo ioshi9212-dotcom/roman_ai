@@ -346,3 +346,111 @@ def test_player_directed_timeskip_can_change_explicitly_avoided_offscreen_npc():
 
         state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
         assert state["relationships"]["aiden"]["близость"] == 6
+
+
+def test_final_relationship_policy_restores_review_every_turn_and_anti_freeze_rule():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(novel())["session_id"]
+        _, packet = read_packet(sid, "обычный ход")
+
+        policy = packet["relationship_policy"]
+        assert policy["required_review_every_turn"] is True
+        assert policy["footer_explicit_delta_fallback"] is True
+        assert "Не замораживай" in policy["instruction"]
+        assert "relationship_updates" in policy["instruction"]
+
+
+def test_reviewed_footer_delta_recovers_omitted_relationship_update():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(novel())["session_id"]
+        read_packet(sid, "Лиам становится теплее к Ринате")
+
+        session_runtime.commit_turn(
+            sid,
+            {
+                "user_input": "Лиам становится теплее к Ринате",
+                "scene_output": scene("симпатия 2/+1; доверие 2; привязанность 10"),
+                "extracted": extracted(relationship_reviewed=True),
+            },
+        )
+
+        state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
+        assert state["relationships"]["liam"]["симпатия"] == 2
+        relation = state["relationship_documents"]["liam"]["relations"][0]
+        assert relation["change_reasons"][-1]["changes"][0]["delta"] == 1
+
+
+def test_footer_delta_fallback_requires_explicit_relationship_review():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(novel())["session_id"]
+        read_packet(sid, "Лиам становится теплее к Ринате")
+
+        session_runtime.commit_turn(
+            sid,
+            {
+                "user_input": "Лиам становится теплее к Ринате",
+                "scene_output": scene("симпатия 2/+1; доверие 2; привязанность 10"),
+                "extracted": extracted(),
+            },
+        )
+
+        state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
+        assert state["relationships"]["liam"]["симпатия"] == 1
+
+
+def test_footer_delta_fallback_ignores_bad_arithmetic_and_large_jump():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(novel())["session_id"]
+
+        read_packet(sid, "первый ход")
+        session_runtime.commit_turn(
+            sid,
+            {
+                "user_input": "первый ход",
+                "scene_output": scene("симпатия 9/+1; доверие 2; привязанность 10"),
+                "extracted": extracted(relationship_reviewed=True),
+            },
+        )
+        state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
+        assert state["relationships"]["liam"]["симпатия"] == 1
+
+        read_packet(sid, "второй ход")
+        session_runtime.commit_turn(
+            sid,
+            {
+                "user_input": "второй ход",
+                "scene_output": scene("симпатия 10/+9; доверие 2; привязанность 10", turn=2),
+                "extracted": extracted(relationship_reviewed=True),
+            },
+        )
+        state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
+        assert state["relationships"]["liam"]["симпатия"] == 1
+
+
+def test_explicit_relationship_update_wins_over_footer_fallback():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(novel())["session_id"]
+        read_packet(sid, "важный хороший разговор")
+
+        update = {
+            "character_id": "liam",
+            "reason": "Разговор заметно усилил симпатию Лиама.",
+            "change_scale": "ordinary",
+            "dimensions": [{"label": "симпатия", "value": 3, "delta": 2}],
+        }
+        session_runtime.commit_turn(
+            sid,
+            {
+                "user_input": "важный хороший разговор",
+                "scene_output": scene("симпатия 2/+1; доверие 2; привязанность 10"),
+                "extracted": extracted(relationship_reviewed=True, relationship_updates=[update]),
+            },
+        )
+
+        state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
+        assert state["relationships"]["liam"]["симпатия"] == 3
