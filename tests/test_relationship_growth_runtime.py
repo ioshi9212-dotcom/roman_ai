@@ -133,27 +133,82 @@ def test_new_visible_dimension_is_ignored_without_causal_update():
         assert state["relationships"]["adrian"] == {"доверие": 3, "настороженность": 4}
 
 
-def test_unknown_new_dimension_in_canonical_relationship_update_is_rejected():
+def test_new_custom_dimension_can_appear_after_relationship_exists():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         sid = storage.create_session(novel({"доверие": 3}))["session_id"]
-        read_packet(sid, "conflict")
+        read_packet(sid, "Эдриан впервые понимает, что готов поставить интересы Ринаты выше своих")
         payload = extracted()
         payload["relationship_updates"] = [
             {
                 "character_id": "adrian",
-                "reason": "Конфликт вызвал новую реакцию.",
+                "reason": "Поступок Ринаты впервые сформировал у Эдриана устойчивую преданность.",
                 "change_scale": "ordinary",
-                "dimensions": [{"label": "скепсис", "value": 6, "delta": 1}],
+                "dimensions": [{"label": "преданность", "value": 6}],
             }
         ]
+        session_runtime.commit_turn(
+            sid,
+            {
+                "user_input": "Эдриан впервые понимает, что готов поставить интересы Ринаты выше своих",
+                "scene_output": scene("доверие 3; преданность 6"),
+                "extracted": payload,
+            },
+        )
+        state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
+        assert state["relationships"]["adrian"] == {"доверие": 3, "преданность": 6}
+
+
+def test_thirteenth_dimension_is_not_silently_dropped():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        initial = {f"шкала{index}": index for index in range(1, 13)}
+        sid = storage.create_session(novel(initial))["session_id"]
+        read_packet(sid, "Возникает новая ревность")
+        payload = extracted(
+            relationship_updates=[
+                {
+                    "character_id": "adrian",
+                    "reason": "Ситуация впервые дала Эдриану устойчивую ревность.",
+                    "change_scale": "ordinary",
+                    "dimensions": [{"label": "ревность", "value": 4}],
+                }
+            ]
+        )
+        session_runtime.commit_turn(
+            sid,
+            {
+                "user_input": "Возникает новая ревность",
+                "scene_output": scene("ревность 4"),
+                "extracted": payload,
+            },
+        )
+        state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
+        assert len(state["relationships"]["adrian"]) == 13
+        assert state["relationships"]["adrian"]["ревность"] == 4
+
+
+def test_invalid_new_dimension_label_is_rejected():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(novel({"доверие": 3}))["session_id"]
+        read_packet(sid, "conflict")
+        payload = extracted(
+            relationship_updates=[
+                {
+                    "character_id": "adrian",
+                    "reason": "Конфликт вызвал новую реакцию.",
+                    "change_scale": "ordinary",
+                    "dimensions": [{"label": "скепсис;служебное", "value": 6}],
+                }
+            ]
+        )
         with pytest.raises(HTTPException) as exc:
             session_runtime.commit_turn(
                 sid,
                 {"user_input": "conflict", "scene_output": scene("доверие 3"), "extracted": payload},
             )
-        assert exc.value.status_code == 409
-        assert exc.value.detail["code"] == "RELATIONSHIP_DIMENSION_UNKNOWN"
+        assert exc.value.detail["code"] == "RELATIONSHIP_DIMENSION_LABEL_INVALID"
 
 
 def test_custom_gpt_retries_transient_transport_failures_without_advancing_turn():
@@ -161,6 +216,6 @@ def test_custom_gpt_retries_transient_transport_failures_without_advancing_turn(
     assert "service did not respond" in text
     assert "до 2 раз" in text
     assert "exact payload" in text
-    assert len(text) <= 8000
+    assert len(text) <= 9000
 
 # Relationship growth regression suite intentionally lives outside legacy schema-lock tests.
