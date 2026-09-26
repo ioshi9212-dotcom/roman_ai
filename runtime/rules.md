@@ -34,7 +34,7 @@ Backend хранит канон. `scene_builder` задаёт формат сц�
 ## Мир и сюжет
 - Мир не ждёт POV. Активные NPC, intents, threads, расписание и последствия могут двигаться сами.
 - Проверяй `character_registry`; устойчивый новый NPC → `character_upserts` с `story_function`. Offscreen NPC входит/пишет/звонит/действует → сначала character bundle.
-- `foundation` и `future_guidance` — будущее, не произошедшее. Перемещение/ожидание/течение времени сами по себе не прогресс.
+- `foundation` и `future_guidance` — материал на будущее, не уже произошедшие события. Перемещение/ожидание/течение времени сами по себе не прогресс.
 
 ## Ход
 1. `prepareTurn`: прочитай packet; для всех `scene_knowledge_reads.required_character_ids` дочитай knowledge chunks; до сцены `getSceneKnowledgeReadStatus.all_complete=true`.
