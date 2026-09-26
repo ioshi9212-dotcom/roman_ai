@@ -55,7 +55,7 @@ from .startup_migration import read_migration_status, run_startup_session_migrat
 
 app = FastAPI(
     title="Roman AI",
-    version="1.15.0",
+    version="1.16.0",
     description="Persistent isolated novel sessions with bounded writer-first context, lossless chunked setup intake, living cast rotation, memory, chronology, relationships, NPC intents, persistent story threads, recovery, rollback and audits.",
 )
 
