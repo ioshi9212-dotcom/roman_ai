@@ -241,7 +241,8 @@ def _reviewed_footer_delta_fallbacks(
 
     Persistent state remains authoritative. This bridge accepts only an existing metric, a non-zero
     ordinary delta within +/-3, a final footer value equal to saved+delta, and a concretely
-    participating NPC. Explicit relationship_updates always win. This remains compatibility-safe
+    participating NPC who is still present at scene end. Departing/remote changes still require
+    explicit relationship_updates. This remains compatibility-safe
     for older clients because an explicit, arithmetically valid /delta is itself required.
     """
     result = deepcopy(payload)
@@ -256,6 +257,7 @@ def _reviewed_footer_delta_fallbacks(
         return result
 
     participants = _participant_ids(cards, state_before, extracted)
+    final_present = _post_present_ids(cards, state_before, extracted)
     rows = deepcopy(extracted.get("relationship_updates"))
     if not isinstance(rows, list):
         rows = []
@@ -279,7 +281,7 @@ def _reviewed_footer_delta_fallbacks(
 
     for owner_id, dimensions in footer.items():
         owner_id = str(owner_id)
-        if owner_id not in participants:
+        if owner_id not in participants or owner_id not in final_present:
             continue
         baseline = _numeric_baseline(state_before, owner_id)
         if not baseline:
