@@ -49,8 +49,8 @@ def _last_committed_turn(root) -> Dict[str, Any] | None:
                 "handoff_from_previous_session": False,
             }
 
-    handoff = storage._read_json(root / "handoff_tail.json", {})
-    bridge_turns = handoff.get("turns") if isinstance(handoff, dict) else None
+    handoff = storage._read_json(root / "handoff_tail.json", [])
+    bridge_turns = handoff if isinstance(handoff, list) else handoff.get("turns") if isinstance(handoff, dict) else None
     if isinstance(bridge_turns, list) and bridge_turns:
         last = bridge_turns[-1]
         if isinstance(last, dict):
