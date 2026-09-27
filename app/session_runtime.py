@@ -30,7 +30,14 @@ def _clear_legacy_handoff(root, meta: Dict[str, Any]) -> Dict[str, Any]:
         changed = True
     if changed:
         storage._write_json(root / "meta.json", meta)
+
+    # A continuation session intentionally keeps the exact prior-turn bridge
+    # until its first new turn is committed. Resume/prepareTurn must not erase it.
+    preserve_continuation_handoff = bool(meta.get("continuation_of_session_id")) and int(meta.get("turn_number", 0) or 0) == 0
+
     for name in ("handoff_tail.json", "resume_token.json"):
+        if name == "handoff_tail.json" and preserve_continuation_handoff:
+            continue
         path = root / name
         if path.exists():
             path.unlink()
