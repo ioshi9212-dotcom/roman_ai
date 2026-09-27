@@ -104,6 +104,7 @@ def test_resume_returns_exact_last_committed_scene_output_for_new_chat():
         assert resumed["last_committed_turn"] == {
             "turn_number": 1,
             "scene_output": expected_scene,
+            "handoff_from_previous_session": False,
         }
         assert "exact latest saved scene" in resumed["instruction"]
         assert len(json.dumps(resumed, ensure_ascii=False)) < 20000
