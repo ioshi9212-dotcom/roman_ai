@@ -547,21 +547,120 @@ def _normalized_chronology(package: Dict[str, Any]) -> List[Dict[str, Any]]:
     return result
 
 
+def _normalize_final_package_shape(package: Any, cards: List[Dict[str, Any]]) -> Dict[str, Any]:
+    if not isinstance(package, dict):
+        raise ValueError("CONTINUATION_FINAL_PACKAGE_INVALID: package must be an object")
+
+    value = deepcopy(package)
+    # Tolerate one accidental wrapper produced by an Action client/model.
+    if isinstance(value.get("package"), dict) and not any(
+        key in value for key in ("chronology", "characters", "current", "threads")
+    ):
+        value = deepcopy(value["package"])
+
+    if not isinstance(value.get("chronology"), list):
+        for alias in ("history", "timeline", "chronology_compacted"):
+            if isinstance(value.get(alias), list):
+                value["chronology"] = deepcopy(value[alias])
+                break
+
+    characters = value.get("characters")
+    if isinstance(characters, list):
+        mapped: Dict[str, Any] = {}
+        for row in characters:
+            if not isinstance(row, dict):
+                continue
+            cid = str(row.get("character_id") or row.get("id") or "").strip()
+            if cid:
+                mapped[cid] = deepcopy(row)
+        value["characters"] = mapped
+    elif not isinstance(characters, dict):
+        for alias in ("character_memory", "memories", "personal_memory"):
+            candidate = value.get(alias)
+            if isinstance(candidate, dict):
+                value["characters"] = deepcopy(candidate)
+                break
+            if isinstance(candidate, list):
+                mapped = {}
+                for row in candidate:
+                    if not isinstance(row, dict):
+                        continue
+                    cid = str(row.get("character_id") or row.get("id") or "").strip()
+                    if cid:
+                        mapped[cid] = deepcopy(row)
+                value["characters"] = mapped
+                break
+
+    current = value.get("current")
+    if not isinstance(current, dict):
+        for alias in ("current_state", "state_current"):
+            if isinstance(value.get(alias), dict):
+                value["current"] = deepcopy(value[alias])
+                break
+        if not isinstance(value.get("current"), dict) and isinstance(value.get("state"), dict):
+            state = value["state"]
+            if isinstance(state.get("current"), dict):
+                value["current"] = deepcopy(state["current"])
+
+    threads = value.get("threads")
+    if not isinstance(threads, (dict, list)):
+        for alias in ("story_threads", "active_threads", "threads_state"):
+            if isinstance(value.get(alias), (dict, list)):
+                value["threads"] = deepcopy(value[alias])
+                break
+        if not isinstance(value.get("threads"), (dict, list)) and isinstance(value.get("state"), dict):
+            state = value["state"]
+            if isinstance(state.get("threads"), (dict, list)):
+                value["threads"] = deepcopy(state["threads"])
+
+    errors = []
+    if not isinstance(value.get("chronology"), list):
+        errors.append("chronology:list")
+    if not isinstance(value.get("characters"), dict):
+        errors.append("characters:object")
+    if not isinstance(value.get("current"), dict):
+        errors.append("current:object")
+    if not isinstance(value.get("threads"), (dict, list)):
+        errors.append("threads:object_or_array")
+    if errors:
+        raise ValueError("CONTINUATION_FINAL_PACKAGE_INVALID: missing_or_wrong_type=" + ",".join(errors))
+
+    valid_ids = {storage._card_id(card) for card in cards if storage._card_id(card)}
+    # Remap exact character names to ids when the model used names as map keys.
+    name_to_id = {}
+    for card in cards:
+        cid = storage._card_id(card)
+        if not cid:
+            continue
+        for candidate in (storage._card_name(card), card.get("name"), card.get("surname")):
+            text = str(candidate or "").strip()
+            if text:
+                name_to_id[text.casefold()] = cid
+    remapped = {}
+    unknown = []
+    for key, row in value["characters"].items():
+        raw_key = str(key)
+        cid = raw_key if raw_key in valid_ids else name_to_id.get(raw_key.casefold())
+        if not cid and isinstance(row, dict):
+            hinted = str(row.get("character_id") or row.get("id") or "").strip()
+            if hinted in valid_ids:
+                cid = hinted
+        if not cid:
+            unknown.append(raw_key)
+            continue
+        remapped[cid] = deepcopy(row) if isinstance(row, dict) else {}
+    if unknown:
+        raise ValueError("CONTINUATION_UNKNOWN_CHARACTER: " + ",".join(sorted(unknown)))
+    value["characters"] = remapped
+    return value
+
+
 def commit_continuation_final(session_id: str, migration_id: str, package: Dict[str, Any]) -> Dict[str, Any]:
     migration = _load_migration(session_id)
     _validate_migration(migration, migration_id)
     _require_read_complete(migration, kind="final")
-    if not isinstance(package, dict):
-        raise ValueError("CONTINUATION_FINAL_PACKAGE_INVALID")
-    if not isinstance(package.get("chronology"), list) or not isinstance(package.get("characters"), dict):
-        raise ValueError("CONTINUATION_FINAL_PACKAGE_INVALID")
-    if not isinstance(package.get("current"), dict) or not isinstance(package.get("threads"), (dict, list)):
-        raise ValueError("CONTINUATION_FINAL_PACKAGE_INVALID")
     p = _load_source_parts(session_id)
-    valid_ids = {storage._card_id(c) for c in p["cards"]}
-    unknown = set(package["characters"]) - valid_ids
-    if unknown:
-        raise ValueError("CONTINUATION_UNKNOWN_CHARACTER")
+    package = _normalize_final_package_shape(package, p["cards"])
     normalized = deepcopy(package)
     normalized["memory_normalized"] = _normalized_compact_memory(p["source"], p["cards"], package)
     normalized["chronology_normalized"] = _normalized_chronology(package)
