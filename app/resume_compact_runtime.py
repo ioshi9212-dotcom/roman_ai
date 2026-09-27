@@ -40,15 +40,27 @@ def _pending_turn(root) -> Dict[str, Any] | None:
 
 def _last_committed_turn(root) -> Dict[str, Any] | None:
     turns = storage._read_turns(root)
-    if not turns:
-        return None
-    last = turns[-1]
-    if not isinstance(last, dict):
-        return None
-    return {
-        "turn_number": int(last.get("turn_number", 0) or 0),
-        "scene_output": str(last.get("scene_output") or ""),
-    }
+    if turns:
+        last = turns[-1]
+        if isinstance(last, dict):
+            return {
+                "turn_number": int(last.get("turn_number", 0) or 0),
+                "scene_output": str(last.get("scene_output") or ""),
+                "handoff_from_previous_session": False,
+            }
+
+    handoff = storage._read_json(root / "handoff_tail.json", {})
+    bridge_turns = handoff.get("turns") if isinstance(handoff, dict) else None
+    if isinstance(bridge_turns, list) and bridge_turns:
+        last = bridge_turns[-1]
+        if isinstance(last, dict):
+            return {
+                "turn_number": 0,
+                "source_turn_number": int(last.get("turn_number", 0) or 0),
+                "scene_output": str(last.get("scene_output") or ""),
+                "handoff_from_previous_session": True,
+            }
+    return None
 
 
 def _continue_session(session_id: str) -> Dict[str, Any]:
