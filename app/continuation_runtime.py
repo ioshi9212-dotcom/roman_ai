@@ -655,12 +655,28 @@ def _normalize_final_package_shape(package: Any, cards: List[Dict[str, Any]]) ->
     return value
 
 
+def _latest_exact_current_patch(turns: List[Dict[str, Any]]) -> Dict[str, Any]:
+    current: Dict[str, Any] = {}
+    for turn in turns[-RECENT_TURN_COUNT:]:
+        if not isinstance(turn, dict):
+            continue
+        extracted = turn.get("extracted") if isinstance(turn.get("extracted"), dict) else {}
+        state_patch = extracted.get("state_patch") if isinstance(extracted.get("state_patch"), dict) else {}
+        patch = state_patch.get("current") if isinstance(state_patch.get("current"), dict) else {}
+        if patch:
+            current = storage._deep_merge(current, deepcopy(patch))
+    return current
+
+
 def commit_continuation_final(session_id: str, migration_id: str, package: Dict[str, Any]) -> Dict[str, Any]:
     migration = _load_migration(session_id)
     _validate_migration(migration, migration_id)
     _require_read_complete(migration, kind="final")
     p = _load_source_parts(session_id)
     package = _normalize_final_package_shape(package, p["cards"])
+    exact_current = _latest_exact_current_patch(p["turns"])
+    if exact_current:
+        package["current"] = storage._deep_merge(package["current"], exact_current)
     normalized = deepcopy(package)
     normalized["memory_normalized"] = _normalized_compact_memory(p["source"], p["cards"], package)
     normalized["chronology_normalized"] = _normalized_chronology(package)
