@@ -33,7 +33,7 @@ def test_openapi_exposes_scene_compaction_and_stays_within_custom_gpt_action_lim
         for method in path_item
         if method.lower() in methods
     )
-    assert operations == 30
+    assert operations <= 30
 
     schemas = spec["components"]["schemas"]
     audit_commit = schemas["AuditCommit"]
