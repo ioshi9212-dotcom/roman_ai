@@ -53,13 +53,24 @@ def _last_committed_turn(root) -> Dict[str, Any] | None:
     bridge_turns = handoff if isinstance(handoff, list) else handoff.get("turns") if isinstance(handoff, dict) else None
     if isinstance(bridge_turns, list) and bridge_turns:
         last = bridge_turns[-1]
-        if isinstance(last, dict):
+        if isinstance(last, dict) and str(last.get("scene_output") or ""):
             return {
                 "turn_number": 0,
                 "source_turn_number": int(last.get("turn_number", 0) or 0),
                 "scene_output": str(last.get("scene_output") or ""),
                 "handoff_from_previous_session": True,
             }
+
+    durable = storage._read_json(root / "continuation_handoff.json", {})
+    last = durable.get("last_turn") if isinstance(durable, dict) else None
+    if isinstance(last, dict) and str(last.get("scene_output") or ""):
+        return {
+            "turn_number": 0,
+            "source_turn_number": int(last.get("turn_number", 0) or 0),
+            "scene_output": str(last.get("scene_output") or ""),
+            "handoff_from_previous_session": True,
+            "handoff_source": "durable_backup",
+        }
     return None
 
 
