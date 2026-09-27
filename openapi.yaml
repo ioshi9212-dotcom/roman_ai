@@ -529,6 +529,51 @@ components:
           type: array
           items: {type: string}
 paths:
+  /sessions/{session_id}/rollback-last-turn:
+    post:
+      operationId: rollbackLastTurn
+      summary: Roll back only the latest saved canonical turn after explicit user request
+      description: Resume first and pass exact current turn number plus current_turn_id with confirm=true. Exact retries are safe; a replacement turn has a different identity.
+      parameters:
+        - {in: path, name: session_id, required: true, schema: {type: string}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/RollbackLastTurn'}
+      responses:
+        '200': {description: Latest turn rolled back and same turn number is ready to retry}
+        '404': {description: Session not found}
+        '409': {description: Confirmation, expected turn or exact reconstruction check failed; no mutation performed}
+  /sessions/{session_id}/scene-archive/read:
+    post:
+      operationId: prepareSceneArchiveRead
+      summary: Prepare chunked persistent scene history or exact old-scene evidence
+      description: Omit scene_id for the complete compacted-scene index. Provide scene_id for that scene plus exact raw turns from its source ranges. Chunk 0 is included.
+      parameters:
+        - {in: path, name: session_id, required: true, schema: {type: string}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/SceneArchiveRead'}
+      responses:
+        '200': {description: Scene archive manifest plus inline chunk 0}
+        '404': {description: Session or scene not found}
+  /sessions/{session_id}/scene-archive/read/{read_id}/{chunk_index}:
+    get:
+      operationId: getSceneArchiveChunk
+      summary: Read one remaining chunk from a prepared scene archive read
+      description: Start at next_chunk_index because chunk 0 is already included. Echo scene_id only when the prepare request used one.
+      parameters:
+        - {in: path, name: session_id, required: true, schema: {type: string}}
+        - {in: path, name: read_id, required: true, schema: {type: string}}
+        - {in: path, name: chunk_index, required: true, schema: {type: integer, minimum: 0}}
+        - {in: query, name: scene_id, required: false, schema: {type: string}}
+      responses:
+        '200': {description: One remaining scene archive chunk}
+        '404': {description: Session, scene or chunk not found}
+        '409': {description: Scene archive changed during reading}
   /novel-drafts:
     post:
       operationId: createNovelDraft
@@ -648,83 +693,6 @@ paths:
         - {in: path, name: chunk_index, required: true, schema: {type: integer}}
       responses:
         '200': {description: One chunk}
-  /sessions/{session_id}/continuation/compaction:
-    post:
-      operationId: prepareContinuationCompaction
-      summary: Start or resume semantic compaction of a long session
-      parameters:
-        - {in: path, name: session_id, required: true, schema: {type: string}}
-      responses:
-        '200': {description: Migration manifest and next block}
-        '404': {description: Session not found}
-  /sessions/{session_id}/continuation/blocks/{block_index}/read:
-    post:
-      operationId: prepareContinuationBlockRead
-      summary: Prepare one 100-turn semantic-compaction block
-      parameters:
-        - {in: path, name: session_id, required: true, schema: {type: string}}
-        - {in: path, name: block_index, required: true, schema: {type: integer}}
-        - {in: query, name: migration_id, required: true, schema: {type: string}}
-      responses:
-        '200': {description: Chunked block read with chunk 0 included}
-  /sessions/{session_id}/continuation/read/{read_id}/{chunk_index}:
-    get:
-      operationId: getContinuationCompactionChunk
-      summary: Read a continuation-compaction chunk
-      parameters:
-        - {in: path, name: session_id, required: true, schema: {type: string}}
-        - {in: path, name: read_id, required: true, schema: {type: string}}
-        - {in: path, name: chunk_index, required: true, schema: {type: integer}}
-        - {in: query, name: migration_id, required: true, schema: {type: string}}
-      responses:
-        '200': {description: One continuation chunk}
-  /sessions/{session_id}/continuation/blocks/{block_index}/commit:
-    post:
-      operationId: commitContinuationBlock
-      summary: Commit the semantic summary of one continuation block
-      parameters:
-        - {in: path, name: session_id, required: true, schema: {type: string}}
-        - {in: path, name: block_index, required: true, schema: {type: integer}}
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: {$ref: '#/components/schemas/ContinuationBlockCommit'}
-      responses:
-        '200': {description: Block summary saved}
-  /sessions/{session_id}/continuation/final/read:
-    post:
-      operationId: prepareContinuationFinalRead
-      summary: Prepare final cross-block reconciliation for a continuation
-      parameters:
-        - {in: path, name: session_id, required: true, schema: {type: string}}
-        - {in: query, name: migration_id, required: true, schema: {type: string}}
-      responses:
-        '200': {description: Chunked final reconciliation read}
-  /sessions/{session_id}/continuation/final/commit:
-    post:
-      operationId: commitContinuationFinal
-      summary: Commit globally deduplicated history, personal memories, corrected current state and threads
-      parameters:
-        - {in: path, name: session_id, required: true, schema: {type: string}}
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: {$ref: '#/components/schemas/ContinuationFinalCommit'}
-      responses:
-        '200': {description: Final continuation package saved}
-  /sessions/{session_id}/continuation:
-    post:
-      operationId: createContinuationSession
-      summary: Create a new compact session after semantic compaction is finalized
-      description: Requires completed block compaction and final reconciliation. Copies current relationship stores unchanged, preserves a 15-turn exact bridge, and never modifies the source session canon.
-      parameters:
-        - {in: path, name: session_id, required: true, schema: {type: string}}
-      responses:
-        '200': {description: New continuation session created}
-        '404': {description: Session not found}
-        '409': {description: Semantic compaction or finalization is incomplete}
   /sessions/{session_id}/resume:
     post:
       operationId: resumeSession
