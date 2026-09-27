@@ -729,6 +729,7 @@ def create_continuation_session(session_id: str) -> Dict[str, Any]:
     new_id = str(new_meta["session_id"])
     new_root = storage.SESSIONS_DIR / new_id
     recent_turns = deepcopy(p["turns"][-RECENT_TURN_COUNT:])
+    last_source_turn = deepcopy(recent_turns[-1]) if recent_turns and isinstance(recent_turns[-1], dict) else None
     write_batch(
         new_root,
         {
@@ -738,6 +739,12 @@ def create_continuation_session(session_id: str) -> Dict[str, Any]:
             "memory.json": json_text(package["memory_normalized"]),
             "chronology.json": json_text(package["chronology_normalized"]),
             "handoff_tail.json": json_text(recent_turns),
+            "continuation_handoff.json": json_text({
+                "source_session_id": session_id,
+                "source_turn": current_turn,
+                "last_turn": last_source_turn,
+                "recent_turns": recent_turns,
+            }),
         },
     )
     return {
