@@ -16,14 +16,48 @@ components:
           type: object
           additionalProperties: true
       additionalProperties: false
+    ContinuationCharacterMemory:
+      type: object
+      properties:
+        knowledge:
+          type: array
+          items: {}
+        experiences:
+          type: array
+          items: {}
+        dialogue_memory:
+          type: array
+          items: {}
+      additionalProperties: true
+
+    ContinuationFinalPackage:
+      type: object
+      required: [chronology, characters, current, threads]
+      properties:
+        chronology:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        characters:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/ContinuationCharacterMemory'
+        current:
+          type: object
+          additionalProperties: true
+        threads:
+          type: object
+          additionalProperties: true
+      additionalProperties: true
+
     ContinuationFinalCommit:
       type: object
       required: [migration_id, package]
       properties:
         migration_id: {type: string}
         package:
-          type: object
-          additionalProperties: true
+          $ref: '#/components/schemas/ContinuationFinalPackage'
       additionalProperties: false
     NovelDraftCreate:
       type: object
