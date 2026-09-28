@@ -16,7 +16,7 @@ Backend хранит канон. `scene_builder` задаёт формат сц�
 
 ## Знания
 - Каждый physical/remote участник до сцены: `prepareCharacterKnowledgeRead` + все `getCharacterKnowledgeChunk`; дочитать весь `entry_count`.
-- V5 NPC: свой profile+journal+восприятие+отношения; свой profile = самознание. POV: свой profile+journal+восприятие.
+- V5 NPC: свой profile + полностью дочитанный knowledge-read + восприятие + отношения; свой profile = самознание. POV аналогично.
 - Чужие profiles/journals, chronology/history, hidden_lore, foundation и future_guidance не являются его знаниями.
 - Отсутствующую обычную self-detail можно непротиворечиво создать через `character_upserts`; новое знание о других/мире → `knowledge_journal_add`.
 - Legacy: каждую реальную реплику проверяй до реплики по `dialogue_frame`, `knowledge_path`, `turn_knowledge`, self-known/`source_self_paths`; `canon_fill` только для отсутствующей self-detail. Это правило реальным репликам, не вариантам будущего.
