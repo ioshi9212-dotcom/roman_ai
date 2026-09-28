@@ -4,6 +4,7 @@ from pathlib import Path
 
 from app import runtime_access, session_runtime, storage
 from app.models import TurnCommit
+from app.turn_rollback import rollback_last_turn
 
 
 def setup_temp_storage(tmp: str):
@@ -174,3 +175,40 @@ def test_fifteenth_turn_does_not_create_mandatory_audit_gate():
         assert result["turn_number"] == 15
         assert result["audit_due"] is False
         assert storage._read_json(root / "meta.json", {})["audit_required"] is False
+
+
+def test_last_turn_rollback_still_works_without_mandatory_audit():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        novel = base_novel()
+        novel["characters"] = [{"character_id": "pov", "name": "POV", "is_pov": True}]
+        novel["starting_state"]["current"]["present_characters"] = ["pov"]
+        sid = storage.create_session(novel)["session_id"]
+        root = storage.SESSIONS_DIR / sid
+
+        manifest = session_runtime.prepare_turn_packet(sid, "(подойти к окну)")
+        read_all(manifest, sid)
+        session_runtime.commit_turn(
+            sid,
+            {
+                "packet_id": manifest["packet_id"],
+                "user_input": "(подойти к окну)",
+                "scene_output": "POV подошла к окну.",
+                "extracted": {
+                    "state_patch": {
+                        "current": {
+                            "location": "window",
+                            "present_characters": ["pov"],
+                        }
+                    }
+                },
+            },
+        )
+        assert storage._read_json(root / "meta.json", {})["turn_number"] == 1
+
+        rolled = rollback_last_turn(sid, 1, True)
+        assert rolled["rolled_back_turn"] == 1
+        assert rolled["turn_number"] == 0
+        assert storage._read_json(root / "meta.json", {})["turn_number"] == 0
+        assert storage._read_turns(root) == []
+        assert storage._read_json(root / "state.json", {})["current"]["location"] == "room"
