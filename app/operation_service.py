@@ -12,8 +12,7 @@ from .operation_receipts import (
     request_fingerprint,
 )
 from .scene_archive_read import apply_bounded_scene_history
-from .scene_knowledge_read import require_complete_scene_knowledge_reads, scene_knowledge_read_status
-from .runtime_contract import validate_runtime_contract
+from .scene_knowledge_read import scene_knowledge_read_status
 from .transactional_storage import session_transaction
 from .turn_duplicate_guard import (
     committed_request_turn,
@@ -240,13 +239,6 @@ def commit_turn_request(session_id: str, payload: Dict[str, Any]) -> Dict[str, A
     packet = storage._read_json(root / "turn_packet.json", {})
     if not isinstance(packet, dict) or str(packet.get("packet_id") or "") != packet_id:
         raise RuntimeError("TURN_PACKET_REQUIRED")
-    if bool(packet.get("complete_knowledge_read_capable")):
-        require_complete_scene_knowledge_reads(
-            session_id,
-            extra_character_ids=_turn_participant_ids_from_payload(payload),
-        )
-    if bool(packet.get("runtime_contract_capable")):
-        validate_runtime_contract(session_id, payload)
     # Relationship review is a writer/persistence requirement, not a transaction-killing gate.
     # Older live GPT schemas and long-running pending turns may omit relationship_reviewed even
     # though the scene contains a valid relationship footer/update. Do not brick the whole scene:
