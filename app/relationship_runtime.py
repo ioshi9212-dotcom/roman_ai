@@ -8,7 +8,7 @@ from typing import Any, Callable, Dict, Iterable, List
 _METRIC_RE = re.compile(
     r"^(.+?)\s+(-?\d+(?:\.\d+)?)(?:\s*/\s*([+-]?\d+(?:\.\d+)?))?$"
 )
-MAX_DIMENSIONS = 8
+MAX_DIMENSIONS = 32
 
 
 def _is_number(value: Any) -> bool:
