@@ -49,6 +49,7 @@ def test_custom_gpt_schema_exposes_response_safe_single_context_character_and_ro
     assert "request_id" in turn_prepare["properties"]
     assert "scene_archive_capable" in turn_prepare["properties"]
     assert "complete_knowledge_read_capable" in turn_prepare["properties"]
+    assert "runtime_contract_capable" in turn_prepare["properties"]
     assert "replace_pending" in turn_prepare["properties"]
     assert "audit_id" in schema["components"]["schemas"]["AuditCommit"]["required"]
 
@@ -121,6 +122,7 @@ def test_custom_gpt_instruction_stays_small_and_matches_writer_first_transport()
     assert "strict_knowledge_capable=false" in text
     assert "knowledge_review_capable=true" in text
     assert "complete_knowledge_read_capable=true" in text
+    assert "runtime_contract_capable=true" in text
     assert "POV" in text
     assert "бытовые низкорисковые реплики" in text
 
