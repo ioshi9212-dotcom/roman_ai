@@ -174,7 +174,17 @@ def test_v5_session_packet_exposes_plain_profiles_and_journals_without_fact_ledg
         assert "knowledge_firewall_v5" not in context
         assert "dialogue_frames" not in context
         assert "source_fact_ids" not in context.get("speaker_context", {}).get("silas", {})
-        assert "own profile + own knowledge_journal" in context["scene_logic_guardrails"]["knowledge_causality"]["rule"]
+        causality = context["scene_logic_guardrails"]["knowledge_causality"]
+        assert causality["source_before_use"] is True
+        assert causality["no_retroactive_justification"] is True
+        assert causality["character_knowledge_is_closed_world"] is True
+        assert "speaker_context[character_id].profile_path" in causality["allowed_sources"][0]
+        assert any("parenthetical" in item for item in causality["author_only_not_character_knowledge"])
+        assert "собственный profile" in causality["rule"]
+        assert "Нельзя оправдывать знание задним числом" in causality["rule"]
+        review = context["scene_logic_guardrails"]["knowledge_review"]
+        assert review["mandatory"] is True
+        assert "источника не было до использования" in review["rule"]
 
 
 def test_plain_journal_entries_are_persisted_without_model_supplied_ids():
