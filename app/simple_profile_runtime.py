@@ -18,7 +18,7 @@ from .profile_templates import (
 from .transactional_storage import session_transaction
 
 
-_PROFILE_RUNTIME_VERSION = 2
+_PROFILE_RUNTIME_VERSION = 3
 _ORIGINAL_PREPARE = None
 _ORIGINAL_COMMIT = None
 _ORIGINAL_PARTICIPATION_BUNDLE = None
@@ -169,21 +169,50 @@ def _rewrite_packet(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
         guards = context.get("scene_logic_guardrails")
         if isinstance(guards, dict):
             guards = deepcopy(guards)
-            guards["knowledge_causality"] = {
+
+            causality = guards.get("knowledge_causality")
+            causality = deepcopy(causality) if isinstance(causality, dict) else {}
+            causality.update({
                 "mandatory": True,
                 "applies_to": "speech, POV narration and POV inner view",
+                "source_before_use": True,
+                "no_retroactive_justification": True,
+                "character_knowledge_is_closed_world": True,
+                "allowed_sources": [
+                    "speaker_context[character_id].profile_path for self-known profile facts",
+                    "speaker_context[character_id].knowledge_journal_path",
+                    "current perception physically or communicatively available to this character",
+                    "earlier current-turn public speech or communication explicitly addressed to this character",
+                ],
+                "author_only_not_character_knowledge": [
+                    "another character's profile or knowledge_journal",
+                    "chronology/recent_turns/continuity_turns/scene_history",
+                    "director_only hidden_lore and author context",
+                    "foundation/future_guidance/lore/world canon",
+                    "POV parenthetical text except observable physical effects or communication explicitly addressed to this character",
+                    "another character's private information",
+                ],
                 "rule": (
-                    "NPC: own profile + own knowledge_journal + current perception. POV: own profile + own "
-                    "knowledge_journal + current perception. Chronology, hidden lore and other profiles are director-only."
+                    "Для каждого персонажа источник факта должен существовать ДО его реплики/вывода/осмысленного действия. "
+                    "NPC: собственный profile + собственный knowledge_journal + доступное текущее восприятие/коммуникация. "
+                    "POV: собственный profile + journal + доступное восприятие. Нельзя оправдывать знание задним числом; "
+                    "chronology, hidden_lore, другие profiles/journals и director-only не являются знанием персонажа."
                 ),
-            }
-            guards["knowledge_review"] = {
+            })
+            guards["knowledge_causality"] = causality
+
+            review = guards.get("knowledge_review")
+            review = deepcopy(review) if isinstance(review, dict) else {}
+            review.update({
                 "mandatory": True,
+                "applies_to": "real speech, factual POV narration and factual character conclusions",
                 "rule": (
-                    "Before commit check every speaking character separately against speaker_context. "
-                    "No fact/source ledger is required in simple-profile mode."
+                    "Перед commit проверь каждого говорящего/знающего персонажа отдельно по speaker_context. "
+                    "Если источника не было до использования, перепиши конкретную реплику/вывод. "
+                    "V5 не требует model-supplied fact/source ledger, но причинность знания остаётся обязательной."
                 ),
-            }
+            })
+            guards["knowledge_review"] = review
             context["scene_logic_guardrails"] = guards
 
         context["simple_knowledge_rules"] = {
