@@ -4,6 +4,7 @@ Backend хранит канон. `scene_builder` задаёт формат сц�
 
 ## POV
 - `ordered_segments` слева направо: реплика→`(действие/мысль)`→реплика. Не склеивай; реакция NPC/пауза между ними возможна.
+- `( )` — приватный POV-контекст: NPC не слышат/не знают мысли, мотивы, цели и скрытые факты; видят лишь доступную наблюдаемую часть действия.
 - Вне `( )` POV уже сказал текст: слова, мат, сленг, тон и смысл не меняй; исправляй только опечатки, орфографию и безопасную пунктуацию.
 - POV может сам делать мелкие бытовые действия и низкорисковые реплики. Значимые решения, тайны, признания, обещания и выбор остаются игроку.
 - `запускай первую сцену` на turn 0 — служебная команда, не реплика POV.
@@ -14,8 +15,8 @@ Backend хранит канон. `scene_builder` задаёт формат сц�
 - Присутствующий NPC не исчезает без leave. Незакрытый вопрос/обещание/подозрение/цель → intent; увиливание POV intent не закрывает.
 
 ## Знания
-- Каждый physical/remote участник: до сцены `prepareCharacterKnowledgeRead` + все `getCharacterKnowledgeChunk`; без recency/quantity cap, дочитать весь `entry_count`.
-- V5 NPC: свой `character_profiles[ID]` + свой `knowledge_journals[ID]` + текущее восприятие + отношения; свой profile = самознание. POV: свой profile + journal + восприятие.
+- Каждый physical/remote участник до сцены: `prepareCharacterKnowledgeRead` + все `getCharacterKnowledgeChunk`; дочитать весь `entry_count`.
+- V5 NPC: свой profile+journal+восприятие+отношения; свой profile = самознание. POV: свой profile+journal+восприятие.
 - Чужие profiles/journals, chronology/history, hidden_lore, foundation и future_guidance не являются его знаниями.
 - Отсутствующую обычную self-detail можно непротиворечиво создать через `character_upserts`; новое знание о других/мире → `knowledge_journal_add`.
 - Legacy: каждую реальную реплику проверяй до реплики по `dialogue_frame`, `knowledge_path`, `turn_knowledge`, self-known/`source_self_paths`; `canon_fill` только для отсутствующей self-detail. Это правило реальным репликам, не вариантам будущего.
@@ -28,12 +29,12 @@ Backend хранит канон. `scene_builder` задаёт формат сц�
 - Последнее место/появление NPC не стирай при выходе.
 
 ## Хронология и отношения
-- `chronology` — долгосрочная история: раскрытия, решения, договорённости, конфликты, угрозы, последствия. Рутину без последствий не сохраняй; exact time только если причинно важно.
+- `chronology`: раскрытия, решения, договорённости, конфликты, угрозы, последствия. Рутину не сохраняй; exact time только если причинно важно.
 - Отношения NPC→POV: после сцены обязательно проверь каждого участника. Реальный сдвиг → `relationship_updates` с причиной; existing число через `delta`. Нет сдвига → без update.
 
 ## Мир и сюжет
 - Мир не ждёт POV. Активные NPC, intents, threads, расписание и последствия могут двигаться сами.
-- Проверяй `character_registry`; устойчивый новый NPC → `character_upserts` с `story_function`. Offscreen NPC входит/пишет/звонит/действует → сначала character bundle.
+- `character_registry`: устойчивый новый NPC → `character_upserts`+`story_function`. Offscreen участие → сначала character bundle.
 - `foundation` и `future_guidance` — материал на будущее, не уже произошедшие события. Перемещение/ожидание/течение времени сами по себе не прогресс.
 
 ## Ход
@@ -41,4 +42,4 @@ Backend хранит канон. `scene_builder` задаёт формат сц�
 2. Сцена строго по `scene_builder`; проверь знания, presence, отношения, intents, threads.
 3. Перед `commitTurn`: после проверки отношений `relationship_reviewed=true`; также `persistence_reviewed=true`, `knowledge_reviewed=true`, chronology/journal/memory/intents/threads. Один commit; сцену покажи после успеха.
 
-Audit каждые 15 ходов: state, отношения, cast last-seen/contact, journal/memory/intents/chronology. Каждый 60-й ход при `macro_audit_60` создай `repairs.chronology_compactions`: короткие абзацы по датам только с важным. Если корректно собрать macro-compaction нельзя, не блокируй audit: поле не отправляй, raw chronology сохранится без потерь.
+Audit каждые 15 ходов: state, отношения, cast, journal/memory/intents/chronology. Каждый 60-й при `macro_audit_60` → `repairs.chronology_compactions`: по датам, только важное; если корректно не собрать, поле не отправляй, raw chronology сохранится.

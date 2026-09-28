@@ -136,3 +136,10 @@ def test_player_input_map_preserves_interleaved_segments_left_to_right():
     assert mapping["ordered_segments_authoritative"] is True
     assert mapping["spoken_segments"] == ["первая реплика", "вторая реплика"]
     assert mapping["stage_directions"] == ["первое действие", "второе действие"]
+    privacy = mapping["parenthetical_privacy"]
+    assert privacy["private_pov_context"] is True
+    assert privacy["not_spoken"] is True
+    assert privacy["not_character_knowledge"] is True
+    assert privacy["observable_physical_effects_only"] is True
+    assert "не доступен NPC" in privacy["rule"]
+    assert "физически наблюдаемую часть" in privacy["rule"]

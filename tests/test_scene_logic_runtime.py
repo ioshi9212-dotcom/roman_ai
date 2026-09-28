@@ -50,6 +50,19 @@ def test_player_input_order_rule_forbids_reordering_segments():
 
 
 
+def test_player_parenthetical_privacy_blocks_thought_leaks_to_npcs():
+    rule = scene_logic._player_parenthetical_privacy_rule()
+
+    assert rule["mandatory"] is True
+    assert rule["private_pov_context"] is True
+    assert rule["not_spoken"] is True
+    assert rule["not_character_knowledge"] is True
+    assert rule["observable_physical_effects_only"] is True
+    assert "мысли" in rule["rule"]
+    assert "скобок" in rule["rule"]
+    assert "наблюдаемую часть" in rule["rule"]
+
+
 def test_player_text_cleanup_corrects_errors_without_rewriting_voice():
     rule = scene_logic._player_text_cleanup_rule()
     assert rule["mandatory"] is True
@@ -90,7 +103,7 @@ def test_final_writer_packet_contains_scene_logic_guardrails():
         assert context["knowledge_firewall_v5"]["version"] == 11
         assert context["knowledge_firewall_v5"]["closed_world"] is True
         guards = context["scene_logic_guardrails"]
-        assert guards["version"] == 7
+        assert guards["version"] == 8
         assert guards["knowledge_causality"]["mandatory"] is True
         assert guards["knowledge_causality"]["source_before_use"] is True
         assert guards["knowledge_causality"]["character_knowledge_is_closed_world"] is True
@@ -100,6 +113,8 @@ def test_final_writer_packet_contains_scene_logic_guardrails():
         assert "перепиши" in guards["knowledge_review"]["rule"]
         assert guards["player_input_order"]["mandatory"] is True
         assert guards["player_input_order"]["no_reordering"] is True
+        assert guards["player_parenthetical_privacy"]["mandatory"] is True
+        assert guards["player_parenthetical_privacy"]["not_character_knowledge"] is True
         assert guards["player_text_cleanup"]["mandatory"] is True
         assert packet["scene_logic_guardrails"] is True
 
@@ -119,10 +134,14 @@ def test_runtime_and_custom_gpt_repeat_source_order_and_spelling_policy():
     assert "слева направо" in rules
     assert "реакция NPC/пауза между ними" in rules
     assert "Не склеивай" in rules
+    assert "приватный POV-контекст" in rules
+    assert "наблюдаемую часть" in rules
     assert "scene_logic_guardrails" in instructions
     assert "ordered_segments" in instructions
     assert "Между сегментами" in instructions
     assert "не склеивай реплики" in instructions
     assert "knowledge_path" in instructions
     assert "очевидную орфографию" in instructions
+    assert "приватный POV-контекст" in instructions
+    assert "NPC не слышат и не знают" in instructions
     assert len(instructions) <= 8000
