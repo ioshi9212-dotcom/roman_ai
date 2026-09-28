@@ -66,9 +66,9 @@ def _speaker_context(ids: List[str], pov_id: str) -> Dict[str, Any]:
             "current_perception": "only what this character can see/hear/receive in the current scene",
             "relationship_path": f"relationship_lens.relations_in_current_scene[owner_character_id={cid}]",
             "rule": (
-                "Реплики и решения этого персонажа строятся отдельно: кто он по своему профилю, "
-                "что лично знает из своего журнала, что видит/слышит сейчас и как относится к POV. "
-                "Чужие профили, чужие журналы, chronology и director_only не являются его знаниями."
+                "Реплики и решения этого персонажа строятся отдельно: свой profile, свой knowledge_journal, "
+                "доступное текущее восприятие и отношение к POV. Приватный POV-контекст не источник; "
+                "явная коммуникация внутри ( ) доступна только указанному получателю."
             ),
             "is_pov": cid == pov_id,
         }
@@ -189,8 +189,8 @@ def _rewrite_packet(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
         context["simple_knowledge_rules"] = {
             "version": _PROFILE_RUNTIME_VERSION,
             "npc": (
-                "Для каждого NPC отдельно: собственный profile + собственный knowledge_journal + доступное ему "
-                "текущее восприятие + отношения. Ничего больше не считать его знанием."
+                "Для каждого NPC отдельно: собственный profile + knowledge_journal + доступное восприятие + отношения. "
+                "Приватные ( ) не дают знания; явно адресованное внутри ( ) получает только адресат."
             ),
             "self_knowledge": (
                 "Собственный profile является самознанием персонажа. Если бытовой self-факт реально отсутствует "
@@ -427,7 +427,6 @@ def _private_input_access(user_input: str, cards: List[Dict[str, Any]]) -> tuple
 
     for stage in mapping.get("stage_directions", []):
         stage_text = str(stage or "")
-        communication_spans: List[tuple[int, int]] = []
         for regex in (_COMMUNICATION_RE, _CHAT_RE):
             for match in regex.finditer(stage_text):
                 cid = _resolve_recipient(match.group(1), exact, stems)
@@ -438,7 +437,6 @@ def _private_input_access(user_input: str, cards: List[Dict[str, Any]]) -> tuple
                     terms = _privacy_terms(payload)
                     recipient_terms.setdefault(cid, set()).update(terms)
                     protected_terms.update(terms)
-                communication_spans.append((match.start(), len(stage_text)))
 
         # A character name that occurs only inside private POV text must not become known to bystanders.
         for alias, cid in exact.items():
