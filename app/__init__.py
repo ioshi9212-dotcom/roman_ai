@@ -1,76 +1,28 @@
-from .runtime_fixes_compat import install as _install_runtime_fixes
-from .foundation_coverage_runtime import install as _install_foundation_coverage_runtime
-from .relationship_growth_runtime import install as _install_relationship_growth_runtime
-from .scene_presence_runtime import install as _install_scene_presence
-from .game_day import install as _install_game_day
-from .chronology_integrity_runtime import install as _install_chronology_integrity_runtime
-from .stability_runtime import install as _install_stability_runtime
-from .memory_integrity_runtime import install as _install_memory_integrity_runtime
-from .character_chunk_read import install as _install_character_chunk_read
-from .transport_scope_runtime import install as _install_transport_scope_runtime
-from .npc_intent_runtime import install as _install_npc_intent_runtime
-from .writer_first_runtime import install as _install_writer_first_runtime
-from .narrative_guardrails_runtime import install as _install_narrative_guardrails_runtime
-from .story_thread_runtime import install as _install_story_thread_runtime
-from .living_world_runtime import install as _install_living_world_runtime
-from .fast_audit_runtime import install as _install_fast_audit_runtime
-from .resume_compact_runtime import install as _install_resume_compact_runtime
-from .scene_logic_runtime import install as _install_scene_logic_runtime
-from .draft_intake_runtime import install as _install_draft_intake_runtime
-from .cast_registry_runtime import install as _install_cast_registry_runtime
-from .relationship_policy_runtime import install as _install_relationship_policy_runtime
-from .setup_draft_v3_runtime import install as _install_setup_draft_v3_runtime
-from .simple_setup_runtime import install as _install_simple_setup_runtime
-from .knowledge_firewall_runtime import install as _install_knowledge_firewall_runtime
-from .simple_profile_runtime import install as _install_simple_profile_runtime
+"""Roman AI package bootstrap.
 
-_install_runtime_fixes()
-_install_foundation_coverage_runtime()
-_install_relationship_growth_runtime()
-_install_scene_presence()
-_install_game_day()
-_install_chronology_integrity_runtime()
-_install_stability_runtime()
-_install_memory_integrity_runtime()
-_install_character_chunk_read()
-_install_transport_scope_runtime()
-_install_npc_intent_runtime()
-_install_writer_first_runtime()
-_install_narrative_guardrails_runtime()
-_install_story_thread_runtime()
-_install_living_world_runtime()
-_install_fast_audit_runtime()
-_install_resume_compact_runtime()
-_install_scene_logic_runtime()
-_install_draft_intake_runtime()
-_install_cast_registry_runtime()
-_install_relationship_policy_runtime()
-_install_setup_draft_v3_runtime()
-_install_simple_setup_runtime()
-_install_knowledge_firewall_runtime()
-_install_simple_profile_runtime()
-del _install_runtime_fixes
-del _install_foundation_coverage_runtime
-del _install_relationship_growth_runtime
-del _install_scene_presence
-del _install_game_day
-del _install_chronology_integrity_runtime
-del _install_stability_runtime
-del _install_memory_integrity_runtime
-del _install_character_chunk_read
-del _install_transport_scope_runtime
-del _install_npc_intent_runtime
-del _install_writer_first_runtime
-del _install_narrative_guardrails_runtime
-del _install_story_thread_runtime
-del _install_living_world_runtime
-del _install_fast_audit_runtime
-del _install_resume_compact_runtime
-del _install_scene_logic_runtime
-del _install_draft_intake_runtime
-del _install_cast_registry_runtime
-del _install_relationship_policy_runtime
-del _install_setup_draft_v3_runtime
-del _install_simple_setup_runtime
-del _install_knowledge_firewall_runtime
-del _install_simple_profile_runtime
+Gameplay uses one explicit turn pipeline. Setup keeps its existing isolated setup
+adapters for compatibility; no gameplay module is allowed to wrap prepare/commit.
+"""
+
+from .foundation_coverage_runtime import install as _install_foundation_coverage
+from .draft_intake_runtime import install as _install_draft_intake
+from .setup_draft_v3_runtime import install as _install_setup_draft_v3
+from .simple_setup_runtime import install as _install_simple_setup
+from .turn_pipeline import install as _install_turn_pipeline
+
+
+# Setup-only compatibility. These functions patch draft construction, not gameplay turns.
+_install_foundation_coverage()
+_install_draft_intake()
+_install_setup_draft_v3()
+_install_simple_setup()
+
+# The only gameplay installation.
+_install_turn_pipeline()
+
+
+del _install_foundation_coverage
+del _install_draft_intake
+del _install_setup_draft_v3
+del _install_simple_setup
+del _install_turn_pipeline
