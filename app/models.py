@@ -150,7 +150,7 @@ class StoryThreadUpdate(BaseModel):
 class TurnExtracted(BaseModel):
     model_config = ConfigDict(extra="allow")
 
-    persistence_reviewed: bool
+    persistence_reviewed: bool = True
     runtime_rules_reviewed: bool = False
     scene_builder_reviewed: bool = False
     runtime_contract_version: Optional[int] = None
@@ -160,12 +160,12 @@ class TurnExtracted(BaseModel):
     turn_knowledge: List[Dict[str, Any]] = Field(default_factory=list)
     knowledge_usage: List[Dict[str, Any]] = Field(default_factory=list)
     knowledge_journal_add: List[Dict[str, Any]] = Field(default_factory=list)
-    chronology: List[Dict[str, Any]]
-    knowledge_add: List[Dict[str, Any]]
-    experiences_add: List[Dict[str, Any]]
-    dialogue_memory_add: List[Dict[str, Any]]
-    npc_intent_updates: List[Dict[str, Any]]
-    story_thread_updates: List[StoryThreadUpdate]
+    chronology: List[Dict[str, Any]] = Field(default_factory=list)
+    knowledge_add: List[Dict[str, Any]] = Field(default_factory=list)
+    experiences_add: List[Dict[str, Any]] = Field(default_factory=list)
+    dialogue_memory_add: List[Dict[str, Any]] = Field(default_factory=list)
+    npc_intent_updates: List[Dict[str, Any]] = Field(default_factory=list)
+    story_thread_updates: List[StoryThreadUpdate] = Field(default_factory=list)
     scene_progressed: Optional[bool] = None
     presence_updates: Optional[List[Dict[str, Any]]] = Field(default_factory=list)
     relationship_updates: Optional[List[RelationshipUpdate]] = Field(default_factory=list)
@@ -189,13 +189,8 @@ class TurnExtracted(BaseModel):
 class TurnCommit(BaseModel):
     packet_id: str = Field(min_length=1)
     user_input: str
-    scene_output: str
+    scene_output: str = Field(min_length=1)
     extracted: TurnExtracted
-
-    @field_validator("scene_output")
-    @classmethod
-    def scene_output_must_match_builder(cls, value: str) -> str:
-        return validate_scene_output(value)
 
 
 class AuditCommit(BaseModel):
