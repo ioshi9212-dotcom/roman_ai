@@ -146,6 +146,7 @@ def _inject_scene_presence(session_id: str, base: Dict[str, Any]) -> Dict[str, A
         ],
         "final_roster_formula": "start roster + enter - leave; move does not change membership",
         "pov_must_remain_present": True,
+        "direct_roster_omission_cannot_remove": True,
         "presence_updates": {
             "field": "extracted.presence_updates",
             "actions": ["enter", "leave", "move"],
@@ -166,6 +167,38 @@ def _inject_scene_presence(session_id: str, base: Dict[str, Any]) -> Dict[str, A
     return result
 
 
+def _apply_relationship_growth_packet_policy(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
+    root = storage.SESSIONS_DIR / session_id
+    packet, context = _read_packet_context(root)
+    if not context:
+        return base
+
+    lens = context.get("relationship_lens") if isinstance(context.get("relationship_lens"), dict) else {}
+    lens = deepcopy(lens)
+    lens["initialization_required"] = False
+    lens["initialization_instruction"] = "Новые dimensions только по реальному основанию; старые сохраняются."
+    context["relationship_lens"] = lens
+    context["relationship_lens_instruction"] = "relationship_lens — текущий канон NPC->POV."
+
+    policy = context.get("relationship_policy") if isinstance(context.get("relationship_policy"), dict) else {}
+    policy = deepcopy(policy)
+    policy.update({
+        "source_of_truth": "persistent relationship state + causal relationship_updates",
+        "footer_is_display_only": True,
+        "footer_is_transaction_gate": False,
+        "footer_required_for_every_present_npc": False,
+        "fresh_baseline_required": False,
+        "zero_dimensions_may_be_hidden": True,
+        "new_dimensions_may_be_appended": True,
+    })
+    context["relationship_policy"] = policy
+
+    packet = _write_packet_context(root, packet, context)
+    result = dict(base)
+    result.update(_packet_manifest(packet, reused=False))
+    return result
+
+
 def _writer_first_rewrite(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
     root = storage.SESSIONS_DIR / session_id
     packet, context = _read_packet_context(root)
@@ -173,6 +206,8 @@ def _writer_first_rewrite(session_id: str, base: Dict[str, Any]) -> Dict[str, An
         return base
 
     persistent_state = storage._read_json(root / "state.json", {})
+    source = storage._read_json(root / "source.json", {})
+    context = stability_runtime._compact_turn_context(context, source)
     context = transport_scope_runtime._strip_legacy_full_payloads(
         context,
         persistent_state=persistent_state,
@@ -228,6 +263,7 @@ def prepare_turn_packet(session_id: str, user_input: str) -> Dict[str, Any]:
     result = dict(_BASE_PREPARE(session_id, user_input))
     result = runtime_fixes._rewrite_turn_packet(session_id, result)
     result = runtime_fixes_compat._rewrite_turn_packet(session_id, result)
+    result = _apply_relationship_growth_packet_policy(session_id, result)
     result = _inject_scene_presence(session_id, result)
     result = _writer_first_rewrite(session_id, result)
 
@@ -254,6 +290,12 @@ def prepare_turn_packet(session_id: str, user_input: str) -> Dict[str, Any]:
         })
         final["content"] = packet.get("chunks", [""])[0] if packet.get("chunks") else ""
         final["turn_pipeline_version"] = PIPELINE_VERSION
+        _, final_context = _read_packet_context(root)
+        final["scene_character_card_count"] = len(
+            final_context.get("character_cards", [])
+            if isinstance(final_context.get("character_cards"), list)
+            else []
+        )
         return final
 
 
@@ -344,6 +386,21 @@ def continue_session(session_id: str) -> Dict[str, Any]:
     pending = resume_compact_runtime._pending_turn(root)
     if pending:
         result["pending_turn"] = pending
+
+    if result.get("current_recovery_required"):
+        if pending:
+            result["pending_turn_before_current_recovery"] = pending
+    elif pending:
+        result["instruction"] = (
+            "An uncommitted turn packet already exists. last_committed_turn.scene_output is the exact latest committed scene. "
+            "Do not start or replace another gameplay turn. Reuse pending_turn with the same request_id, read only unread_chunk_indices, then commit once. "
+            "recoverSessionCurrent is not a turn-packet recovery tool."
+        )
+    else:
+        result["instruction"] = (
+            "Continue this exact existing session. last_committed_turn.scene_output is the exact latest saved scene and may be shown verbatim when the user asks for the last scene. "
+            "The resume response stays compact; full canon remains in persistent storage. On the next gameplay input call prepareTurn for this same session_id."
+        )
     return result
 
 
