@@ -11,7 +11,7 @@ from .transactional_storage import session_transaction
 
 _ORIGINAL_PREPARE = None
 _ORIGINAL_COMMIT = None
-_GUARD_VERSION = 7
+_GUARD_VERSION = 8
 
 
 def _knowledge_causality_rule() -> Dict[str, Any]:
@@ -73,6 +73,23 @@ def _player_input_order_rule() -> Dict[str, Any]:
     }
 
 
+def _player_parenthetical_privacy_rule() -> Dict[str, Any]:
+    return {
+        "mandatory": True,
+        "source_path": "player_input_map.parenthetical_privacy",
+        "private_pov_context": True,
+        "not_spoken": True,
+        "not_character_knowledge": True,
+        "observable_physical_effects_only": True,
+        "rule": (
+            "Содержимое ( ) — приватный POV-контекст, а не реплика и не источник знания NPC. "
+            "NPC не получают формулировку мысли, мотив, цель или скрытый факт из скобок. "
+            "Если внутри описано физическое действие, NPC может реагировать только на реально наблюдаемую часть этого действия, "
+            "если она физически доступна ему в сцене."
+        ),
+    }
+
+
 def _player_text_cleanup_rule() -> Dict[str, Any]:
     return {
         "mandatory": True,
@@ -104,6 +121,7 @@ def _rewrite_packet(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
             "knowledge_causality": _knowledge_causality_rule(),
             "knowledge_review": _knowledge_review_rule(),
             "player_input_order": _player_input_order_rule(),
+            "player_parenthetical_privacy": _player_parenthetical_privacy_rule(),
             "player_text_cleanup": _player_text_cleanup_rule(),
             "instruction": "Соблюдай порядок ввода и границы знаний персонажей.",
         }
