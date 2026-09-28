@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import json
+import re
 from copy import deepcopy
 from typing import Any, Dict, List
+
+from fastapi import HTTPException
 
 from . import character_chunk_read, session_runtime, storage, writer_first_runtime
 from .profile_templates import (
@@ -15,7 +18,7 @@ from .profile_templates import (
 from .transactional_storage import session_transaction
 
 
-_PROFILE_RUNTIME_VERSION = 1
+_PROFILE_RUNTIME_VERSION = 2
 _ORIGINAL_PREPARE = None
 _ORIGINAL_COMMIT = None
 _ORIGINAL_PARTICIPATION_BUNDLE = None
@@ -309,10 +312,288 @@ def _prepare_journal_entries(root, extracted: Dict[str, Any]) -> None:
     extracted["knowledge_journal_add"] = clean
 
 
+
+_SPEECH_RE = re.compile(r"(?m)^\s*\*\*(?P<speaker>[^*\n]+)\*\*\s*[—-]\s*(?P<text>.*)$")
+_COMMUNICATION_RE = re.compile(
+    r"(?iu)\b(?:написать|ответить|отправить|переслать|сказать|сообщить|шепнуть|показать|позвонить)\s+([^\s,.;:()—-]+)"
+)
+_CHAT_RE = re.compile(
+    r"(?iu)\b(?:переписк\w*|чат\w*)\s+(?:с|для)\s+([^\s,.;:()—-]+)"
+)
+_PRIVATE_ACTION_PREFIXES = {
+    "встать", "сесть", "подойти", "отойти", "пойти", "уйти", "вернуться", "взять", "достать",
+    "убрать", "положить", "открыть", "закрыть", "посмотреть", "повернуть", "поднять", "опустить",
+    "схватить", "обнять", "поцеловать", "погладить", "залезть", "выйти", "зайти", "пройти",
+    "наклониться", "присесть", "лечь", "встать", "сместить", "перехватить", "рассмотреть",
+    "закатить", "улыбнуться", "усмехнуться", "отвернуться", "продолжить", "остаться",
+}
+_PRIVATE_STOP_WORDS = {
+    "который", "которая", "которое", "которые", "чтобы", "потом", "сейчас", "теперь", "снова",
+    "вообще", "просто", "только", "очень", "себе", "тебе", "тебя", "меня", "мне", "него", "нему",
+    "него", "ней", "нее", "него", "этот", "эта", "это", "того", "там", "тут", "сюда", "туда",
+    "сказать", "написать", "ответить", "отправить", "показать", "переслать", "сообщить",
+    "реакция", "вопрос", "ответ", "смотреть", "посмотреть", "думать", "подумать",
+}
+
+
+def _privacy_norm(value: Any) -> str:
+    return " ".join(str(value or "").casefold().replace("ё", "е").split())
+
+
+def _privacy_stem(value: str) -> str:
+    word = _privacy_norm(value).strip(".,!?;:()[]{}\"'«»")
+    for ending in (
+        "иями", "ями", "ами", "ого", "ему", "ому", "ыми", "ими",
+        "ах", "ях", "ом", "ем", "ам", "ям", "ой", "ей", "ую", "юю",
+        "ов", "ев", "а", "я", "у", "ю", "е", "ы", "и",
+    ):
+        if len(word) >= 5 and word.endswith(ending) and len(word) - len(ending) >= 3:
+            return word[:-len(ending)]
+    return word
+
+
+def _privacy_terms(text: str) -> set[str]:
+    result: set[str] = set()
+    for match in re.finditer(r"(?iu)[a-zа-яё][a-zа-яё-]{3,}", str(text or "")):
+        raw = _privacy_norm(match.group(0))
+        stem = _privacy_stem(raw)
+        if raw in _PRIVATE_STOP_WORDS or stem in {_privacy_stem(value) for value in _PRIVATE_STOP_WORDS}:
+            continue
+        if stem:
+            result.add(stem)
+    return result
+
+
+def _alias_maps(cards: List[Dict[str, Any]]) -> tuple[Dict[str, str], Dict[str, str]]:
+    exact: Dict[str, str] = {}
+    stems: Dict[str, str] = {}
+    for card in cards:
+        cid = storage._card_id(card)
+        if not cid:
+            continue
+        exact[_privacy_norm(cid)] = cid
+        stems[_privacy_stem(cid)] = cid
+        for value in storage._card_names(card):
+            norm = _privacy_norm(value)
+            if not norm:
+                continue
+            exact[norm] = cid
+            first = norm.split()[0]
+            exact[first] = cid
+            stems[_privacy_stem(first)] = cid
+    return exact, stems
+
+
+def _resolve_recipient(token: str, exact: Dict[str, str], stems: Dict[str, str]) -> str | None:
+    norm = _privacy_norm(token)
+    if norm in exact:
+        return exact[norm]
+    return stems.get(_privacy_stem(norm))
+
+
+def _looks_like_action(sentence: str) -> bool:
+    words = re.findall(r"(?iu)[a-zа-яё][a-zа-яё-]+", str(sentence or ""))[:4]
+    if not words:
+        return False
+    roots = {_privacy_stem(value) for value in _PRIVATE_ACTION_PREFIXES}
+    return any(_privacy_stem(word) in roots for word in words[:2])
+
+
+def _communication_payload(stage_text: str, match_end: int) -> str:
+    tail = str(stage_text or "")[match_end:].lstrip(" \t,:")
+    if tail.startswith("-") or tail.startswith("—"):
+        tail = tail[1:].strip()
+    if not tail:
+        return ""
+    parts = re.split(r"(?<=[.!?])\s+", tail)
+    kept: List[str] = []
+    for index, part in enumerate(parts):
+        clean = part.strip()
+        if not clean:
+            continue
+        if index > 0 and _looks_like_action(clean):
+            break
+        kept.append(clean)
+    return " ".join(kept).strip()
+
+
+def _private_input_access(user_input: str, cards: List[Dict[str, Any]]) -> tuple[set[str], Dict[str, set[str]], set[str]]:
+    mapping = writer_first_runtime._parse_player_input(str(user_input or ""))
+    exact, stems = _alias_maps(cards)
+    public_terms = _privacy_terms(" ".join(mapping.get("spoken_segments", [])))
+    recipient_terms: Dict[str, set[str]] = {}
+    protected_terms: set[str] = set()
+    alias_terms: set[str] = set()
+
+    for stage in mapping.get("stage_directions", []):
+        stage_text = str(stage or "")
+        communication_spans: List[tuple[int, int]] = []
+        for regex in (_COMMUNICATION_RE, _CHAT_RE):
+            for match in regex.finditer(stage_text):
+                cid = _resolve_recipient(match.group(1), exact, stems)
+                if not cid:
+                    continue
+                payload = _communication_payload(stage_text, match.end())
+                if payload:
+                    terms = _privacy_terms(payload)
+                    recipient_terms.setdefault(cid, set()).update(terms)
+                    protected_terms.update(terms)
+                communication_spans.append((match.start(), len(stage_text)))
+
+        # A character name that occurs only inside private POV text must not become known to bystanders.
+        for alias, cid in exact.items():
+            if alias and alias in _privacy_norm(stage_text):
+                term = _privacy_stem(alias.split()[0])
+                if len(term) >= 3:
+                    alias_terms.add(term)
+
+    protected_terms.difference_update(public_terms)
+    alias_terms.difference_update(public_terms)
+    return protected_terms, recipient_terms, alias_terms
+
+
+def _simple_authorized_corpus(root, character_id: str, cards: List[Dict[str, Any]]) -> str:
+    card = next((row for row in cards if storage._card_id(row) == character_id), None)
+    pieces: List[str] = []
+    if isinstance(card, dict):
+        pieces.append(render_character_profile(card))
+    memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
+    buckets = memory.get("characters", {}) if isinstance(memory.get("characters"), dict) else {}
+    bucket = buckets.get(character_id, {}) if isinstance(buckets.get(character_id), dict) else {}
+    journal = bucket.get("knowledge_journal", [])
+    if isinstance(journal, list):
+        pieces.append(render_knowledge_journal(journal))
+    return "\n".join(piece for piece in pieces if piece)
+
+
+def _speaker_units(scene_output: str, cards: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    exact, _ = _alias_maps(cards)
+    result: List[Dict[str, Any]] = []
+    for match in _SPEECH_RE.finditer(str(scene_output or "")):
+        speaker = _privacy_norm(match.group("speaker"))
+        cid = exact.get(speaker) or exact.get(speaker.split()[0] if speaker else "")
+        if cid:
+            result.append({
+                "character_id": cid,
+                "text": match.group("text").strip(),
+                "position": match.start(),
+            })
+    return result
+
+
+def _private_term_violation(
+    text: str,
+    *,
+    protected_terms: set[str],
+    alias_terms: set[str],
+    allowed_terms: set[str],
+) -> List[str]:
+    used = _privacy_terms(text)
+    leaked = (used & (protected_terms | alias_terms)) - allowed_terms
+    # Keep the hard gate conservative: one distinctive long token is enough, otherwise require two.
+    strong = sorted(term for term in leaked if len(term) >= 6)
+    if strong:
+        return strong
+    return sorted(leaked) if len(leaked) >= 2 else []
+
+
+def _validate_simple_private_input_boundary(root, payload: Dict[str, Any]) -> None:
+    user_input = str(payload.get("user_input") or "")
+    if "(" not in user_input:
+        return
+    source = storage._read_json(root / "source.json", {})
+    cards = storage._load_cards(root, source)
+    state = storage._read_json(root / "state.json", {})
+    pov = state.get("pov") if isinstance(state.get("pov"), dict) else {}
+    pov_id = str(pov.get("character_id") or "")
+    protected_terms, recipient_terms, alias_terms = _private_input_access(user_input, cards)
+    if not protected_terms and not alias_terms:
+        return
+
+    mapping = writer_first_runtime._parse_player_input(user_input)
+    public_text = " ".join(mapping.get("spoken_segments", []))
+    units = _speaker_units(str(payload.get("scene_output") or ""), cards)
+    earlier_speech: List[str] = []
+
+    for unit in units:
+        cid = str(unit.get("character_id") or "")
+        if not cid:
+            continue
+        if cid == pov_id:
+            earlier_speech.append(str(unit.get("text") or ""))
+            continue
+        authorized = _simple_authorized_corpus(root, cid, cards)
+        authorized = "\n".join([
+            authorized,
+            public_text,
+            " ".join(earlier_speech),
+            " ".join(recipient_terms.get(cid, set())),
+        ])
+        allowed_terms = _privacy_terms(authorized)
+        leaked = _private_term_violation(
+            str(unit.get("text") or ""),
+            protected_terms=protected_terms - recipient_terms.get(cid, set()),
+            alias_terms=alias_terms,
+            allowed_terms=allowed_terms,
+        )
+        if leaked:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "V5_PRIVATE_INPUT_KNOWLEDGE_LEAK",
+                    "character_id": cid,
+                    "leaked_terms": leaked,
+                    "instruction": (
+                        "Перепиши сцену: NPC использовал содержание приватного POV-контекста из ( ), "
+                        "которое не было произнесено, показано или адресовано этому персонажу. "
+                        "Явная коммуникация внутри ( ) доступна только указанному получателю."
+                    ),
+                },
+            )
+        earlier_speech.append(str(unit.get("text") or ""))
+
+    extracted = payload.get("extracted") if isinstance(payload.get("extracted"), dict) else {}
+    rows = extracted.get("knowledge_journal_add")
+    if isinstance(rows, list):
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            cid = str(row.get("character_id") or "")
+            if not cid or cid == pov_id:
+                continue
+            authorized = _simple_authorized_corpus(root, cid, cards)
+            authorized = "\n".join([
+                authorized,
+                public_text,
+                " ".join(recipient_terms.get(cid, set())),
+            ])
+            leaked = _private_term_violation(
+                str(row.get("text") or row.get("fact") or ""),
+                protected_terms=protected_terms - recipient_terms.get(cid, set()),
+                alias_terms=alias_terms,
+                allowed_terms=_privacy_terms(authorized),
+            )
+            if leaked:
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "code": "V5_PRIVATE_INPUT_JOURNAL_LEAK",
+                        "character_id": cid,
+                        "leaked_terms": leaked,
+                        "instruction": (
+                            "Не сохраняй персонажу знание из приватного POV-контекста. "
+                            "Сначала должен существовать реальный доступ: произнесённая речь, наблюдение, показ или адресованное сообщение."
+                        ),
+                    },
+                )
+
+
 def _commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     root = storage.SESSIONS_DIR / session_id
     if not _simple_session(root):
         return _ORIGINAL_COMMIT(session_id, payload)
+
+    _validate_simple_private_input_boundary(root, payload)
 
     prepared = deepcopy(payload)
     extracted = prepared.get("extracted")
