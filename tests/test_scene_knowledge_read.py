@@ -201,7 +201,8 @@ def test_completed_knowledge_status_restores_scene_direction_after_large_reads()
         assert status["all_complete"] is True
         reminder = status["scene_directing_reminder"]
         assert "не перечисляй, чего персонажи НЕ сделали" in reminder
-        assert "POV остаётся активным живым участником" in reminder
-        assert "пассивных ощущений/наблюдений" in reminder
+        assert "POV остаётся живым участником" in reminder
+        assert "не набивай активность ради квоты" in reminder
+        assert "реакцию POV оставь игроку" in reminder
         assert "фоновые одноразовые NPC" in reminder
         assert "без карточки и полного knowledge-read" in reminder
