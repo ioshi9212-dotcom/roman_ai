@@ -117,7 +117,7 @@ def test_custom_gpt_instruction_stays_small_and_matches_writer_first_transport()
     assert "knowledge_journal_add" in text
     assert "Никаких fact_id/source_fact_ids/source_event_ids/source_unit_id" in text
     assert "собственный `character_profiles[ID]`" in text
-    assert "собственный `knowledge_journals[ID]`" in text
+    assert "полностью прочитанный собственный `knowledge_journal`" in text
     assert "strict_knowledge_capable=false" in text
     assert "knowledge_review_capable=true" in text
     assert "complete_knowledge_read_capable=true" in text

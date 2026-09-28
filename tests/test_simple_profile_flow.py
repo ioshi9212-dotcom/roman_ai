@@ -9,6 +9,7 @@ from fastapi import HTTPException
 from app import draft_intake_runtime, novel_drafts, session_runtime, setup_draft_v3_runtime, simple_profile_runtime, storage
 from app.novel_access import get_novel_read_chunk
 from app.character_chunk_read import get_character_bundle_chunk, prepare_character_bundle_read
+from app.scene_knowledge_read import get_character_knowledge_chunk, prepare_character_knowledge_read
 
 
 def _setup(tmp: str) -> None:
@@ -134,7 +135,7 @@ def test_v5_setup_uses_fixed_profiles_without_foundation_or_initial_knowledge():
         assert set(silas) == set(template["profile_schema"]["character_fields"])
 
 
-def test_v5_session_packet_exposes_plain_profiles_and_journals_without_fact_ledger():
+def test_v5_session_packet_exposes_profiles_and_full_read_contract_without_fact_ledger():
     with tempfile.TemporaryDirectory() as tmp:
         _setup(tmp)
         draft_id = _build_simple_draft()
@@ -170,7 +171,9 @@ def test_v5_session_packet_exposes_plain_profiles_and_journals_without_fact_ledg
 
         assert context["character_profiles"]["silas"].startswith("Имя: Сайлас")
         assert "Возраст: 400" in context["character_profiles"]["silas"]
-        assert context["knowledge_journals"]["silas"] == ""
+        assert "knowledge_journals" not in context
+        assert context["speaker_context"]["silas"]["knowledge_source"]["kind"] == "mandatory_complete_knowledge_read"
+        assert context["speaker_context"]["silas"]["knowledge_source"]["character_id"] == "silas"
         assert "knowledge_firewall_v5" not in context
         assert "dialogue_frames" not in context
         assert "source_fact_ids" not in context.get("speaker_context", {}).get("silas", {})
@@ -253,12 +256,25 @@ def test_v5_active_character_receives_complete_knowledge_journal_over_old_80_ent
         for index in range(1, manifest["chunk_count"]):
             row = storage.get_turn_packet_chunk(sid, manifest["packet_id"], index)
             chunks.append(row["content"])
-        context = json.loads("".join(chunks))
-        journal = context["knowledge_journals"]["silas"]
+        packet_text = "".join(chunks)
+        context = json.loads(packet_text)
 
-        assert "Знание номер 1." in journal
-        assert "Знание номер 120." in journal
-        assert journal.count("Знание номер ") == 120
+        assert "knowledge_journals" not in context
+        assert "Знание номер 1." not in packet_text
+        assert "Знание номер 120." not in packet_text
+
+        knowledge = prepare_character_knowledge_read(sid, "silas")
+        pieces = [knowledge["content"]]
+        for index in range(1, knowledge["chunk_count"]):
+            pieces.append(
+                get_character_knowledge_chunk(sid, "silas", knowledge["read_id"], index)["content"]
+            )
+        payload = json.loads("".join(pieces))
+        rows = payload["knowledge"]
+
+        assert len(rows) == 120
+        assert rows[0]["text"] == "Знание номер 1."
+        assert rows[-1]["text"] == "Знание номер 120."
 
 
 def test_v5_offscreen_bundle_receives_complete_knowledge_journal_too():
@@ -298,16 +314,29 @@ def test_v5_offscreen_bundle_receives_complete_knowledge_journal_too():
         ]
         storage._write_json(root / "memory.json", memory)
 
+        session_runtime.prepare_turn_packet(sid, "(ждать)")
+
         manifest = prepare_character_bundle_read(sid, "silas")
         pieces = [manifest["content"]]
         for index in range(1, manifest["chunk_count"]):
             pieces.append(get_character_bundle_chunk(sid, "silas", manifest["read_id"], index)["content"])
         bundle = json.loads("".join(pieces))
-        journal = bundle["knowledge_journal"]
 
-        assert "Удалённое знание номер 1." in journal
-        assert "Удалённое знание номер 120." in journal
-        assert journal.count("Удалённое знание номер ") == 120
+        assert "knowledge_journal" not in bundle
+        assert bundle["knowledge_source"]["kind"] == "mandatory_complete_knowledge_read"
+
+        knowledge = prepare_character_knowledge_read(sid, "silas")
+        knowledge_pieces = [knowledge["content"]]
+        for index in range(1, knowledge["chunk_count"]):
+            knowledge_pieces.append(
+                get_character_knowledge_chunk(sid, "silas", knowledge["read_id"], index)["content"]
+            )
+        payload = json.loads("".join(knowledge_pieces))
+        rows = payload["knowledge"]
+
+        assert len(rows) == 120
+        assert rows[0]["text"] == "Удалённое знание номер 1."
+        assert rows[-1]["text"] == "Удалённое знание номер 120."
 
 
 def _private_message_v5_novel():
