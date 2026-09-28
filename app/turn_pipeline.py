@@ -608,6 +608,30 @@ def _prepare_profile_persistence(session_id: str, payload: Dict[str, Any]) -> Di
     return result
 
 
+def _normalise_chronology_for_save(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    result = deepcopy(payload)
+    extracted = result.get("extracted") if isinstance(result.get("extracted"), dict) else {}
+    extracted = deepcopy(extracted)
+
+    root = storage.SESSIONS_DIR / session_id
+    source = storage._read_json(root / "source.json", {})
+    cards = storage._apply_character_upserts(storage._load_cards(root, source), extracted)
+    state = storage._read_json(root / "state.json", {})
+    patch = extracted.get("state_patch") if isinstance(extracted.get("state_patch"), dict) else {}
+    post_state = storage._deep_merge(state, patch)
+    meta = storage._read_json(root / "meta.json", {})
+    turn_number = int(meta.get("turn_number", 0) or 0) + 1
+
+    extracted["chronology"] = session_runtime._normalise_chronology_events(
+        extracted.get("chronology", []),
+        turn_number=turn_number,
+        state=post_state,
+        cards=cards,
+    )
+    result["extracted"] = extracted
+    return result
+
+
 def _disable_mandatory_audit_after_commit(session_id: str, result: Dict[str, Any]) -> Dict[str, Any]:
     root = storage.SESSIONS_DIR / session_id
     meta = storage._read_json(root / "meta.json", {})
@@ -631,6 +655,7 @@ def commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     prepared = _apply_story_and_intent_updates(session_id, prepared)
     prepared = _apply_relationship_changes(session_id, prepared)
     prepared = cast_registry_runtime._with_registry_patch(session_id, prepared)
+    prepared = _normalise_chronology_for_save(session_id, prepared)
     prepared = memory_integrity_runtime._canonicalize_memory_payload(
         session_id,
         prepared,
@@ -639,6 +664,11 @@ def commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
 
     saved = dict(stability_runtime._atomic_commit_turn(session_id, prepared))
     saved = _disable_mandatory_audit_after_commit(session_id, saved)
+    saved["saved_chronology_events"] = len(
+        prepared.get("extracted", {}).get("chronology", [])
+        if isinstance(prepared.get("extracted"), dict)
+        else []
+    )
     saved["turn_pipeline_version"] = PIPELINE_VERSION
     return saved
 
