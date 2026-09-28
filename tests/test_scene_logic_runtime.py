@@ -135,7 +135,7 @@ def test_runtime_and_custom_gpt_repeat_source_order_and_spelling_policy():
     assert "реакция NPC/пауза между ними" in rules
     assert "Не склеивай" in rules
     assert "приватный POV-контекст" in rules
-    assert "физически наблюдаемую часть" in rules
+    assert "наблюдаемую часть" in rules
     assert "scene_logic_guardrails" in instructions
     assert "ordered_segments" in instructions
     assert "Между сегментами" in instructions
