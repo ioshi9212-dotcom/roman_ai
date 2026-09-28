@@ -121,7 +121,7 @@ def test_final_writer_packet_contains_scene_logic_guardrails():
 
 
 def test_runtime_and_custom_gpt_repeat_source_order_and_spelling_policy():
-    rules = (ROOT / "runtime" / "rules.md").read_text(encoding="utf-8")
+    rules = (ROOT / "runtime" / "runtime_contract.md").read_text(encoding="utf-8")
     instructions = (ROOT / "gpt" / "custom_gpt_instructions.md").read_text(encoding="utf-8")
 
     assert "каждую реальную реплику" in rules
