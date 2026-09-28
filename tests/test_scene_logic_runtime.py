@@ -143,6 +143,6 @@ def test_runtime_and_custom_gpt_repeat_source_order_and_spelling_policy():
     assert "не склеивай реплики" in instructions
     assert "knowledge_path" in instructions
     assert "очевидную орфографию" in instructions
-    assert "( ) приватны для посторонних" in instructions
-    assert "доступны только адресату" in instructions
+    assert "приватный POV-контекст" in instructions
+    assert "NPC не слышат и не знают" in instructions\n    assert "доступны только адресату" in instructions
     assert len(instructions) <= 8000
