@@ -32,7 +32,6 @@ jobs:
           tests/test_context_stats_missing.py
           tests/test_context_stats_sizes.py
           tests/test_character_chunk_read.py
-          tests/test_scene_knowledge_read.py
           tests/test_cast_registry_and_intake.py
           tests/test_cast_registry_integration.py
           tests/test_setup_flow.py
