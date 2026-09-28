@@ -262,12 +262,15 @@ def test_explicit_pending_replacement_preserves_diagnostic_metadata():
         assert abandoned[-1]["reason"] == "explicit_replace_pending"
 
 
-def test_old_prepare_schema_remains_backward_compatible_without_request_id():
+def test_prepare_schema_stays_small_without_review_capabilities():
     value = TurnPrepare(user_input="Продолжить.")
     assert value.request_id is None
     assert value.scene_archive_capable is False
-    assert value.complete_knowledge_read_capable is False
     assert value.replace_pending is False
+    dumped = value.model_dump()
+    assert "complete_knowledge_read_capable" not in dumped
+    assert "runtime_contract_capable" not in dumped
+    assert "strict_knowledge_capable" not in dumped
 
 
 
