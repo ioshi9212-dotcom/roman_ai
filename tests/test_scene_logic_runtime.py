@@ -137,6 +137,8 @@ def test_runtime_and_custom_gpt_repeat_source_order_and_spelling_policy():
     assert "Не склеивай" in rules
     assert "приватный POV-контекст" in rules
     assert "наблюдаемую часть" in rules
+    builder = (ROOT / "runtime" / "scene_builder.md").read_text(encoding="utf-8")
+    assert "реакция пов остается за игроком" in builder
     assert "scene_logic_guardrails" in instructions
     assert "ordered_segments" in instructions
     assert "Между сегментами" in instructions

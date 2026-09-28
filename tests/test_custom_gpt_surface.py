@@ -123,6 +123,8 @@ def test_custom_gpt_instruction_stays_small_and_matches_writer_first_transport()
     assert "complete_knowledge_read_capable=true" in text
     assert "POV" in text
     assert "бытовые низкорисковые реплики" in text
+    assert "Реакция POV на направленное NPC физическое/личное действие" in text
+    assert "Не набивай активность ради квоты" in text
 
     # Runtime/recovery behavior remains explicit.
     assert "request_id" in text
