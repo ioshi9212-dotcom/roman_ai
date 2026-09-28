@@ -136,13 +136,14 @@ def test_runtime_contract_requires_both_document_reviews_and_version():
             )
 
 
-def test_runtime_contract_accepts_short_scene_and_rejects_oversized_scene_wrong_title_and_wrong_footer():
+def test_runtime_contract_rejects_short_and_oversized_scene_wrong_title_and_wrong_footer():
     with tempfile.TemporaryDirectory() as tmp:
         _setup(tmp)
         sid = storage.create_session(_novel())["session_id"]
 
         short = _scene().replace(_main_scene(), "Проверка речи. Короткая сцена.")
-        validate_runtime_contract(sid, _payload(short))
+        with pytest.raises(RuntimeContractError, match="SCENE_BUILDER_MAIN_LENGTH_INVALID"):
+            validate_runtime_contract(sid, _payload(short))
 
         oversized = _scene().replace(_main_scene(), "Длинная сцена. " + ("x" * 3100))
         with pytest.raises(RuntimeContractError, match="SCENE_BUILDER_MAIN_LENGTH_INVALID"):
@@ -177,13 +178,13 @@ def test_runtime_contract_requires_player_spoken_segments_in_left_to_right_order
         _setup(tmp)
         sid = storage.create_session(_novel())["session_id"]
 
-        ordered_main = "Первая реплика. Елена убрала телефон. Вторая реплика."
+        ordered_main = "Первая реплика. Елена убрала телефон. Вторая реплика.\n" + _main_scene(include_spoken=False)
         ordered_scene = _scene().replace(_main_scene(), ordered_main)
         ordered_payload = _payload(ordered_scene)
         ordered_payload["user_input"] = "Первая реплика. (убрать телефон) Вторая реплика."
         validate_runtime_contract(sid, ordered_payload)
 
-        reversed_main = "Вторая реплика. Елена убрала телефон. Первая реплика."
+        reversed_main = "Вторая реплика. Елена убрала телефон. Первая реплика.\n" + _main_scene(include_spoken=False)
         reversed_scene = _scene().replace(_main_scene(), reversed_main)
         reversed_payload = _payload(reversed_scene)
         reversed_payload["user_input"] = "Первая реплика. (убрать телефон) Вторая реплика."
@@ -191,7 +192,7 @@ def test_runtime_contract_requires_player_spoken_segments_in_left_to_right_order
             validate_runtime_contract(sid, reversed_payload)
 
 
-def test_strict_knowledge_packet_keeps_scene_documents_without_hard_runtime_contract():
+def test_v5_runtime_contract_capability_exposes_hard_contract_without_strict_knowledge():
     with tempfile.TemporaryDirectory() as tmp:
         _setup(tmp)
         sid = storage.create_session(_novel())["session_id"]
@@ -201,16 +202,58 @@ def test_strict_knowledge_packet_keeps_scene_documents_without_hard_runtime_cont
             request_id="runtime-contract-packet",
             scene_archive_capable=True,
             knowledge_review_capable=True,
-            strict_knowledge_capable=True,
+            runtime_contract_capable=True,
+            strict_knowledge_capable=False,
         )
         parts = [packet["content"]]
         for index in range(1, packet["chunk_count"]):
             parts.append(storage.get_turn_packet_chunk(sid, packet["packet_id"], index)["content"])
         context = json.loads("".join(parts))
 
-        assert "runtime_contract" not in context
+        assert packet["runtime_contract_capable"] is True
+        assert context["runtime_contract"]["version"] == RUNTIME_CONTRACT_VERSION
+        assert "main_scene_2000_3000_chars" in context["runtime_contract"]["hard_checks"]
         assert context["runtime_rules"]
         assert context["scene_builder"]
+
+
+def test_commit_turn_enforces_runtime_contract_when_capability_was_enabled():
+    with tempfile.TemporaryDirectory() as tmp:
+        _setup(tmp)
+        sid = storage.create_session(_novel())["session_id"]
+        packet = operation_service.prepare_turn_request(
+            sid,
+            "Проверка речи. (осмотреться)",
+            request_id="runtime-contract-commit",
+            runtime_contract_capable=True,
+        )
+        short = _scene().replace(_main_scene(), "Проверка речи. Короткая сцена.")
+        payload = _payload(short)
+        payload["packet_id"] = packet["packet_id"]
+
+        with pytest.raises(RuntimeContractError, match="SCENE_BUILDER_MAIN_LENGTH_INVALID"):
+            operation_service.commit_turn_request(sid, payload)
+
+
+def test_existing_pending_turn_is_not_retroactively_hard_gated():
+    with tempfile.TemporaryDirectory() as tmp:
+        _setup(tmp)
+        sid = storage.create_session(_novel())["session_id"]
+        first = operation_service.prepare_turn_request(
+            sid,
+            "(осмотреться)",
+            request_id="runtime-contract-pending",
+            runtime_contract_capable=False,
+        )
+        resumed = operation_service.prepare_turn_request(
+            sid,
+            "(осмотреться)",
+            request_id="runtime-contract-pending",
+            runtime_contract_capable=True,
+        )
+
+        assert first["runtime_contract_capable"] is False
+        assert resumed["runtime_contract_capable"] is False
 
 
 

@@ -8,7 +8,7 @@ from . import storage
 from .scene_format import SCENE_DIVIDER
 
 
-RUNTIME_CONTRACT_VERSION = 1
+RUNTIME_CONTRACT_VERSION = 2
 OPTION_HEADERS = ("Что я могу сделать:", "Что я могу сказать:", "Что я могу подумать:")
 
 _TITLE_RE = re.compile(r"^🎭\s+(.+?)\s+·\s+(.+?)\s*$")
@@ -45,7 +45,7 @@ def contract_packet() -> Dict[str, Any]:
         ],
         "hard_checks": [
             "exact_scene_builder_structure",
-            "main_scene_max_3000_chars",
+            "main_scene_2000_3000_chars",
             "fixed_novel_title",
             "exact_turn_and_cycle_footer",
             "player_spoken_segments_preserved_in_order",
@@ -172,7 +172,7 @@ def _strict_scene_parts(scene_output: str) -> Dict[str, Any]:
         raise RuntimeContractError("SCENE_BUILDER_OPTIONS_INVALID")
 
     main_scene = "\n".join(lines[divider + 1:action_i]).strip()
-    if not main_scene or len(main_scene) > 3000:
+    if not 2000 <= len(main_scene) <= 3000:
         raise RuntimeContractError("SCENE_BUILDER_MAIN_LENGTH_INVALID")
 
     state_rows = [index for index, line in enumerate(lines) if line.strip().startswith("Состояние:")]

@@ -14,11 +14,11 @@ Backend=канон. Сцены игроку. Actions молча. Не показ
 `запускай первую сцену`: служебная команда, не речь POV. Не проси первый ход. Сам выбери стартовый current state из novel.start/канона → `setDraftLaunchState` → `createSessionFromDraft` → `prepareTurn` → сразу первая сцена.
 
 ## Транспорт
-Новый ход→новый `request_id`; техповтор→тот же. `prepareTurn`: exact raw; `scene_archive_capable=true`, `knowledge_review_capable=true`, `complete_knowledge_read_capable=true`, `relationship_review_capable=true`, `strict_knowledge_capable=false`, `replace_pending=false`; сохрани `packet_id`; writer-first packet прочитай полностью.
+Новый ход→новый `request_id`; техповтор→тот же. `prepareTurn`: exact raw; `scene_archive_capable=true`, `knowledge_review_capable=true`, `complete_knowledge_read_capable=true`, `relationship_review_capable=true`, `runtime_contract_capable=true`, `strict_knowledge_capable=false`, `replace_pending=false`; сохрани `packet_id`; writer-first packet прочитай полностью.
 Если `first_chunk_included=true`, chunk 0 уже прочитан: **Не запрашивать 0 снова**. Остальные только `getTurnPacketChunk`; Batch не использовать.
-После packet: `scene_knowledge_reads.required_character_ids`; для КАЖДОГО ID **до сцены** → `prepareCharacterKnowledgeRead` → дочитай ВСЕ `getCharacterKnowledgeChunk` до `next_chunk_index=null` → `getSceneKnowledgeReadStatus`; только `all_complete=true`.
-Offscreen **зарегистрированный/устойчивый/важный** NPC впервые входит/пишет/звонит/действует → `prepareCharacterBundleRead` → все `getCharacterBundleChunk` → `prepareCharacterKnowledgeRead` → все knowledge chunks. Одноразовая массовка может участвовать без карточки/read. Direct `getCharacterBundle`/`getCharacterMemory` не использовать.
-`service did not respond`/timeout/5xx → повторить тот же Action до 2 раз с тем же exact payload, не создавать новый ход.
+После packet: для каждого `scene_knowledge_reads.required_character_ids` **до сцены** → `prepareCharacterKnowledgeRead` → все `getCharacterKnowledgeChunk` → `getSceneKnowledgeReadStatus.all_complete=true`.
+Offscreen **зарегистрированный/устойчивый/важный** NPC впервые участвует → `prepareCharacterBundleRead` + все `getCharacterBundleChunk`, затем полный knowledge-read. Одноразовая массовка может без карточки/read. Direct `getCharacterBundle`/`getCharacterMemory` не использовать.
+`service did not respond`/timeout/5xx → повторить тот же Action до 2 раз с exact payload; новый ход не создавать.
 CONTINUE SESSION:<id>→resumeSession; last_committed_turn.scene_output=последняя; recoverSessionCurrent если current_recovery_required=true.
 «Откат сцены»→resumeSession→rollbackLastTurn(turn_number,current_turn_id,confirm=true). «Не считать ходом»=не prepareTurn.
 
@@ -50,7 +50,7 @@ Legacy v4 compatibility: для каждой реальной реплики `di
 `story_thread_updates` сохраняют реальные изменения линий; `future_guidance` не прошлое.
 
 ## Persistence
-Перед `commitTurn`: сначала relationship review всех участвовавших NPC и `relationship_reviewed=true`; затем `runtime_rules_reviewed=true`, `persistence_reviewed=true`, `knowledge_reviewed=true`, `chronology`, `knowledge_journal_add`, legacy memory arrays, `npc_intent_updates`, `story_thread_updates`.
+Перед `commitTurn`: relationship review всех NPC + `relationship_reviewed=true`; затем `runtime_rules_reviewed=true`, `scene_builder_reviewed=true`, `runtime_contract_version` из packet, `persistence_reviewed=true`, `knowledge_reviewed=true`, `chronology`, `knowledge_journal_add`, legacy memory arrays, `npc_intent_updates`, `story_thread_updates`.
 
 ## Audit
 После `audit_due=true` → `getAuditSnapshot`; если chunk 0 включён, Не запрашивать 0 снова; остальные только `getAuditSnapshotChunk`.

@@ -69,6 +69,7 @@ class TurnPrepare(BaseModel):
     knowledge_review_capable: bool = False
     complete_knowledge_read_capable: bool = False
     relationship_review_capable: bool = False
+    runtime_contract_capable: bool = False
     strict_knowledge_capable: bool = False
     replace_pending: bool = False
 
