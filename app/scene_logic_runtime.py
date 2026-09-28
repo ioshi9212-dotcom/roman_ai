@@ -31,6 +31,7 @@ def _knowledge_causality_rule() -> Dict[str, Any]:
             "own card branches marked unknown_to_self/hidden_from_self/author_only",
             "chronology/recent_turns/continuity_turns/scene_history",
             "foundation/future_guidance/lore/world canon",
+            "POV parenthetical/stage-direction text from player_input_map; only observable physical effects may be perceived",
             "another character's memory or private information",
         ],
         "rule": (
