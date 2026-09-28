@@ -26,7 +26,7 @@ def test_scene_builder_requires_progression_without_freezing_pov():
 
 
 def test_source_lines_cast_and_pov_remain_active_without_prompt_bloat():
-    rules = (ROOT / "runtime" / "rules.md").read_text(encoding="utf-8")
+    rules = (ROOT / "runtime" / "runtime_contract.md").read_text(encoding="utf-8")
     builder = (ROOT / "runtime" / "scene_builder.md").read_text(encoding="utf-8")
     assert "Мир не ждёт POV" in rules
     assert "Активные NPC, intents, threads" in rules
@@ -37,7 +37,7 @@ def test_source_lines_cast_and_pov_remain_active_without_prompt_bloat():
 
 def test_prompt_facing_rules_do_not_embed_literal_example_payloads():
     paths = [
-        ROOT / "runtime" / "rules.md",
+        ROOT / "runtime" / "runtime_contract.md",
         ROOT / "runtime" / "scene_builder.md",
         ROOT / "gpt" / "custom_gpt_instructions.md",
     ]

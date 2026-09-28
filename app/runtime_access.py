@@ -8,17 +8,31 @@ from . import storage
 
 
 RUNTIME_DIR = Path(__file__).resolve().parent.parent / "runtime"
-RUNTIME_VERSION = "2.0.0-writer-first"
-PUBLIC_RUNTIME_FILES = ("rules.md", "scene_builder.md")
+RUNTIME_VERSION = "2.1.0-author-sources-locked"
+AUTHOR_RUNTIME_FILES = ("rules.md", "scene_builder.md")
+ACTIVE_RUNTIME_FILES = {
+    "rules": "runtime_contract.md",
+    "scene_builder": "scene_builder.md",
+}
 
 
-def runtime_documents() -> Dict[str, str]:
+def author_runtime_sources() -> Dict[str, str]:
     result: Dict[str, str] = {}
-    for name in PUBLIC_RUNTIME_FILES:
+    for name in AUTHOR_RUNTIME_FILES:
         path = RUNTIME_DIR / name
         if not path.exists():
             raise RuntimeError(f"RUNTIME_FILE_MISSING:{name}")
         result[name.removesuffix(".md")] = path.read_text(encoding="utf-8")
+    return result
+
+
+def runtime_documents() -> Dict[str, str]:
+    result: Dict[str, str] = {}
+    for key, name in ACTIVE_RUNTIME_FILES.items():
+        path = RUNTIME_DIR / name
+        if not path.exists():
+            raise RuntimeError(f"RUNTIME_FILE_MISSING:{name}")
+        result[key] = path.read_text(encoding="utf-8")
     return result
 
 
