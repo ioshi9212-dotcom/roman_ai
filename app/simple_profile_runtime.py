@@ -18,7 +18,7 @@ from .profile_templates import (
 from .transactional_storage import session_transaction
 
 
-_PROFILE_RUNTIME_VERSION = 3
+_PROFILE_RUNTIME_VERSION = 4
 _ORIGINAL_PREPARE = None
 _ORIGINAL_COMMIT = None
 _ORIGINAL_PARTICIPATION_BUNDLE = None
@@ -44,25 +44,19 @@ def _profile_map(cards: List[Dict[str, Any]], ids: List[str]) -> Dict[str, str]:
     return result
 
 
-def _journal_map(memory: Dict[str, Any], ids: List[str]) -> Dict[str, str]:
-    buckets = memory.get("characters", {}) if isinstance(memory.get("characters"), dict) else {}
-    result: Dict[str, str] = {}
-    for cid in ids:
-        bucket = buckets.get(cid, {}) if isinstance(buckets.get(cid), dict) else {}
-        journal = bucket.get("knowledge_journal", [])
-        if not isinstance(journal, list):
-            journal = []
-        result[cid] = render_knowledge_journal(journal)
-    return result
-
-
 def _speaker_context(ids: List[str], pov_id: str) -> Dict[str, Any]:
     result: Dict[str, Any] = {}
     for cid in ids:
         result[cid] = {
             "character_id": cid,
             "profile_path": f"character_profiles[{cid}]",
-            "knowledge_journal_path": f"knowledge_journals[{cid}]",
+            "knowledge_source": {
+                "kind": "mandatory_complete_knowledge_read",
+                "character_id": cid,
+                "prepare_action": "prepareCharacterKnowledgeRead",
+                "chunk_action": "getCharacterKnowledgeChunk",
+                "completion_gate": "getSceneKnowledgeReadStatus.all_complete=true",
+            },
             "current_perception": "only what this character can see/hear/receive in the current scene",
             "relationship_path": f"relationship_lens.relations_in_current_scene[owner_character_id={cid}]",
             "rule": (
@@ -92,7 +86,6 @@ def _rewrite_packet(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
 
         source = storage._read_json(root / "source.json", {})
         cards = storage._load_cards(root, source)
-        memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
         state = storage._read_json(root / "state.json", {})
         pov = state.get("pov") if isinstance(state.get("pov"), dict) else {}
         pov_id = str(pov.get("character_id") or "")
@@ -104,7 +97,6 @@ def _rewrite_packet(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
             ids = storage._present_character_ids(state)
 
         profiles = _profile_map(cards, ids)
-        journals = _journal_map(memory, ids)
 
         for key in (
             "knowledge_firewall_v5",
@@ -116,6 +108,7 @@ def _rewrite_packet(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
             "character_cards",
             "scene_characters",
             "character_knowledge",
+            "knowledge_journals",
         ):
             context.pop(key, None)
 
@@ -136,12 +129,12 @@ def _rewrite_packet(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
                         continue
                     cid = str(row["character_id"])
                     row["full_card_path"] = f"character_profiles[{cid}]"
-                    row["memory_path"] = f"knowledge_journals[{cid}]"
+                    row.pop("memory_path", None)
+                    row["knowledge_source"] = "mandatory_complete_knowledge_read"
             context["scene_presence"] = scene_presence
 
         context["novel_profile"] = render_novel_profile(source.get("novel", {}))
         context["character_profiles"] = profiles
-        context["knowledge_journals"] = journals
         context["speaker_context"] = _speaker_context(ids, pov_id)
         context["director_only"] = {
             "hidden_lore": render_hidden_lore(source.get("hidden_lore", {})),
@@ -159,10 +152,11 @@ def _rewrite_packet(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
                     if not isinstance(frame, dict):
                         continue
                     cid = str(frame.get("character_id") or "")
-                    frame["memory_path"] = f"knowledge_journals[{cid}]"
+                    frame.pop("memory_path", None)
+                    frame["knowledge_source"] = "mandatory_complete_knowledge_read"
                     frame["instruction"] = (
-                        "Поведение: character_drivers + отношения + intents. Фактическое знание: только собственный "
-                        "profile, knowledge_journal и текущее восприятие."
+                        "Поведение: character_drivers + отношения + intents. Фактическое знание: собственный profile, "
+                        "полностью прочитанный knowledge-read и текущее восприятие."
                     )
             context["living_world"] = living
 
@@ -180,7 +174,7 @@ def _rewrite_packet(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
                 "character_knowledge_is_closed_world": True,
                 "allowed_sources": [
                     "speaker_context[character_id].profile_path for self-known profile facts",
-                    "speaker_context[character_id].knowledge_journal_path",
+                    "completed mandatory full knowledge read for this character",
                     "current perception physically or communicatively available to this character",
                     "earlier current-turn public speech or communication explicitly addressed to this character",
                 ],
@@ -237,7 +231,8 @@ def _rewrite_packet(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
                 "или информацию, способную заметно изменить сюжет или отношения."
             ),
             "knowledge_transport": (
-                "Для каждого участника сцены knowledge_journal передаётся полностью, без лимита по числу записей."
+                "knowledge_journal не дублируется в writer packet. Для каждого участника он читается полностью только "
+                "через prepareCharacterKnowledgeRead + все getCharacterKnowledgeChunk; commit требует complete read."
             ),
             "learned_facts": (
                 "Новые знания о других и мире сохраняй простыми записями knowledge_journal_add: "
@@ -647,20 +642,21 @@ def _participation_bundle(session_id: str, character_id: str) -> Dict[str, Any]:
     state = storage._read_json(root / "state.json", {})
     runtime = state.get("characters", {}) if isinstance(state.get("characters"), dict) else {}
     current_state = runtime.get(character_id, {}) if isinstance(runtime.get(character_id), dict) else {}
-    memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
-    bucket = storage._memory_bucket(memory, character_id)
-    journal = bucket.get("knowledge_journal", []) if isinstance(bucket.get("knowledge_journal"), list) else []
-
     relationship = storage._relationship_hint(state, character_id)
     return {
         "character_id": character_id,
         "profile": render_character_profile(card),
-        "knowledge_journal": render_knowledge_journal(journal),
         "current_state": deepcopy(current_state),
         "relationship_to_pov": deepcopy(relationship),
+        "knowledge_source": {
+            "kind": "mandatory_complete_knowledge_read",
+            "character_id": character_id,
+            "prepare_action": "prepareCharacterKnowledgeRead",
+            "chunk_action": "getCharacterKnowledgeChunk",
+        },
         "instruction": (
-            "Этот bundle принадлежит только этому персонажу. knowledge_journal передан полностью. Для реплик используй "
-            "собственный profile, полный knowledge_journal и текущее восприятие. Чужие данные и chronology не являются его знаниями."
+            "Этот bundle принадлежит только этому персонажу и не дублирует factual knowledge. "
+            "Перед его участием отдельно дочитай полный knowledge-read этого character_id."
         ),
     }
 
