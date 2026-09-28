@@ -36,7 +36,7 @@ Remote NPC участник сцены для profile/journal/relations, но н
 
 ## ЗНАНИЯ ПЕРСОНАЖЕЙ
 Для каждого physical/remote участника factual knowledge читается **отдельным полным chunked-read**, без отсечения старых записей. `entry_count=N` означает, что в прочитанных chunks реально должны быть все N записей. Legacy: все сохранённые raw knowledge facts, включая скрытые старым compaction. V5: весь `knowledge_journal`.
-V5: NPC использует только собственный `character_profiles[ID]`, собственный `knowledge_journals[ID]`, текущее восприятие и своё отношение. Собственный profile = self-known. POV аналогично.
+V5: NPC использует только собственный `character_profiles[ID]`, полностью прочитанный собственный `knowledge_journal` из обязательного knowledge-read, текущее восприятие и своё отношение. Собственный profile = self-known. POV аналогично.
 Новые знания о других/мире → `knowledge_journal_add`: `character_id`, optional date/period, text. **Никаких fact_id/source_fact_ids/source_event_ids/source_unit_id**.
 Обычную отсутствующую self-detail можно создать непротиворечиво и закрепить через `character_upserts`.
 
