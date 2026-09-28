@@ -2,7 +2,11 @@ import json
 import tempfile
 from pathlib import Path
 
-from app import draft_intake_runtime, novel_drafts, session_runtime, setup_draft_v3_runtime, storage
+import pytest
+
+from fastapi import HTTPException
+
+from app import draft_intake_runtime, novel_drafts, session_runtime, setup_draft_v3_runtime, simple_profile_runtime, storage
 from app.novel_access import get_novel_read_chunk
 from app.character_chunk_read import get_character_bundle_chunk, prepare_character_bundle_read
 
@@ -294,3 +298,133 @@ def test_v5_offscreen_bundle_receives_complete_knowledge_journal_too():
         assert "Удалённое знание номер 1." in journal
         assert "Удалённое знание номер 120." in journal
         assert journal.count("Удалённое знание номер ") == 120
+
+
+def _private_message_v5_novel():
+    return {
+        "novel_id": "v5-private-message",
+        "title": "Private Message",
+        "version": 5,
+        "profile_schema": {"version": 1},
+        "novel": {"pov_character": "rinata"},
+        "characters": [
+            {"character_id": "rinata", "name": "Рината", "is_pov": True},
+            {"character_id": "dante", "name": "Дантэ", "role": "друг"},
+            {"character_id": "enzhe", "name": "Энже", "role": "знакомая"},
+            {"character_id": "adrian", "name": "Эдриан", "role": "друг"},
+            {"character_id": "silas", "name": "Сайлас", "role": "незнакомец"},
+        ],
+        "starting_state": {
+            "pov": {"character_id": "rinata"},
+            "current": {
+                "location": "зал",
+                "present_characters": ["rinata", "enzhe", "adrian"],
+            },
+        },
+    }
+
+
+def test_v5_private_message_content_is_hard_blocked_for_bystander_but_allowed_for_recipient():
+    with tempfile.TemporaryDirectory() as tmp:
+        _setup(tmp)
+        sid = storage.create_session(_private_message_v5_novel())["session_id"]
+        root = storage.SESSIONS_DIR / sid
+        user_input = (
+            "(проигнорировать Энже и написать Дантэ - соскучилась. "
+            "Привези мне шоколадное пирожное. У меня потребность в сладком. Жду. "
+            "Встать и подойти к Энже) Че притащила? Сладкое есть?"
+        )
+
+        with pytest.raises(HTTPException) as exc:
+            simple_profile_runtime._validate_simple_private_input_boundary(
+                root,
+                {
+                    "user_input": user_input,
+                    "scene_output": "**Энже** — Я тебе шоколадное пирожное принесла.",
+                    "extracted": {"knowledge_journal_add": []},
+                },
+            )
+        assert exc.value.status_code == 409
+        assert exc.value.detail["code"] == "V5_PRIVATE_INPUT_KNOWLEDGE_LEAK"
+        assert exc.value.detail["character_id"] == "enzhe"
+
+        simple_profile_runtime._validate_simple_private_input_boundary(
+            root,
+            {
+                "user_input": user_input,
+                "scene_output": "**Дантэ** — Шоколадное пирожное привезу.",
+                "extracted": {"knowledge_journal_add": []},
+            },
+        )
+
+        simple_profile_runtime._validate_simple_private_input_boundary(
+            root,
+            {
+                "user_input": user_input,
+                "scene_output": "**Энже** — Сладкое есть.",
+                "extracted": {"knowledge_journal_add": []},
+            },
+        )
+
+
+def test_v5_private_pov_name_does_not_become_bystander_knowledge():
+    with tempfile.TemporaryDirectory() as tmp:
+        _setup(tmp)
+        sid = storage.create_session(_private_message_v5_novel())["session_id"]
+        root = storage.SESSIONS_DIR / sid
+
+        with pytest.raises(HTTPException) as exc:
+            simple_profile_runtime._validate_simple_private_input_boundary(
+                root,
+                {
+                    "user_input": "(Сайлас. Фокусник хуев. Хрен тебе, а не реакция.) Я тебе номер не дам.",
+                    "scene_output": "**Эдриан** — Сайлас? Кто это?",
+                    "extracted": {"knowledge_journal_add": []},
+                },
+            )
+        assert exc.value.status_code == 409
+        assert exc.value.detail["code"] == "V5_PRIVATE_INPUT_KNOWLEDGE_LEAK"
+        assert exc.value.detail["character_id"] == "adrian"
+
+
+def test_v5_private_message_cannot_be_persisted_to_wrong_character_journal():
+    with tempfile.TemporaryDirectory() as tmp:
+        _setup(tmp)
+        sid = storage.create_session(_private_message_v5_novel())["session_id"]
+        root = storage.SESSIONS_DIR / sid
+
+        with pytest.raises(HTTPException) as exc:
+            simple_profile_runtime._validate_simple_private_input_boundary(
+                root,
+                {
+                    "user_input": "(написать Дантэ - привези шоколадное пирожное)",
+                    "scene_output": "**Энже** — Ладно.",
+                    "extracted": {
+                        "knowledge_journal_add": [
+                            {"character_id": "enzhe", "text": "Рината попросила Дантэ привезти шоколадное пирожное."}
+                        ]
+                    },
+                },
+            )
+        assert exc.value.status_code == 409
+        assert exc.value.detail["code"] == "V5_PRIVATE_INPUT_JOURNAL_LEAK"
+
+
+def test_v5_explicit_recipient_may_persist_addressed_message_content():
+    with tempfile.TemporaryDirectory() as tmp:
+        _setup(tmp)
+        sid = storage.create_session(_private_message_v5_novel())["session_id"]
+        root = storage.SESSIONS_DIR / sid
+
+        simple_profile_runtime._validate_simple_private_input_boundary(
+            root,
+            {
+                "user_input": "(написать Дантэ - привези шоколадное пирожное)",
+                "scene_output": "**Дантэ** — Хорошо.",
+                "extracted": {
+                    "knowledge_journal_add": [
+                        {"character_id": "dante", "text": "Рината попросила привезти шоколадное пирожное."}
+                    ]
+                },
+            },
+        )

@@ -12,7 +12,7 @@ from .transactional_storage import session_transaction
 
 
 _ORIGINAL_PREPARE = None
-WRITER_FIRST_VERSION = 11
+WRITER_FIRST_VERSION = 12
 WRITER_PACKET_CHARS = 16000
 RECENT_FULL_TURNS = 2
 CONTINUITY_WINDOW = 15
@@ -78,9 +78,9 @@ def _parse_player_input(text: str) -> Dict[str, Any]:
             "not_character_knowledge": True,
             "observable_physical_effects_only": True,
             "rule": (
-                "Текст внутри ( ) не произносится и сам по себе не доступен NPC. "
-                "NPC не узнают из скобок мысли, мотивы, цель или скрытые факты POV; "
-                "они могут воспринять только физически наблюдаемую часть действия, если она доступна им в сцене."
+                "Текст внутри ( ) не произносится и по умолчанию приватен для NPC. "
+                "Мысли, мотивы, цели и скрытые факты недоступны; физическое действие даёт только реально наблюдаемую часть. "
+                "Исключение: явно адресованная коммуникация внутри ( ) доступна только указанному получателю, не окружающим."
             ),
         },
         "unclosed_parenthesis": depth > 0,
