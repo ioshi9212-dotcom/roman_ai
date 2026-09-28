@@ -157,6 +157,10 @@ components:
           type: boolean
           default: false
           description: Set true when the client explicitly reviews NPC->POV relationship changes before every commit.
+        runtime_contract_capable:
+          type: boolean
+          default: false
+          description: Set true for new turns when the client reads runtime_rules and scene_builder and echoes runtime_contract.version on commit.
         strict_knowledge_capable:
           type: boolean
           default: false
@@ -741,7 +745,7 @@ paths:
     post:
       operationId: prepareTurn
       summary: Build or reuse bounded writer-first context from complete persistent canon
-      description: Roman GPT uses stable request_id plus scene_archive_capable=true, knowledge_review_capable=true, complete_knowledge_read_capable=true and relationship_review_capable=true. Read required knowledge fully before the scene.
+      description: Roman GPT uses stable request_id plus scene_archive_capable=true, knowledge_review_capable=true, complete_knowledge_read_capable=true, relationship_review_capable=true and runtime_contract_capable=true. Read required knowledge fully before the scene.
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
       requestBody:
