@@ -295,6 +295,7 @@ def _prepare_context(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
     }
     context["cast_registry"] = {
         "persistent": True,
+        "registry_index_path": "cast_registry.characters",
         "rule": (
             "Registry is a reminder of permanent characters, not an appearance quota. "
             "Use relationships, personal goals, story function, unresolved business, game days and turns to judge natural return."
@@ -362,6 +363,30 @@ def prepare_turn_packet(session_id: str, user_input: str) -> Dict[str, Any]:
 
     base = dict(_BASE_PREPARE(session_id, user_input))
     return _prepare_context(session_id, base)
+
+
+def _validate_technical_state_patch(payload: Dict[str, Any]) -> None:
+    extracted = payload.get("extracted") if isinstance(payload.get("extracted"), dict) else {}
+    patch = extracted.get("state_patch") if isinstance(extracted.get("state_patch"), dict) else {}
+    if "current" not in patch:
+        return
+    current = patch.get("current")
+    if not isinstance(current, dict):
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "CURRENT_STATE_PATCH_INVALID",
+                "message": "state_patch.current must stay an object; it cannot erase the current scene pointer.",
+            },
+        )
+    if "present_characters" in current and current.get("present_characters") in (None, "", [], {}):
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "CURRENT_STATE_PATCH_INVALID",
+                "message": "current.present_characters cannot be cleared.",
+            },
+        )
 
 
 def _dynamic_merge_dimensions(existing: Any, incoming: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -449,6 +474,14 @@ def _apply_relationship_changes(session_id: str, payload: Dict[str, Any]) -> Dic
         cards=cards,
         resolve_character_id=session_runtime._resolve_character_id,
     )
+    relationship_updates = (
+        extracted.get("relationship_updates")
+        if isinstance(extracted.get("relationship_updates"), list)
+        else []
+    )
+    if not footer and not relationship_updates:
+        return result
+
     for owner_id, dimensions in footer.items():
         owner_id = str(owner_id)
         if not owner_id or owner_id == pov_id or owner_id not in present:
@@ -463,7 +496,7 @@ def _apply_relationship_changes(session_id: str, payload: Dict[str, Any]) -> Dic
     meta = storage._read_json(root / "meta.json", {})
     turn_number = int(meta.get("turn_number", 0) or 0) + 1
     metadata_rows: List[Dict[str, Any]] = []
-    for raw in extracted.get("relationship_updates", []) if isinstance(extracted.get("relationship_updates"), list) else []:
+    for raw in relationship_updates:
         if not isinstance(raw, dict):
             continue
         owner_id = session_runtime._resolve_character_id(cards, raw.get("character_id"))
@@ -511,8 +544,10 @@ def _apply_relationship_changes(session_id: str, payload: Dict[str, Any]) -> Dic
         turn_number=turn_number,
     )
 
-    state_patch["relationships"] = deepcopy(synced.get("relationships", {}))
-    state_patch["relationship_documents"] = deepcopy(synced.get("relationship_documents", {}))
+    if synced.get("relationships", {}) != state_after.get("relationships", {}):
+        state_patch["relationships"] = deepcopy(synced.get("relationships", {}))
+    if synced.get("relationship_documents", {}) != state_after.get("relationship_documents", {}):
+        state_patch["relationship_documents"] = deepcopy(synced.get("relationship_documents", {}))
     state_patch.pop("relationship_schemas", None)
     extracted["state_patch"] = state_patch
     result["extracted"] = extracted
@@ -587,6 +622,7 @@ def _disable_mandatory_audit_after_commit(session_id: str, result: Dict[str, Any
 
 
 def commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    _validate_technical_state_patch(payload)
     prepared = _prepare_profile_persistence(session_id, payload)
     prepared = scene_presence_runtime._apply_presence_contract(
         prepared,
