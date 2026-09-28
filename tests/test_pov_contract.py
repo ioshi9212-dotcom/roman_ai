@@ -28,13 +28,13 @@ def test_scene_builder_keeps_selective_cinematic_behavior_in_plain_language():
 
 def test_runtime_version_marks_writer_first_two_document_runtime():
     manifest = runtime_manifest()
-    assert manifest["runtime_version"] == "2.0.0-writer-first"
+    assert manifest["runtime_version"] == "2.1.0-author-sources-locked"
     assert manifest["chunk_count"] >= 1
     assert manifest["chunk_count"] <= 3
 
 
 def test_first_scene_start_command_is_control_not_pov_speech():
-    rules = (ROOT / "runtime" / "rules.md").read_text(encoding="utf-8")
+    rules = (ROOT / "runtime" / "runtime_contract.md").read_text(encoding="utf-8")
     instructions = (ROOT / "gpt" / "custom_gpt_instructions.md").read_text(encoding="utf-8")
     assert "turn 0" in rules
     assert "запускай первую сцену" in rules
