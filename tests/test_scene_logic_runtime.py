@@ -144,5 +144,6 @@ def test_runtime_and_custom_gpt_repeat_source_order_and_spelling_policy():
     assert "knowledge_path" in instructions
     assert "очевидную орфографию" in instructions
     assert "приватный POV-контекст" in instructions
-    assert "NPC не слышат и не знают" in instructions\n    assert "доступны только адресату" in instructions
+    assert "NPC не слышат и не знают" in instructions
+    assert "доступны только адресату" in instructions
     assert len(instructions) <= 8000
