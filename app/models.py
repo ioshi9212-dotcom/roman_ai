@@ -1,7 +1,6 @@
 from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from .scene_format import validate_scene_output
 
 
 class NovelTemplate(BaseModel):
