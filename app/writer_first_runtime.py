@@ -12,7 +12,7 @@ from .transactional_storage import session_transaction
 
 
 _ORIGINAL_PREPARE = None
-WRITER_FIRST_VERSION = 10
+WRITER_FIRST_VERSION = 11
 WRITER_PACKET_CHARS = 16000
 RECENT_FULL_TURNS = 2
 CONTINUITY_WINDOW = 15
@@ -72,6 +72,17 @@ def _parse_player_input(text: str) -> Dict[str, Any]:
         "ordered_segments_authoritative": True,
         "spoken_segments": [row["text"] for row in ordered if row["kind"] == "spoken"],
         "stage_directions": [row["text"] for row in ordered if row["kind"] == "stage_direction"],
+        "parenthetical_privacy": {
+            "private_pov_context": True,
+            "not_spoken": True,
+            "not_character_knowledge": True,
+            "observable_physical_effects_only": True,
+            "rule": (
+                "Текст внутри ( ) не произносится и сам по себе не доступен NPC. "
+                "NPC не узнают из скобок мысли, мотивы, цель или скрытые факты POV; "
+                "они могут воспринять только физически наблюдаемую часть действия, если она доступна им в сцене."
+            ),
+        },
         "unclosed_parenthesis": depth > 0,
     }
 
