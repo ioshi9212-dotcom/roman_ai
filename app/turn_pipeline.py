@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from copy import deepcopy
-from typing import Any, Dict, List
+from typing import Any, Dict, Iterable, List
 
 from fastapi import HTTPException
 
@@ -14,31 +14,27 @@ from . import (
     fast_audit_runtime,
     game_day,
     knowledge_firewall_runtime,
-    living_world_runtime,
     memory_integrity_runtime,
-    narrative_guardrails_runtime,
-    npc_intent_runtime,
-    relationship_growth_runtime,
-    relationship_policy_runtime,
+    npc_intent,
+    profile_templates,
+    relationship_metadata,
     relationship_runtime,
     resume_compact_runtime,
     runtime_fixes,
     runtime_fixes_compat,
-    scene_logic_runtime,
     scene_presence_runtime,
     session_recovery,
     session_runtime,
     simple_profile_runtime,
     stability_runtime,
     storage,
-    story_thread_runtime,
+    story_thread,
     transport_scope_runtime,
     writer_first_runtime,
 )
 from .transactional_storage import session_transaction
 
 
-# Capture the real core once, before any gameplay patching.
 _BASE_PREPARE = session_runtime.prepare_turn_packet
 _BASE_AUDIT = session_runtime.commit_audit
 _BASE_CONTINUE = session_runtime.continue_session
@@ -46,7 +42,7 @@ _BASE_PARTICIPATION_BUNDLE = character_chunk_read._participation_bundle
 _BASE_CREATE_SESSION = storage.create_session
 _BASE_RECOVER_CURRENT = session_recovery.recover_session_current
 
-PIPELINE_VERSION = 2
+PIPELINE_VERSION = 3
 
 
 def _packet_manifest(packet: Dict[str, Any], *, reused: bool) -> Dict[str, Any]:
@@ -71,7 +67,7 @@ def _packet_manifest(packet: Dict[str, Any], *, reused: bool) -> Dict[str, Any]:
         "instruction": (
             "Pending packet reused. Read only unread chunks and commit once."
             if reused
-            else "Chunk 0 is included. Read remaining unread chunks, then write and commit once."
+            else "Chunk 0 is included. Read remaining unread chunks, then write the scene from Rules + Scene Builder and commit once."
         ),
     }
     if chunks:
@@ -107,119 +103,6 @@ def _write_packet_context(root, packet: Dict[str, Any], context: Dict[str, Any])
     return packet
 
 
-def _inject_scene_presence(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
-    root = storage.SESSIONS_DIR / session_id
-    packet, context = _read_packet_context(root)
-    if not context:
-        return base
-
-    source = storage._read_json(root / "source.json", {})
-    cards = storage._load_cards(root, source)
-    state = context.get("scene_state") if isinstance(context.get("scene_state"), dict) else storage._read_json(root / "state.json", {})
-    start_roster = scene_presence_runtime._present_ids(cards, state)
-    remote_roster = scene_presence_runtime._remote_ids(cards, state)
-    scene_roster = list(dict.fromkeys([*start_roster, *remote_roster]))
-    pov = state.get("pov") if isinstance(state.get("pov"), dict) else {}
-    pov_id = scene_presence_runtime._resolve_character_id(cards, pov.get("character_id")) or str(pov.get("character_id") or "")
-
-    context["scene_focus"] = {
-        "pov_character_id": pov_id or None,
-        "present_character_ids": start_roster,
-        "remote_character_ids": remote_roster,
-        "required_full_character_ids": scene_roster,
-        "instruction": (
-            "Present characters remain present until an explicit leave. Remote contact is a participant "
-            "for profile/knowledge/relationship context but has no physical position."
-        ),
-    }
-    context["scene_presence"] = {
-        "start_present_character_ids": start_roster,
-        "start_remote_character_ids": remote_roster,
-        "roster": [
-            {
-                "character_id": cid,
-                "name": scene_presence_runtime._card_name(cards, cid),
-                "full_card_path": f"character_cards[character_id={cid}]",
-                "memory_path": f"character_memory[{cid}]",
-            }
-            for cid in scene_roster
-        ],
-        "final_roster_formula": "start roster + enter - leave; move does not change membership",
-        "pov_must_remain_present": True,
-        "direct_roster_omission_cannot_remove": True,
-        "presence_updates": {
-            "field": "extracted.presence_updates",
-            "actions": ["enter", "leave", "move"],
-        },
-    }
-
-    persistence = context.get("persistence_contract") if isinstance(context.get("persistence_contract"), dict) else {}
-    persistence["presence_updates"] = {
-        "optional": True,
-        "required_when": "Only on enter/leave/move.",
-        "rule": "No presence update means the start roster persists.",
-    }
-    context["persistence_contract"] = persistence
-
-    packet = _write_packet_context(root, packet, context)
-    result = dict(base)
-    result.update(_packet_manifest(packet, reused=False))
-    return result
-
-
-def _apply_relationship_growth_packet_policy(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
-    root = storage.SESSIONS_DIR / session_id
-    packet, context = _read_packet_context(root)
-    if not context:
-        return base
-
-    lens = context.get("relationship_lens") if isinstance(context.get("relationship_lens"), dict) else {}
-    lens = deepcopy(lens)
-    lens["initialization_required"] = False
-    lens["initialization_instruction"] = "Новые dimensions только по реальному основанию; старые сохраняются."
-    context["relationship_lens"] = lens
-    context["relationship_lens_instruction"] = "relationship_lens — текущий канон NPC->POV."
-
-    policy = context.get("relationship_policy") if isinstance(context.get("relationship_policy"), dict) else {}
-    policy = deepcopy(policy)
-    policy.update({
-        "source_of_truth": "persistent relationship state + causal relationship_updates",
-        "footer_is_display_only": True,
-        "footer_is_transaction_gate": False,
-        "footer_required_for_every_present_npc": False,
-        "fresh_baseline_required": False,
-        "zero_dimensions_may_be_hidden": True,
-        "new_dimensions_may_be_appended": True,
-    })
-    context["relationship_policy"] = policy
-
-    packet = _write_packet_context(root, packet, context)
-    result = dict(base)
-    result.update(_packet_manifest(packet, reused=False))
-    return result
-
-
-def _writer_first_rewrite(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
-    root = storage.SESSIONS_DIR / session_id
-    packet, context = _read_packet_context(root)
-    if not context:
-        return base
-
-    persistent_state = storage._read_json(root / "state.json", {})
-    source = storage._read_json(root / "source.json", {})
-    context = stability_runtime._compact_turn_context(context, source)
-    context = transport_scope_runtime._strip_legacy_full_payloads(
-        context,
-        persistent_state=persistent_state,
-    )
-    context = writer_first_runtime._rewrite_context(session_id, context)
-    packet = _write_packet_context(root, packet, context)
-    result = writer_first_runtime._manifest(packet, base)
-    result["working_context"] = True
-    result["reused_pending_packet"] = False
-    return result
-
-
 def _current_pointer_guard(session_id: str) -> None:
     status = session_recovery.current_recovery_status(session_id)
     if not status.get("required"):
@@ -229,11 +112,228 @@ def _current_pointer_guard(session_id: str) -> None:
         detail={
             "code": "CURRENT_RECOVERY_REQUIRED",
             "reasons": status.get("reasons", []),
-            "instruction": (
-                "Repair the technical current scene pointer with recoverSessionCurrent before preparing another gameplay turn."
-            ),
+            "instruction": "Repair the technical current scene pointer before preparing another gameplay turn.",
         },
     )
+
+
+def _clear_legacy_audit_gate(root) -> None:
+    meta = storage._read_json(root / "meta.json", {})
+    if isinstance(meta, dict) and meta.get("audit_required"):
+        meta["audit_required"] = False
+        storage._write_json(root / "meta.json", meta)
+
+
+def _scene_ids(state: Dict[str, Any], cards: List[Dict[str, Any]]) -> List[str]:
+    values = [str(value) for value in storage._present_character_ids(state) if value]
+    values.extend(str(value) for value in storage._remote_character_ids(state) if value)
+    pov = state.get("pov") if isinstance(state.get("pov"), dict) else {}
+    if pov.get("character_id"):
+        values.insert(0, str(pov["character_id"]))
+    valid = {storage._card_id(card) for card in cards if storage._card_id(card)}
+    return [cid for cid in dict.fromkeys(values) if cid in valid]
+
+
+def _cast_registry_rows(
+    state: Dict[str, Any],
+    cards: List[Dict[str, Any]],
+    source: Dict[str, Any],
+    current_turn: int,
+) -> List[Dict[str, Any]]:
+    source_ids = {
+        storage._card_id(card)
+        for card in storage._normalise_cards(source.get("characters", []))
+        if storage._card_id(card)
+    }
+    registry = cast_registry_runtime._ensure_registry(
+        state,
+        cards,
+        current_turn,
+        source_character_ids=source_ids,
+        source=source,
+    )
+    current_day = cast_registry_runtime._current_game_day(state)
+    rows: List[Dict[str, Any]] = []
+    for cid, raw in registry.items():
+        if not isinstance(raw, dict):
+            continue
+        last_turn = int(raw.get("last_appearance_turn", 0) or 0)
+        last_day = int(raw.get("last_appearance_game_day", 0) or 0)
+        row = {
+            "character_id": cid,
+            "name": raw.get("name") or cid,
+            "story_function": raw.get("story_function"),
+            "status": raw.get("status") or "active",
+            "last_appearance_turn": last_turn or None,
+            "last_appearance_game_day": last_day or None,
+            "turns_since_appearance": max(0, current_turn - last_turn) if last_turn else current_turn,
+            "game_days_since_appearance": (
+                max(0, current_day - last_day)
+                if current_day and last_day
+                else None
+            ),
+            "last_meaningful_event": raw.get("last_meaningful_event"),
+        }
+        rows.append({key: value for key, value in row.items() if value not in (None, "", [], {})})
+    return rows
+
+
+def _clean_relationship_lens(context: Dict[str, Any]) -> None:
+    lens = context.get("relationship_lens")
+    if not isinstance(lens, dict):
+        return
+    lens = deepcopy(lens)
+    lens["initialization_required"] = False
+    lens.pop("initialization_instruction", None)
+    candidates = lens.get("present_npc_candidates")
+    if isinstance(candidates, list):
+        for row in candidates:
+            if isinstance(row, dict):
+                row.pop("initialization_rule", None)
+    lens["rule"] = (
+        "Current saved NPC->POV relationship state. Existing dimensions persist; "
+        "new dimensions may appear naturally when the story creates them. No fixed vocabulary."
+    )
+    context["relationship_lens"] = lens
+
+
+def _clean_director_layers(context: Dict[str, Any]) -> Dict[str, Any]:
+    result = deepcopy(context)
+    for key in (
+        "runtime_contract",
+        "knowledge_guard",
+        "knowledge_boundary",
+        "scene_logic_guardrails",
+        "knowledge_firewall_v5",
+        "dialogue_policy",
+        "dialogue_frames",
+        "author_only_recollection_context",
+        "narrative_guardrails",
+        "living_world",
+        "relationship_policy",
+        "story_pressure",
+        "story_drive",
+        "foundation_pressure",
+        "story_pillar_pressure",
+        "cast_pressure",
+        "scene_builder_instruction",
+        "pov_participation_instruction",
+        "npc_agency_instruction",
+        "character_context_instruction",
+        "relationship_lens_instruction",
+        "npc_intent_instruction",
+    ):
+        result.pop(key, None)
+
+    contract = result.get("working_context_contract")
+    contract = deepcopy(contract) if isinstance(contract, dict) else {}
+    contract.update({
+        "turn_pipeline_version": PIPELINE_VERSION,
+        "director_rules_source": "runtime_rules",
+        "scene_rendering_source": "scene_builder",
+        "hidden_director_guard_layers": False,
+        "backend_semantic_scene_gates": False,
+        "simple_name_mention_does_not_load_offscreen_card": True,
+    })
+    result["working_context_contract"] = contract
+    _clean_relationship_lens(result)
+    return result
+
+
+def _move_runtime_documents_last(context: Dict[str, Any]) -> Dict[str, Any]:
+    result = deepcopy(context)
+    rules = result.pop("runtime_rules", None)
+    builder = result.pop("scene_builder", None)
+    result["read_order"] = [
+        "novel/director context",
+        "chronology and recent continuity",
+        "current scene state",
+        "active character cards",
+        "each active character's own knowledge",
+        "relationships and active intents",
+        "cast registry",
+        "runtime_rules",
+        "scene_builder",
+    ]
+    if rules is not None:
+        result["runtime_rules"] = rules
+    if builder is not None:
+        result["scene_builder"] = builder
+    return result
+
+
+def _prepare_context(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
+    root = storage.SESSIONS_DIR / session_id
+    packet, context = _read_packet_context(root)
+    if not context:
+        return base
+
+    source = storage._read_json(root / "source.json", {})
+    cards = storage._load_cards(root, source)
+    state = storage._read_json(root / "state.json", {})
+    meta = storage._read_json(root / "meta.json", {})
+    current_turn = int(meta.get("turn_number", 0) or 0)
+
+    # session_runtime/turn_context already gives full cards and complete factual knowledge
+    # only for POV + physical/remote scene participants. A name mention alone is excluded.
+    context = stability_runtime._compact_turn_context(context, source)
+    context = transport_scope_runtime._strip_legacy_full_payloads(
+        context,
+        persistent_state=state,
+    )
+    context = writer_first_runtime._rewrite_context(session_id, context)
+    context = _clean_director_layers(context)
+
+    scene_ids = _scene_ids(state, cards)
+    context["relevant_character_ids"] = scene_ids
+    context["character_profiles"] = {
+        cid: profile_templates.render_character_profile(
+            next(card for card in cards if storage._card_id(card) == cid)
+        )
+        for cid in scene_ids
+        if any(storage._card_id(card) == cid for card in cards)
+    }
+    context["cast_registry"] = {
+        "persistent": True,
+        "rule": (
+            "Registry is a reminder of permanent characters, not an appearance quota. "
+            "Use relationships, personal goals, story function, unresolved business, game days and turns to judge natural return."
+        ),
+        "characters": _cast_registry_rows(state, cards, source, current_turn),
+    }
+
+    scene_presence = {
+        "present_character_ids": [str(value) for value in storage._present_character_ids(state) if value],
+        "remote_character_ids": [str(value) for value in storage._remote_character_ids(state) if value],
+        "rule": (
+            "Present remains present until a real leave. Remote contact participates without a physical position. "
+            "A mentioned offscreen character is not a participant."
+        ),
+    }
+    context["scene_presence"] = scene_presence
+
+    persistence = context.get("persistence_contract")
+    persistence = deepcopy(persistence) if isinstance(persistence, dict) else {}
+    persistence.clear()
+    persistence.update({
+        "rule": "After the scene save only what actually changed. Empty lists are allowed.",
+        "chronology": "important durable events only",
+        "character_knowledge": "only the character who actually learned it",
+        "relationships": "dynamic labels are allowed; no fixed vocabulary",
+        "character_upserts": "important/repeating NPC or newly fixed personal detail",
+        "state_patch": "physical scene state only when changed",
+    })
+    context["persistence_contract"] = persistence
+
+    context = _move_runtime_documents_last(context)
+    packet = _write_packet_context(root, packet, context)
+    result = _packet_manifest(packet, reused=False)
+    result["scene_character_card_count"] = len(
+        context.get("character_cards", [])
+        if isinstance(context.get("character_cards"), list)
+        else []
+    )
+    return result
 
 
 def prepare_turn_packet(session_id: str, user_input: str) -> Dict[str, Any]:
@@ -243,6 +343,7 @@ def prepare_turn_packet(session_id: str, user_input: str) -> Dict[str, Any]:
 
     stability_runtime._recover_session(session_id)
     _current_pointer_guard(session_id)
+    _clear_legacy_audit_gate(root)
     game_day._sync_session_game_day(session_id)
 
     with session_transaction(root):
@@ -259,111 +360,261 @@ def prepare_turn_packet(session_id: str, user_input: str) -> Dict[str, Any]:
         ):
             return _packet_manifest(pending, reused=True)
 
-    # One base prepare, then an explicit ordered transform list.
-    result = dict(_BASE_PREPARE(session_id, user_input))
-    result = runtime_fixes._rewrite_turn_packet(session_id, result)
-    result = runtime_fixes_compat._rewrite_turn_packet(session_id, result)
-    result = _apply_relationship_growth_packet_policy(session_id, result)
-    result = _inject_scene_presence(session_id, result)
-    result = _writer_first_rewrite(session_id, result)
-
-    # Same legacy behavior, but no transform wraps another transform.
-    result = narrative_guardrails_runtime._rewrite_packet(session_id, result)
-    result = story_thread_runtime._rewrite_story_drive(session_id, result)
-    result = living_world_runtime._rewrite_packet(session_id, result)
-    result = scene_logic_runtime._rewrite_packet(session_id, result)
-    result = cast_registry_runtime._rewrite_packet(session_id, result)
-    result = relationship_policy_runtime._rewrite_packet(session_id, result)
-    result = knowledge_firewall_runtime._rewrite_packet(session_id, result)
-    result = simple_profile_runtime._rewrite_packet(session_id, result)
-
-    with session_transaction(root):
-        packet = storage._read_json(root / "turn_packet.json", {})
-        packet["turn_pipeline_version"] = PIPELINE_VERSION
-        storage._write_json(root / "turn_packet.json", packet)
-        final = _packet_manifest(packet, reused=False)
-        # Keep feature flags returned by explicit transforms.
-        final.update({
-            key: value
-            for key, value in result.items()
-            if key not in final and key not in {"content"}
-        })
-        final["content"] = packet.get("chunks", [""])[0] if packet.get("chunks") else ""
-        final["turn_pipeline_version"] = PIPELINE_VERSION
-        _, final_context = _read_packet_context(root)
-        final["scene_character_card_count"] = len(
-            final_context.get("character_cards", [])
-            if isinstance(final_context.get("character_cards"), list)
-            else []
-        )
-        return final
+    base = dict(_BASE_PREPARE(session_id, user_input))
+    return _prepare_context(session_id, base)
 
 
-def _relationship_prepare_extracted(
-    payload: Dict[str, Any],
-    *,
-    root,
-    turn_number: int,
-):
-    prepared = scene_presence_runtime._apply_presence_contract(deepcopy(payload), root=root)
-    prepared = relationship_growth_runtime._merge_footer_delta_fallbacks(prepared, root=root)
-    prepared["scene_output"] = relationship_growth_runtime._strip_relationship_footer(
-        str(prepared.get("scene_output") or "")
-    )
-    return runtime_fixes_compat._prepare_extracted_for_commit(
-        prepared,
-        root=root,
-        turn_number=turn_number,
-    )
+def _dynamic_merge_dimensions(existing: Any, incoming: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    result: List[Dict[str, Any]] = []
+    by_norm: Dict[str, int] = {}
 
+    for raw in existing if isinstance(existing, list) else []:
+        if not isinstance(raw, dict):
+            continue
+        label = str(raw.get("label") or raw.get("key") or "").strip()
+        value = raw.get("value")
+        if not label or not isinstance(value, (int, float)) or isinstance(value, bool):
+            continue
+        key = str(raw.get("key") or relationship_runtime._dimension_key(label))
+        norm = relationship_runtime._norm(label)
+        if norm in by_norm:
+            continue
+        by_norm[norm] = len(result)
+        result.append({"key": key, "label": label, "value": value})
 
-def _prepare_simple_profile_commit(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
-    root = storage.SESSIONS_DIR / session_id
-    if not simple_profile_runtime._simple_session(root):
-        return deepcopy(payload)
+    for raw in incoming:
+        if not isinstance(raw, dict):
+            continue
+        label = str(raw.get("label") or raw.get("key") or "").strip()
+        if not label:
+            continue
+        norm = relationship_runtime._norm(label)
+        old_value = result[by_norm[norm]]["value"] if norm in by_norm else None
+        value = raw.get("value")
+        delta = raw.get("delta")
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            final = value
+        elif (
+            old_value is not None
+            and isinstance(delta, (int, float))
+            and not isinstance(delta, bool)
+        ):
+            final = old_value + delta
+        else:
+            continue
 
-    simple_profile_runtime._validate_simple_private_input_boundary(root, payload)
-    result = deepcopy(payload)
-    extracted = result.get("extracted")
-    if isinstance(extracted, dict):
-        extracted = deepcopy(extracted)
-        simple_profile_runtime._prepare_journal_entries(root, extracted)
-        simple_profile_runtime._normalize_upserts(root, extracted)
-        extracted["turn_knowledge"] = []
-        extracted["knowledge_usage"] = []
-        extracted["knowledge_trace_complete"] = True
-        result["extracted"] = extracted
+        if norm in by_norm:
+            result[by_norm[norm]]["value"] = final
+        else:
+            by_norm[norm] = len(result)
+            result.append({
+                "key": str(raw.get("key") or relationship_runtime._dimension_key(label)),
+                "label": label,
+                "value": final,
+            })
     return result
 
 
-def commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+def _apply_relationship_changes(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    result = deepcopy(payload)
+    extracted = result.get("extracted") if isinstance(result.get("extracted"), dict) else {}
+    extracted = deepcopy(extracted)
+
     root = storage.SESSIONS_DIR / session_id
-    prepared = _prepare_simple_profile_commit(session_id, payload)
+    source = storage._read_json(root / "source.json", {})
+    cards = storage._apply_character_upserts(storage._load_cards(root, source), extracted)
+    turns = storage._read_turns(root)
+    state_before = storage._read_json(root / "state.json", {})
+    state_before = relationship_runtime.repair_relationship_state(
+        state_before,
+        source=source,
+        turns=turns,
+        cards=cards,
+        resolve_character_id=session_runtime._resolve_character_id,
+    )
+    state_patch = deepcopy(extracted.get("state_patch")) if isinstance(extracted.get("state_patch"), dict) else {}
+    state_after = storage._deep_merge(state_before, state_patch)
 
-    turn_events = knowledge_firewall_runtime._validate_knowledge_commit(session_id, prepared)
-    if turn_events:
-        knowledge_firewall_runtime._augment_canon_fill_persistence(prepared, turn_events)
+    docs = relationship_runtime._canonical_docs(
+        state_before,
+        cards=cards,
+        resolve_character_id=session_runtime._resolve_character_id,
+    )
+    pov = state_after.get("pov") if isinstance(state_after.get("pov"), dict) else {}
+    pov_id = str(pov.get("character_id") or "")
+    present = set(storage._present_character_ids(state_after))
 
-    prepared = relationship_policy_runtime._validate_relationship_commit(session_id, prepared)
+    footer = runtime_fixes_compat._parse_footer_compat(
+        str(result.get("scene_output") or ""),
+        cards=cards,
+        resolve_character_id=session_runtime._resolve_character_id,
+    )
+    for owner_id, dimensions in footer.items():
+        owner_id = str(owner_id)
+        if not owner_id or owner_id == pov_id or owner_id not in present:
+            continue
+        doc = docs.setdefault(owner_id, {"owner_character_id": owner_id, "relations": []})
+        relation = relationship_runtime._pov_relation(doc, pov_id)
+        if relation is None:
+            relation = relationship_runtime._empty_relation(pov_id, [])
+            doc["relations"].append(relation)
+        relation["dimensions"] = _dynamic_merge_dimensions(relation.get("dimensions"), dimensions)
+
+    meta = storage._read_json(root / "meta.json", {})
+    turn_number = int(meta.get("turn_number", 0) or 0) + 1
+    metadata_rows: List[Dict[str, Any]] = []
+    for raw in extracted.get("relationship_updates", []) if isinstance(extracted.get("relationship_updates"), list) else []:
+        if not isinstance(raw, dict):
+            continue
+        owner_id = session_runtime._resolve_character_id(cards, raw.get("character_id"))
+        if not owner_id or str(owner_id) == pov_id:
+            continue
+        owner_id = str(owner_id)
+        doc = docs.setdefault(owner_id, {"owner_character_id": owner_id, "relations": []})
+        relation = relationship_runtime._pov_relation(doc, pov_id)
+        if relation is None:
+            relation = relationship_runtime._empty_relation(pov_id, [])
+            doc["relations"].append(relation)
+
+        before = {
+            relationship_runtime._norm(item.get("label")): item.get("value")
+            for item in relation.get("dimensions", [])
+            if isinstance(item, dict)
+        }
+        incoming = raw.get("dimensions") if isinstance(raw.get("dimensions"), list) else []
+        relation["dimensions"] = _dynamic_merge_dimensions(relation.get("dimensions"), incoming)
+        numeric_changes = []
+        for item in relation.get("dimensions", []):
+            norm = relationship_runtime._norm(item.get("label"))
+            if norm in before and before[norm] != item.get("value"):
+                numeric_changes.append({
+                    "label": item.get("label"),
+                    "from": before[norm],
+                    "to": item.get("value"),
+                })
+            elif norm not in before:
+                numeric_changes.append({
+                    "label": item.get("label"),
+                    "from": None,
+                    "to": item.get("value"),
+                })
+        meta_row = deepcopy(raw)
+        meta_row["character_id"] = owner_id
+        meta_row["_numeric_changes"] = numeric_changes
+        metadata_rows.append(meta_row)
+        relation["last_changed_turn"] = turn_number
+
+    synced = relationship_runtime._sync_state(state_after, docs)
+    synced, _ = relationship_metadata.apply_relationship_metadata(
+        synced,
+        metadata_rows,
+        turn_number=turn_number,
+    )
+
+    state_patch["relationships"] = deepcopy(synced.get("relationships", {}))
+    state_patch["relationship_documents"] = deepcopy(synced.get("relationship_documents", {}))
+    state_patch.pop("relationship_schemas", None)
+    extracted["state_patch"] = state_patch
+    result["extracted"] = extracted
+    return result
+
+
+def _apply_story_and_intent_updates(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    result = deepcopy(payload)
+    extracted = result.get("extracted") if isinstance(result.get("extracted"), dict) else {}
+    extracted = deepcopy(extracted)
+    root = storage.SESSIONS_DIR / session_id
+    state = storage._read_json(root / "state.json", {})
+    patch = deepcopy(extracted.get("state_patch")) if isinstance(extracted.get("state_patch"), dict) else {}
+    working = storage._deep_merge(state, patch)
+    meta = storage._read_json(root / "meta.json", {})
+    turn_number = int(meta.get("turn_number", 0) or 0) + 1
+
+    thread_updates = extracted.get("story_thread_updates")
+    if isinstance(thread_updates, list) and thread_updates:
+        working = story_thread.apply_updates(working, thread_updates, current_turn=turn_number)
+        patch["threads"] = deepcopy(working.get("threads", {}))
+
+    intent_updates = extracted.get("npc_intent_updates")
+    if isinstance(intent_updates, list) and intent_updates:
+        working = npc_intent.apply_updates(working, intent_updates, current_turn=turn_number)
+        patch["npc_intents"] = deepcopy(working.get("npc_intents", {}))
+
+    extracted["state_patch"] = patch
+    result["extracted"] = extracted
+    return result
+
+
+def _prepare_profile_persistence(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    root = storage.SESSIONS_DIR / session_id
+    result = deepcopy(payload)
+    extracted = result.get("extracted")
+    if not isinstance(extracted, dict):
+        extracted = {}
+    extracted = deepcopy(extracted)
+
+    extracted.setdefault("chronology", [])
+    extracted.setdefault("knowledge_add", [])
+    extracted.setdefault("experiences_add", [])
+    extracted.setdefault("dialogue_memory_add", [])
+    extracted.setdefault("knowledge_journal_add", [])
+    extracted.setdefault("npc_intent_updates", [])
+    extracted.setdefault("story_thread_updates", [])
+    extracted.setdefault("relationship_updates", [])
+    extracted.setdefault("character_upserts", [])
+    extracted.setdefault("presence_updates", [])
+    extracted.setdefault("state_patch", {})
+
+    if simple_profile_runtime._simple_session(root):
+        simple_profile_runtime._prepare_journal_entries(root, extracted)
+        simple_profile_runtime._normalize_upserts(root, extracted)
+
+    result["extracted"] = extracted
+    return result
+
+
+def _disable_mandatory_audit_after_commit(session_id: str, result: Dict[str, Any]) -> Dict[str, Any]:
+    root = storage.SESSIONS_DIR / session_id
+    meta = storage._read_json(root / "meta.json", {})
+    if isinstance(meta, dict) and meta.get("audit_required"):
+        meta["audit_required"] = False
+        storage._write_json(root / "meta.json", meta)
+    updated = dict(result)
+    updated["audit_due"] = False
+    updated["audit_range"] = None
+    updated["audit_required"] = False
+    return updated
+
+
+def commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    prepared = _prepare_profile_persistence(session_id, payload)
+    prepared = scene_presence_runtime._apply_presence_contract(
+        prepared,
+        root=storage.SESSIONS_DIR / session_id,
+    )
+    prepared = _apply_story_and_intent_updates(session_id, prepared)
+    prepared = _apply_relationship_changes(session_id, prepared)
     prepared = cast_registry_runtime._with_registry_patch(session_id, prepared)
-    scene_logic_runtime._require_knowledge_review(session_id, prepared)
+    prepared = memory_integrity_runtime._canonicalize_memory_payload(
+        session_id,
+        prepared,
+        audit=False,
+    )
 
-    living_world_runtime._validate_relationship_vocabulary(session_id, prepared)
-    prepared, metadata = living_world_runtime._split_relationship_metadata(session_id, prepared)
-    prepared = living_world_runtime._with_atomic_state_effects(session_id, prepared, metadata)
-
-    prepared = story_thread_runtime._with_story_patch(session_id, prepared, audit=False)
-    prepared = npc_intent_runtime._with_intent_patch(session_id, prepared, audit=False)
-    prepared = memory_integrity_runtime._canonicalize_memory_payload(session_id, prepared, audit=False)
-
-    return dict(runtime_fixes.commit_turn(session_id, prepared))
+    saved = dict(stability_runtime._atomic_commit_turn(session_id, prepared))
+    saved = _disable_mandatory_audit_after_commit(session_id, saved)
+    saved["turn_pipeline_version"] = PIPELINE_VERSION
+    return saved
 
 
 def commit_audit(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
-    prepared = story_thread_runtime._with_story_patch(session_id, payload, audit=True)
-    prepared = npc_intent_runtime._with_intent_patch(session_id, prepared, audit=True)
-    prepared = memory_integrity_runtime._canonicalize_memory_payload(session_id, prepared, audit=True)
-    return dict(runtime_fixes.commit_audit(session_id, prepared))
+    # Audit remains available as an optional maintenance tool, but gameplay no longer blocks on it.
+    prepared = memory_integrity_runtime._canonicalize_memory_payload(
+        session_id,
+        payload,
+        audit=True,
+    )
+    return dict(stability_runtime._atomic_commit_audit(session_id, prepared))
 
 
 def continue_session(session_id: str) -> Dict[str, Any]:
@@ -392,14 +643,13 @@ def continue_session(session_id: str) -> Dict[str, Any]:
             result["pending_turn_before_current_recovery"] = pending
     elif pending:
         result["instruction"] = (
-            "An uncommitted turn packet already exists. last_committed_turn.scene_output is the exact latest committed scene. "
-            "Do not start or replace another gameplay turn. Reuse pending_turn with the same request_id, read only unread_chunk_indices, then commit once. "
+            "An uncommitted turn packet already exists. Reuse pending_turn and commit it once. "
             "recoverSessionCurrent is not a turn-packet recovery tool."
         )
     else:
         result["instruction"] = (
-            "Continue this exact existing session. last_committed_turn.scene_output is the exact latest saved scene and may be shown verbatim when the user asks for the last scene. "
-            "The resume response stays compact; full canon remains in persistent storage. On the next gameplay input call prepareTurn for this same session_id."
+            "Continue this exact session. last_committed_turn.scene_output is the exact latest saved scene. "
+            "On the next gameplay input call prepareTurn for this same session_id."
         )
     return result
 
@@ -413,49 +663,33 @@ def _participation_bundle(session_id: str, character_id: str) -> Dict[str, Any]:
 
 
 def install() -> None:
-    # Relationship compatibility is wired once as plain functions.
+    # Formatting compatibility only. This parser does not impose relationship semantics.
     relationship_runtime._parse_footer = runtime_fixes_compat._parse_footer_compat
-    relationship_runtime.MAX_DIMENSIONS = relationship_growth_runtime.MAX_RELATIONSHIP_DIMENSIONS
-    relationship_runtime._merge_footer_dimensions = relationship_growth_runtime._merge_footer_dimensions
+    relationship_runtime._merge_footer_dimensions = _dynamic_merge_dimensions
 
-    runtime_fixes._parse_footer = runtime_fixes_compat._parse_footer_compat
-    runtime_fixes.relationship_patch_from_scene = runtime_fixes_compat._relationship_patch_from_scene
-    runtime_fixes._validate_dimensions = relationship_growth_runtime._validate_dimensions
-    runtime_fixes._validate_visible_footer = relationship_growth_runtime._validate_visible_footer
-    runtime_fixes._hidden_relationship_scene = relationship_growth_runtime._hidden_relationship_scene
-    runtime_fixes._prepare_extracted_for_commit = _relationship_prepare_extracted
-
-    runtime_fixes_compat._validate_dimensions = relationship_growth_runtime._validate_dimensions
-    runtime_fixes_compat._validate_visible_footer = relationship_growth_runtime._validate_visible_footer
-    runtime_fixes_compat._hidden_relationship_scene = relationship_growth_runtime._hidden_relationship_scene
-
-    # Durable chronology selector, direct once.
+    # Durable chronology selection is data retrieval, not directing.
     chronology_integrity_runtime._ORIGINAL_SELECT = session_runtime._select_chronology_context
     session_runtime._select_chronology_context = chronology_integrity_runtime._select_chronology_context
 
-    # Public storage/audit compatibility, direct once.
+    # Safe public storage helpers.
     storage.get_turn_packet_chunk = runtime_fixes.get_turn_packet_chunk
     storage.save_novel = runtime_fixes.save_novel
     storage.get_novel = runtime_fixes.get_novel
+
+    # Optional audit endpoints remain readable, but gameplay never blocks on them.
     audit_runtime.get_audit_snapshot = fast_audit_runtime.get_audit_snapshot
     audit_runtime.get_audit_snapshot_chunk = runtime_fixes.get_audit_snapshot_chunk
     audit_runtime.require_complete_audit_read = runtime_fixes.require_complete_audit_read
     audit_runtime.clear_audit_packet = runtime_fixes.clear_audit_packet
 
-    # Initial character knowledge seeding without installing the old turn wrapper.
+    # Initial dedicated knowledge seeding and on-demand dossier reads are data plumbing only.
     knowledge_firewall_runtime._ORIGINAL_CREATE_SESSION = _BASE_CREATE_SESSION
     storage.create_session = knowledge_firewall_runtime._create_session
-
-    # Character dossier reads use one explicit dispatcher, not stacked bundle wrappers.
     character_chunk_read._participation_bundle = _participation_bundle
 
-    # Recovery/atomic persistence are single direct replacements.
     stability_runtime._ORIGINAL_RECOVER_CURRENT = _BASE_RECOVER_CURRENT
     session_recovery.recover_session_current = stability_runtime._recover_current
-    storage.commit_turn = stability_runtime._atomic_commit_turn
-    storage.commit_audit = stability_runtime._atomic_commit_audit
 
-    # The only gameplay surface assignments.
     session_runtime.prepare_turn_packet = prepare_turn_packet
     session_runtime.commit_turn = commit_turn
     session_runtime.commit_audit = commit_audit
