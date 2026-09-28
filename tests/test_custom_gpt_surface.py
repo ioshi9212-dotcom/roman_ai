@@ -93,6 +93,8 @@ def test_custom_gpt_instruction_stays_small_and_matches_writer_first_transport()
     assert "current_turn_id" in text
     assert "опечат" in text
     assert "future_guidance" in text
+    assert "приватный POV-контекст" in text
+    assert "NPC не слышат и не знают" in text
 
     # v5 setup: one confirmation finishes the entire internal pipeline.
     assert "draft **version=5**" in text
