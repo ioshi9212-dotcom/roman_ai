@@ -12,7 +12,6 @@ from .operation_receipts import (
     request_fingerprint,
 )
 from .scene_archive_read import apply_bounded_scene_history
-from .scene_knowledge_read import scene_knowledge_read_status
 from .transactional_storage import session_transaction
 from .turn_duplicate_guard import (
     committed_request_turn,
@@ -50,11 +49,6 @@ def _packet_status(packet: Any) -> Dict[str, Any] | None:
         "ready_for_commit": not unread,
         "status": "ready_for_commit" if not unread else "reading",
         "scene_archive_capable": bool(packet.get("scene_archive_capable")),
-        "knowledge_review_capable": bool(packet.get("knowledge_review_capable")),
-        "complete_knowledge_read_capable": bool(packet.get("complete_knowledge_read_capable")),
-        "relationship_review_capable": bool(packet.get("relationship_review_capable")),
-        "runtime_contract_capable": bool(packet.get("runtime_contract_capable")),
-        "strict_knowledge_capable": bool(packet.get("strict_knowledge_capable")),
     }
 
 
@@ -84,11 +78,6 @@ def prepare_turn_request(
     request_id: str | None = None,
     *,
     scene_archive_capable: bool = False,
-    knowledge_review_capable: bool = False,
-    complete_knowledge_read_capable: bool = False,
-    relationship_review_capable: bool = False,
-    runtime_contract_capable: bool = False,
-    strict_knowledge_capable: bool = False,
     replace_pending: bool = False,
 ) -> Dict[str, Any]:
     root = _session_root(session_id)
@@ -118,28 +107,11 @@ def prepare_turn_request(
                 # without abandoning or recreating its already prepared gameplay turn.
                 if scene_archive_capable:
                     packet["scene_archive_capable"] = True
-                if knowledge_review_capable:
-                    packet["knowledge_review_capable"] = True
-                if complete_knowledge_read_capable:
-                    packet["complete_knowledge_read_capable"] = True
-                if relationship_review_capable:
-                    packet["relationship_review_capable"] = True
-                # Do not enable the hard runtime contract retroactively on an already prepared turn.
-                # Old pending packets may predate runtime_contract metadata and must remain committable.
-                if strict_knowledge_capable:
-                    packet["strict_knowledge_capable"] = True
                 storage._write_json(root / "turn_packet.json", packet)
                 result = dict(session_runtime.prepare_turn_packet(session_id, user_input))
                 if identity:
                     result["request_id"] = identity
                 result["scene_archive_capable"] = bool(packet.get("scene_archive_capable"))
-                result["knowledge_review_capable"] = bool(packet.get("knowledge_review_capable"))
-                result["complete_knowledge_read_capable"] = bool(packet.get("complete_knowledge_read_capable"))
-                result["relationship_review_capable"] = bool(packet.get("relationship_review_capable"))
-                result["runtime_contract_capable"] = bool(packet.get("runtime_contract_capable"))
-                result["strict_knowledge_capable"] = bool(packet.get("strict_knowledge_capable"))
-                if bool(packet.get("complete_knowledge_read_capable")):
-                    result["scene_knowledge_reads"] = scene_knowledge_read_status(session_id)
                 result["pending_turn"] = pending_turn_status(session_id)
                 return result
 
@@ -162,11 +134,6 @@ def prepare_turn_request(
             if identity:
                 packet["request_id"] = identity
             packet["scene_archive_capable"] = bool(scene_archive_capable)
-            packet["knowledge_review_capable"] = bool(knowledge_review_capable)
-            packet["complete_knowledge_read_capable"] = bool(complete_knowledge_read_capable)
-            packet["relationship_review_capable"] = bool(relationship_review_capable)
-            packet["runtime_contract_capable"] = bool(runtime_contract_capable)
-            packet["strict_knowledge_capable"] = bool(strict_knowledge_capable)
             storage._write_json(root / "turn_packet.json", packet)
 
         if scene_archive_capable:
@@ -175,13 +142,6 @@ def prepare_turn_request(
         if identity:
             result["request_id"] = identity
         result["scene_archive_capable"] = bool(scene_archive_capable)
-        result["knowledge_review_capable"] = bool(knowledge_review_capable)
-        result["complete_knowledge_read_capable"] = bool(complete_knowledge_read_capable)
-        result["relationship_review_capable"] = bool(relationship_review_capable)
-        result["runtime_contract_capable"] = bool(runtime_contract_capable)
-        result["strict_knowledge_capable"] = bool(strict_knowledge_capable)
-        if bool(complete_knowledge_read_capable):
-            result["scene_knowledge_reads"] = scene_knowledge_read_status(session_id)
         result["pending_turn"] = pending_turn_status(session_id)
         return result
 
