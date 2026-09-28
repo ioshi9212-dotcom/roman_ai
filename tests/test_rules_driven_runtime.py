@@ -142,9 +142,9 @@ def test_turn_commit_schema_no_longer_requires_review_flags_or_exact_scene_forma
         scene_output="Короткая тестовая сцена.",
         extracted={},
     )
-    assert model.extracted.persistence_reviewed is True
     assert model.extracted.chronology == []
     assert model.extracted.knowledge_add == []
+    assert not hasattr(model.extracted, "knowledge_reviewed")
 
 
 def test_fifteenth_turn_does_not_create_mandatory_audit_gate():
