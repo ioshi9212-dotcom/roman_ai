@@ -147,6 +147,12 @@ class TurnExtracted(BaseModel):
 
     scene_builder_reviewed: bool = False
     persistence_reviewed: bool = False
+    knowledge_reviewed: bool = False
+    knowledge_reviewed_character_ids: List[str] = Field(default_factory=list)
+    reconciliation_reviewed: bool = False
+    reconciliation_reviewed_character_ids: List[str] = Field(default_factory=list)
+    reconciliation_knowledge_add: List[Dict[str, Any]] = Field(default_factory=list)
+    reconciliation_chronology_add: List[Dict[str, Any]] = Field(default_factory=list)
     knowledge_journal_add: List[Dict[str, Any]] = Field(default_factory=list)
     chronology: List[Dict[str, Any]] = Field(default_factory=list)
     knowledge_add: List[Dict[str, Any]] = Field(default_factory=list)
@@ -165,6 +171,10 @@ class TurnExtracted(BaseModel):
         "relationship_updates",
         "character_upserts",
         "knowledge_journal_add",
+        "knowledge_reviewed_character_ids",
+        "reconciliation_reviewed_character_ids",
+        "reconciliation_knowledge_add",
+        "reconciliation_chronology_add",
         mode="before",
     )
     @classmethod
