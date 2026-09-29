@@ -298,8 +298,11 @@ def _reconciliation_range(root) -> tuple[int, int] | None:
 
     raw_last = meta.get("last_memory_reconciliation_turn")
     if raw_last in (None, ""):
-        # Existing sessions created before this contract get one bounded catch-up pass
-        # over their most recent 15 saved turns.
+        if current_turn < MEMORY_RECONCILIATION_INTERVAL:
+            return None
+        # Existing long sessions created before this contract get one bounded catch-up
+        # pass over their most recent 15 saved turns. New sessions naturally reach the
+        # same first reconciliation after turn 15.
         return max(1, current_turn - MEMORY_RECONCILIATION_INTERVAL + 1), current_turn
 
     try:
