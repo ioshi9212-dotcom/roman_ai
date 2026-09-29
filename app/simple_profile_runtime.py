@@ -666,10 +666,18 @@ def _participation_bundle(session_id: str, character_id: str) -> Dict[str, Any]:
         "legacy_knowledge": legacy_knowledge,
         "knowledge_complete": True,
         "knowledge_scope": {
-            "own_profile_is_self_known": True,
+            "own_card_is_self_known_except_explicit_hidden_branches": True,
+            "forbidden_self_branches": [
+                "unknown_to_self",
+                "hidden_from_self",
+                "not_known_to_self",
+                "known_to_self=false",
+                "author_only",
+            ],
             "rule": (
-                "Персонаж знает собственную биографию/profile и собственный knowledge journal. "
-                "Чужие профили, чужая память, chronology, hidden lore и приватные мысли POV знанием не становятся."
+                "Персонаж знает self-known части собственной биографии/profile и собственный knowledge journal. "
+                "Явно скрытые от него ветки своего profile, чужие профили, чужая память, chronology, hidden lore "
+                "и приватные мысли POV знанием не становятся."
             ),
         },
         "instruction": (
