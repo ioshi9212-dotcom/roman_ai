@@ -397,6 +397,45 @@ def _clean_remote_line(text: str) -> str:
     return " ".join(value.split())
 
 
+def _journal_contains_message(rows: List[Dict[str, Any]], character_id: str, message: str) -> bool:
+    needle = _norm(message)
+    if not needle:
+        return False
+    for row in rows:
+        if not isinstance(row, dict) or str(row.get("character_id") or "") != character_id:
+            continue
+        haystack = _norm(row.get("text") or row.get("fact") or row.get("summary") or "")
+        if needle and needle in haystack:
+            return True
+    return False
+
+
+def _remote_target_from_label(
+    label: str,
+    *,
+    exact: Dict[str, str],
+    stems: Dict[str, str],
+    exclude_id: str,
+) -> str | None:
+    normalized = _norm(label)
+    if not normalized:
+        return None
+    found: List[str] = []
+    for alias, cid in exact.items():
+        if cid == exclude_id or not alias:
+            continue
+        if re.search(rf"(?<![a-zа-яё0-9_-]){re.escape(alias)}(?![a-zа-яё0-9_-])", normalized, flags=re.IGNORECASE):
+            found.append(cid)
+    if len(set(found)) == 1:
+        return found[0]
+    for token in re.findall(r"(?iu)[a-zа-яё][a-zа-яё-]+", normalized):
+        cid = stems.get(_stem(token))
+        if cid and cid != exclude_id:
+            found.append(cid)
+    unique = list(dict.fromkeys(found))
+    return unique[0] if len(unique) == 1 else None
+
+
 def add_scene_remote_communication_memory(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     root = storage.SESSIONS_DIR / session_id
     result = deepcopy(payload)
@@ -422,22 +461,68 @@ def add_scene_remote_communication_memory(session_id: str, payload: Dict[str, An
     remote_ids = {
         str(value)
         for value in [*storage._remote_character_ids(state_before), *storage._remote_character_ids(state_after)]
-        if value
+        if value and str(value) != pov_id
     }
 
-    grouped: Dict[str, List[str]] = {}
-    for unit in _speaker_units(str(result.get("scene_output") or ""), cards):
-        cid = str(unit.get("character_id") or "")
-        if not cid or cid == pov_id or cid in present_ids:
-            continue
-        marker_text = f"{unit.get('speaker_label') or ''} {unit.get('text') or ''}"
-        if cid not in remote_ids and _REMOTE_MARKER_RE.search(marker_text) is None:
-            continue
-        line = _clean_remote_line(str(unit.get("text") or ""))
-        if line and line not in grouped.setdefault(cid, []):
-            grouped[cid].append(line)
+    units = _speaker_units(str(result.get("scene_output") or ""), cards)
+    exact, stems, _ = _alias_maps(cards)
 
-    if not grouped:
+    explicit_remote_npcs = {
+        str(unit.get("character_id") or "")
+        for unit in units
+        if str(unit.get("character_id") or "") not in {"", pov_id}
+        and _REMOTE_MARKER_RE.search(f"{unit.get('speaker_label') or ''} {unit.get('text') or ''}") is not None
+    }
+    candidate_counterparts = {
+        cid for cid in [*remote_ids, *explicit_remote_npcs]
+        if cid and cid != pov_id
+    }
+
+    exchanges: Dict[str, List[Dict[str, str]]] = {}
+    for unit in units:
+        cid = str(unit.get("character_id") or "")
+        if not cid:
+            continue
+        label = str(unit.get("speaker_label") or "")
+        raw_text = str(unit.get("text") or "")
+        marker_text = f"{label} {raw_text}"
+        explicit_remote = _REMOTE_MARKER_RE.search(marker_text) is not None
+        line = _clean_remote_line(raw_text)
+        if not line:
+            continue
+
+        if cid == pov_id:
+            if not explicit_remote:
+                continue
+            target_id = _remote_target_from_label(
+                label,
+                exact=exact,
+                stems=stems,
+                exclude_id=pov_id,
+            )
+            if not target_id and len(candidate_counterparts) == 1:
+                target_id = next(iter(candidate_counterparts))
+            if not target_id:
+                continue
+            bucket = exchanges.setdefault(target_id, [])
+            item = {"speaker_id": pov_id, "text": line}
+            if item not in bucket:
+                bucket.append(item)
+            continue
+
+        # An explicit remote marker wins even if the same NPC physically enters later
+        # in the turn. Without an explicit marker, only an exclusively remote NPC is
+        # safe to classify as remote communication.
+        if not explicit_remote:
+            if cid not in remote_ids or cid in present_ids:
+                continue
+
+        bucket = exchanges.setdefault(cid, [])
+        item = {"speaker_id": cid, "text": line}
+        if item not in bucket:
+            bucket.append(item)
+
+    if not exchanges:
         return result
 
     meta = storage._read_json(root / "meta.json", {})
@@ -448,10 +533,6 @@ def add_scene_remote_communication_memory(session_id: str, payload: Dict[str, An
 
     journal = extracted.get("knowledge_journal_add")
     journal = deepcopy(journal) if isinstance(journal, list) else []
-    journal_keys = {
-        (str(row.get("character_id") or ""), _norm(row.get("text") or row.get("fact") or row.get("summary") or ""))
-        for row in journal if isinstance(row, dict)
-    }
 
     dialogue = extracted.get("dialogue_memory_add")
     dialogue = deepcopy(dialogue) if isinstance(dialogue, list) else []
@@ -465,36 +546,40 @@ def add_scene_remote_communication_memory(session_id: str, payload: Dict[str, An
         for card in cards
         if storage._card_id(card)
     }
+    pov_name = names.get(pov_id, "POV")
 
-    for cid, lines in grouped.items():
-        content = " ".join(lines).strip()
+    for counterpart_id, rows in exchanges.items():
+        counterpart_name = names.get(counterpart_id, counterpart_id)
+        summary_parts: List[str] = []
+
+        for row in rows:
+            speaker_id = str(row.get("speaker_id") or "")
+            line = str(row.get("text") or "").strip()
+            if not speaker_id or not line:
+                continue
+            speaker_name = names.get(speaker_id, pov_name if speaker_id == pov_id else speaker_id)
+            summary_parts.append(f"{speaker_name}: {line}")
+
+            for owner_id in (pov_id, counterpart_id):
+                if _journal_contains_message(journal, owner_id, line):
+                    continue
+                other_name = counterpart_name if owner_id == pov_id else pov_name
+                journal.append({
+                    "character_id": owner_id,
+                    "date": date,
+                    "period": period,
+                    "text": f"Удалённая коммуникация с {other_name}: {speaker_name}: {line}",
+                })
+
+        content = " ".join(summary_parts).strip()[:4000]
         if not content:
             continue
-        content = content[:4000]
-        remote_name = names.get(cid, cid)
-        journal_rows = (
-            (cid, f"Удалённая коммуникация с POV: {content}"),
-            (pov_id, f"Удалённая коммуникация с {remote_name}: {content}"),
-        )
-        for owner_id, text in journal_rows:
-            key = (owner_id, _norm(text))
-            if key in journal_keys:
-                continue
-            journal.append({
-                "character_id": owner_id,
-                "date": date,
-                "period": period,
-                "text": text,
-            })
-            journal_keys.add(key)
 
-        topic_id = f"remote_t{turn_number}_{cid}"
+        topic_id = f"remote_t{turn_number}_{counterpart_id}"
         if topic_id not in dialogue_ids:
             dialogue.append({
                 "topic_id": topic_id,
-                "participants": [pov_id, cid],
-                "speaker": cid,
-                "listener": pov_id,
+                "participants": [pov_id, counterpart_id],
                 "mode": "remote",
                 "summary": content,
                 "turn": turn_number,
@@ -504,6 +589,7 @@ def add_scene_remote_communication_memory(session_id: str, payload: Dict[str, An
     extracted["knowledge_journal_add"] = journal
     extracted["dialogue_memory_add"] = dialogue
     return result
+
 
 
 def _redact_text(text: str, records: List[Dict[str, Any]]) -> str:
