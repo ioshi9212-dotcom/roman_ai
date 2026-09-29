@@ -289,13 +289,64 @@ def _historical_remote_records(
     return result
 
 
+def _history_turns(root) -> List[Dict[str, Any]]:
+    result: List[Dict[str, Any]] = []
+    seen: set[tuple[int, str, str]] = set()
+    handoff = storage._read_json(root / "handoff_tail.json", [])
+    if isinstance(handoff, dict):
+        handoff = handoff.get("turns") or handoff.get("recent_turns") or []
+    sources = [
+        handoff if isinstance(handoff, list) else [],
+        storage._read_turns(root),
+    ]
+    for source in sources:
+        for turn in source:
+            if not isinstance(turn, dict):
+                continue
+            key = (
+                int(turn.get("turn_number", 0) or 0),
+                str(turn.get("user_input") or ""),
+                str(turn.get("scene_output") or ""),
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+            result.append(turn)
+    return result
+
+
+def _source_turn_for_compact_row(
+    row: Dict[str, Any],
+    candidates: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    if not candidates:
+        return row
+    if len(candidates) == 1:
+        return candidates[0]
+    user_input = str(row.get("user_input") or "")
+    if user_input:
+        exact = [
+            turn for turn in candidates
+            if str(turn.get("user_input") or "") == user_input
+        ]
+        if len(exact) == 1:
+            return exact[0]
+    scene_tail = _norm(row.get("scene_tail") or "")
+    if scene_tail:
+        exact = [
+            turn for turn in candidates
+            if scene_tail and scene_tail in _norm(turn.get("scene_output") or "")
+        ]
+        if len(exact) == 1:
+            return exact[0]
+    return candidates[-1]
+
+
 def _private_records(root, cards: List[Dict[str, Any]], current_user_input: str = "") -> List[Dict[str, Any]]:
     rows: List[Dict[str, Any]] = []
     state = storage._read_json(root / "state.json", {})
     pov_id = _pov_id(state)
-    for turn in storage._read_turns(root):
-        if not isinstance(turn, dict):
-            continue
+    for turn in _history_turns(root):
         rows.extend(extract_private_communications(
             str(turn.get("user_input") or ""),
             cards,
@@ -689,11 +740,11 @@ def redact_private_history(context: Dict[str, Any], *, root, cards: List[Dict[st
     result = deepcopy(context)
     state = storage._read_json(root / "state.json", {})
     pov_id = _pov_id(state)
-    stored_turns = {
-        int(turn.get("turn_number", 0) or 0): turn
-        for turn in storage._read_turns(root)
-        if isinstance(turn, dict) and int(turn.get("turn_number", 0) or 0) > 0
-    }
+    stored_turns: Dict[int, List[Dict[str, Any]]] = {}
+    for turn in _history_turns(root):
+        number = int(turn.get("turn_number", 0) or 0)
+        if number > 0:
+            stored_turns.setdefault(number, []).append(turn)
     total = 0
     for key in ("recent_turns", "continuity_turns"):
         rows = result.get(key)
@@ -711,7 +762,8 @@ def redact_private_history(context: Dict[str, Any], *, root, cards: List[Dict[st
                 cards,
                 turn_number=int(row.get("turn_number", 0) or 0),
             )
-            source_turn = stored_turns.get(int(row.get("turn_number", 0) or 0), row)
+            candidates = stored_turns.get(int(row.get("turn_number", 0) or 0), [])
+            source_turn = _source_turn_for_compact_row(row, candidates)
             remote_records = _historical_remote_records(source_turn, cards, pov_id=pov_id)
             records.extend(remote_records)
 
