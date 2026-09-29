@@ -26,12 +26,7 @@ def _resolve_character_id(cards: List[Dict[str, Any]], value: Any) -> str | None
 
 
 def _explicit_participants(cards: List[Dict[str, Any]], raw: Dict[str, Any]) -> List[str]:
-    if "participants_present" in raw:
-        values = raw.get("participants_present")
-    elif "participants" in raw:
-        values = raw.get("participants")
-    else:
-        return []
+    values = raw.get("knowledge_participants")
     if isinstance(values, (str, dict)):
         values = [values]
     if not isinstance(values, list):
@@ -76,9 +71,7 @@ def attach_explicit_chronology_participants(
 ) -> Dict[str, Any]:
     """Annotate normalized chronology with only explicitly supplied knowledge participants.
 
-    Normal chronology may fill participants from physical presence. That is useful for
-    directing continuity but is not safe enough to grant personal knowledge, because a
-    private/whispered event can happen while other characters are physically present.
+    Chronology participants describe scene involvement and may be inferred from physical presence. Only the dedicated knowledge_participants field is safe to grant personal knowledge.
     """
     result = deepcopy(payload)
     extracted = result.get("extracted") if isinstance(result.get("extracted"), dict) else {}
