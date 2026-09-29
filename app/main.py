@@ -738,6 +738,7 @@ def turns_commit(session_id: str, body: TurnCommit):
             "KNOWLEDGE_REVIEW_INCOMPLETE": "knowledge_reviewed_character_ids must cover every character_id required by the prepared turn packet.",
             "MEMORY_RECONCILIATION_REQUIRED": "This packet includes a periodic memory reconciliation. Review the saved range before retrying the same commitTurn.",
             "MEMORY_RECONCILIATION_INCOMPLETE": "reconciliation_reviewed_character_ids must cover every character_id listed by memory_reconciliation.",
+            "MEMORY_RECONCILIATION_REPAIR_INVALID": "A reconciliation repair is malformed, references an unknown character, or points outside the prepared reconciliation range.",
         }
         if code in errors:
             raise HTTPException(status_code=409, detail=errors[code])
