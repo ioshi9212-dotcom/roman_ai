@@ -126,7 +126,7 @@ def test_packet_has_no_hidden_director_guard_stack_and_rules_are_last():
         assert "away" not in active
         assert context["working_context_contract"]["hidden_director_guard_layers"] is False
         assert context["working_context_contract"]["backend_semantic_scene_gates"] is False
-        assert context["working_context_contract"]["precommit_review_gates"] == ["scene_builder", "persistence"]
+        assert context["working_context_contract"]["precommit_review_gates"] == ["scene_builder", "persistence", "knowledge"]
 
 
 def test_active_character_receives_complete_knowledge_journal_in_packet():
@@ -198,8 +198,173 @@ def test_new_public_packet_requires_scene_and_persistence_review_before_commit()
             "scene_builder_reviewed": True,
             "persistence_reviewed": True,
         }
+        with pytest.raises(RuntimeError, match="KNOWLEDGE_REVIEW_REQUIRED"):
+            commit_turn_request(sid, payload)
+
+        payload["extracted"]["knowledge_reviewed"] = True
         result = commit_turn_request(sid, payload)
         assert result["turn_number"] == 1
+
+
+def test_explicit_chronology_participants_are_mirrored_into_personal_knowledge():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(base_novel())["session_id"]
+
+        first = session_runtime.prepare_turn_packet(sid, "Сказать NPC важный факт.")
+        read_all(first, sid)
+        session_runtime.commit_turn(
+            sid,
+            {
+                "packet_id": first["packet_id"],
+                "user_input": "Сказать NPC важный факт.",
+                "scene_output": "**POV** — Завтра поезд уходит в шесть.",
+                "extracted": {
+                    "chronology": [
+                        {
+                            "event": "NPC узнал, что поезд завтра уходит в шесть.",
+                            "knowledge_participants": ["npc"],
+                            "importance": "major",
+                        }
+                    ]
+                },
+            },
+        )
+
+        memory = storage._normalise_memory(
+            storage._read_json(storage.SESSIONS_DIR / sid / "memory.json", {})
+        )
+        npc_text = " ".join(
+            row["text"] for row in memory["characters"]["npc"]["knowledge_journal"]
+        )
+        away_text = " ".join(
+            row["text"] for row in memory["characters"]["away"]["knowledge_journal"]
+        )
+        assert "поезд завтра уходит в шесть" in npc_text
+        assert "поезд завтра уходит в шесть" not in away_text
+
+        second = session_runtime.prepare_turn_packet(sid, "(перейти к следующему дню)")
+        read_all(second, sid)
+        session_runtime.commit_turn(
+            sid,
+            {
+                "packet_id": second["packet_id"],
+                "user_input": "(перейти к следующему дню)",
+                "scene_output": "Наступило следующее утро.",
+                "extracted": {"state_patch": {"current": {"date": "02.09.2026"}}},
+            },
+        )
+
+        _, context = read_context(sid, "(посмотреть на NPC)")
+        npc_rows = context["character_memory"]["npc"]["knowledge_journal"]
+        assert any("поезд завтра уходит в шесть" in row["text"] for row in npc_rows)
+
+
+def test_chronology_without_explicit_knowledge_participants_does_not_grant_memory():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(base_novel())["session_id"]
+
+        manifest = session_runtime.prepare_turn_packet(sid, "(подумать о секрете)")
+        read_all(manifest, sid)
+        session_runtime.commit_turn(
+            sid,
+            {
+                "packet_id": manifest["packet_id"],
+                "user_input": "(подумать о секрете)",
+                "scene_output": "POV сохранила секрет при себе.",
+                "extracted": {
+                    "chronology": [
+                        {
+                            "event": "POV решила пока не раскрывать секрет.",
+                            "importance": "major",
+                        }
+                    ]
+                },
+            },
+        )
+
+        memory = storage._normalise_memory(
+            storage._read_json(storage.SESSIONS_DIR / sid / "memory.json", {})
+        )
+        npc_text = " ".join(
+            row["text"] for row in memory["characters"]["npc"]["knowledge_journal"]
+        )
+        assert "решила пока не раскрывать секрет" not in npc_text
+
+
+def test_safe_chronology_marker_repairs_missing_personal_memory_before_next_packet():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(base_novel())["session_id"]
+        root = storage.SESSIONS_DIR / sid
+
+        storage._write_json(
+            root / "chronology.json",
+            [
+                {
+                    "event_id": "chrono_t1_1",
+                    "turn_number": 1,
+                    "story_date": "01.09.2026",
+                    "period": "день",
+                    "event": "NPC узнал код от сейфа.",
+                    "participants_present": ["pov", "npc"],
+                    "knowledge_participants": ["npc"],
+                    "importance": "major",
+                }
+            ],
+        )
+
+        _, context = read_context(sid, "(посмотреть на NPC)")
+        npc_rows = context["character_memory"]["npc"]["knowledge_journal"]
+        assert any("NPC узнал код от сейфа" in row["text"] for row in npc_rows)
+
+        memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
+        assert any(
+            "NPC узнал код от сейфа" in row["text"]
+            for row in memory["characters"]["npc"]["knowledge_journal"]
+        )
+
+
+def test_chronology_mirror_does_not_duplicate_model_supplied_journal_fact():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(base_novel())["session_id"]
+
+        manifest = session_runtime.prepare_turn_packet(sid, "Сказать NPC дату.")
+        read_all(manifest, sid)
+        session_runtime.commit_turn(
+            sid,
+            {
+                "packet_id": manifest["packet_id"],
+                "user_input": "Сказать NPC дату.",
+                "scene_output": "**POV** — Встреча третьего сентября.",
+                "extracted": {
+                    "knowledge_journal_add": [
+                        {
+                            "character_id": "npc",
+                            "text": "Встреча третьего сентября.",
+                        }
+                    ],
+                    "chronology": [
+                        {
+                            "event": "Встреча третьего сентября.",
+                            "participants": ["npc"],
+                            "importance": "major",
+                        }
+                    ],
+                },
+            },
+        )
+
+        memory = storage._normalise_memory(
+            storage._read_json(storage.SESSIONS_DIR / sid / "memory.json", {})
+        )
+        matching = [
+            row for row in memory["characters"]["npc"]["knowledge_journal"]
+            if "Встреча третьего сентября" in row["text"]
+        ]
+        assert len(matching) == 1
 
 
 def test_incomplete_packet_error_precedes_writer_review_gate():

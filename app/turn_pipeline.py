@@ -14,6 +14,7 @@ from . import (
     fast_audit_runtime,
     game_day,
     knowledge_firewall_runtime,
+    knowledge_persistence_runtime,
     memory_integrity_runtime,
     npc_intent,
     private_knowledge_runtime,
@@ -257,7 +258,7 @@ def _clean_director_layers(context: Dict[str, Any]) -> Dict[str, Any]:
         "scene_rendering_source": "scene_builder",
         "hidden_director_guard_layers": False,
         "backend_semantic_scene_gates": False,
-        "precommit_review_gates": ["scene_builder", "persistence"],
+        "precommit_review_gates": ["scene_builder", "persistence", "knowledge"],
         "simple_name_mention_does_not_load_offscreen_card": True,
         "active_character_knowledge_rebuilt_from_persistent_memory": True,
     })
@@ -379,7 +380,7 @@ def _prepare_context(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
     persistence.clear()
     persistence.update({
         "rule": "After the scene save only what actually changed. Empty lists are allowed.",
-        "chronology": "important durable events only",
+        "chronology": "important durable events only; knowledge_participants is the only chronology field that grants personal knowledge",
         "character_knowledge": (
             "knowledge_journal is personal memory, separate from chronology. Save durable learned facts only to each "
             "character who actually learned them; chronology never grants knowledge by itself."
@@ -410,6 +411,7 @@ def prepare_turn_packet(session_id: str, user_input: str) -> Dict[str, Any]:
     _current_pointer_guard(session_id)
     _clear_legacy_audit_gate(root)
     game_day._sync_session_game_day(session_id)
+    knowledge_persistence_runtime.repair_personal_memory_from_safe_chronology(session_id)
 
     with session_transaction(root):
         meta = storage._read_json(root / "meta.json", {})
@@ -735,7 +737,21 @@ def commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     prepared = _apply_story_and_intent_updates(session_id, prepared)
     prepared = _apply_relationship_changes(session_id, prepared)
     prepared = cast_registry_runtime._with_registry_patch(session_id, prepared)
+    raw_chronology = deepcopy(
+        prepared.get("extracted", {}).get("chronology", [])
+        if isinstance(prepared.get("extracted"), dict)
+        else []
+    )
     prepared = _normalise_chronology_for_save(session_id, prepared)
+    prepared = knowledge_persistence_runtime.attach_explicit_chronology_participants(
+        session_id,
+        prepared,
+        raw_chronology,
+    )
+    prepared = knowledge_persistence_runtime.mirror_explicit_chronology_to_personal_memory(
+        session_id,
+        prepared,
+    )
     prepared = memory_integrity_runtime._canonicalize_memory_payload(
         session_id,
         prepared,
