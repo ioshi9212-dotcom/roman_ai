@@ -46,7 +46,6 @@ _BASE_RECOVER_CURRENT = session_recovery.recover_session_current
 
 PIPELINE_VERSION = 5
 
-
 def _packet_manifest(packet: Dict[str, Any], *, reused: bool) -> Dict[str, Any]:
     chunks = packet.get("chunks", []) if isinstance(packet.get("chunks"), list) else []
     read = list(packet.get("read_chunks", [])) if isinstance(packet.get("read_chunks"), list) else []
@@ -67,9 +66,9 @@ def _packet_manifest(packet: Dict[str, Any], *, reused: bool) -> Dict[str, Any]:
         "all_chunks_read": not unread,
         "turn_pipeline_version": PIPELINE_VERSION,
         "instruction": (
-            "Pending packet reused. Read only unread chunks and commit once."
+            "Pending packet reused. Read only unread chunks, silently re-check the final scene against Scene Builder, and commit once."
             if reused
-            else "Chunk 0 is included. Read remaining unread chunks, then write the scene from Rules + Scene Builder and commit once."
+            else "Chunk 0 is included. Read remaining unread chunks, write from Rules + Scene Builder, silently re-check the final scene against Scene Builder, and commit once."
         ),
     }
     if chunks:
@@ -258,6 +257,7 @@ def _clean_director_layers(context: Dict[str, Any]) -> Dict[str, Any]:
         "scene_rendering_source": "scene_builder",
         "hidden_director_guard_layers": False,
         "backend_semantic_scene_gates": False,
+        "precommit_review_gates": ["scene_builder", "persistence"],
         "simple_name_mention_does_not_load_offscreen_card": True,
         "active_character_knowledge_rebuilt_from_persistent_memory": True,
     })
@@ -727,6 +727,7 @@ def commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     prepared = _prepare_profile_persistence(session_id, payload)
     private_knowledge_runtime.validate_private_knowledge(session_id, prepared)
     prepared = private_knowledge_runtime.add_direct_communication_memory(session_id, prepared)
+    prepared = private_knowledge_runtime.add_scene_remote_communication_memory(session_id, prepared)
     prepared = scene_presence_runtime._apply_presence_contract(
         prepared,
         root=storage.SESSIONS_DIR / session_id,

@@ -5,7 +5,7 @@ import pytest
 from pathlib import Path
 
 from app import character_chunk_read, continuation_runtime, private_knowledge_runtime, runtime_access, session_runtime, simple_setup_runtime, storage
-from app.operation_service import prepare_turn_request
+from app.operation_service import commit_turn_request, prepare_turn_request
 from app.models import TurnCommit
 from app.turn_rollback import rollback_last_turn
 
@@ -69,8 +69,8 @@ def test_active_runtime_is_author_rules_plus_scene_builder():
     assert "Варианты появляются только ПОСЛЕ" in docs["scene_builder"]
     assert "НЕ ОПИСЫВАЙ НЕСЛУЧИВШЕЕСЯ" in docs["scene_builder"]
     assert "Отсутствие действия само по себе не является событием" in docs["scene_builder"]
-    assert "никаких новых объяснений он не добавил" in docs["scene_builder"]
-    assert "Если сообщение не пришло, нельзя предлагать проверить" in docs["rules"]
+    assert "Не перечисляй отсутствующие действия" in docs["scene_builder"]
+    assert "Конец сцены и варианты опираются только на события" in docs["rules"]
     assert "POV не превращается в молчащую камеру" in docs["rules"]
     assert "может обменяться несколькими обычными репликами" in docs["rules"]
     assert "не ставь мир на паузу ради хода игрока" in docs["rules"]
@@ -81,15 +81,18 @@ def test_active_runtime_is_author_rules_plus_scene_builder():
     assert "Последние абзацы сцены должны не закрывать движение" in docs["scene_builder"]
     assert "Не придумывай новый активный элемент только ради эффекта финала" in docs["scene_builder"]
     assert "2000–3000 непробельных символов" in docs["scene_builder"]
-    assert "не должна превращаться в стенограмму" in docs["scene_builder"]
+    assert "не должна превращаться в чистую стенограмму" in docs["scene_builder"]
     assert "Любую сцену должно быть возможно визуально собрать в голове" in docs["scene_builder"]
     assert "ПРИСУТСТВИЕ И ФИЗИЧЕСКАЯ НЕПРЕРЫВНОСТЬ" in docs["rules"]
     assert "Молчание не удаляет NPC" in docs["rules"]
     assert "Между двумя ходами нет скрытого монтажа" in docs["rules"]
     assert "Начало нового хода физически продолжает конец предыдущего" in docs["scene_builder"]
-    assert "Центральный beat важной интимной сцены нельзя перескакивать" in docs["scene_builder"]
+    assert "Центральный beat важной интимной сцены нельзя заменять" in docs["scene_builder"]
     assert "снижай графичность, а не непрерывность" in docs["scene_builder"]
-    assert "подробности уже ничего не добавят кроме механики" in docs["scene_builder"]
+    assert "Авторский комментарий не заменяет саму сцену" in docs["scene_builder"]
+    assert "Плохой монтаж:" not in docs["scene_builder"]
+    assert "Плохие варианты:" not in docs["scene_builder"]
+    assert "Примеры:" not in docs["scene_builder"]
     assert "unknown_to_self" in docs["rules"]
     assert "короткое содержательное действие" in docs["rules"]
     assert "Слухи, сообщения и чужие знания распространяются только через реальные каналы" in docs["rules"]
@@ -122,6 +125,8 @@ def test_packet_has_no_hidden_director_guard_stack_and_rules_are_last():
         assert active == {"pov", "npc"}
         assert "away" not in active
         assert context["working_context_contract"]["hidden_director_guard_layers"] is False
+        assert context["working_context_contract"]["backend_semantic_scene_gates"] is False
+        assert context["working_context_contract"]["precommit_review_gates"] == ["scene_builder", "persistence"]
 
 
 def test_active_character_receives_complete_knowledge_journal_in_packet():
@@ -173,7 +178,566 @@ def test_dynamic_relationship_label_can_appear_without_whitelist():
         assert state["relationships"]["npc"]["любовь"] == 12
 
 
-def test_turn_commit_schema_no_longer_requires_review_flags_or_exact_scene_format():
+def test_new_public_packet_requires_scene_and_persistence_review_before_commit():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(base_novel())["session_id"]
+        manifest = prepare_turn_request(sid, "(посмотреть на NPC)", request_id="writer-review")
+        read_all(manifest, sid)
+
+        payload = {
+            "packet_id": manifest["packet_id"],
+            "user_input": "(посмотреть на NPC)",
+            "scene_output": "Сцена продолжается.",
+            "extracted": {},
+        }
+        with pytest.raises(RuntimeError, match="SCENE_BUILDER_REVIEW_REQUIRED"):
+            commit_turn_request(sid, payload)
+
+        payload["extracted"] = {
+            "scene_builder_reviewed": True,
+            "persistence_reviewed": True,
+        }
+        result = commit_turn_request(sid, payload)
+        assert result["turn_number"] == 1
+
+
+def test_incomplete_packet_error_precedes_writer_review_gate():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(base_novel())["session_id"]
+        manifest = prepare_turn_request(sid, "(посмотреть на NPC)", request_id="incomplete-before-review")
+        assert manifest["chunk_count"] > 1
+
+        payload = {
+            "packet_id": manifest["packet_id"],
+            "user_input": "(посмотреть на NPC)",
+            "scene_output": "Сцена.",
+            "extracted": {},
+        }
+        with pytest.raises(RuntimeError, match="TURN_PACKET_INCOMPLETE"):
+            commit_turn_request(sid, payload)
+
+        read_all(manifest, sid)
+        with pytest.raises(RuntimeError, match="SCENE_BUILDER_REVIEW_REQUIRED"):
+            commit_turn_request(sid, payload)
+
+
+def test_preexisting_pending_packet_is_not_retroactively_writer_review_gated():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(base_novel())["session_id"]
+
+        # Simulates a packet created before the public writer-review flag existed.
+        manifest = session_runtime.prepare_turn_packet(sid, "(посмотреть на NPC)")
+        read_all(manifest, sid)
+        packet = storage._read_json(storage.SESSIONS_DIR / sid / "turn_packet.json", {})
+        assert not packet.get("writer_review_required")
+
+        result = commit_turn_request(
+            sid,
+            {
+                "packet_id": manifest["packet_id"],
+                "user_input": "(посмотреть на NPC)",
+                "scene_output": "Сцена продолжается.",
+                "extracted": {},
+            },
+        )
+        assert result["turn_number"] == 1
+
+
+def test_generated_remote_message_is_persisted_for_sender_and_pov():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        novel = base_novel()
+        novel["characters"] = [
+            {"character_id": "pov", "name": "Рината", "is_pov": True},
+            {"character_id": "enzhe", "name": "Энже"},
+        ]
+        novel["starting_state"]["pov"] = {"character_id": "pov"}
+        novel["starting_state"]["current"]["present_characters"] = ["pov"]
+        sid = storage.create_session(novel)["session_id"]
+
+        first = session_runtime.prepare_turn_packet(sid, "(посмотреть на телефон)")
+        read_all(first, sid)
+        session_runtime.commit_turn(
+            sid,
+            {
+                "packet_id": first["packet_id"],
+                "user_input": "(посмотреть на телефон)",
+                "scene_output": "**Энже (в сообщениях)** — Живая?",
+                "extracted": {},
+            },
+        )
+
+        memory = storage._normalise_memory(
+            storage._read_json(storage.SESSIONS_DIR / sid / "memory.json", {})
+        )
+        enzhe_text = " ".join(
+            row["text"] for row in memory["characters"]["enzhe"]["knowledge_journal"]
+        )
+        pov_text = " ".join(
+            row["text"] for row in memory["characters"]["pov"]["knowledge_journal"]
+        )
+        assert "Живая?" in enzhe_text
+        assert "Живая?" in pov_text
+        assert memory["characters"]["enzhe"]["dialogue_memory"]
+        assert memory["characters"]["pov"]["dialogue_memory"]
+
+        second = session_runtime.prepare_turn_packet(sid, "(ответить Энже - живая. чего тебе?)")
+        read_all(second, sid)
+        session_runtime.commit_turn(
+            sid,
+            {
+                "packet_id": second["packet_id"],
+                "user_input": "(ответить Энже - живая. чего тебе?)",
+                "scene_output": "**Рината** — *(в сообщениях)* живая. чего тебе?",
+                "extracted": {
+                    "state_patch": {"current": {"date": "02.09.2026"}},
+                },
+            },
+        )
+
+        memory = storage._normalise_memory(
+            storage._read_json(storage.SESSIONS_DIR / sid / "memory.json", {})
+        )
+        enzhe_text = " ".join(
+            row["text"] for row in memory["characters"]["enzhe"]["knowledge_journal"]
+        )
+        assert "живая. чего тебе?" in enzhe_text
+        assert "Живая?" in enzhe_text
+
+        bundle = character_chunk_read._participation_bundle(sid, "enzhe")
+        bundle_text = json.dumps(bundle, ensure_ascii=False)
+        assert "Живая?" in bundle_text
+        assert "живая. чего тебе?" in bundle_text
+
+
+def test_remote_message_survives_when_sender_enters_physically_later_same_turn():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        novel = base_novel()
+        novel["characters"] = [
+            {"character_id": "pov", "name": "Рината", "is_pov": True},
+            {"character_id": "enzhe", "name": "Энже"},
+        ]
+        novel["starting_state"]["pov"] = {"character_id": "pov"}
+        novel["starting_state"]["current"]["present_characters"] = ["pov"]
+        novel["starting_state"]["current"]["remote_characters"] = ["enzhe"]
+        sid = storage.create_session(novel)["session_id"]
+
+        manifest = session_runtime.prepare_turn_packet(sid, "(посмотреть на телефон)")
+        read_all(manifest, sid)
+        session_runtime.commit_turn(
+            sid,
+            {
+                "packet_id": manifest["packet_id"],
+                "user_input": "(посмотреть на телефон)",
+                "scene_output": (
+                    "**Энже (в сообщениях)** — Открой дверь.\n"
+                    "Через некоторое время Энже вошла в комнату."
+                ),
+                "extracted": {
+                    "presence_updates": [{"character_id": "enzhe", "action": "enter"}],
+                    "state_patch": {"current": {"remote_characters": []}},
+                },
+            },
+        )
+
+        memory = storage._normalise_memory(
+            storage._read_json(storage.SESSIONS_DIR / sid / "memory.json", {})
+        )
+        enzhe_text = " ".join(
+            row["text"] for row in memory["characters"]["enzhe"]["knowledge_journal"]
+        )
+        pov_text = " ".join(
+            row["text"] for row in memory["characters"]["pov"]["knowledge_journal"]
+        )
+        assert "Открой дверь." in enzhe_text
+        assert "Открой дверь." in pov_text
+
+
+def test_autonomous_pov_remote_reply_is_persisted_when_counterpart_is_unambiguous():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        novel = base_novel()
+        novel["characters"] = [
+            {"character_id": "pov", "name": "Рината", "is_pov": True},
+            {"character_id": "enzhe", "name": "Энже"},
+        ]
+        novel["starting_state"]["pov"] = {"character_id": "pov"}
+        novel["starting_state"]["current"]["present_characters"] = ["pov"]
+        novel["starting_state"]["current"]["remote_characters"] = ["enzhe"]
+        sid = storage.create_session(novel)["session_id"]
+
+        manifest = session_runtime.prepare_turn_packet(sid, "(посмотреть на телефон)")
+        read_all(manifest, sid)
+        session_runtime.commit_turn(
+            sid,
+            {
+                "packet_id": manifest["packet_id"],
+                "user_input": "(посмотреть на телефон)",
+                "scene_output": (
+                    "**Энже (в сообщениях)** — Живая?\n"
+                    "**Рината** — *(в сообщениях)* Живая. Чего тебе?"
+                ),
+                "extracted": {},
+            },
+        )
+
+        memory = storage._normalise_memory(
+            storage._read_json(storage.SESSIONS_DIR / sid / "memory.json", {})
+        )
+        enzhe_text = " ".join(
+            row["text"] for row in memory["characters"]["enzhe"]["knowledge_journal"]
+        )
+        pov_text = " ".join(
+            row["text"] for row in memory["characters"]["pov"]["knowledge_journal"]
+        )
+        assert "Живая?" in enzhe_text
+        assert "Живая. Чего тебе?" in enzhe_text
+        assert "Живая?" in pov_text
+        assert "Живая. Чего тебе?" in pov_text
+
+
+def test_direct_user_remote_reply_is_not_duplicated_by_scene_echo():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        novel = base_novel()
+        novel["characters"] = [
+            {"character_id": "pov", "name": "Рината", "is_pov": True},
+            {"character_id": "enzhe", "name": "Энже"},
+        ]
+        novel["starting_state"]["pov"] = {"character_id": "pov"}
+        novel["starting_state"]["current"]["present_characters"] = ["pov"]
+        novel["starting_state"]["current"]["remote_characters"] = ["enzhe"]
+        sid = storage.create_session(novel)["session_id"]
+
+        user_input = "(ответить Энже - Живая. Чего тебе?)"
+        manifest = session_runtime.prepare_turn_packet(sid, user_input)
+        read_all(manifest, sid)
+        session_runtime.commit_turn(
+            sid,
+            {
+                "packet_id": manifest["packet_id"],
+                "user_input": user_input,
+                "scene_output": "**Рината** — *(в сообщениях)* Живая. Чего тебе?",
+                "extracted": {},
+            },
+        )
+
+        memory = storage._normalise_memory(
+            storage._read_json(storage.SESSIONS_DIR / sid / "memory.json", {})
+        )
+        enzhe_rows = [
+            row["text"] for row in memory["characters"]["enzhe"]["knowledge_journal"]
+            if "Живая. Чего тебе?" in row["text"]
+        ]
+        pov_rows = [
+            row["text"] for row in memory["characters"]["pov"]["knowledge_journal"]
+            if "Живая. Чего тебе?" in row["text"]
+        ]
+        assert len(enzhe_rows) == 1
+        assert len(pov_rows) == 1
+
+
+def test_generated_remote_message_is_redacted_from_shared_recent_history_and_blocked_for_bystander():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        novel = base_novel()
+        novel["characters"] = [
+            {"character_id": "pov", "name": "Рината", "is_pov": True},
+            {"character_id": "enzhe", "name": "Энже"},
+            {"character_id": "dante", "name": "Дантэ"},
+        ]
+        novel["starting_state"]["pov"] = {"character_id": "pov"}
+        novel["starting_state"]["current"]["present_characters"] = ["pov", "dante"]
+        sid = storage.create_session(novel)["session_id"]
+
+        first = session_runtime.prepare_turn_packet(sid, "(посмотреть на телефон)")
+        read_all(first, sid)
+        session_runtime.commit_turn(
+            sid,
+            {
+                "packet_id": first["packet_id"],
+                "user_input": "(посмотреть на телефон)",
+                "scene_output": "**Энже (в сообщениях)** — Сайлас мне нравится.",
+                "extracted": {},
+            },
+        )
+
+        second, context = read_context(sid, "(посмотреть на Дантэ)")
+        recent_blob = json.dumps(context["recent_turns"], ensure_ascii=False)
+        assert "Сайлас мне нравится" not in recent_blob
+        assert "содержание приватной коммуникации скрыто" in recent_blob
+
+        memory = storage._normalise_memory(
+            storage._read_json(storage.SESSIONS_DIR / sid / "memory.json", {})
+        )
+        assert "Сайлас мне нравится" in " ".join(
+            row["text"] for row in memory["characters"]["enzhe"]["knowledge_journal"]
+        )
+        assert "Сайлас мне нравится" in " ".join(
+            row["text"] for row in memory["characters"]["pov"]["knowledge_journal"]
+        )
+        assert "Сайлас мне нравится" not in " ".join(
+            row["text"] for row in memory["characters"]["dante"]["knowledge_journal"]
+        )
+
+        read_all(second, sid)
+        with pytest.raises(Exception) as exc:
+            session_runtime.commit_turn(
+                sid,
+                {
+                    "packet_id": second["packet_id"],
+                    "user_input": "(посмотреть на Дантэ)",
+                    "scene_output": "**Дантэ** — Энже написала, что Сайлас ей нравится.",
+                    "extracted": {},
+                },
+            )
+        detail = getattr(exc.value, "detail", {})
+        assert isinstance(detail, dict)
+        assert detail.get("code") == "PRIVATE_COMMUNICATION_KNOWLEDGE_LEAK"
+        assert detail.get("character_id") == "dante"
+
+
+def test_generated_remote_message_is_redacted_after_it_moves_to_continuity_tail():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        novel = base_novel()
+        novel["characters"] = [
+            {"character_id": "pov", "name": "Рината", "is_pov": True},
+            {"character_id": "enzhe", "name": "Энже"},
+        ]
+        novel["starting_state"]["pov"] = {"character_id": "pov"}
+        novel["starting_state"]["current"]["present_characters"] = ["pov"]
+        sid = storage.create_session(novel)["session_id"]
+
+        first = session_runtime.prepare_turn_packet(sid, "(посмотреть на телефон)")
+        read_all(first, sid)
+        session_runtime.commit_turn(
+            sid,
+            {
+                "packet_id": first["packet_id"],
+                "user_input": "(посмотреть на телефон)",
+                "scene_output": "**Энже (в сообщениях)** — Секретная фраза для Ринаты.",
+                "extracted": {},
+            },
+        )
+
+        for number in (2, 3):
+            user_input = f"(обычный ход {number})"
+            manifest = session_runtime.prepare_turn_packet(sid, user_input)
+            read_all(manifest, sid)
+            session_runtime.commit_turn(
+                sid,
+                {
+                    "packet_id": manifest["packet_id"],
+                    "user_input": user_input,
+                    "scene_output": f"Обычная сцена {number}.",
+                    "extracted": {},
+                },
+            )
+
+        _, context = read_context(sid, "(ещё один ход)")
+        continuity = json.dumps(context["continuity_turns"], ensure_ascii=False)
+        assert "Секретная фраза для Ринаты" not in continuity
+        assert "содержание приватной коммуникации скрыто" in continuity
+
+
+def test_phone_call_marker_persists_remote_memory_without_preexisting_remote_state():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        novel = base_novel()
+        novel["characters"] = [
+            {"character_id": "pov", "name": "Рината", "is_pov": True},
+            {"character_id": "enzhe", "name": "Энже"},
+        ]
+        novel["starting_state"]["pov"] = {"character_id": "pov"}
+        novel["starting_state"]["current"]["present_characters"] = ["pov"]
+        sid = storage.create_session(novel)["session_id"]
+
+        manifest = session_runtime.prepare_turn_packet(sid, "(взять трубку)")
+        read_all(manifest, sid)
+        session_runtime.commit_turn(
+            sid,
+            {
+                "packet_id": manifest["packet_id"],
+                "user_input": "(взять трубку)",
+                "scene_output": "**Энже (по телефону)** — Ты где?",
+                "extracted": {},
+            },
+        )
+
+        memory = storage._normalise_memory(
+            storage._read_json(storage.SESSIONS_DIR / sid / "memory.json", {})
+        )
+        assert "Ты где?" in " ".join(
+            row["text"] for row in memory["characters"]["enzhe"]["knowledge_journal"]
+        )
+        assert "Ты где?" in " ".join(
+            row["text"] for row in memory["characters"]["pov"]["knowledge_journal"]
+        )
+
+
+def test_explicit_remote_target_is_not_misattributed_when_two_contacts_are_active():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        novel = base_novel()
+        novel["characters"] = [
+            {"character_id": "pov", "name": "Рината", "is_pov": True},
+            {"character_id": "enzhe", "name": "Энже"},
+            {"character_id": "dante", "name": "Дантэ"},
+        ]
+        novel["starting_state"]["pov"] = {"character_id": "pov"}
+        novel["starting_state"]["current"]["present_characters"] = ["pov"]
+        novel["starting_state"]["current"]["remote_characters"] = ["enzhe", "dante"]
+        sid = storage.create_session(novel)["session_id"]
+
+        manifest = session_runtime.prepare_turn_packet(sid, "(ответить в чате)")
+        read_all(manifest, sid)
+        session_runtime.commit_turn(
+            sid,
+            {
+                "packet_id": manifest["packet_id"],
+                "user_input": "(ответить в чате)",
+                "scene_output": "**Рината (в сообщениях Энже)** — Отвечу позже.",
+                "extracted": {},
+            },
+        )
+
+        memory = storage._normalise_memory(
+            storage._read_json(storage.SESSIONS_DIR / sid / "memory.json", {})
+        )
+        assert "Отвечу позже." in " ".join(
+            row["text"] for row in memory["characters"]["enzhe"]["knowledge_journal"]
+        )
+        assert "Отвечу позже." not in " ".join(
+            row["text"] for row in memory["characters"]["dante"]["knowledge_journal"]
+        )
+
+
+def test_generated_remote_exchange_is_compacted_to_one_durable_row_per_participant():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        novel = base_novel()
+        novel["characters"] = [
+            {"character_id": "pov", "name": "Рината", "is_pov": True},
+            {"character_id": "enzhe", "name": "Энже"},
+        ]
+        novel["starting_state"]["pov"] = {"character_id": "pov"}
+        novel["starting_state"]["current"]["present_characters"] = ["pov"]
+        novel["starting_state"]["current"]["remote_characters"] = ["enzhe"]
+        sid = storage.create_session(novel)["session_id"]
+
+        manifest = session_runtime.prepare_turn_packet(sid, "(посмотреть на телефон)")
+        read_all(manifest, sid)
+        session_runtime.commit_turn(
+            sid,
+            {
+                "packet_id": manifest["packet_id"],
+                "user_input": "(посмотреть на телефон)",
+                "scene_output": (
+                    "**Энже (в сообщениях)** — Ты живая?\n"
+                    "**Энже (в сообщениях)** — Я серьёзно.\n"
+                    "**Рината** — *(в сообщениях)* Живая."
+                ),
+                "extracted": {},
+            },
+        )
+
+        memory = storage._normalise_memory(
+            storage._read_json(storage.SESSIONS_DIR / sid / "memory.json", {})
+        )
+        assert len(memory["characters"]["enzhe"]["knowledge_journal"]) == 1
+        assert len(memory["characters"]["pov"]["knowledge_journal"]) == 1
+        assert "Ты живая?" in memory["characters"]["enzhe"]["knowledge_journal"][0]["text"]
+        assert "Я серьёзно." in memory["characters"]["enzhe"]["knowledge_journal"][0]["text"]
+        assert "Живая." in memory["characters"]["enzhe"]["knowledge_journal"][0]["text"]
+
+
+def test_continuation_handoff_keeps_generated_remote_message_private():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        novel = base_novel()
+        novel["characters"] = [
+            {"character_id": "pov", "name": "Рината", "is_pov": True},
+            {"character_id": "enzhe", "name": "Энже"},
+            {"character_id": "dante", "name": "Дантэ"},
+        ]
+        novel["starting_state"]["pov"] = {"character_id": "pov"}
+        novel["starting_state"]["current"]["present_characters"] = ["pov", "dante"]
+        sid = storage.create_session(novel)["session_id"]
+        root = storage.SESSIONS_DIR / sid
+
+        meta = storage._read_json(root / "meta.json", {})
+        meta["turn_number"] = 0
+        meta["continuation_of_session_id"] = "source-session"
+        storage._write_json(root / "meta.json", meta)
+
+        bridge = [
+            {
+                "turn_number": 797,
+                "user_input": "(посмотреть на телефон)",
+                "scene_output": "**Энже (в сообщениях)** — Только Ринате: кодовое слово маяк.",
+                "extracted": {
+                    "dialogue_memory_add": [{
+                        "topic_id": "remote_t797_enzhe",
+                        "participants": ["pov", "enzhe"],
+                        "mode": "remote",
+                        "summary": "Энже: Только Ринате: кодовое слово маяк.",
+                        "segments": [{
+                            "speaker_id": "enzhe",
+                            "text": "Только Ринате: кодовое слово маяк.",
+                        }],
+                        "turn": 797,
+                    }]
+                },
+            },
+            {
+                "turn_number": 798,
+                "user_input": "(идти дальше)",
+                "scene_output": "Обычная сцена 798.",
+                "extracted": {},
+            },
+            {
+                "turn_number": 799,
+                "user_input": "(идти дальше)",
+                "scene_output": "Обычная сцена 799.",
+                "extracted": {},
+            },
+            {
+                "turn_number": 800,
+                "user_input": "(остановиться)",
+                "scene_output": "Обычная сцена 800.",
+                "extracted": {},
+            },
+        ]
+        storage._write_json(root / "handoff_tail.json", bridge)
+
+        manifest, context = read_context(sid, "(посмотреть на Дантэ)")
+        continuity_blob = json.dumps(context["continuity_turns"], ensure_ascii=False)
+        assert "кодовое слово маяк" not in continuity_blob
+        assert "содержание приватной коммуникации скрыто" in continuity_blob
+
+        read_all(manifest, sid)
+        with pytest.raises(Exception) as exc:
+            session_runtime.commit_turn(
+                sid,
+                {
+                    "packet_id": manifest["packet_id"],
+                    "user_input": "(посмотреть на Дантэ)",
+                    "scene_output": "**Дантэ** — Энже написала тебе кодовое слово маяк.",
+                    "extracted": {},
+                },
+            )
+        detail = getattr(exc.value, "detail", {})
+        assert isinstance(detail, dict)
+        assert detail.get("code") == "PRIVATE_COMMUNICATION_KNOWLEDGE_LEAK"
+        assert detail.get("character_id") == "dante"
+
+
+def test_turn_commit_schema_exposes_review_flags_without_exact_scene_format():
     model = TurnCommit(
         packet_id="packet",
         user_input="test",
@@ -182,7 +746,8 @@ def test_turn_commit_schema_no_longer_requires_review_flags_or_exact_scene_forma
     )
     assert model.extracted.chronology == []
     assert model.extracted.knowledge_add == []
-    assert not hasattr(model.extracted, "knowledge_reviewed")
+    assert model.extracted.scene_builder_reviewed is False
+    assert model.extracted.persistence_reviewed is False
 
 
 def test_fifteenth_turn_does_not_create_mandatory_audit_gate():

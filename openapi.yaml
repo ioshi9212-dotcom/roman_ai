@@ -574,6 +574,12 @@ components:
     TurnExtracted:
       type: object
       properties:
+        scene_builder_reviewed:
+          type: boolean
+          default: false
+        persistence_reviewed:
+          type: boolean
+          default: false
         knowledge_journal_add:
           type: array
           items:

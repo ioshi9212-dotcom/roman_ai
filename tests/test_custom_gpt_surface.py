@@ -67,7 +67,9 @@ def test_static_custom_gpt_schema_has_exact_current_30_actions():
     assert "knowledge_reviewed" not in dumped
     assert "runtime_contract_version" not in dumped
     assert "relationship_reviewed" not in dumped
-    assert "persistence_reviewed" not in dumped
+    extracted = schema["components"]["schemas"]["TurnExtracted"]
+    assert "scene_builder_reviewed" in extracted["properties"]
+    assert "persistence_reviewed" in extracted["properties"]
 
     relationship = schema["components"]["schemas"]["RelationshipUpdate"]
     assert "change_scale" not in relationship["properties"]

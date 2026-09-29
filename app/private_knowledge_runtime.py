@@ -16,6 +16,9 @@ _COMMUNICATION_RE = re.compile(
 _CHAT_RE = re.compile(
     r"(?iu)\b(?:переписк\w*|чат\w*)\s+(?:с|для)\s+([^\s,.;:()—-]+)"
 )
+_REMOTE_MARKER_RE = re.compile(
+    r"(?iu)\b(?:сообщен\w*|переписк\w*|чат\w*|смс|звон\w*|телефон\w*|трубк\w*|голосов\w*|видеосвяз\w*|мессендж\w*)\b"
+)
 _ACTION_PREFIXES = {
     "встать", "сесть", "подойти", "отойти", "пойти", "уйти", "вернуться", "взять", "достать",
     "убрать", "положить", "открыть", "закрыть", "посмотреть", "повернуть", "поднять", "опустить",
@@ -187,34 +190,169 @@ def _authorized_corpus(root, character_id: str, cards: List[Dict[str, Any]]) -> 
     knowledge = bucket.get("knowledge", [])
     if isinstance(knowledge, list):
         pieces.extend(str(row) for row in knowledge)
+    dialogue = bucket.get("dialogue_memory", [])
+    if isinstance(dialogue, list):
+        pieces.extend(str(row) for row in dialogue if isinstance(row, dict))
     return "\n".join(piece for piece in pieces if piece)
 
 
+def _resolve_speaker_label(label: str, exact: Dict[str, str], stems: Dict[str, str]) -> str | None:
+    normalized = _norm(label)
+    candidates = [normalized]
+    without_context = _norm(re.sub(r"\([^)]*\)", " ", normalized))
+    if without_context and without_context not in candidates:
+        candidates.append(without_context)
+    for candidate in candidates:
+        direct = exact.get(candidate)
+        if direct:
+            return direct
+        first = candidate.split()[0] if candidate else ""
+        direct = exact.get(first) or stems.get(_stem(first))
+        if direct:
+            return direct
+    return None
+
+
 def _speaker_units(scene_output: str, cards: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    exact, _, _ = _alias_maps(cards)
+    exact, stems, _ = _alias_maps(cards)
     result: List[Dict[str, Any]] = []
     for match in _SPEECH_RE.finditer(str(scene_output or "")):
-        speaker = _norm(match.group("speaker"))
-        cid = exact.get(speaker) or exact.get(speaker.split()[0] if speaker else "")
+        speaker_label = match.group("speaker").strip()
+        cid = _resolve_speaker_label(speaker_label, exact, stems)
         if cid:
             result.append({
                 "character_id": cid,
+                "speaker_label": speaker_label,
                 "text": match.group("text").strip(),
                 "position": match.start(),
             })
     return result
 
 
+def _historical_remote_records(
+    turn: Dict[str, Any],
+    cards: List[Dict[str, Any]],
+    *,
+    pov_id: str,
+) -> List[Dict[str, Any]]:
+    extracted = turn.get("extracted") if isinstance(turn.get("extracted"), dict) else {}
+    dialogue = extracted.get("dialogue_memory_add")
+    if not isinstance(dialogue, list) or not pov_id:
+        return []
+
+    _, _, aliases_by_id = _alias_maps(cards)
+    result: List[Dict[str, Any]] = []
+    turn_number = int(turn.get("turn_number", 0) or 0)
+    for row in dialogue:
+        if not isinstance(row, dict) or _norm(row.get("mode")) != "remote":
+            continue
+        raw_participants = row.get("participants") or row.get("participant_ids") or []
+        if isinstance(raw_participants, str):
+            raw_participants = [raw_participants]
+        participants = [str(value) for value in raw_participants if value]
+        if pov_id not in participants or len(set(participants)) < 2:
+            continue
+
+        participant_aliases: set[str] = set()
+        for cid in participants:
+            participant_aliases.update(aliases_by_id.get(cid, set()))
+
+        segments = row.get("segments")
+        if isinstance(segments, list) and segments:
+            for segment in segments:
+                if not isinstance(segment, dict):
+                    continue
+                payload = str(segment.get("text") or "").strip()
+                if not payload:
+                    continue
+                result.append({
+                    "turn_number": turn_number,
+                    "participant_ids": list(dict.fromkeys(participants)),
+                    "participant_aliases": sorted(participant_aliases),
+                    "payload": payload,
+                    "terms": sorted(_terms(payload)),
+                    "topic_id": row.get("topic_id"),
+                })
+            continue
+
+        # Backward-compatible fallback for an already stored remote memory row.
+        payload = str(row.get("summary") or "").strip()
+        if payload:
+            result.append({
+                "turn_number": turn_number,
+                "participant_ids": list(dict.fromkeys(participants)),
+                "participant_aliases": sorted(participant_aliases),
+                "payload": payload,
+                "terms": sorted(_terms(payload)),
+                "topic_id": row.get("topic_id"),
+            })
+    return result
+
+
+def _history_turns(root) -> List[Dict[str, Any]]:
+    result: List[Dict[str, Any]] = []
+    seen: set[tuple[int, str, str]] = set()
+    handoff = storage._read_json(root / "handoff_tail.json", [])
+    if isinstance(handoff, dict):
+        handoff = handoff.get("turns") or handoff.get("recent_turns") or []
+    sources = [
+        handoff if isinstance(handoff, list) else [],
+        storage._read_turns(root),
+    ]
+    for source in sources:
+        for turn in source:
+            if not isinstance(turn, dict):
+                continue
+            key = (
+                int(turn.get("turn_number", 0) or 0),
+                str(turn.get("user_input") or ""),
+                str(turn.get("scene_output") or ""),
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+            result.append(turn)
+    return result
+
+
+def _source_turn_for_compact_row(
+    row: Dict[str, Any],
+    candidates: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    if not candidates:
+        return row
+    if len(candidates) == 1:
+        return candidates[0]
+    user_input = str(row.get("user_input") or "")
+    if user_input:
+        exact = [
+            turn for turn in candidates
+            if str(turn.get("user_input") or "") == user_input
+        ]
+        if len(exact) == 1:
+            return exact[0]
+    scene_tail = _norm(row.get("scene_tail") or "")
+    if scene_tail:
+        exact = [
+            turn for turn in candidates
+            if scene_tail and scene_tail in _norm(turn.get("scene_output") or "")
+        ]
+        if len(exact) == 1:
+            return exact[0]
+    return candidates[-1]
+
+
 def _private_records(root, cards: List[Dict[str, Any]], current_user_input: str = "") -> List[Dict[str, Any]]:
     rows: List[Dict[str, Any]] = []
-    for turn in storage._read_turns(root):
-        if not isinstance(turn, dict):
-            continue
+    state = storage._read_json(root / "state.json", {})
+    pov_id = _pov_id(state)
+    for turn in _history_turns(root):
         rows.extend(extract_private_communications(
             str(turn.get("user_input") or ""),
             cards,
             turn_number=int(turn.get("turn_number", 0) or 0),
         ))
+        rows.extend(_historical_remote_records(turn, cards, pov_id=pov_id))
     if current_user_input:
         meta = storage._read_json(root / "meta.json", {})
         rows.extend(extract_private_communications(
@@ -239,7 +377,16 @@ def _mentions_private_contact(text: str, record: Dict[str, Any]) -> bool:
     if not (used & _COMMUNICATION_STEMS):
         return False
     normalized = _norm(text)
-    return any(alias and alias in normalized for alias in record.get("recipient_aliases", []))
+    aliases = record.get("participant_aliases") or record.get("recipient_aliases") or []
+    return any(alias and alias in normalized for alias in aliases)
+
+
+def _record_participants(record: Dict[str, Any]) -> set[str]:
+    values = record.get("participant_ids")
+    if isinstance(values, list):
+        return {str(value) for value in values if value}
+    recipient = str(record.get("recipient_id") or "")
+    return {recipient} if recipient else set()
 
 
 def validate_private_knowledge(session_id: str, payload: Dict[str, Any]) -> None:
@@ -266,7 +413,7 @@ def validate_private_knowledge(session_id: str, payload: Dict[str, Any]) -> None
         corpus = _authorized_corpus(root, cid, cards)
         allowed_terms = _terms(corpus + "\n" + "\n".join(earlier_public_speech))
         for record in records:
-            if cid == str(record.get("recipient_id") or ""):
+            if cid in _record_participants(record):
                 continue
             protected = set(record.get("terms") or [])
             leaked = _leaked_terms(text, protected, allowed_terms)
@@ -300,7 +447,7 @@ def validate_private_knowledge(session_id: str, payload: Dict[str, Any]) -> None
             text = str(row.get("text") or row.get("fact") or row.get("summary") or "")
             allowed_terms = _terms(_authorized_corpus(root, cid, cards))
             for record in records:
-                if cid == str(record.get("recipient_id") or ""):
+                if cid in _record_participants(record):
                     continue
                 leaked = _leaked_terms(text, set(record.get("terms") or []), allowed_terms)
                 if leaked or _mentions_private_contact(text, record):
@@ -367,6 +514,214 @@ def add_direct_communication_memory(session_id: str, payload: Dict[str, Any]) ->
     return result
 
 
+def _clean_remote_line(text: str) -> str:
+    value = str(text or "").strip()
+    value = re.sub(r"^\s*\*?\([^)]*\)\*?\s*", "", value).strip()
+    return " ".join(value.split())
+
+
+def _journal_contains_message(rows: List[Dict[str, Any]], character_id: str, message: str) -> bool:
+    needle = _norm(message)
+    if not needle:
+        return False
+    for row in rows:
+        if not isinstance(row, dict) or str(row.get("character_id") or "") != character_id:
+            continue
+        haystack = _norm(row.get("text") or row.get("fact") or row.get("summary") or "")
+        if needle and needle in haystack:
+            return True
+    return False
+
+
+def _remote_target_from_label(
+    label: str,
+    *,
+    exact: Dict[str, str],
+    stems: Dict[str, str],
+    exclude_id: str,
+) -> str | None:
+    normalized = _norm(label)
+    if not normalized:
+        return None
+    found: List[str] = []
+    for alias, cid in exact.items():
+        if cid == exclude_id or not alias:
+            continue
+        if re.search(rf"(?<![a-zа-яё0-9_-]){re.escape(alias)}(?![a-zа-яё0-9_-])", normalized, flags=re.IGNORECASE):
+            found.append(cid)
+    if len(set(found)) == 1:
+        return found[0]
+    for token in re.findall(r"(?iu)[a-zа-яё][a-zа-яё-]+", normalized):
+        cid = stems.get(_stem(token))
+        if cid and cid != exclude_id:
+            found.append(cid)
+    unique = list(dict.fromkeys(found))
+    return unique[0] if len(unique) == 1 else None
+
+
+def add_scene_remote_communication_memory(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    root = storage.SESSIONS_DIR / session_id
+    result = deepcopy(payload)
+    extracted = result.get("extracted")
+    if not isinstance(extracted, dict):
+        extracted = {}
+        result["extracted"] = extracted
+
+    source = storage._read_json(root / "source.json", {})
+    cards = storage._load_cards(root, source)
+    state_before = storage._read_json(root / "state.json", {})
+    pov_id = _pov_id(state_before)
+    if not pov_id:
+        return result
+
+    state_patch = extracted.get("state_patch") if isinstance(extracted.get("state_patch"), dict) else {}
+    state_after = storage._deep_merge(state_before, state_patch)
+    present_ids = {
+        str(value)
+        for value in [*storage._present_character_ids(state_before), *storage._present_character_ids(state_after)]
+        if value
+    }
+    remote_ids = {
+        str(value)
+        for value in [*storage._remote_character_ids(state_before), *storage._remote_character_ids(state_after)]
+        if value and str(value) != pov_id
+    }
+
+    units = _speaker_units(str(result.get("scene_output") or ""), cards)
+    exact, stems, _ = _alias_maps(cards)
+
+    explicit_remote_npcs = {
+        str(unit.get("character_id") or "")
+        for unit in units
+        if str(unit.get("character_id") or "") not in {"", pov_id}
+        and _REMOTE_MARKER_RE.search(f"{unit.get('speaker_label') or ''} {unit.get('text') or ''}") is not None
+    }
+    candidate_counterparts = {
+        cid for cid in [*remote_ids, *explicit_remote_npcs]
+        if cid and cid != pov_id
+    }
+
+    exchanges: Dict[str, List[Dict[str, str]]] = {}
+    for unit in units:
+        cid = str(unit.get("character_id") or "")
+        if not cid:
+            continue
+        label = str(unit.get("speaker_label") or "")
+        raw_text = str(unit.get("text") or "")
+        marker_text = f"{label} {raw_text}"
+        explicit_remote = _REMOTE_MARKER_RE.search(marker_text) is not None
+        line = _clean_remote_line(raw_text)
+        if not line:
+            continue
+
+        if cid == pov_id:
+            if not explicit_remote:
+                continue
+            target_id = _remote_target_from_label(
+                label,
+                exact=exact,
+                stems=stems,
+                exclude_id=pov_id,
+            )
+            if not target_id and len(candidate_counterparts) == 1:
+                target_id = next(iter(candidate_counterparts))
+            if not target_id:
+                continue
+            bucket = exchanges.setdefault(target_id, [])
+            item = {"speaker_id": pov_id, "text": line}
+            if item not in bucket:
+                bucket.append(item)
+            continue
+
+        # An explicit remote marker wins even if the same NPC physically enters later
+        # in the turn. Without an explicit marker, only an exclusively remote NPC is
+        # safe to classify as remote communication.
+        if not explicit_remote:
+            if cid not in remote_ids or cid in present_ids:
+                continue
+
+        bucket = exchanges.setdefault(cid, [])
+        item = {"speaker_id": cid, "text": line}
+        if item not in bucket:
+            bucket.append(item)
+
+    if not exchanges:
+        return result
+
+    meta = storage._read_json(root / "meta.json", {})
+    turn_number = int(meta.get("turn_number", 0) or 0) + 1
+    current = state_after.get("current") if isinstance(state_after.get("current"), dict) else {}
+    date = current.get("date")
+    period = current.get("period") or current.get("day_period")
+
+    journal = extracted.get("knowledge_journal_add")
+    journal = deepcopy(journal) if isinstance(journal, list) else []
+
+    dialogue = extracted.get("dialogue_memory_add")
+    dialogue = deepcopy(dialogue) if isinstance(dialogue, list) else []
+    dialogue_ids = {
+        str(row.get("topic_id") or "")
+        for row in dialogue if isinstance(row, dict) and row.get("topic_id")
+    }
+
+    names = {
+        storage._card_id(card): storage._card_name(card)
+        for card in cards
+        if storage._card_id(card)
+    }
+    pov_name = names.get(pov_id, "POV")
+
+    for counterpart_id, rows in exchanges.items():
+        counterpart_name = names.get(counterpart_id, counterpart_id)
+        summary_parts: List[str] = []
+        missing_by_owner: Dict[str, List[str]] = {pov_id: [], counterpart_id: []}
+
+        for row in rows:
+            speaker_id = str(row.get("speaker_id") or "")
+            line = str(row.get("text") or "").strip()
+            if not speaker_id or not line:
+                continue
+            speaker_name = names.get(speaker_id, pov_name if speaker_id == pov_id else speaker_id)
+            rendered = f"{speaker_name}: {line}"
+            summary_parts.append(rendered)
+
+            for owner_id in (pov_id, counterpart_id):
+                if not _journal_contains_message(journal, owner_id, line):
+                    missing_by_owner[owner_id].append(rendered)
+
+        content = " ".join(summary_parts).strip()[:4000]
+        if not content:
+            continue
+
+        for owner_id, missing_parts in missing_by_owner.items():
+            if not missing_parts:
+                continue
+            other_name = counterpart_name if owner_id == pov_id else pov_name
+            journal.append({
+                "character_id": owner_id,
+                "date": date,
+                "period": period,
+                "text": f"Удалённая коммуникация с {other_name}: {' '.join(missing_parts)[:4000]}",
+            })
+
+        topic_id = f"remote_t{turn_number}_{counterpart_id}"
+        if topic_id not in dialogue_ids:
+            dialogue.append({
+                "topic_id": topic_id,
+                "participants": [pov_id, counterpart_id],
+                "mode": "remote",
+                "summary": content,
+                "segments": deepcopy(rows),
+                "turn": turn_number,
+            })
+            dialogue_ids.add(topic_id)
+
+    extracted["knowledge_journal_add"] = journal
+    extracted["dialogue_memory_add"] = dialogue
+    return result
+
+
+
 def _redact_text(text: str, records: List[Dict[str, Any]]) -> str:
     result = str(text or "")
     for record in records:
@@ -383,6 +738,13 @@ def _redact_text(text: str, records: List[Dict[str, Any]]) -> str:
 
 def redact_private_history(context: Dict[str, Any], *, root, cards: List[Dict[str, Any]]) -> Dict[str, Any]:
     result = deepcopy(context)
+    state = storage._read_json(root / "state.json", {})
+    pov_id = _pov_id(state)
+    stored_turns: Dict[int, List[Dict[str, Any]]] = {}
+    for turn in _history_turns(root):
+        number = int(turn.get("turn_number", 0) or 0)
+        if number > 0:
+            stored_turns.setdefault(number, []).append(turn)
     total = 0
     for key in ("recent_turns", "continuity_turns"):
         rows = result.get(key)
@@ -394,11 +756,17 @@ def redact_private_history(context: Dict[str, Any], *, root, cards: List[Dict[st
             if not isinstance(row, dict):
                 cleaned.append(row)
                 continue
+
             records = extract_private_communications(
                 str(row.get("user_input") or ""),
                 cards,
                 turn_number=int(row.get("turn_number", 0) or 0),
             )
+            candidates = stored_turns.get(int(row.get("turn_number", 0) or 0), [])
+            source_turn = _source_turn_for_compact_row(row, candidates)
+            remote_records = _historical_remote_records(source_turn, cards, pov_id=pov_id)
+            records.extend(remote_records)
+
             if records:
                 total += len(records)
                 row["user_input"] = _redact_text(str(row.get("user_input") or ""), records)
@@ -406,6 +774,22 @@ def redact_private_history(context: Dict[str, Any], *, root, cards: List[Dict[st
                     row["scene_output"] = _redact_text(str(row.get("scene_output") or ""), records)
                 if "scene_tail" in row:
                     row["scene_tail"] = _redact_text(str(row.get("scene_tail") or ""), records)
+
+            extracted = row.get("extracted")
+            if isinstance(extracted, dict):
+                dialogue = extracted.get("dialogue_memory_add")
+                if isinstance(dialogue, list):
+                    cleaned_dialogue = []
+                    for item in dialogue:
+                        value = deepcopy(item) if isinstance(item, dict) else item
+                        if isinstance(value, dict) and _norm(value.get("mode")) == "remote":
+                            if "summary" in value:
+                                value["summary"] = "[содержание приватной коммуникации скрыто; используй personal memory участников]"
+                            value.pop("segments", None)
+                        cleaned_dialogue.append(value)
+                    extracted["dialogue_memory_add"] = cleaned_dialogue
+                row["extracted"] = extracted
+
             cleaned.append(row)
         result[key] = cleaned
 

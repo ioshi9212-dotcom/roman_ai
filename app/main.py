@@ -732,6 +732,8 @@ def turns_commit(session_id: str, body: TurnCommit):
             "TURN_PACKET_ID_REQUIRED": "commitTurn requires the exact packet_id returned by prepareTurn",
             "RECENT_DUPLICATE_USER_INPUT": "Legacy duplicate guard rejected identical recent text. Upgrade prepareTurn to request_id semantics; no new turn was created.",
             "CAST_STORY_FUNCTION_REQUIRED": "A recurring/important story-created NPC needs character_upserts.story_function: one short director-level sentence explaining why this NPC matters to the story, not the NPC's personal goal.",
+            "SCENE_BUILDER_REVIEW_REQUIRED": "Review the complete final scene against scene_builder before retrying the same commitTurn.",
+            "PERSISTENCE_REVIEW_REQUIRED": "Review durable persistence for the completed scene before retrying the same commitTurn.",
         }
         if code in errors:
             raise HTTPException(status_code=409, detail=errors[code])
