@@ -1195,34 +1195,57 @@ def _seed_initial_knowledge(session_id: str, novel: Dict[str, Any]) -> None:
     root = storage.SESSIONS_DIR / session_id
     if not root.exists():
         return
+
     memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
     changed = False
     counters: Dict[str, int] = {}
+    is_v5 = int(novel.get("version", 0) or 0) >= 5
+
     for character_id, raw in _initial_knowledge_rows(section):
         if isinstance(raw, str):
-            record: Dict[str, Any] = {"fact": raw}
+            record: Dict[str, Any] = {"text": raw}
         elif isinstance(raw, dict):
             record = deepcopy(raw)
         else:
             continue
-        fact = str(record.get("fact") or record.get("text") or "").strip()
-        if not fact:
+
+        text = str(record.get("text") or record.get("fact") or "").strip()
+        if not text:
             continue
+
         counters[character_id] = counters.get(character_id, 0) + 1
-        record["character_id"] = character_id
-        record["fact"] = fact
-        record.setdefault("fact_id", f"initial_{_safe_id(character_id)}_{counters[character_id]}")
-        record.setdefault("learned_turn", 0)
-        record.setdefault("confidence", "certain")
-        record.setdefault("source_kind", "initial_knowledge")
         bucket = storage._memory_bucket(memory, character_id)
+
+        if is_v5:
+            entry = {
+                "entry_id": str(record.get("entry_id") or f"initial_{_safe_id(character_id)}_{counters[character_id]}"),
+                "text": text,
+                "turn": 0,
+            }
+            if record.get("date") not in (None, ""):
+                entry["date"] = record.get("date")
+            if record.get("period") not in (None, ""):
+                entry["period"] = record.get("period")
+            before = json.dumps(bucket.get("knowledge_journal", []), ensure_ascii=False, sort_keys=True)
+            storage._upsert_by_id(bucket["knowledge_journal"], entry, "entry_id")
+            after = json.dumps(bucket.get("knowledge_journal", []), ensure_ascii=False, sort_keys=True)
+            changed = changed or before != after
+            continue
+
+        legacy = deepcopy(record)
+        legacy["character_id"] = character_id
+        legacy["fact"] = text
+        legacy.setdefault("fact_id", f"initial_{_safe_id(character_id)}_{counters[character_id]}")
+        legacy.setdefault("learned_turn", 0)
+        legacy.setdefault("confidence", "certain")
+        legacy.setdefault("source_kind", "initial_knowledge")
         before = json.dumps(bucket.get("knowledge", []), ensure_ascii=False, sort_keys=True)
-        storage._upsert_by_id(bucket["knowledge"], record, "fact_id")
+        storage._upsert_by_id(bucket["knowledge"], legacy, "fact_id")
         after = json.dumps(bucket.get("knowledge", []), ensure_ascii=False, sort_keys=True)
         changed = changed or before != after
+
     if changed:
         storage._write_json(root / "memory.json", memory)
-
 
 def _create_session(novel: Dict[str, Any], *, session_id: str | None = None, meta_patch: Dict[str, Any] | None = None) -> Dict[str, Any]:
     result = dict(_ORIGINAL_CREATE_SESSION(novel, session_id=session_id, meta_patch=meta_patch))

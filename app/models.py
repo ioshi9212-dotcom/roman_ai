@@ -1,7 +1,6 @@
 from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from .scene_format import validate_scene_output
 
 
 class NovelTemplate(BaseModel):
@@ -65,12 +64,8 @@ class SessionCreate(BaseModel):
 class TurnPrepare(BaseModel):
     user_input: str
     request_id: Optional[str] = Field(default=None, min_length=1, max_length=120)
+    opening_scene: bool = False
     scene_archive_capable: bool = False
-    knowledge_review_capable: bool = False
-    complete_knowledge_read_capable: bool = False
-    relationship_review_capable: bool = False
-    runtime_contract_capable: bool = False
-    strict_knowledge_capable: bool = False
     replace_pending: bool = False
 
 
@@ -150,22 +145,13 @@ class StoryThreadUpdate(BaseModel):
 class TurnExtracted(BaseModel):
     model_config = ConfigDict(extra="allow")
 
-    persistence_reviewed: bool
-    runtime_rules_reviewed: bool = False
-    scene_builder_reviewed: bool = False
-    runtime_contract_version: Optional[int] = None
-    knowledge_reviewed: bool = False
-    relationship_reviewed: bool = False
-    knowledge_trace_complete: bool = False
-    turn_knowledge: List[Dict[str, Any]] = Field(default_factory=list)
-    knowledge_usage: List[Dict[str, Any]] = Field(default_factory=list)
     knowledge_journal_add: List[Dict[str, Any]] = Field(default_factory=list)
-    chronology: List[Dict[str, Any]]
-    knowledge_add: List[Dict[str, Any]]
-    experiences_add: List[Dict[str, Any]]
-    dialogue_memory_add: List[Dict[str, Any]]
-    npc_intent_updates: List[Dict[str, Any]]
-    story_thread_updates: List[StoryThreadUpdate]
+    chronology: List[Dict[str, Any]] = Field(default_factory=list)
+    knowledge_add: List[Dict[str, Any]] = Field(default_factory=list)
+    experiences_add: List[Dict[str, Any]] = Field(default_factory=list)
+    dialogue_memory_add: List[Dict[str, Any]] = Field(default_factory=list)
+    npc_intent_updates: List[Dict[str, Any]] = Field(default_factory=list)
+    story_thread_updates: List[StoryThreadUpdate] = Field(default_factory=list)
     scene_progressed: Optional[bool] = None
     presence_updates: Optional[List[Dict[str, Any]]] = Field(default_factory=list)
     relationship_updates: Optional[List[RelationshipUpdate]] = Field(default_factory=list)
@@ -176,8 +162,6 @@ class TurnExtracted(BaseModel):
         "presence_updates",
         "relationship_updates",
         "character_upserts",
-        "turn_knowledge",
-        "knowledge_usage",
         "knowledge_journal_add",
         mode="before",
     )
@@ -189,13 +173,8 @@ class TurnExtracted(BaseModel):
 class TurnCommit(BaseModel):
     packet_id: str = Field(min_length=1)
     user_input: str
-    scene_output: str
+    scene_output: str = Field(min_length=1)
     extracted: TurnExtracted
-
-    @field_validator("scene_output")
-    @classmethod
-    def scene_output_must_match_builder(cls, value: str) -> str:
-        return validate_scene_output(value)
 
 
 class AuditCommit(BaseModel):

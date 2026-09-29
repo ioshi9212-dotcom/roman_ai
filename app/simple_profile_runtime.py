@@ -51,18 +51,17 @@ def _speaker_context(ids: List[str], pov_id: str) -> Dict[str, Any]:
             "character_id": cid,
             "profile_path": f"character_profiles[{cid}]",
             "knowledge_source": {
-                "kind": "mandatory_complete_knowledge_read",
+                "kind": "packet_character_memory",
                 "character_id": cid,
-                "prepare_action": "prepareCharacterKnowledgeRead",
-                "chunk_action": "getCharacterKnowledgeChunk",
-                "completion_gate": "getSceneKnowledgeReadStatus.all_complete=true",
+                "complete": True,
             },
             "current_perception": "only what this character can see/hear/receive in the current scene",
             "relationship_path": f"relationship_lens.relations_in_current_scene[owner_character_id={cid}]",
             "rule": (
-                "Реплики и решения этого персонажа строятся отдельно: свой profile, свой knowledge_journal, "
-                "доступное текущее восприятие и отношение к POV. Приватный POV-контекст не источник; "
-                "явная коммуникация внутри ( ) доступна только указанному получателю."
+                "Реплики, мысли и решения строятся отдельно: self-known части своего profile, свой knowledge_journal, "
+                "доступное текущее восприятие и отношение к POV. Ветки profile с unknown_to_self/hidden_from_self/"
+                "not_known_to_self/known_to_self=false/author_only недоступны самому персонажу. "
+                "Приватный POV-контекст не источник; явная коммуникация внутри ( ) доступна только указанному получателю."
             ),
             "is_pov": cid == pov_id,
         }
@@ -639,24 +638,51 @@ def _participation_bundle(session_id: str, character_id: str) -> Dict[str, Any]:
     card = next((row for row in cards if storage._card_id(row) == character_id), None)
     if card is None:
         raise KeyError(character_id)
+
     state = storage._read_json(root / "state.json", {})
     runtime = state.get("characters", {}) if isinstance(state.get("characters"), dict) else {}
     current_state = runtime.get(character_id, {}) if isinstance(runtime.get(character_id), dict) else {}
     relationship = storage._relationship_hint(state, character_id)
+
+    memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
+    bucket = storage._memory_bucket(memory, character_id)
+    journal = deepcopy(
+        bucket.get("knowledge_journal", [])
+        if isinstance(bucket.get("knowledge_journal"), list)
+        else []
+    )
+    legacy_knowledge = deepcopy(
+        bucket.get("knowledge", [])
+        if isinstance(bucket.get("knowledge"), list)
+        else []
+    )
+
     return {
         "character_id": character_id,
         "profile": render_character_profile(card),
         "current_state": deepcopy(current_state),
         "relationship_to_pov": deepcopy(relationship),
-        "knowledge_source": {
-            "kind": "mandatory_complete_knowledge_read",
-            "character_id": character_id,
-            "prepare_action": "prepareCharacterKnowledgeRead",
-            "chunk_action": "getCharacterKnowledgeChunk",
+        "knowledge_journal": journal,
+        "legacy_knowledge": legacy_knowledge,
+        "knowledge_complete": True,
+        "knowledge_scope": {
+            "own_card_is_self_known_except_explicit_hidden_branches": True,
+            "forbidden_self_branches": [
+                "unknown_to_self",
+                "hidden_from_self",
+                "not_known_to_self",
+                "known_to_self=false",
+                "author_only",
+            ],
+            "rule": (
+                "Персонаж знает self-known части собственной биографии/profile и собственный knowledge journal. "
+                "Явно скрытые от него ветки своего profile, чужие профили, чужая память, chronology, hidden lore "
+                "и приватные мысли POV знанием не становятся."
+            ),
         },
         "instruction": (
-            "Этот bundle принадлежит только этому персонажу и не дублирует factual knowledge. "
-            "Перед его участием отдельно дочитай полный knowledge-read этого character_id."
+            "Этот bundle полностью готов для участия offscreen-персонажа: own profile + own complete knowledge "
+            "+ relationship + current state. Отдельный knowledge-read не нужен."
         ),
     }
 

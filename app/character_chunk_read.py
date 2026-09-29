@@ -19,14 +19,27 @@ MAX_INTENT_SOURCE_FACTS = 12
 _ORIGINAL_INJECT = None
 
 
-def _bundle_knowledge_firewall(character_id: str) -> Dict[str, Any]:
+def _bundle_knowledge_scope(character_id: str) -> Dict[str, Any]:
     return {
-        "mandatory": True,
         "character_id": character_id,
-        "card_is_author_only": True,
-        "allowed_sources": ["personal_memory", "real perception/contact", "inference from known facts"],
-        "forbidden_sources": ["card/backstory", "chronology", "lore/foundation/future", "other private data"],
-        "instruction": "CARD — авторский канон. Фактическое знание персонажа — только memory/реальный источник.",
+        "own_card_is_self_known_except_explicit_hidden_branches": True,
+        "allowed_sources": [
+            "self-known parts of own card/self biography",
+            "personal_memory",
+            "real perception/contact",
+            "what another character actually told them",
+            "inference from already known facts",
+        ],
+        "forbidden_sources": [
+            "other character cards",
+            "other character memories",
+            "chronology as automatic personal knowledge",
+            "hidden lore",
+            "future guidance",
+            "POV private thoughts",
+            "own card branches marked unknown_to_self/hidden_from_self/not_known_to_self/known_to_self=false/author_only",
+        ],
+        "instruction": "Персонаж знает self-known части своей карточки и свою память. Явно скрытые от него ветки собственной карточки и чужой канон знанием не становятся.",
     }
 
 
@@ -147,7 +160,7 @@ def _working_memory(bundle: Dict[str, Any]) -> Dict[str, Any]:
 def _participation_bundle(session_id: str, character_id: str) -> Dict[str, Any]:
     full = get_character_bundle(session_id, character_id)
     return {
-        "knowledge_firewall": _bundle_knowledge_firewall(character_id),
+        "knowledge_scope": _bundle_knowledge_scope(character_id),
         "character_id": character_id,
         "card": deepcopy(full.get("card", {})),
         "current_state": deepcopy(full.get("current_state", {})),
@@ -157,7 +170,7 @@ def _participation_bundle(session_id: str, character_id: str) -> Dict[str, Any]:
         "active_intents": deepcopy(full.get("active_intents", [])),
         "working_bundle": True,
         "persistent_lifetime_memory_complete": True,
-        "instruction": "CARD — авторский контекст. personal_memory.knowledge передаётся полностью и является фактическим источником персонажа; experiences/dialogue могут быть bounded.",
+        "instruction": "Собственная card — self-known биография кроме явно hidden/unknown-to-self веток. personal_memory.knowledge/knowledge_journal — выученные факты; experiences/dialogue могут быть bounded.",
     }
 
 

@@ -198,6 +198,11 @@ def _working_memory_bucket(bucket: Any, current_turn: int) -> Dict[str, Any]:
     # a scene participant must therefore reach the model; a recency cap can make a
     # character "forget" an older fact even though it is still persisted.
     knowledge = complete_knowledge_records(source.get("knowledge", []))
+    knowledge_journal = deepcopy(
+        source.get("knowledge_journal", [])
+        if isinstance(source.get("knowledge_journal"), list)
+        else []
+    )
 
     # Experiences and dialogue recollection are supporting context rather than the
     # factual knowledge authority, so they can stay bounded for packet size.
@@ -205,6 +210,7 @@ def _working_memory_bucket(bucket: Any, current_turn: int) -> Dict[str, Any]:
     dialogue, old_dialogue = _working_records(source.get("dialogue_memory", []), current_turn)
     return {
         "knowledge": deepcopy(knowledge),
+        "knowledge_journal": knowledge_journal,
         "experiences": experiences,
         "dialogue_memory": dialogue,
         "historical_knowledge_catalog": [],
@@ -330,6 +336,7 @@ def inject_required_turn_context(context: Dict[str, Any], cards: List[Dict[str, 
         "remote_calls_and_messages_count_as_scene_participation": True,
         "lifetime_memory_stays_persistent": True,
         "active_character_knowledge_complete": True,
+        "active_character_knowledge_journal_complete": True,
         "scene_state_relationship_stores_omitted": True,
         "single_runtime_document_copy": True,
         "stable_scene_builder_paths": True,

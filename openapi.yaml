@@ -1,8 +1,8 @@
 openapi: 3.1.0
 info:
   title: Roman AI
-  version: 1.17.0
-  description: Persistent isolated novel sessions with bounded writer-first context, transactional memory, living NPC relationships, NPC intents, story threads, recovery, rollback, cast rotation and lossless chunked setup intake.
+  version: 2.0.0
+  description: Rules-driven interactive novel sessions with character-scoped knowledge, dynamic relationships, cast continuity, recovery, rollback, continuation compaction and lossless setup intake.
 servers:
   - url: https://ai-roman-yumikofv.mia0.amvera.tech
 components:
@@ -78,7 +78,7 @@ components:
           enum: [novel, characters, lore, rules, hidden_lore, world, starting_state, story_direction, foundation, knowledge, intake]
         section_json:
           type: string
-          description: JSON for the named section. v5 uses simple novel/character profiles and keeps setup knowledge empty; v4 and earlier legacy drafts retain their existing foundation/source-unit rules.
+          description: JSON for the named section. v5 uses simple profiles. Section knowledge may contain explicit facts each character already knows before the first scene.
         expected_revision:
           type: integer
           minimum: 0
@@ -140,35 +140,19 @@ components:
           type: string
           minLength: 1
           maxLength: 120
-          description: Optional for old clients; new clients send one stable id per gameplay turn and reuse it only for technical retries of that same turn.
+          description: One stable id per gameplay turn. Reuse only for technical retries of that same turn.
+        opening_scene:
+          type: boolean
+          default: false
+          description: True only for turn 1 after launch. Use user_input="" so the service command is not treated as POV speech.
         scene_archive_capable:
           type: boolean
           default: false
-          description: Set true only when this client has prepareSceneArchiveRead/getSceneArchiveChunk available. Enables bounded scene_history transport.
-        knowledge_review_capable:
-          type: boolean
-          default: false
-          description: Set true when the client performs the POV+NPC knowledge review before commit.
-        complete_knowledge_read_capable:
-          type: boolean
-          default: false
-          description: Set true when the client supports mandatory per-character full knowledge reads through prepareCharacterKnowledgeRead/getCharacterKnowledgeChunk.
-        relationship_review_capable:
-          type: boolean
-          default: false
-          description: Set true when the client explicitly reviews NPC->POV relationship changes before every commit.
-        runtime_contract_capable:
-          type: boolean
-          default: false
-          description: Set true for new turns when the client reads runtime_rules and scene_builder and echoes runtime_contract.version on commit.
-        strict_knowledge_capable:
-          type: boolean
-          default: false
-          description: Set true only for clients that send turn_knowledge, knowledge_usage and knowledge_trace_complete under the strict closed-world knowledge firewall.
+          description: Optional. Enables bounded old-scene transport on this Action surface.
         replace_pending:
           type: boolean
           default: false
-          description: Never set automatically. True explicitly abandons an existing uncommitted turn packet; its diagnostic metadata is preserved.
+          description: True explicitly abandons a different uncommitted turn. Never set automatically.
       additionalProperties: false
     SceneArchiveRead:
       type: object
@@ -214,19 +198,11 @@ components:
         character_id: {type: string}
         dimensions:
           type: array
-          minItems: 1
           items: {$ref: '#/components/schemas/RelationshipDimensionUpdate'}
+          description: Dynamic NPC-to-POV states. Labels are not restricted to a fixed vocabulary.
         reason:
           type: string
-          description: Concrete causal reason for every real relationship change; no reason means no change.
-        change_scale:
-          type: string
-          enum: [ordinary, timeskip, critical_event]
-          description: ordinary is normally bounded to +/-3; timeskip scales by elapsed_game_days; critical_event permits a justified large jump.
-        elapsed_game_days:
-          type: number
-          exclusiveMinimum: 0
-          description: Required when change_scale is timeskip.
+          description: Concrete story reason when a relationship state actually changed.
         opinion: {type: string}
         current_dynamic: {type: string}
         beliefs_about_target:
@@ -237,7 +213,7 @@ components:
           items: {}
         relationship_type: {type: string}
         relationship_context: {type: string}
-      additionalProperties: false
+      additionalProperties: true
     NPCIntentUpdate:
       type: object
       required: [character_id, intent_id]
@@ -306,79 +282,13 @@ components:
       properties:
         packet_id: {type: string, minLength: 1}
         user_input: {type: string}
-        scene_output: {type: string}
+        scene_output: {type: string, minLength: 1}
         extracted:
           type: object
-          required: [persistence_reviewed, chronology, knowledge_add, experiences_add, dialogue_memory_add, npc_intent_updates, story_thread_updates]
           properties:
-            persistence_reviewed: {type: boolean}
-            runtime_rules_reviewed:
-              type: boolean
-              default: false
-              description: True only after reading and checking the complete runtime_rules document for this exact turn.
-            scene_builder_reviewed:
-              type: boolean
-              default: false
-              description: True only after reading and checking the complete scene_builder document for this exact turn.
-            runtime_contract_version:
-              type: integer
-              minimum: 1
-              description: Echo runtime_contract.version from the current turn packet.
-            knowledge_reviewed:
-              type: boolean
-              default: false
-              description: True only after reviewing every real speech line against the speaker's dialogue frame and earlier current-turn knowledge.
-            relationship_reviewed:
-              type: boolean
-              default: false
-              description: True only after checking every participating NPC for causal NPC->POV relationship changes in this exact turn and persisting any real changes through relationship_updates.
-            knowledge_trace_complete:
-              type: boolean
-              default: false
-              description: True only after knowledge_usage covers every registered real speech unit in scene_output with exact speech text and reviewed factual claims. Hypothetical lower-block options are excluded.
-            turn_knowledge:
-              type: array
-              description: Current-turn facts. Normal learned facts require exact prior evidence. source_kind=canon_fill is the exception for an undefined personal detail and requires canon_gap=true, gap_kind=self_detail, subject_character_id=character_id and detail_key; backend persists it. Other-character cards/chronology/foundation/lore are forbidden.
-              items: {type: object, additionalProperties: true}
-            knowledge_usage:
-              type: array
-              description: Legacy strict-mode claim ledger. Leave empty in profile draft v5 sessions.
-              items:
-                type: object
-                required: [unit_id, character_id, speech_text, claims_reviewed, claims]
-                additionalProperties: true
-                properties:
-                  unit_id: {type: string}
-                  character_id: {type: string}
-                  speech_text:
-                    type: string
-                    description: Exact text of the registered speech unit.
-                  claims_reviewed: {type: boolean}
-                  claims:
-                    type: array
-                    description: Every factual assertion or factual presupposition in this speech. Empty only when the speech contains none.
-                    items:
-                      type: object
-                      required: [claim]
-                      additionalProperties: true
-                      properties:
-                        claim: {type: string}
-                        source_fact_ids:
-                          type: array
-                          items: {type: string}
-                        source_event_ids:
-                          type: array
-                          items: {type: string}
-                        source_self_paths:
-                          type: array
-                          description: Paths in the speaking character's own card that are self-known. Paths under unknown_to_self, hidden_from_self, not_known_to_self, known_to_self=false or author_only are invalid.
-                          items: {type: string}
             knowledge_journal_add:
               type: array
-              description: Plain learned-knowledge journal entries for profile draft v5. Each item uses character_id, optional date/period, and human-readable text. No fact/source ids.
-              items:
-                type: object
-                additionalProperties: true
+              items: {type: object, additionalProperties: true}
             chronology:
               type: array
               items: {type: object, additionalProperties: true}
@@ -393,145 +303,23 @@ components:
               items: {type: object, additionalProperties: true}
             npc_intent_updates:
               type: array
-              description: Durable NPC-owned follow-ups, suspicions, promises, investigations, plans or blocked goals; use empty array when none changed.
               items: {$ref: '#/components/schemas/NPCIntentUpdate'}
             story_thread_updates:
               type: array
-              description: Persistent lifecycle updates for live bounded plot events. Use empty array after review when no thread changed.
               items: {$ref: '#/components/schemas/StoryThreadUpdate'}
-            scene_progressed:
-              type: boolean
-              description: True only when this turn materially changed action, contact, position, emotion, risk, information or a character goal without needing a separate durable canon event. Do not use for simple rest, waiting or repetition.
+            scene_progressed: {type: boolean}
             presence_updates:
               type: array
-              description: Explicit scene transitions. Omission preserves the start roster; only leave removes a present character.
               items: {$ref: '#/components/schemas/PresenceUpdate'}
             relationship_updates:
               type: array
-              description: Persist only causal NPC->POV relationship changes. Every real change needs reason. Existing numeric metrics require delta from saved canon. ordinary is normally +/-3; timeskip requires elapsed_game_days and may accumulate; critical_event permits a justified large jump. Mere mention is not participation.
               items: {$ref: '#/components/schemas/RelationshipUpdate'}
             state_patch: {type: object, additionalProperties: true}
             character_upserts:
               type: array
-              description: >-
-                Persist recurring/important named NPCs. Story-created upserts require story_function,
-                one short director-level sentence explaining why the NPC matters to the story, not the NPC's personal goal.
               items: {type: object, additionalProperties: true}
           additionalProperties: true
-    SceneCompaction:
-      type: object
-      required: [start_turn, end_turn, summary]
-      properties:
-        scene_id:
-          type: string
-          description: Reuse only when the previously open scene continues across audit boundaries; omit for a new scene.
-        start_turn: {type: integer, minimum: 1}
-        end_turn: {type: integer, minimum: 1}
-        summary:
-          type: string
-          minLength: 60
-          maxLength: 1200
-          description: One dense factual sentence preserving initiation, development, important dialogue/revelations/choices, and ending or pause.
-        participants:
-          type: array
-          items: {type: string}
-        location: {type: string}
-        status:
-          type: string
-          enum: [open, closed]
       additionalProperties: false
-    MemoryCompaction:
-      type: object
-      required: [character_id, memory_type, source_ids, summary]
-      properties:
-        character_id: {type: string}
-        memory_type:
-          type: string
-          enum: [knowledge, experiences, dialogue_memory]
-        source_ids:
-          type: array
-          minItems: 1
-          items: {type: string}
-          description: Exact persisted record IDs being losslessly merged; may include one prior canonical record plus fresh records from this audit.
-        summary:
-          type: string
-          minLength: 1
-          maxLength: 900
-          description: Compact wording that preserves every distinct fact from all source records.
-      additionalProperties: false
-    ChronologyCompaction:
-      type: object
-      required: [date, summary]
-      properties:
-        date:
-          type: string
-          description: Story date in DD.MM.YYYY format.
-        summary:
-          type: string
-          minLength: 20
-          maxLength: 1800
-          description: Important events for this date only; omit routine actions and repetition.
-        participants:
-          type: array
-          items: {type: string}
-        importance:
-          type: string
-          enum: [normal, major, anchor, critical]
-        exact_time:
-          type: string
-          description: Optional. Use only when the exact clock time is itself causally important.
-      additionalProperties: false
-    AuditRepairs:
-      type: object
-      required: [scene_compactions]
-      properties:
-        scene_compactions:
-          type: array
-          minItems: 1
-          description: Required partition of the exact audit range by real scenes. Every audited turn must be covered exactly once with no gaps or overlap.
-          items: {$ref: '#/components/schemas/SceneCompaction'}
-        memory_compactions:
-          type: array
-          description: Optional lossless merging of repeated or fragmented character memory. Raw evidence remains persistent.
-          items: {$ref: '#/components/schemas/MemoryCompaction'}
-        chronology_add:
-          type: array
-          items: {type: object, additionalProperties: true}
-        chronology_compactions:
-          type: array
-          description: Required only when macro_audit_60.required=true. Replaces raw chronology events for the 60-turn macro range with concise dated paragraphs.
-          items: {$ref: '#/components/schemas/ChronologyCompaction'}
-        knowledge_journal_add:
-          type: array
-          items: {type: object, additionalProperties: true}
-        knowledge_add:
-          type: array
-          items: {type: object, additionalProperties: true}
-        experiences_add:
-          type: array
-          items: {type: object, additionalProperties: true}
-        dialogue_memory_add:
-          type: array
-          items: {type: object, additionalProperties: true}
-        npc_intent_updates:
-          type: array
-          items: {$ref: '#/components/schemas/NPCIntentUpdate'}
-        story_thread_updates:
-          type: array
-          items: {$ref: '#/components/schemas/StoryThreadUpdate'}
-        state_patch: {type: object, additionalProperties: true}
-      additionalProperties: true
-    AuditCommit:
-      type: object
-      required: [audit_id, start_turn, end_turn, repairs]
-      properties:
-        audit_id: {type: string, minLength: 1}
-        start_turn: {type: integer}
-        end_turn: {type: integer}
-        repairs: {$ref: '#/components/schemas/AuditRepairs'}
-        notes:
-          type: array
-          items: {type: string}
 paths:
   /sessions/{session_id}/rollback-last-turn:
     post:
@@ -718,34 +506,11 @@ paths:
         '200': {description: Technical current pointer repaired or already usable}
         '404': {description: Session not found}
         '409': {description: Not enough persistent evidence to repair safely}
-  /sessions/{session_id}/audit-snapshot:
-    get:
-      operationId: getAuditSnapshot
-      summary: Prepare the exact 15-turn audit evidence and optional 60-turn macro compaction
-      description: Response includes audit_id and may include chunk 0. Every 15 turns it audits state, relationships, cast activity and scene compaction. On each 60th turn the payload additionally requires concise date-based chronology_compactions.
-      parameters:
-        - {in: path, name: session_id, required: true, schema: {type: string}}
-      responses:
-        '200': {description: Fast audit manifest plus inline chunk 0 when available}
-        '409': {description: Audit is not currently required}
-  /sessions/{session_id}/audit-snapshot/{audit_id}/{chunk_index}:
-    get:
-      operationId: getAuditSnapshotChunk
-      summary: Read one remaining audit and scene-compaction chunk
-      description: If getAuditSnapshot included chunk 0, start at next_chunk_index and read only remaining indices. Do not batch Action responses.
-      parameters:
-        - {in: path, name: session_id, required: true, schema: {type: string}}
-        - {in: path, name: audit_id, required: true, schema: {type: string}}
-        - {in: path, name: chunk_index, required: true, schema: {type: integer, minimum: 0}}
-      responses:
-        '200': {description: One remaining audit chunk}
-        '403': {description: Invalid or stale audit_id}
-        '404': {description: Chunk index out of range}
   /sessions/{session_id}/turn-packet:
     post:
       operationId: prepareTurn
-      summary: Build or reuse bounded writer-first context from complete persistent canon
-      description: Roman GPT uses stable request_id plus scene_archive_capable=true, knowledge_review_capable=true, complete_knowledge_read_capable=true, relationship_review_capable=true and runtime_contract_capable=true. Read required knowledge fully before the scene.
+      summary: Build or reuse one bounded gameplay packet from persistent canon
+      description: Use one stable request_id per gameplay turn. Read all chunks. Active POV/NPC already include their own cards and complete factual knowledge. Write from runtime_rules and scene_builder.
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
       requestBody:
@@ -755,7 +520,7 @@ paths:
             schema: {$ref: '#/components/schemas/TurnPrepare'}
       responses:
         '200': {description: Writer-first manifest plus inline chunk 0 when a new packet was prepared}
-        '409': {description: Audit/current recovery required, request_id conflict, or another uncommitted turn is already in progress}
+        '409': {description: Current recovery, request_id conflict, or another uncommitted turn requires resolution}
   /sessions/{session_id}/turn-packet/{packet_id}/{chunk_index}:
     get:
       operationId: getTurnPacketChunk
@@ -769,47 +534,11 @@ paths:
         '200': {description: One remaining writer packet chunk}
         '403': {description: Invalid or stale packet_id}
         '404': {description: Chunk index out of range}
-  /sessions/{session_id}/knowledge-read-status:
-    get:
-      operationId: getSceneKnowledgeReadStatus
-      summary: Check mandatory full-knowledge reads for the current turn
-      description: Lists every physical or remote scene participant and whether all of that character's factual knowledge chunks were read for the exact current packet.
-      parameters:
-        - {in: path, name: session_id, required: true, schema: {type: string}}
-      responses:
-        '200': {description: Per-character knowledge read completion status}
-        '409': {description: Current turn packet is missing}
-  /sessions/{session_id}/characters/{character_id}/knowledge-read:
-    post:
-      operationId: prepareCharacterKnowledgeRead
-      summary: Prepare the complete factual knowledge of one scene participant
-      description: Bound to the exact current packet. Includes chunk 0. Legacy sessions return every preserved knowledge fact, including facts hidden by old compactions; v5 sessions return the complete knowledge_journal. No recency or quantity cap.
-      parameters:
-        - {in: path, name: session_id, required: true, schema: {type: string}}
-        - {in: path, name: character_id, required: true, schema: {type: string}}
-      responses:
-        '200': {description: Complete-knowledge read manifest plus inline chunk 0}
-        '404': {description: Session not found}
-        '409': {description: Current turn packet is missing}
-  /sessions/{session_id}/characters/{character_id}/knowledge-read/{read_id}/{chunk_index}:
-    get:
-      operationId: getCharacterKnowledgeChunk
-      summary: Read one remaining complete-knowledge chunk
-      description: Start at next_chunk_index because chunk 0 is already included. Read every chunk before writing the scene. A changed knowledge snapshot or different current packet invalidates the read_id.
-      parameters:
-        - {in: path, name: session_id, required: true, schema: {type: string}}
-        - {in: path, name: character_id, required: true, schema: {type: string}}
-        - {in: path, name: read_id, required: true, schema: {type: string}}
-        - {in: path, name: chunk_index, required: true, schema: {type: integer, minimum: 0}}
-      responses:
-        '200': {description: One remaining full-knowledge chunk}
-        '404': {description: Session or chunk not found}
-        '409': {description: Character knowledge changed or read belongs to another packet}
   /sessions/{session_id}/characters/{character_id}/read:
     post:
       operationId: prepareCharacterBundleRead
       summary: Prepare one bounded offscreen participation dossier
-      description: Returns the full card plus bounded personal memory, relationship and active intents. Chunk 0 is included when first_chunk_included=true; complete lifetime memory remains persistent.
+      description: Returns the character's own card, own factual memory/knowledge, relationship and active intents before real offscreen participation. Chunk 0 is included when first_chunk_included=true.
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
         - {in: path, name: character_id, required: true, schema: {type: string}}
@@ -833,8 +562,8 @@ paths:
   /sessions/{session_id}/turns:
     post:
       operationId: commitTurn
-      summary: Save one complete turn after required writer chunks were read
-      description: Echo packet_id from prepareTurn. Full knowledge reads and, when enabled, explicit relationship review must complete before commit. Persist causal relationship changes via relationship_updates.
+      summary: Save one completed gameplay turn
+      description: Echo packet_id and exact user_input. Persist only real chronology, knowledge, relationship, intent, character and physical-state changes; empty arrays are allowed.
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
       requestBody:
@@ -844,18 +573,109 @@ paths:
             schema: {$ref: '#/components/schemas/TurnCommit'}
       responses:
         '200': {description: Turn committed}
-        '409': {description: Audit, packet reading, persistence review, relationship, presence, knowledge, current-state or story-progress validation incomplete}
-  /sessions/{session_id}/audit:
+        '409': {description: Packet identity, pending-turn, current-state or persistence integrity conflict}
+  /sessions/{session_id}/continuation/compaction:
     post:
-      operationId: commitAudit
-      summary: Finish one prepared audit with mandatory lossless scene compaction
+      operationId: prepareContinuationCompaction
+      summary: Start or resume semantic compaction of a long session
+      parameters:
+        - {in: path, name: session_id, required: true, schema: {type: string}}
+      responses:
+        '200': {description: Migration manifest and next block}
+        '404': {description: Session not found}
+  /sessions/{session_id}/continuation/blocks/{block_index}/read:
+    post:
+      operationId: prepareContinuationBlockRead
+      summary: Prepare one 100-turn semantic-compaction block
+      parameters:
+        - {in: path, name: session_id, required: true, schema: {type: string}}
+        - {in: path, name: block_index, required: true, schema: {type: integer}}
+        - {in: query, name: migration_id, required: true, schema: {type: string}}
+      responses:
+        '200': {description: Chunked block read with chunk 0 included}
+  /sessions/{session_id}/continuation/read/{read_id}/{chunk_index}:
+    get:
+      operationId: getContinuationCompactionChunk
+      summary: Read a continuation-compaction chunk
+      parameters:
+        - {in: path, name: session_id, required: true, schema: {type: string}}
+        - {in: path, name: read_id, required: true, schema: {type: string}}
+        - {in: path, name: chunk_index, required: true, schema: {type: integer}}
+        - {in: query, name: migration_id, required: true, schema: {type: string}}
+      responses:
+        '200': {description: One continuation chunk}
+  /sessions/{session_id}/continuation/blocks/{block_index}/commit:
+    post:
+      operationId: commitContinuationBlock
+      summary: Commit the semantic summary of one continuation block
+      parameters:
+        - {in: path, name: session_id, required: true, schema: {type: string}}
+        - {in: path, name: block_index, required: true, schema: {type: integer}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ContinuationBlockCommit'}
+      responses:
+        '200': {description: Block summary saved}
+  /sessions/{session_id}/continuation/final/read:
+    post:
+      operationId: prepareContinuationFinalRead
+      summary: Prepare final cross-block reconciliation for a continuation
+      parameters:
+        - {in: path, name: session_id, required: true, schema: {type: string}}
+        - {in: query, name: migration_id, required: true, schema: {type: string}}
+      responses:
+        '200': {description: Chunked final reconciliation read}
+  /sessions/{session_id}/continuation/final/commit:
+    post:
+      operationId: commitContinuationFinal
+      summary: Commit globally deduplicated history, personal memories, corrected current state and threads
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
       requestBody:
         required: true
         content:
           application/json:
-            schema: {$ref: '#/components/schemas/AuditCommit'}
+            schema: {$ref: '#/components/schemas/ContinuationFinalCommit'}
       responses:
-        '200': {description: Audit committed}
-        '409': {description: Audit read incomplete, range mismatch, invalid scene coverage, vague/invalid scene summary, or invalid memory compaction}
+        '200': {description: Final continuation package saved}
+  /sessions/{session_id}/continuation:
+    post:
+      operationId: createContinuationSession
+      summary: Create a new compact session after semantic compaction is finalized
+      description: Requires completed block compaction and final reconciliation. Copies current relationship stores unchanged, preserves a 15-turn exact bridge, and never modifies the source session canon.
+      parameters:
+        - {in: path, name: session_id, required: true, schema: {type: string}}
+      responses:
+        '200': {description: New continuation session created}
+        '404': {description: Session not found}
+        '409': {description: Semantic compaction or finalization is incomplete}
+  /novel-drafts/{draft_id}/publish:
+    post:
+      operationId: saveDraftToLibrary
+      summary: Save one finalized draft as a reusable novel
+      parameters:
+        - {in: path, name: draft_id, required: true, schema: {type: string}}
+      responses:
+        '200': {description: Draft saved to reusable library}
+        '404': {description: Draft not found}
+        '409': {description: Draft is not finalized or launch state is missing}
+  /novels:
+    get:
+      operationId: listNovels
+      summary: List reusable saved novels
+      responses:
+        '200': {description: Saved novel list}
+  /sessions:
+    post:
+      operationId: createSession
+      summary: Create a new isolated session from one saved novel
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/SessionCreate'}
+      responses:
+        '200': {description: New session metadata}
+        '404': {description: Novel not found}

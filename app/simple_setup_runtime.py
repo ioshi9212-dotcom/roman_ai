@@ -199,8 +199,8 @@ def _normalise_simple_section(draft: Dict[str, Any], section_name: str, value: A
     if name == "hidden_lore":
         return normalize_hidden_lore(value)
     if name == "knowledge":
-        # Knowledge starts empty. Runtime knowledge is learned during play.
-        return {}
+        # Optional explicit pre-story knowledge. Runtime knowledge learned later is appended during play.
+        return deepcopy(value) if isinstance(value, dict) else {}
     if name == "lore":
         if isinstance(value, dict):
             return deepcopy(value)
@@ -292,7 +292,9 @@ def _content_template(draft: Dict[str, Any]) -> Dict[str, Any]:
         lore = {"text": str(lore)} if lore not in (None, "") else {}
 
     hidden_lore = normalize_hidden_lore(sections.pop("hidden_lore", {}))
-    sections.pop("knowledge", None)
+    starting_knowledge = sections.pop("knowledge", {})
+    if not isinstance(starting_knowledge, dict):
+        starting_knowledge = {}
 
     template: Dict[str, Any] = {
         "novel_id": draft.get("novel_id"),
@@ -302,7 +304,7 @@ def _content_template(draft: Dict[str, Any]) -> Dict[str, Any]:
         "characters": characters,
         "lore": lore,
         "hidden_lore": hidden_lore,
-        "knowledge": {},
+        "knowledge": deepcopy(starting_knowledge),
         "profile_schema": profile_manifest(),
     }
     template.update(sections)
@@ -332,7 +334,8 @@ def _validate_simple_content(template: Dict[str, Any]) -> tuple[Dict[str, Any], 
         normalized["characters"],
     )
     normalized["hidden_lore"] = normalize_hidden_lore(normalized.get("hidden_lore", {}))
-    normalized["knowledge"] = {}
+    if not isinstance(normalized.get("knowledge"), dict):
+        normalized["knowledge"] = {}
 
     if not normalized["characters"]:
         raise ValueError("DRAFT_CHARACTERS_REQUIRED")

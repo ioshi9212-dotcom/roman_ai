@@ -8,10 +8,10 @@ from . import storage
 
 
 RUNTIME_DIR = Path(__file__).resolve().parent.parent / "runtime"
-RUNTIME_VERSION = "2.1.0-author-sources-locked"
+RUNTIME_VERSION = "3.1.0-rules-scene-builder"
 AUTHOR_RUNTIME_FILES = ("rules.md", "scene_builder.md")
 ACTIVE_RUNTIME_FILES = {
-    "rules": "runtime_contract.md",
+    "rules": "rules.md",
     "scene_builder": "scene_builder.md",
 }
 
