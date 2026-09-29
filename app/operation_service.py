@@ -108,16 +108,17 @@ def prepare_turn_request(
                     raise RuntimeError("TURN_IN_PROGRESS")
                 if identity and not pending_id:
                     packet["request_id"] = identity
-                # Capability upgrades are safe on an existing identical pending turn.
-                # This lets an old session adopt mandatory chunked knowledge reads
-                # without abandoning or recreating its already prepared gameplay turn.
+                # Safe transport flags may be preserved/upgraded on an identical pending turn.
                 if scene_archive_capable:
                     packet["scene_archive_capable"] = True
+                if opening_scene:
+                    packet["opening_scene"] = True
                 storage._write_json(root / "turn_packet.json", packet)
                 result = dict(session_runtime.prepare_turn_packet(session_id, user_input))
                 if identity:
                     result["request_id"] = identity
                 result["scene_archive_capable"] = bool(packet.get("scene_archive_capable"))
+                result["opening_scene"] = bool(packet.get("opening_scene"))
                 result["pending_turn"] = pending_turn_status(session_id)
                 return result
 
