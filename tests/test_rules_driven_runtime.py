@@ -234,7 +234,17 @@ def test_v5_setup_preserves_and_seeds_starting_character_knowledge():
             },
         },
     }
+    normalized_knowledge = simple_setup_runtime._normalise_simple_section(
+        draft,
+        "knowledge",
+        draft["sections"]["knowledge"],
+    )
+    assert normalized_knowledge["pov"][0]["text"].endswith("27 лет.")
+    draft["sections"]["knowledge"] = normalized_knowledge
+
     template = simple_setup_runtime._content_template(draft)
+    assert template["knowledge"]["pov"][0]["text"].endswith("27 лет.")
+    template, _ = simple_setup_runtime._validate_simple_content(template)
     assert template["knowledge"]["pov"][0]["text"].endswith("27 лет.")
 
     with tempfile.TemporaryDirectory() as tmp:
