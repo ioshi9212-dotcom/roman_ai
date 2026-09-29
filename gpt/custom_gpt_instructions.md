@@ -10,7 +10,7 @@ Backend = канон. Сцены показывай игроку. Actions вып
 
 Порядок:
 1. RAW intake.
-2. Разложить данные по fixed profiles.
+2. Разложить данные по fixed profiles и записать секции через `saveNovelDraftSection`.
 3. После каждого RAW → `updateDraftIntakeMapping` с `fact_ids=[]`, `reviewed_against_raw=true`.
 4. `prepareDraftRead` → прочитать все chunks.
 5. Исправить реальные пропуски/конфликты.
