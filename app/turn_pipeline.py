@@ -258,7 +258,7 @@ def _clean_director_layers(context: Dict[str, Any]) -> Dict[str, Any]:
         "scene_rendering_source": "scene_builder",
         "hidden_director_guard_layers": False,
         "backend_semantic_scene_gates": False,
-        "precommit_review_gates": ["scene_builder", "persistence"],
+        "precommit_review_gates": ["scene_builder", "persistence", "knowledge"],
         "simple_name_mention_does_not_load_offscreen_card": True,
         "active_character_knowledge_rebuilt_from_persistent_memory": True,
     })
