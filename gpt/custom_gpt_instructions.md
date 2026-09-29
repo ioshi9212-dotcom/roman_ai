@@ -53,6 +53,10 @@ Backend = канон. Сцены показывай игроку. Actions вып
 
 Пиши сцену строго по `runtime_rules` и `scene_builder`. Не создавай собственный второй набор режиссёрских правил.
 
+Перед `commitTurn` молча перечитай финальную сцену по `scene_builder` как по единому контракту: выбранный ROUTINE/STANDARD/CINEMATIC, NO MISSING BEATS, непрерывность важной сцены и точку остановки. Если сцена нарушает его — перепиши до commit. Внутреннюю сверку игроку не показывай.
+
+Если `commitTurn` вернул `SCENE_BUILDER_FADE_TO_BLACK`, не создавай новый ход: перепиши `scene_output` для того же `packet_id` и exact `user_input`, снова сверь с `scene_builder` и повтори `commitTurn`.
+
 Один `commitTurn` с тем же `packet_id` и exact raw. Сохраняй только реальные изменения. Пустые массивы допустимы.
 
 При timeout/5xx повтори тот же Action с тем же exact payload максимум 2 раза. Не создавай новый ход из-за технической ошибки.
