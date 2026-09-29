@@ -4,7 +4,7 @@ import json
 import re
 from copy import deepcopy
 from datetime import datetime, timezone
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 from . import session_recovery, session_runtime, storage
 from .game_day import sync_game_day
@@ -199,7 +199,8 @@ def _apply_reconciliation_knowledge(memory: Dict[str, Any], rows: Any) -> Dict[s
 
     counters: Dict[str, int] = {}
     existing_by_character: Dict[str, set[str]] = {}
-    for cid, bucket in result.get("characters", {}).items() if isinstance(result.get("characters"), dict) else []:
+    characters = result.get("characters", {}) if isinstance(result.get("characters"), dict) else {}
+    for cid, bucket in characters.items():
         if not isinstance(bucket, dict):
             continue
         existing_by_character[str(cid)] = {
