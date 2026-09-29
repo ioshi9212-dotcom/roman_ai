@@ -44,7 +44,9 @@ _BASE_PARTICIPATION_BUNDLE = character_chunk_read._participation_bundle
 _BASE_CREATE_SESSION = storage.create_session
 _BASE_RECOVER_CURRENT = session_recovery.recover_session_current
 
-PIPELINE_VERSION = 5
+PIPELINE_VERSION = 6
+MEMORY_RECONCILIATION_INTERVAL = 15
+MEMORY_RECONCILIATION_PRIOR_KNOWLEDGE = 20
 
 def _packet_manifest(packet: Dict[str, Any], *, reused: bool) -> Dict[str, Any]:
     chunks = packet.get("chunks", []) if isinstance(packet.get("chunks"), list) else []
@@ -257,7 +259,7 @@ def _clean_director_layers(context: Dict[str, Any]) -> Dict[str, Any]:
         "scene_rendering_source": "scene_builder",
         "hidden_director_guard_layers": False,
         "backend_semantic_scene_gates": False,
-        "precommit_review_gates": ["scene_builder", "persistence"],
+        "precommit_review_gates": ["scene_builder", "persistence", "knowledge", "periodic_memory_reconciliation"],
         "simple_name_mention_does_not_load_offscreen_card": True,
         "active_character_knowledge_rebuilt_from_persistent_memory": True,
     })
@@ -285,6 +287,191 @@ def _move_runtime_documents_last(context: Dict[str, Any]) -> Dict[str, Any]:
         result["runtime_rules"] = rules
     if builder is not None:
         result["scene_builder"] = builder
+    return result
+
+
+def _reconciliation_range(root) -> tuple[int, int] | None:
+    meta = storage._read_json(root / "meta.json", {})
+    current_turn = int(meta.get("turn_number", 0) or 0)
+    if current_turn <= 0:
+        return None
+
+    raw_last = meta.get("last_memory_reconciliation_turn")
+    if raw_last in (None, ""):
+        # Existing sessions created before this contract get one bounded catch-up pass
+        # over their most recent 15 saved turns.
+        return max(1, current_turn - MEMORY_RECONCILIATION_INTERVAL + 1), current_turn
+
+    try:
+        last = max(0, int(raw_last or 0))
+    except (TypeError, ValueError):
+        last = 0
+    if current_turn - last < MEMORY_RECONCILIATION_INTERVAL:
+        return None
+    end_turn = min(current_turn, last + MEMORY_RECONCILIATION_INTERVAL)
+    return max(1, end_turn - MEMORY_RECONCILIATION_INTERVAL + 1), end_turn
+
+
+def _record_turn(item: Dict[str, Any]) -> int:
+    try:
+        return int(item.get("turn") or item.get("turn_number") or item.get("learned_turn") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _reconciliation_character_ids(
+    cards: List[Dict[str, Any]],
+    turns: List[Dict[str, Any]],
+    state: Dict[str, Any],
+) -> List[str]:
+    selected: List[str] = []
+    pov = state.get("pov") if isinstance(state.get("pov"), dict) else {}
+    if pov.get("character_id"):
+        selected.append(str(pov["character_id"]))
+
+    text = json.dumps(turns, ensure_ascii=False).casefold()
+    for card in cards:
+        cid = storage._card_id(card)
+        if not cid:
+            continue
+        names = [cid, *storage._card_names(card)]
+        if any(str(name).casefold() in text for name in names if len(str(name).strip()) >= 2):
+            selected.append(cid)
+
+    valid = {storage._card_id(card) for card in cards if storage._card_id(card)}
+    return [cid for cid in dict.fromkeys(selected) if cid in valid]
+
+
+def _build_memory_reconciliation_context(
+    root,
+    *,
+    cards: List[Dict[str, Any]],
+    state: Dict[str, Any],
+    start_turn: int,
+    end_turn: int,
+) -> Dict[str, Any]:
+    turns = storage.get_turn_range(root.name, start_turn, end_turn)
+    character_ids = _reconciliation_character_ids(cards, turns, state)
+    memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
+    buckets = memory.get("characters", {}) if isinstance(memory.get("characters"), dict) else {}
+    character_memory: Dict[str, Any] = {}
+
+    for cid in character_ids:
+        bucket = buckets.get(cid, {}) if isinstance(buckets.get(cid), dict) else {}
+        journal = [
+            deepcopy(row)
+            for row in bucket.get("knowledge_journal", [])
+            if isinstance(row, dict)
+        ] if isinstance(bucket.get("knowledge_journal"), list) else []
+        in_range = [row for row in journal if start_turn <= _record_turn(row) <= end_turn]
+        prior = [row for row in journal if _record_turn(row) < start_turn][-MEMORY_RECONCILIATION_PRIOR_KNOWLEDGE:]
+        character_memory[cid] = {
+            "knowledge_in_range": in_range,
+            "recent_prior_knowledge": prior,
+            "persistent_knowledge_count": len(journal),
+        }
+
+    chronology = storage._read_json(root / "chronology.json", [])
+    chronology_in_range = [
+        deepcopy(row)
+        for row in chronology
+        if isinstance(row, dict) and start_turn <= _record_turn(row) <= end_turn
+    ] if isinstance(chronology, list) else []
+
+    return {
+        "required": True,
+        "range": [start_turn, end_turn],
+        "character_ids": character_ids,
+        "exact_turns": turns,
+        "character_memory": character_memory,
+        "chronology_in_range": chronology_in_range,
+        "instruction": (
+            "Review this saved range for durable facts that each listed character personally learned and for important "
+            "objective events missing from chronology. Do not copy director-only facts into personal memory and do not "
+            "save routine dialogue line-by-line. Preserve the durable meaning needed for later recall. "
+            "Put only genuine omissions into reconciliation_knowledge_add / reconciliation_chronology_add, then mark "
+            "reconciliation_reviewed=true and include every character_id in reconciliation_reviewed_character_ids."
+        ),
+    }
+
+
+def _normalise_reconciliation_repairs(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    root = storage.SESSIONS_DIR / session_id
+    result = deepcopy(payload)
+    extracted = result.get("extracted") if isinstance(result.get("extracted"), dict) else {}
+    extracted = deepcopy(extracted)
+    packet = storage._read_json(root / "turn_packet.json", {})
+    raw_range = packet.get("memory_reconciliation_range")
+    if not (
+        isinstance(raw_range, list)
+        and len(raw_range) == 2
+        and all(isinstance(value, int) for value in raw_range)
+    ):
+        extracted["reconciliation_knowledge_add"] = []
+        extracted["reconciliation_chronology_add"] = []
+        result["extracted"] = extracted
+        return result
+
+    start_turn, end_turn = int(raw_range[0]), int(raw_range[1])
+    source = storage._read_json(root / "source.json", {})
+    cards = storage._load_cards(root, source)
+    valid_ids = {storage._card_id(card) for card in cards if storage._card_id(card)}
+
+    knowledge_rows: List[Dict[str, Any]] = []
+    for raw in extracted.get("reconciliation_knowledge_add", []) if isinstance(extracted.get("reconciliation_knowledge_add"), list) else []:
+        if not isinstance(raw, dict):
+            continue
+        cid = str(raw.get("character_id") or "").strip()
+        text = " ".join(str(raw.get("text") or raw.get("fact") or raw.get("summary") or "").split())
+        try:
+            source_turn = int(raw.get("source_turn") or raw.get("turn") or 0)
+        except (TypeError, ValueError):
+            source_turn = 0
+        if cid not in valid_ids or not text or not start_turn <= source_turn <= end_turn:
+            continue
+        knowledge_rows.append({
+            "character_id": cid,
+            "source_turn": source_turn,
+            "date": raw.get("date"),
+            "period": raw.get("period"),
+            "text": text[:2000],
+        })
+
+    chronology_rows: List[Dict[str, Any]] = []
+    for index, raw in enumerate(extracted.get("reconciliation_chronology_add", []) if isinstance(extracted.get("reconciliation_chronology_add"), list) else []):
+        if not isinstance(raw, dict):
+            continue
+        text = " ".join(str(raw.get("event") or raw.get("summary") or raw.get("fact") or "").split())
+        try:
+            source_turn = int(raw.get("source_turn") or raw.get("turn_number") or 0)
+        except (TypeError, ValueError):
+            source_turn = 0
+        if not text or not start_turn <= source_turn <= end_turn:
+            continue
+        importance = str(raw.get("importance") or "normal").casefold()
+        if importance not in {"normal", "major", "anchor", "critical"}:
+            importance = "normal"
+        participants = session_runtime._normalise_participants(
+            cards,
+            raw.get("participants_present") or raw.get("participants"),
+            [],
+        )
+        row = {
+            "event_id": str(raw.get("event_id") or f"recon_t{source_turn}_{index + 1}"),
+            "turn_number": source_turn,
+            "story_date": raw.get("story_date") or raw.get("date"),
+            "period": raw.get("period"),
+            "location": raw.get("location"),
+            "participants_present": participants,
+            "event": text[:session_runtime.MAX_CHRONOLOGY_EVENT_CHARS],
+            "importance": importance,
+            "reconciled": True,
+        }
+        chronology_rows.append({key: value for key, value in row.items() if value not in (None, "", [])})
+
+    extracted["reconciliation_knowledge_add"] = knowledge_rows
+    extracted["reconciliation_chronology_add"] = chronology_rows
+    result["extracted"] = extracted
     return result
 
 
@@ -389,6 +576,27 @@ def _prepare_context(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
         "state_patch": "physical scene state only when changed",
     })
     context["persistence_contract"] = persistence
+
+    packet["relevant_character_ids"] = scene_ids
+    reconciliation_range = _reconciliation_range(root)
+    if reconciliation_range is not None:
+        start_turn, end_turn = reconciliation_range
+        reconciliation = _build_memory_reconciliation_context(
+            root,
+            cards=cards,
+            state=state,
+            start_turn=start_turn,
+            end_turn=end_turn,
+        )
+        context["memory_reconciliation"] = reconciliation
+        packet["memory_reconciliation_required"] = True
+        packet["memory_reconciliation_range"] = [start_turn, end_turn]
+        packet["memory_reconciliation_character_ids"] = reconciliation["character_ids"]
+    else:
+        context.pop("memory_reconciliation", None)
+        packet["memory_reconciliation_required"] = False
+        packet.pop("memory_reconciliation_range", None)
+        packet.pop("memory_reconciliation_character_ids", None)
 
     context = _move_runtime_documents_last(context)
     packet = _write_packet_context(root, packet, context)
@@ -670,6 +878,10 @@ def _prepare_profile_persistence(session_id: str, payload: Dict[str, Any]) -> Di
     extracted.setdefault("experiences_add", [])
     extracted.setdefault("dialogue_memory_add", [])
     extracted.setdefault("knowledge_journal_add", [])
+    extracted.setdefault("knowledge_reviewed_character_ids", [])
+    extracted.setdefault("reconciliation_reviewed_character_ids", [])
+    extracted.setdefault("reconciliation_knowledge_add", [])
+    extracted.setdefault("reconciliation_chronology_add", [])
     extracted.setdefault("npc_intent_updates", [])
     extracted.setdefault("story_thread_updates", [])
     extracted.setdefault("relationship_updates", [])
@@ -736,6 +948,7 @@ def commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     prepared = _apply_relationship_changes(session_id, prepared)
     prepared = cast_registry_runtime._with_registry_patch(session_id, prepared)
     prepared = _normalise_chronology_for_save(session_id, prepared)
+    prepared = _normalise_reconciliation_repairs(session_id, prepared)
     prepared = memory_integrity_runtime._canonicalize_memory_payload(
         session_id,
         prepared,
