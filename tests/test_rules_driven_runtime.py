@@ -202,6 +202,27 @@ def test_new_public_packet_requires_scene_and_persistence_review_before_commit()
         assert result["turn_number"] == 1
 
 
+def test_incomplete_packet_error_precedes_writer_review_gate():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(base_novel())["session_id"]
+        manifest = prepare_turn_request(sid, "(посмотреть на NPC)", request_id="incomplete-before-review")
+        assert manifest["chunk_count"] > 1
+
+        payload = {
+            "packet_id": manifest["packet_id"],
+            "user_input": "(посмотреть на NPC)",
+            "scene_output": "Сцена.",
+            "extracted": {},
+        }
+        with pytest.raises(RuntimeError, match="TURN_PACKET_INCOMPLETE"):
+            commit_turn_request(sid, payload)
+
+        read_all(manifest, sid)
+        with pytest.raises(RuntimeError, match="SCENE_BUILDER_REVIEW_REQUIRED"):
+            commit_turn_request(sid, payload)
+
+
 def test_generated_remote_message_is_persisted_for_sender_and_pov():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
