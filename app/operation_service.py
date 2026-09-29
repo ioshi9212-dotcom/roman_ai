@@ -121,6 +121,8 @@ def prepare_turn_request(
                 result["scene_archive_capable"] = bool(packet.get("scene_archive_capable"))
                 result["opening_scene"] = bool(packet.get("opening_scene"))
                 result["writer_review_required"] = bool(packet.get("writer_review_required"))
+                result["knowledge_review_required"] = bool(packet.get("knowledge_review_required"))
+                result["memory_reconciliation_required"] = bool(packet.get("memory_reconciliation_required"))
                 result["pending_turn"] = pending_turn_status(session_id)
                 return result
 
@@ -145,6 +147,8 @@ def prepare_turn_request(
             packet["scene_archive_capable"] = bool(scene_archive_capable)
             packet["opening_scene"] = bool(opening_scene)
             packet["writer_review_required"] = True
+            packet["knowledge_review_required"] = True
+            packet["memory_reconciliation_contract_version"] = 1
             storage._write_json(root / "turn_packet.json", packet)
 
         if scene_archive_capable:
@@ -155,6 +159,8 @@ def prepare_turn_request(
         result["scene_archive_capable"] = bool(scene_archive_capable)
         result["opening_scene"] = bool(opening_scene)
         result["writer_review_required"] = bool(packet.get("writer_review_required"))
+        result["knowledge_review_required"] = bool(packet.get("knowledge_review_required"))
+        result["memory_reconciliation_required"] = bool(packet.get("memory_reconciliation_required"))
         result["pending_turn"] = pending_turn_status(session_id)
         return result
 
@@ -221,6 +227,40 @@ def commit_turn_request(session_id: str, payload: Dict[str, Any]) -> Dict[str, A
             raise RuntimeError("SCENE_BUILDER_REVIEW_REQUIRED")
         if extracted.get("persistence_reviewed") is not True:
             raise RuntimeError("PERSISTENCE_REVIEW_REQUIRED")
+
+    if bool(packet.get("knowledge_review_required")):
+        extracted = payload.get("extracted") if isinstance(payload.get("extracted"), dict) else {}
+        if extracted.get("knowledge_reviewed") is not True:
+            raise RuntimeError("KNOWLEDGE_REVIEW_REQUIRED")
+        required_ids = {
+            str(value)
+            for value in packet.get("relevant_character_ids", [])
+            if value
+        }
+        reviewed_ids = {
+            str(value)
+            for value in extracted.get("knowledge_reviewed_character_ids", [])
+            if value
+        } if isinstance(extracted.get("knowledge_reviewed_character_ids"), list) else set()
+        if not required_ids.issubset(reviewed_ids):
+            raise RuntimeError("KNOWLEDGE_REVIEW_INCOMPLETE")
+
+    if bool(packet.get("memory_reconciliation_required")) and bool(packet.get("knowledge_review_required")):
+        extracted = payload.get("extracted") if isinstance(payload.get("extracted"), dict) else {}
+        if extracted.get("reconciliation_reviewed") is not True:
+            raise RuntimeError("MEMORY_RECONCILIATION_REQUIRED")
+        required_reconciliation_ids = {
+            str(value)
+            for value in packet.get("memory_reconciliation_character_ids", [])
+            if value
+        }
+        reviewed_reconciliation_ids = {
+            str(value)
+            for value in extracted.get("reconciliation_reviewed_character_ids", [])
+            if value
+        } if isinstance(extracted.get("reconciliation_reviewed_character_ids"), list) else set()
+        if not required_reconciliation_ids.issubset(reviewed_reconciliation_ids):
+            raise RuntimeError("MEMORY_RECONCILIATION_INCOMPLETE")
     # Relationship review is a writer/persistence requirement, not a transaction-killing gate.
     # Older live GPT schemas and long-running pending turns may omit relationship_reviewed even
     # though the scene contains a valid relationship footer/update. Do not brick the whole scene:
