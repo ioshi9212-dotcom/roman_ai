@@ -154,25 +154,45 @@ def _cast_registry_rows(
     )
     current_day = cast_registry_runtime._current_game_day(state)
     rows: List[Dict[str, Any]] = []
+
+    def age(turn_value: Any) -> int | None:
+        try:
+            value = int(turn_value or 0)
+        except (TypeError, ValueError):
+            return None
+        return max(0, current_turn - value) if value else None
+
+    def day_age(day_value: Any) -> int | None:
+        if not current_day:
+            return None
+        try:
+            value = int(day_value or 0)
+        except (TypeError, ValueError):
+            return None
+        return max(0, current_day - value) if value else None
+
     for cid, raw in registry.items():
         if not isinstance(raw, dict):
             continue
-        last_turn = int(raw.get("last_appearance_turn", 0) or 0)
-        last_day = int(raw.get("last_appearance_game_day", 0) or 0)
         row = {
             "character_id": cid,
             "name": raw.get("name") or cid,
             "story_function": raw.get("story_function"),
             "status": raw.get("status") or "active",
-            "last_appearance_turn": last_turn or None,
-            "last_appearance_game_day": last_day or None,
-            "turns_since_appearance": max(0, current_turn - last_turn) if last_turn else current_turn,
-            "game_days_since_appearance": (
-                max(0, current_day - last_day)
-                if current_day and last_day
-                else None
-            ),
+            "last_physical_turn": raw.get("last_appearance_turn"),
+            "last_physical_game_day": raw.get("last_appearance_game_day"),
+            "turns_since_physical": age(raw.get("last_appearance_turn")),
+            "game_days_since_physical": day_age(raw.get("last_appearance_game_day")),
+            "last_contact_turn": raw.get("last_contact_turn"),
+            "last_contact_game_day": raw.get("last_contact_game_day"),
+            "last_contact_mode": raw.get("last_contact_mode"),
+            "turns_since_contact": age(raw.get("last_contact_turn")),
+            "game_days_since_contact": day_age(raw.get("last_contact_game_day")),
+            "last_meaningful_turn": raw.get("last_meaningful_turn"),
+            "last_meaningful_game_day": raw.get("last_meaningful_game_day"),
             "last_meaningful_event": raw.get("last_meaningful_event"),
+            "turns_since_meaningful": age(raw.get("last_meaningful_turn")),
+            "game_days_since_meaningful": day_age(raw.get("last_meaningful_game_day")),
         }
         rows.append({key: value for key, value in row.items() if value not in (None, "", [], {})})
     return rows
