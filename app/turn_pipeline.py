@@ -727,6 +727,7 @@ def commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     prepared = _prepare_profile_persistence(session_id, payload)
     private_knowledge_runtime.validate_private_knowledge(session_id, prepared)
     prepared = private_knowledge_runtime.add_direct_communication_memory(session_id, prepared)
+    prepared = private_knowledge_runtime.add_scene_remote_communication_memory(session_id, prepared)
     prepared = scene_presence_runtime._apply_presence_contract(
         prepared,
         root=storage.SESSIONS_DIR / session_id,
