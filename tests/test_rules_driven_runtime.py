@@ -397,6 +397,110 @@ def test_direct_user_remote_reply_is_not_duplicated_by_scene_echo():
         assert len(pov_rows) == 1
 
 
+def test_generated_remote_message_is_redacted_from_shared_recent_history_and_blocked_for_bystander():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        novel = base_novel()
+        novel["characters"] = [
+            {"character_id": "pov", "name": "Рината", "is_pov": True},
+            {"character_id": "enzhe", "name": "Энже"},
+            {"character_id": "dante", "name": "Дантэ"},
+        ]
+        novel["starting_state"]["pov"] = {"character_id": "pov"}
+        novel["starting_state"]["current"]["present_characters"] = ["pov", "dante"]
+        sid = storage.create_session(novel)["session_id"]
+
+        first = session_runtime.prepare_turn_packet(sid, "(посмотреть на телефон)")
+        read_all(first, sid)
+        session_runtime.commit_turn(
+            sid,
+            {
+                "packet_id": first["packet_id"],
+                "user_input": "(посмотреть на телефон)",
+                "scene_output": "**Энже (в сообщениях)** — Сайлас мне нравится.",
+                "extracted": {},
+            },
+        )
+
+        second, context = read_context(sid, "(посмотреть на Дантэ)")
+        recent_blob = json.dumps(context["recent_turns"], ensure_ascii=False)
+        assert "Сайлас мне нравится" not in recent_blob
+        assert "содержание приватной коммуникации скрыто" in recent_blob
+
+        memory = storage._normalise_memory(
+            storage._read_json(storage.SESSIONS_DIR / sid / "memory.json", {})
+        )
+        assert "Сайлас мне нравится" in " ".join(
+            row["text"] for row in memory["characters"]["enzhe"]["knowledge_journal"]
+        )
+        assert "Сайлас мне нравится" in " ".join(
+            row["text"] for row in memory["characters"]["pov"]["knowledge_journal"]
+        )
+        assert "Сайлас мне нравится" not in " ".join(
+            row["text"] for row in memory["characters"]["dante"]["knowledge_journal"]
+        )
+
+        read_all(second, sid)
+        with pytest.raises(Exception) as exc:
+            session_runtime.commit_turn(
+                sid,
+                {
+                    "packet_id": second["packet_id"],
+                    "user_input": "(посмотреть на Дантэ)",
+                    "scene_output": "**Дантэ** — Энже написала, что Сайлас ей нравится.",
+                    "extracted": {},
+                },
+            )
+        detail = getattr(exc.value, "detail", {})
+        assert isinstance(detail, dict)
+        assert detail.get("code") == "PRIVATE_COMMUNICATION_KNOWLEDGE_LEAK"
+        assert detail.get("character_id") == "dante"
+
+
+def test_generated_remote_message_is_redacted_after_it_moves_to_continuity_tail():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        novel = base_novel()
+        novel["characters"] = [
+            {"character_id": "pov", "name": "Рината", "is_pov": True},
+            {"character_id": "enzhe", "name": "Энже"},
+        ]
+        novel["starting_state"]["pov"] = {"character_id": "pov"}
+        novel["starting_state"]["current"]["present_characters"] = ["pov"]
+        sid = storage.create_session(novel)["session_id"]
+
+        first = session_runtime.prepare_turn_packet(sid, "(посмотреть на телефон)")
+        read_all(first, sid)
+        session_runtime.commit_turn(
+            sid,
+            {
+                "packet_id": first["packet_id"],
+                "user_input": "(посмотреть на телефон)",
+                "scene_output": "**Энже (в сообщениях)** — Секретная фраза для Ринаты.",
+                "extracted": {},
+            },
+        )
+
+        for number in (2, 3):
+            user_input = f"(обычный ход {number})"
+            manifest = session_runtime.prepare_turn_packet(sid, user_input)
+            read_all(manifest, sid)
+            session_runtime.commit_turn(
+                sid,
+                {
+                    "packet_id": manifest["packet_id"],
+                    "user_input": user_input,
+                    "scene_output": f"Обычная сцена {number}.",
+                    "extracted": {},
+                },
+            )
+
+        _, context = read_context(sid, "(ещё один ход)")
+        continuity = json.dumps(context["continuity_turns"], ensure_ascii=False)
+        assert "Секретная фраза для Ринаты" not in continuity
+        assert "содержание приватной коммуникации скрыто" in continuity
+
+
 def test_turn_commit_schema_exposes_review_flags_without_exact_scene_format():
     model = TurnCommit(
         packet_id="packet",
