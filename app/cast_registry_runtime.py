@@ -473,6 +473,41 @@ def _post_turn_remote(state: Dict[str, Any], extracted: Dict[str, Any]) -> set[s
     return set(storage._remote_character_ids(state))
 
 
+def _update_summary_for(character_id: str, extracted: Dict[str, Any]) -> str | None:
+    for row in extracted.get("relationship_updates", []) if isinstance(extracted.get("relationship_updates"), list) else []:
+        if not isinstance(row, dict) or str(row.get("character_id") or "") != character_id:
+            continue
+        text = row.get("reason") or row.get("current_dynamic") or row.get("opinion")
+        if text:
+            return " ".join(str(text).split())[:320]
+
+    for row in extracted.get("npc_intent_updates", []) if isinstance(extracted.get("npc_intent_updates"), list) else []:
+        if not isinstance(row, dict):
+            continue
+        owner = row.get("character_id") or row.get("owner_character_id") or row.get("npc_id")
+        if str(owner or "") != character_id:
+            continue
+        text = row.get("summary") or row.get("intent") or row.get("goal") or row.get("reason")
+        if text:
+            return " ".join(str(text).split())[:320]
+        return "Изменилось незакрытое намерение персонажа."
+
+    for row in extracted.get("story_thread_updates", []) if isinstance(extracted.get("story_thread_updates"), list) else []:
+        if not isinstance(row, dict):
+            continue
+        participants = row.get("participants") if isinstance(row.get("participants"), list) else []
+        if character_id not in [str(value) for value in participants]:
+            continue
+        if not row.get("progressed_now") and str(row.get("operation") or "").casefold() not in {"resolve", "abandon"}:
+            continue
+        text = row.get("progress_summary") or row.get("resolution") or row.get("summary") or row.get("title")
+        if text:
+            return " ".join(str(text).split())[:320]
+        return "Персонаж заметно повлиял на свою сюжетную линию."
+
+    return None
+
+
 def _event_summary_for(character_id: str, card: Dict[str, Any], chronology: Any) -> str | None:
     names = [str(name).casefold() for name in storage._card_names(card) if str(name).strip()]
     for event in reversed(chronology if isinstance(chronology, list) else []):
@@ -576,10 +611,15 @@ def _with_registry_patch(session_id: str, payload: Dict[str, Any]) -> Dict[str, 
                 if game_day:
                     row["last_contact_game_day"] = game_day
 
-            summary = _event_summary_for(cid, card_map.get(cid, {}), chronology)
+            summary = (
+                _event_summary_for(cid, card_map.get(cid, {}), chronology)
+                or _update_summary_for(cid, extracted)
+            )
             if summary:
                 row["last_meaningful_event"] = summary
                 row["last_meaningful_turn"] = turn_number
+                if game_day:
+                    row["last_meaningful_game_day"] = game_day
             if cid in turn_participants:
                 row["last_contact_turn"] = turn_number
                 if cid not in post_present and cid not in post_remote:
