@@ -22,9 +22,9 @@ _ORIGINAL_INJECT = None
 def _bundle_knowledge_scope(character_id: str) -> Dict[str, Any]:
     return {
         "character_id": character_id,
-        "own_card_is_self_known": True,
+        "own_card_is_self_known_except_explicit_hidden_branches": True,
         "allowed_sources": [
-            "own card/self biography",
+            "self-known parts of own card/self biography",
             "personal_memory",
             "real perception/contact",
             "what another character actually told them",
@@ -37,8 +37,9 @@ def _bundle_knowledge_scope(character_id: str) -> Dict[str, Any]:
             "hidden lore",
             "future guidance",
             "POV private thoughts",
+            "own card branches marked unknown_to_self/hidden_from_self/not_known_to_self/known_to_self=false/author_only",
         ],
-        "instruction": "Персонаж знает свою карточку и свою память. Чужой канон и режиссёрские данные знанием персонажа не становятся.",
+        "instruction": "Персонаж знает self-known части своей карточки и свою память. Явно скрытые от него ветки собственной карточки и чужой канон знанием не становятся.",
     }
 
 
@@ -169,7 +170,7 @@ def _participation_bundle(session_id: str, character_id: str) -> Dict[str, Any]:
         "active_intents": deepcopy(full.get("active_intents", [])),
         "working_bundle": True,
         "persistent_lifetime_memory_complete": True,
-        "instruction": "Собственная card — self-known биография персонажа. personal_memory.knowledge/knowledge_journal — его выученные факты; experiences/dialogue могут быть bounded.",
+        "instruction": "Собственная card — self-known биография кроме явно hidden/unknown-to-self веток. personal_memory.knowledge/knowledge_journal — выученные факты; experiences/dialogue могут быть bounded.",
     }
 
 
