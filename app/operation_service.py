@@ -77,11 +77,17 @@ def prepare_turn_request(
     user_input: str,
     request_id: str | None = None,
     *,
+    opening_scene: bool = False,
     scene_archive_capable: bool = False,
     replace_pending: bool = False,
 ) -> Dict[str, Any]:
     root = _session_root(session_id)
     identity = str(request_id or "").strip()
+    if opening_scene:
+        meta = storage._read_json(root / "meta.json", {})
+        if int(meta.get("turn_number", 0) or 0) != 0:
+            raise RuntimeError("OPENING_SCENE_ONLY_BEFORE_TURN_ONE")
+        user_input = ""
 
     with session_transaction(root):
         # A completed request replay is independent of any newer pending turn and must
@@ -134,6 +140,7 @@ def prepare_turn_request(
             if identity:
                 packet["request_id"] = identity
             packet["scene_archive_capable"] = bool(scene_archive_capable)
+            packet["opening_scene"] = bool(opening_scene)
             storage._write_json(root / "turn_packet.json", packet)
 
         if scene_archive_capable:
@@ -142,6 +149,7 @@ def prepare_turn_request(
         if identity:
             result["request_id"] = identity
         result["scene_archive_capable"] = bool(scene_archive_capable)
+        result["opening_scene"] = bool(opening_scene)
         result["pending_turn"] = pending_turn_status(session_id)
         return result
 
