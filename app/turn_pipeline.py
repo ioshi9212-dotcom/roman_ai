@@ -365,7 +365,10 @@ def _prepare_context(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
         "present_character_ids": [str(value) for value in storage._present_character_ids(state) if value],
         "remote_character_ids": [str(value) for value in storage._remote_character_ids(state) if value],
         "rule": (
-            "Present remains present until a real leave. Remote contact participates without a physical position. "
+            "Present remains present until a real leave. The first instant of this turn continues the prior scene's "
+            "physical state: do not infer an unseen departure or time jump before executing user_input. If user_input "
+            "replies to a present NPC's last line, deliver that reply while the NPC is still present unless a departure "
+            "or transition was already shown. Remote contact participates without a physical position. "
             "A mentioned offscreen character is not a participant."
         ),
     }
