@@ -55,9 +55,13 @@ Backend = канон. Сцены показывай игроку. Actions вып
 
 Перед `commitTurn` молча проверь финальную сцену целиком по `scene_builder`. Если она нарушает его — перепиши до commit. После полной проверки передай `scene_builder_reviewed=true`.
 
-Перед тем же commit отдельно проверь persistence: что все реально возникшие долговременные знания, коммуникации, изменения отношений, состояния, присутствия и открытых линий сохранены в предназначенных для них полях. После полной проверки передай `persistence_reviewed=true`. Пустые массивы допустимы только после этой проверки.
+Перед тем же commit отдельно проверь persistence: все реальные долговременные знания, коммуникации, изменения отношений, состояния, присутствия и открытых линий должны быть сохранены. Затем `persistence_reviewed=true`.
 
-Один `commitTurn` с тем же `packet_id` и exact raw. Сохраняй только реальные изменения. Пустые массивы допустимы.
+Отдельно проверь каждый ID из `knowledge_persistence_review.character_ids`: что персонаж лично узнал и что нужно помнить позже. Суть сохраняй в `knowledge_journal_add`, обычную речь построчно не протоколируй. Затем `knowledge_reviewed=true` и все проверенные ID в `knowledge_reviewed_character_ids`.
+
+Если есть `memory_reconciliation.required=true`, прочитай этот блок целиком. Найди только реальные пропуски личной памяти и важной chronology. Исправления → `reconciliation_knowledge_add` / `reconciliation_chronology_add` с исходным `source_turn`. Затем `reconciliation_reviewed=true` и все его `character_ids` в `reconciliation_reviewed_character_ids`. Не копируй director-only данные в знания персонажей и не дублируй сохранённое.
+
+Один `commitTurn` с тем же `packet_id` и exact raw. Пустые массивы допустимы только после соответствующей проверки.
 
 При timeout/5xx повтори тот же Action с тем же exact payload максимум 2 раза. Не создавай новый ход из-за технической ошибки.
 
@@ -84,9 +88,11 @@ Bundle даёт его собственную карточку, собствен
 
 ## Persistence
 
+`chronology` = объективная история режиссёра, не знание NPC. `knowledge_journal` = личная долговременная память персонажа.
+
 После сцены:
 - chronology: только важное;
-- knowledge_journal_add: новые знания конкретному персонажу;
+- knowledge_journal_add: новые долговременные знания конкретному персонажу;
 - character_upserts: новый важный NPC или новая постоянная деталь;
 - relationship_updates: только реальные изменения;
 - npc_intent_updates/story_thread_updates: реальные изменения;
