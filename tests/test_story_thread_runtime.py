@@ -211,4 +211,4 @@ def test_actions_schema_and_gpt_instruction_include_story_thread_contract():
 def test_scene_builder_keeps_hard_format_and_original_scene_length_guidance():
     text = (ROOT / "runtime" / "scene_builder.md").read_text(encoding="utf-8")
     assert text.startswith("Формат scene_builder обязателен")
-    assert "2000–3000 символов" in text
+    assert "2000–3000 непробельных символов" in text
