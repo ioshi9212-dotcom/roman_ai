@@ -32,6 +32,11 @@ RAW_WRITER_KEYS = {
     "hidden_lore",
     "novel_lore",
     "story_direction",
+    "novel",
+    "novel_rules",
+    "world_canon",
+    "cast_index",
+    "cast_registry",
     "starting_state",
 }
 DIRECTOR_NESTED_PRIVATE_KEYS = {
@@ -294,9 +299,11 @@ def apply_sliced_writer_context(
 
     director_cues = {
         "novel_direction": _novel_direction(source),
+        "novel_rules": _director_safe(result.get("novel_rules", {})),
+        "world_canon": _director_safe(result.get("world_canon", {})),
         "active_threads": _director_safe(result.get("active_threads", {})),
         "future_guidance": _director_safe(result.get("future_guidance", {})),
-        "cast_registry": _director_safe(result.get("cast_registry", {})),
+        "cast_registry": _director_safe(result.get("cast_registry", result.get("cast_index", {}))),
         "rule": (
             "Director cues may choose scene movement, consequences and which existing line to advance. "
             "They are NOT a factual source for any NPC. Before an NPC states or acts on a fact about another person "
