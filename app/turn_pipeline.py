@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import re
 from copy import deepcopy
 from typing import Any, Dict, Iterable, List
 
@@ -46,43 +45,6 @@ _BASE_CREATE_SESSION = storage.create_session
 _BASE_RECOVER_CURRENT = session_recovery.recover_session_current
 
 PIPELINE_VERSION = 5
-
-# Narrow backend enforcement for explicit authorial fade-to-black language.
-# Routine time compression remains legal; these patterns target narration that
-# replaces a significant scene beat with a summary or an explanation of omission.
-_SCENE_BUILDER_FORBIDDEN_FADE_PATTERNS = (
-    re.compile(r"разговор.{0,160}переста(?:ет|л|вал).{0,160}главн(?:ым|ое|ой).{0,80}заняти"),
-    re.compile(r"подробност.{0,180}(?:уже\s+)?ничего.{0,120}не\s+добав.{0,160}механик"),
-    re.compile(r"время.{0,120}(?:перескакива|перескоч|перепрыг|проматыва|промот).{0,80}вперед"),
-    re.compile(r"(?:дальше|остальное|дальнейшее).{0,100}(?:произош|случил).{0,100}(?:само|быстро|за\s+кадром)"),
-    re.compile(r"(?:опустим|опускаю|опуская|не\s+будем).{0,80}подробност"),
-    re.compile(r"(?:остается|осталось|оставим).{0,100}за\s+кадром"),
-)
-
-
-def _validate_scene_builder_no_fade(scene_output: Any) -> None:
-    """Reject only explicit montage-over-scene narration forbidden by Scene Builder."""
-    normalized = " ".join(str(scene_output or "").casefold().replace("ё", "е").split())
-    if not normalized:
-        return
-    if not any(pattern.search(normalized) for pattern in _SCENE_BUILDER_FORBIDDEN_FADE_PATTERNS):
-        return
-    raise HTTPException(
-        status_code=409,
-        detail={
-            "code": "SCENE_BUILDER_FADE_TO_BLACK",
-            "message": (
-                "scene_output replaces a significant scene beat with an authorial fade-to-black. "
-                "Rewrite the same scene continuously from scene_builder; if needed reduce graphic detail, not continuity."
-            ),
-            "instruction": (
-                "Keep the same pending packet_id and exact user_input. Rewrite scene_output, re-check it against "
-                "scene_builder, then retry commitTurn once. Do not prepare a new turn."
-            ),
-        },
-    )
-
-
 
 def _packet_manifest(packet: Dict[str, Any], *, reused: bool) -> Dict[str, Any]:
     chunks = packet.get("chunks", []) if isinstance(packet.get("chunks"), list) else []
@@ -294,7 +256,8 @@ def _clean_director_layers(context: Dict[str, Any]) -> Dict[str, Any]:
         "director_rules_source": "runtime_rules",
         "scene_rendering_source": "scene_builder",
         "hidden_director_guard_layers": False,
-        "backend_semantic_scene_gates": ["scene_builder_no_fade"],
+        "backend_semantic_scene_gates": False,
+        "precommit_review_gates": ["scene_builder", "persistence"],
         "simple_name_mention_does_not_load_offscreen_card": True,
         "active_character_knowledge_rebuilt_from_persistent_memory": True,
     })
@@ -760,7 +723,6 @@ def _disable_mandatory_audit_after_commit(session_id: str, result: Dict[str, Any
 
 
 def commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
-    _validate_scene_builder_no_fade(payload.get("scene_output"))
     _validate_technical_state_patch(payload)
     prepared = _prepare_profile_persistence(session_id, payload)
     private_knowledge_runtime.validate_private_knowledge(session_id, prepared)
