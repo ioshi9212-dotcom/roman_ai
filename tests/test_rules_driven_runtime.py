@@ -87,7 +87,7 @@ def test_active_runtime_is_author_rules_plus_scene_builder():
     assert "Молчание не удаляет NPC" in docs["rules"]
     assert "Между двумя ходами нет скрытого монтажа" in docs["rules"]
     assert "Начало нового хода физически продолжает конец предыдущего" in docs["scene_builder"]
-    assert "Центральный beat важной интимной сцены нельзя перескакивать" in docs["scene_builder"]
+    assert "Центральный beat важной интимной сцены нельзя заменять" in docs["scene_builder"]
     assert "снижай графичность, а не непрерывность" in docs["scene_builder"]
     assert "Авторский комментарий не заменяет саму сцену" in docs["scene_builder"]
     assert "Плохой монтаж:" not in docs["scene_builder"]
