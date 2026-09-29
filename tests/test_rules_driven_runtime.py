@@ -1,5 +1,7 @@
 import json
 import tempfile
+
+import pytest
 from pathlib import Path
 
 from app import character_chunk_read, continuation_runtime, runtime_access, session_runtime, simple_setup_runtime, storage
@@ -465,3 +467,93 @@ def test_continuation_keeps_character_knowledge_separate_in_v5():
     assert [row["text"] for row in npc] == ["NPC знает только B."]
     assert "B" not in pov[0]["text"]
     assert "A" not in npc[0]["text"]
+
+
+def test_private_message_is_redacted_from_shared_recent_history_and_saved_to_participants():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        novel = base_novel()
+        novel["characters"] = [
+            {"character_id": "pov", "name": "Рината", "is_pov": True},
+            {"character_id": "npc", "name": "Дантэ"},
+            {"character_id": "away", "name": "Эдриан"},
+        ]
+        novel["starting_state"]["pov"] = {"character_id": "pov"}
+        novel["starting_state"]["current"]["present_characters"] = ["pov", "npc"]
+        sid = storage.create_session(novel)["session_id"]
+
+        first = session_runtime.prepare_turn_packet(
+            sid,
+            "(ответить Эдриану - Завтра вернусь домой. продолжать гладить Дантэ)",
+        )
+        read_all(first, sid)
+        session_runtime.commit_turn(
+            sid,
+            {
+                "packet_id": first["packet_id"],
+                "user_input": "(ответить Эдриану - Завтра вернусь домой. продолжать гладить Дантэ)",
+                "scene_output": "**Рината** — *(в сообщении Эдриану)* Завтра вернусь домой.\nДантэ продолжал спать.",
+                "extracted": {},
+            },
+        )
+
+        root = storage.SESSIONS_DIR / sid
+        memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
+        pov_text = " ".join(row["text"] for row in memory["characters"]["pov"]["knowledge_journal"])
+        away_text = " ".join(row["text"] for row in memory["characters"]["away"]["knowledge_journal"])
+        npc_text = " ".join(row["text"] for row in memory["characters"]["npc"]["knowledge_journal"])
+        assert "Завтра вернусь домой" in pov_text
+        assert "Завтра вернусь домой" in away_text
+        assert "Завтра вернусь домой" not in npc_text
+
+        _, context = read_context(sid, "(проснуться)")
+        recent_blob = json.dumps(context["recent_turns"], ensure_ascii=False)
+        assert "Завтра вернусь домой" not in recent_blob
+        assert "содержание приватной коммуникации скрыто" in recent_blob
+
+
+def test_sleeping_bystander_cannot_use_prior_private_message_content():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        novel = base_novel()
+        novel["characters"] = [
+            {"character_id": "pov", "name": "Рината", "is_pov": True},
+            {"character_id": "npc", "name": "Дантэ"},
+            {"character_id": "away", "name": "Эдриан"},
+        ]
+        novel["starting_state"]["pov"] = {"character_id": "pov"}
+        novel["starting_state"]["current"]["present_characters"] = ["pov", "npc"]
+        sid = storage.create_session(novel)["session_id"]
+
+        first = session_runtime.prepare_turn_packet(
+            sid,
+            "(ответить Эдриану - Завтра вернусь домой. продолжать гладить Дантэ)",
+        )
+        read_all(first, sid)
+        session_runtime.commit_turn(
+            sid,
+            {
+                "packet_id": first["packet_id"],
+                "user_input": "(ответить Эдриану - Завтра вернусь домой. продолжать гладить Дантэ)",
+                "scene_output": "**Рината** — *(в сообщении Эдриану)* Завтра вернусь домой.\nДантэ продолжал спать.",
+                "extracted": {},
+            },
+        )
+
+        second = session_runtime.prepare_turn_packet(sid, "(проснуться)")
+        read_all(second, sid)
+
+        with pytest.raises(Exception) as exc:
+            session_runtime.commit_turn(
+                sid,
+                {
+                    "packet_id": second["packet_id"],
+                    "user_input": "(проснуться)",
+                    "scene_output": "**Дантэ** — Ты сегодня сказала Эдриану, что завтра вернёшься домой.",
+                    "extracted": {},
+                },
+            )
+        detail = getattr(exc.value, "detail", {})
+        assert isinstance(detail, dict)
+        assert detail.get("code") == "PRIVATE_COMMUNICATION_KNOWLEDGE_LEAK"
+        assert detail.get("character_id") == "npc"
