@@ -392,7 +392,7 @@ def test_cast_registry_exposes_physical_contact_and_meaningful_recency_separatel
         )
 
         _, context = read_context(sid, "(остаться одной)")
-        row = next(x for x in context["cast_registry"]["characters"] if x["character_id"] == "npc")
+        row = next(x for x in context["director_cues"]["cast_registry"]["characters"] if x["character_id"] == "npc")
         assert row["last_physical_turn"] == 1
         assert row["last_meaningful_turn"] == 1
         assert row["turns_since_physical"] == 1
