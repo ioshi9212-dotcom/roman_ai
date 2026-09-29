@@ -633,6 +633,87 @@ def test_generated_remote_exchange_is_compacted_to_one_durable_row_per_participa
         assert "Живая." in memory["characters"]["enzhe"]["knowledge_journal"][0]["text"]
 
 
+def test_continuation_handoff_keeps_generated_remote_message_private():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        novel = base_novel()
+        novel["characters"] = [
+            {"character_id": "pov", "name": "Рината", "is_pov": True},
+            {"character_id": "enzhe", "name": "Энже"},
+            {"character_id": "dante", "name": "Дантэ"},
+        ]
+        novel["starting_state"]["pov"] = {"character_id": "pov"}
+        novel["starting_state"]["current"]["present_characters"] = ["pov", "dante"]
+        sid = storage.create_session(novel)["session_id"]
+        root = storage.SESSIONS_DIR / sid
+
+        meta = storage._read_json(root / "meta.json", {})
+        meta["turn_number"] = 0
+        meta["continuation_of_session_id"] = "source-session"
+        storage._write_json(root / "meta.json", meta)
+
+        bridge = [
+            {
+                "turn_number": 797,
+                "user_input": "(посмотреть на телефон)",
+                "scene_output": "**Энже (в сообщениях)** — Только Ринате: кодовое слово маяк.",
+                "extracted": {
+                    "dialogue_memory_add": [{
+                        "topic_id": "remote_t797_enzhe",
+                        "participants": ["pov", "enzhe"],
+                        "mode": "remote",
+                        "summary": "Энже: Только Ринате: кодовое слово маяк.",
+                        "segments": [{
+                            "speaker_id": "enzhe",
+                            "text": "Только Ринате: кодовое слово маяк.",
+                        }],
+                        "turn": 797,
+                    }]
+                },
+            },
+            {
+                "turn_number": 798,
+                "user_input": "(идти дальше)",
+                "scene_output": "Обычная сцена 798.",
+                "extracted": {},
+            },
+            {
+                "turn_number": 799,
+                "user_input": "(идти дальше)",
+                "scene_output": "Обычная сцена 799.",
+                "extracted": {},
+            },
+            {
+                "turn_number": 800,
+                "user_input": "(остановиться)",
+                "scene_output": "Обычная сцена 800.",
+                "extracted": {},
+            },
+        ]
+        storage._write_json(root / "handoff_tail.json", bridge)
+
+        manifest, context = read_context(sid, "(посмотреть на Дантэ)")
+        continuity_blob = json.dumps(context["continuity_turns"], ensure_ascii=False)
+        assert "кодовое слово маяк" not in continuity_blob
+        assert "содержание приватной коммуникации скрыто" in continuity_blob
+
+        read_all(manifest, sid)
+        with pytest.raises(Exception) as exc:
+            session_runtime.commit_turn(
+                sid,
+                {
+                    "packet_id": manifest["packet_id"],
+                    "user_input": "(посмотреть на Дантэ)",
+                    "scene_output": "**Дантэ** — Энже написала тебе кодовое слово маяк.",
+                    "extracted": {},
+                },
+            )
+        detail = getattr(exc.value, "detail", {})
+        assert isinstance(detail, dict)
+        assert detail.get("code") == "PRIVATE_COMMUNICATION_KNOWLEDGE_LEAK"
+        assert detail.get("character_id") == "dante"
+
+
 def test_turn_commit_schema_exposes_review_flags_without_exact_scene_format():
     model = TurnCommit(
         packet_id="packet",
