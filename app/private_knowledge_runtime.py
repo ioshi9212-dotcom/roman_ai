@@ -229,8 +229,70 @@ def _speaker_units(scene_output: str, cards: List[Dict[str, Any]]) -> List[Dict[
     return result
 
 
+def _historical_remote_records(
+    turn: Dict[str, Any],
+    cards: List[Dict[str, Any]],
+    *,
+    pov_id: str,
+) -> List[Dict[str, Any]]:
+    extracted = turn.get("extracted") if isinstance(turn.get("extracted"), dict) else {}
+    dialogue = extracted.get("dialogue_memory_add")
+    if not isinstance(dialogue, list) or not pov_id:
+        return []
+
+    _, _, aliases_by_id = _alias_maps(cards)
+    result: List[Dict[str, Any]] = []
+    turn_number = int(turn.get("turn_number", 0) or 0)
+    for row in dialogue:
+        if not isinstance(row, dict) or _norm(row.get("mode")) != "remote":
+            continue
+        raw_participants = row.get("participants") or row.get("participant_ids") or []
+        if isinstance(raw_participants, str):
+            raw_participants = [raw_participants]
+        participants = [str(value) for value in raw_participants if value]
+        if pov_id not in participants or len(set(participants)) < 2:
+            continue
+
+        participant_aliases: set[str] = set()
+        for cid in participants:
+            participant_aliases.update(aliases_by_id.get(cid, set()))
+
+        segments = row.get("segments")
+        if isinstance(segments, list) and segments:
+            for segment in segments:
+                if not isinstance(segment, dict):
+                    continue
+                payload = str(segment.get("text") or "").strip()
+                if not payload:
+                    continue
+                result.append({
+                    "turn_number": turn_number,
+                    "participant_ids": list(dict.fromkeys(participants)),
+                    "participant_aliases": sorted(participant_aliases),
+                    "payload": payload,
+                    "terms": sorted(_terms(payload)),
+                    "topic_id": row.get("topic_id"),
+                })
+            continue
+
+        # Backward-compatible fallback for an already stored remote memory row.
+        payload = str(row.get("summary") or "").strip()
+        if payload:
+            result.append({
+                "turn_number": turn_number,
+                "participant_ids": list(dict.fromkeys(participants)),
+                "participant_aliases": sorted(participant_aliases),
+                "payload": payload,
+                "terms": sorted(_terms(payload)),
+                "topic_id": row.get("topic_id"),
+            })
+    return result
+
+
 def _private_records(root, cards: List[Dict[str, Any]], current_user_input: str = "") -> List[Dict[str, Any]]:
     rows: List[Dict[str, Any]] = []
+    state = storage._read_json(root / "state.json", {})
+    pov_id = _pov_id(state)
     for turn in storage._read_turns(root):
         if not isinstance(turn, dict):
             continue
@@ -239,6 +301,7 @@ def _private_records(root, cards: List[Dict[str, Any]], current_user_input: str 
             cards,
             turn_number=int(turn.get("turn_number", 0) or 0),
         ))
+        rows.extend(_historical_remote_records(turn, cards, pov_id=pov_id))
     if current_user_input:
         meta = storage._read_json(root / "meta.json", {})
         rows.extend(extract_private_communications(
@@ -263,7 +326,16 @@ def _mentions_private_contact(text: str, record: Dict[str, Any]) -> bool:
     if not (used & _COMMUNICATION_STEMS):
         return False
     normalized = _norm(text)
-    return any(alias and alias in normalized for alias in record.get("recipient_aliases", []))
+    aliases = record.get("participant_aliases") or record.get("recipient_aliases") or []
+    return any(alias and alias in normalized for alias in aliases)
+
+
+def _record_participants(record: Dict[str, Any]) -> set[str]:
+    values = record.get("participant_ids")
+    if isinstance(values, list):
+        return {str(value) for value in values if value}
+    recipient = str(record.get("recipient_id") or "")
+    return {recipient} if recipient else set()
 
 
 def validate_private_knowledge(session_id: str, payload: Dict[str, Any]) -> None:
@@ -290,7 +362,7 @@ def validate_private_knowledge(session_id: str, payload: Dict[str, Any]) -> None
         corpus = _authorized_corpus(root, cid, cards)
         allowed_terms = _terms(corpus + "\n" + "\n".join(earlier_public_speech))
         for record in records:
-            if cid == str(record.get("recipient_id") or ""):
+            if cid in _record_participants(record):
                 continue
             protected = set(record.get("terms") or [])
             leaked = _leaked_terms(text, protected, allowed_terms)
@@ -324,7 +396,7 @@ def validate_private_knowledge(session_id: str, payload: Dict[str, Any]) -> None
             text = str(row.get("text") or row.get("fact") or row.get("summary") or "")
             allowed_terms = _terms(_authorized_corpus(root, cid, cards))
             for record in records:
-                if cid == str(record.get("recipient_id") or ""):
+                if cid in _record_participants(record):
                     continue
                 leaked = _leaked_terms(text, set(record.get("terms") or []), allowed_terms)
                 if leaked or _mentions_private_contact(text, record):
@@ -582,6 +654,7 @@ def add_scene_remote_communication_memory(session_id: str, payload: Dict[str, An
                 "participants": [pov_id, counterpart_id],
                 "mode": "remote",
                 "summary": content,
+                "segments": deepcopy(rows),
                 "turn": turn_number,
             })
             dialogue_ids.add(topic_id)
@@ -608,6 +681,8 @@ def _redact_text(text: str, records: List[Dict[str, Any]]) -> str:
 
 def redact_private_history(context: Dict[str, Any], *, root, cards: List[Dict[str, Any]]) -> Dict[str, Any]:
     result = deepcopy(context)
+    state = storage._read_json(root / "state.json", {})
+    pov_id = _pov_id(state)
     total = 0
     for key in ("recent_turns", "continuity_turns"):
         rows = result.get(key)
@@ -619,11 +694,15 @@ def redact_private_history(context: Dict[str, Any], *, root, cards: List[Dict[st
             if not isinstance(row, dict):
                 cleaned.append(row)
                 continue
+
             records = extract_private_communications(
                 str(row.get("user_input") or ""),
                 cards,
                 turn_number=int(row.get("turn_number", 0) or 0),
             )
+            remote_records = _historical_remote_records(row, cards, pov_id=pov_id)
+            records.extend(remote_records)
+
             if records:
                 total += len(records)
                 row["user_input"] = _redact_text(str(row.get("user_input") or ""), records)
@@ -631,6 +710,22 @@ def redact_private_history(context: Dict[str, Any], *, root, cards: List[Dict[st
                     row["scene_output"] = _redact_text(str(row.get("scene_output") or ""), records)
                 if "scene_tail" in row:
                     row["scene_tail"] = _redact_text(str(row.get("scene_tail") or ""), records)
+
+            extracted = row.get("extracted")
+            if isinstance(extracted, dict):
+                dialogue = extracted.get("dialogue_memory_add")
+                if isinstance(dialogue, list):
+                    cleaned_dialogue = []
+                    for item in dialogue:
+                        value = deepcopy(item) if isinstance(item, dict) else item
+                        if isinstance(value, dict) and _norm(value.get("mode")) == "remote":
+                            if "summary" in value:
+                                value["summary"] = "[содержание приватной коммуникации скрыто; используй personal memory участников]"
+                            value.pop("segments", None)
+                        cleaned_dialogue.append(value)
+                    extracted["dialogue_memory_add"] = cleaned_dialogue
+                row["extracted"] = extracted
+
             cleaned.append(row)
         result[key] = cleaned
 
