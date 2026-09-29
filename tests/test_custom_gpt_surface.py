@@ -157,3 +157,43 @@ def test_custom_gpt_instruction_matches_rules_driven_transport():
     assert "стартовые знания" in text
     assert "turn=0" in text
     assert "Простое упоминание отсутствующего персонажа" in text
+
+
+def test_static_schema_avoids_actions_parser_traps():
+    schema = yaml.safe_load((ROOT / "openapi.yaml").read_text(encoding="utf-8"))
+    assert schema["openapi"] == "3.0.3"
+
+    def walk(node, path="$"):
+        if isinstance(node, dict):
+            if node.get("type") == "object":
+                assert "properties" in node, f"object schema without properties at {path}"
+                assert isinstance(node["properties"], dict), f"properties must be an object at {path}"
+            if node.get("type") == "array":
+                assert "items" in node, f"array schema without items at {path}"
+                assert isinstance(node["items"], dict), f"items must be a schema object at {path}"
+                assert node["items"] != {}, f"empty array item schema at {path}"
+            assert "const" not in node, f"const is intentionally avoided for Actions compatibility at {path}"
+            for key, value in node.items():
+                walk(value, f"{path}.{key}")
+        elif isinstance(node, list):
+            for index, value in enumerate(node):
+                walk(value, f"{path}[{index}]")
+
+    walk(schema)
+
+    schemas = schema["components"]["schemas"]
+    refs = []
+
+    def collect_refs(node):
+        if isinstance(node, dict):
+            ref = node.get("$ref")
+            if isinstance(ref, str) and ref.startswith("#/components/schemas/"):
+                refs.append(ref.rsplit("/", 1)[-1])
+            for value in node.values():
+                collect_refs(value)
+        elif isinstance(node, list):
+            for value in node:
+                collect_refs(value)
+
+    collect_refs(schema)
+    assert set(refs) <= set(schemas)
