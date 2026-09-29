@@ -58,9 +58,10 @@ def _speaker_context(ids: List[str], pov_id: str) -> Dict[str, Any]:
             "current_perception": "only what this character can see/hear/receive in the current scene",
             "relationship_path": f"relationship_lens.relations_in_current_scene[owner_character_id={cid}]",
             "rule": (
-                "Реплики и решения этого персонажа строятся отдельно: свой profile, свой knowledge_journal, "
-                "доступное текущее восприятие и отношение к POV. Приватный POV-контекст не источник; "
-                "явная коммуникация внутри ( ) доступна только указанному получателю."
+                "Реплики, мысли и решения строятся отдельно: self-known части своего profile, свой knowledge_journal, "
+                "доступное текущее восприятие и отношение к POV. Ветки profile с unknown_to_self/hidden_from_self/"
+                "not_known_to_self/known_to_self=false/author_only недоступны самому персонажу. "
+                "Приватный POV-контекст не источник; явная коммуникация внутри ( ) доступна только указанному получателю."
             ),
             "is_pov": cid == pov_id,
         }
