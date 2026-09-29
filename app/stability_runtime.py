@@ -188,6 +188,87 @@ def _compact_turn_context(context: Dict[str, Any], source: Dict[str, Any]) -> Di
     return context
 
 
+def _norm_memory_text(value: Any) -> str:
+    return " ".join(str(value or "").casefold().replace("ё", "е").split())
+
+
+def _apply_reconciliation_knowledge(memory: Dict[str, Any], rows: Any) -> Dict[str, Any]:
+    result = storage._normalise_memory(deepcopy(memory))
+    if not isinstance(rows, list):
+        return result
+
+    counters: Dict[str, int] = {}
+    existing_by_character: Dict[str, set[str]] = {}
+    for cid, bucket in result.get("characters", {}).items() if isinstance(result.get("characters"), dict) else []:
+        if not isinstance(bucket, dict):
+            continue
+        existing_by_character[str(cid)] = {
+            _norm_memory_text(item.get("text"))
+            for item in bucket.get("knowledge_journal", [])
+            if isinstance(item, dict) and _norm_memory_text(item.get("text"))
+        }
+
+    for raw in rows:
+        if not isinstance(raw, dict):
+            continue
+        cid = str(raw.get("character_id") or "").strip()
+        text = " ".join(str(raw.get("text") or "").split())
+        try:
+            source_turn = int(raw.get("source_turn") or raw.get("turn") or 0)
+        except (TypeError, ValueError):
+            source_turn = 0
+        if not cid or not text or source_turn <= 0:
+            continue
+        norm = _norm_memory_text(text)
+        known = existing_by_character.setdefault(cid, set())
+        if norm in known:
+            continue
+        counters[cid] = counters.get(cid, 0) + 1
+        record = {
+            "entry_id": str(raw.get("entry_id") or f"recon_t{source_turn}_{counters[cid]}"),
+            "date": raw.get("date"),
+            "period": raw.get("period"),
+            "text": text,
+            "turn": source_turn,
+            "reconciled": True,
+        }
+        storage._upsert_by_id(storage._memory_bucket(result, cid)["knowledge_journal"], record, "entry_id")
+        known.add(norm)
+    return result
+
+
+def _apply_reconciliation_chronology(chronology: Any, rows: Any) -> List[Dict[str, Any]]:
+    result = [deepcopy(item) for item in chronology if isinstance(item, dict)] if isinstance(chronology, list) else []
+    if not isinstance(rows, list):
+        return result
+
+    existing = {
+        (
+            int(item.get("turn_number") or item.get("turn") or 0),
+            _norm_memory_text(item.get("event") or item.get("summary") or item.get("fact")),
+        )
+        for item in result
+        if isinstance(item, dict)
+    }
+    for raw in rows:
+        if not isinstance(raw, dict):
+            continue
+        try:
+            turn = int(raw.get("turn_number") or raw.get("source_turn") or 0)
+        except (TypeError, ValueError):
+            turn = 0
+        text = " ".join(str(raw.get("event") or raw.get("summary") or raw.get("fact") or "").split())
+        if turn <= 0 or not text:
+            continue
+        key = (turn, _norm_memory_text(text))
+        if key in existing:
+            continue
+        result.append(deepcopy(raw))
+        existing.add(key)
+    result.sort(key=lambda item: (int(item.get("turn_number") or item.get("turn") or 0), str(item.get("event_id") or "")))
+    return result
+
+
 def _atomic_commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     root = storage.SESSIONS_DIR / session_id
     if not root.exists():
@@ -249,11 +330,16 @@ def _atomic_commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, A
         memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
         for card in cards:
             storage._memory_bucket(memory, storage._card_id(card))
+        memory = _apply_reconciliation_knowledge(memory, extracted.get("reconciliation_knowledge_add"))
         memory = storage._apply_memory_events(memory, extracted, turn_number)
 
         chronology = storage._read_json(root / "chronology.json", [])
         if not isinstance(chronology, list):
             chronology = []
+        chronology = _apply_reconciliation_chronology(
+            chronology,
+            extracted.get("reconciliation_chronology_add"),
+        )
         if isinstance(extracted.get("chronology"), list):
             chronology = [*chronology, *deepcopy(extracted["chronology"])]
 
@@ -269,16 +355,42 @@ def _atomic_commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, A
             turn_number=turn_number,
         )
 
-        audit_due = turn_number % 15 == 0
+        raw_reconciliation_range = packet.get("memory_reconciliation_range")
+        reconciliation_completed_to = None
+        if (
+            bool(packet.get("memory_reconciliation_required"))
+            and extracted.get("reconciliation_reviewed") is True
+            and isinstance(raw_reconciliation_range, list)
+            and len(raw_reconciliation_range) == 2
+        ):
+            try:
+                reconciliation_completed_to = int(raw_reconciliation_range[1])
+            except (TypeError, ValueError):
+                reconciliation_completed_to = None
+        if reconciliation_completed_to is not None:
+            meta["last_memory_reconciliation_turn"] = reconciliation_completed_to
+
         meta["turn_number"] = turn_number
-        meta["audit_required"] = bool(audit_due)
+        meta["audit_required"] = False
         meta["handoff_required"] = False
+
+        try:
+            last_reconciliation = int(meta.get("last_memory_reconciliation_turn", 0) or 0)
+        except (TypeError, ValueError):
+            last_reconciliation = 0
+        memory_reconciliation_due = (
+            turn_number >= 15
+            if "last_memory_reconciliation_turn" not in meta
+            else turn_number - last_reconciliation >= 15
+        )
 
         result = {
             "ok": True,
             "turn_number": turn_number,
-            "audit_due": audit_due,
-            "audit_range": [max(1, turn_number - 14), turn_number] if audit_due else None,
+            "audit_due": False,
+            "audit_range": None,
+            "memory_reconciliation_due": memory_reconciliation_due,
+            "memory_reconciliation_completed_to": reconciliation_completed_to,
             "handoff_required": False,
             "transactional_commit": True,
             "relationship_snapshots_atomic": True,
