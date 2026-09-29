@@ -161,7 +161,7 @@ def test_custom_gpt_instruction_matches_rules_driven_transport():
 
 def test_static_schema_avoids_actions_parser_traps():
     schema = yaml.safe_load((ROOT / "openapi.yaml").read_text(encoding="utf-8"))
-    assert schema["openapi"] == "3.0.3"
+    assert schema["openapi"] == "3.1.0"
 
     def walk(node, path="$"):
         if isinstance(node, dict):
