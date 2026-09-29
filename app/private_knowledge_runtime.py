@@ -21,7 +21,7 @@ _ACTION_PREFIXES = {
     "убрать", "положить", "открыть", "закрыть", "посмотреть", "повернуть", "поднять", "опустить",
     "схватить", "обнять", "поцеловать", "погладить", "залезть", "выйти", "зайти", "пройти",
     "наклониться", "присесть", "лечь", "сместить", "перехватить", "рассмотреть", "закатить",
-    "улыбнуться", "усмехнуться", "отвернуться", "продолжить", "остаться",
+    "улыбнуться", "усмехнуться", "отвернуться", "продолжить", "продолжать", "продолжая", "остаться",
 }
 _STOP_WORDS = {
     "который", "которая", "которое", "которые", "чтобы", "потом", "сейчас", "теперь", "снова",
@@ -97,7 +97,7 @@ def _resolve_recipient(token: str, exact: Dict[str, str], stems: Dict[str, str])
 
 def _looks_like_action(sentence: str) -> bool:
     words = re.findall(r"(?iu)[a-zа-яё][a-zа-яё-]+", str(sentence or ""))[:4]
-    return bool(words and any(_stem(word) in _ACTION_STEMS for word in words[:2]))
+    if not words:\n        return False\n    stems = [_stem(word) for word in words[:2]]\n    return any(stem in _ACTION_STEMS or stem.startswith(("продолж", "остан", "вернут", "посмотр", "ответ")) for stem in stems)
 
 
 def _communication_payload(stage_text: str, match_end: int) -> tuple[str, int]:
