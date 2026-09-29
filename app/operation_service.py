@@ -212,6 +212,9 @@ def commit_turn_request(session_id: str, payload: Dict[str, Any]) -> Dict[str, A
     packet = storage._read_json(root / "turn_packet.json", {})
     if not isinstance(packet, dict) or str(packet.get("packet_id") or "") != packet_id:
         raise RuntimeError("TURN_PACKET_REQUIRED")
+    packet_status = _packet_status(packet)
+    if packet_status and packet_status.get("unread_chunk_indices"):
+        raise RuntimeError("TURN_PACKET_INCOMPLETE")
     if bool(packet.get("writer_review_required")):
         extracted = payload.get("extracted") if isinstance(payload.get("extracted"), dict) else {}
         if extracted.get("scene_builder_reviewed") is not True:
