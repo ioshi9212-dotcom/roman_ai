@@ -40,6 +40,7 @@ def base_novel():
                 "name": "Дантэ",
                 "age": 24,
                 "work": "работает с младшей группой",
+                "story_function": "possible romance conflict",
                 "appearance": {"hair": "светло-русые"},
                 "remembered_secret": "Он сам это знает.",
                 "unknown_origin": {
@@ -90,6 +91,7 @@ def test_self_known_card_keeps_normal_biography_and_removes_explicit_self_hidden
 
     assert clean["age"] == 24
     assert clean["work"] == "работает с младшей группой"
+    assert "story_function" not in clean
     assert clean["appearance"]["hair"] == "светло-русые"
     assert clean["remembered_secret"] == "Он сам это знает."
     assert clean["additional"]["normal_self_fact"] == "любит кофе"
@@ -105,6 +107,8 @@ def test_active_character_slice_knows_own_age_without_duplicate_memory_entry():
         _, context = read_context(sid, "Сколько тебе лет?")
         dante = context["character_slices"]["dante"]
 
+        assert dante["actor_profile"]["story_function"] == "possible romance conflict"
+        assert "story_function" not in dante["self_profile"]
         assert dante["self_profile"]["age"] == 24
         assert dante["self_profile"]["work"] == "работает с младшей группой"
         assert dante["personal_memory"]["knowledge_journal"] == []
