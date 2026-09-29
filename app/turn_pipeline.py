@@ -335,6 +335,29 @@ def _reconciliation_character_ids(
     if pov.get("character_id"):
         selected.append(str(pov["character_id"]))
 
+    selected.extend(str(value) for value in storage._present_character_ids(state) if value)
+    selected.extend(str(value) for value in storage._remote_character_ids(state) if value)
+
+    for turn in turns:
+        if not isinstance(turn, dict):
+            continue
+        extracted = turn.get("extracted") if isinstance(turn.get("extracted"), dict) else {}
+        for row in extracted.get("presence_updates", []) if isinstance(extracted.get("presence_updates"), list) else []:
+            if isinstance(row, dict) and row.get("character_id"):
+                selected.append(str(row["character_id"]))
+        for row in extracted.get("chronology", []) if isinstance(extracted.get("chronology"), list) else []:
+            if not isinstance(row, dict):
+                continue
+            participants = row.get("participants_present") or row.get("participants") or []
+            if isinstance(participants, str):
+                participants = [participants]
+            for value in participants if isinstance(participants, list) else []:
+                if isinstance(value, dict):
+                    value = value.get("character_id") or value.get("id") or value.get("name")
+                if value:
+                    resolved = session_runtime._resolve_character_id(cards, value)
+                    selected.append(str(resolved or value))
+
     text = json.dumps(turns, ensure_ascii=False).casefold()
     for card in cards:
         cid = storage._card_id(card)
@@ -434,7 +457,7 @@ def _normalise_reconciliation_repairs(session_id: str, payload: Dict[str, Any]) 
         except (TypeError, ValueError):
             source_turn = 0
         if cid not in valid_ids or not text or not start_turn <= source_turn <= end_turn:
-            continue
+            raise RuntimeError("MEMORY_RECONCILIATION_REPAIR_INVALID")
         knowledge_rows.append({
             "character_id": cid,
             "source_turn": source_turn,
@@ -453,7 +476,7 @@ def _normalise_reconciliation_repairs(session_id: str, payload: Dict[str, Any]) 
         except (TypeError, ValueError):
             source_turn = 0
         if not text or not start_turn <= source_turn <= end_turn:
-            continue
+            raise RuntimeError("MEMORY_RECONCILIATION_REPAIR_INVALID")
         importance = str(raw.get("importance") or "normal").casefold()
         if importance not in {"normal", "major", "anchor", "critical"}:
             importance = "normal"
