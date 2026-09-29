@@ -141,6 +141,10 @@ components:
           minLength: 1
           maxLength: 120
           description: One stable id per gameplay turn. Reuse only for technical retries of that same turn.
+        opening_scene:
+          type: boolean
+          default: false
+          description: True only for turn 1 after launch. Use user_input="" so the service command is not treated as POV speech.
         scene_archive_capable:
           type: boolean
           default: false
