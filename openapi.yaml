@@ -1,34 +1,234 @@
-openapi: 3.1.0
+openapi: 3.0.3
 info:
   title: Roman AI
-  version: 2.0.1
+  version: 2.0.2
   description: Rules-driven interactive novel sessions with character-scoped knowledge, dynamic relationships, cast continuity, recovery, rollback, continuation compaction and lossless setup intake.
 servers:
   - url: https://ai-roman-yumikofv.mia0.amvera.tech
+
 components:
   schemas:
+    ChronologyItem:
+      type: object
+      properties:
+        event:
+          type: string
+        summary:
+          type: string
+        story_date:
+          type: string
+        date:
+          type: string
+        period:
+          type: string
+        location:
+          type: string
+        participants_present:
+          type: array
+          items:
+            type: string
+        participants:
+          type: array
+          items:
+            type: string
+        importance:
+          type: string
+          enum: [normal, major, anchor, critical]
+        time_critical:
+          type: boolean
+        exact_time:
+          type: string
+        consequences:
+          type: array
+          items:
+            type: string
+      additionalProperties: false
+
+    KnowledgeJournalAdd:
+      type: object
+      required: [character_id, text]
+      properties:
+        character_id:
+          type: string
+        text:
+          type: string
+        date:
+          type: string
+        period:
+          type: string
+      additionalProperties: false
+
+    CurrentState:
+      type: object
+      properties:
+        game_day:
+          type: integer
+        day:
+          type: integer
+        date:
+          type: string
+        time:
+          type: string
+        location:
+          type: string
+        weather:
+          type: string
+        season:
+          type: string
+        scene:
+          type: string
+        zone:
+          type: string
+        position:
+          type: string
+        outfit:
+          type: string
+        hair:
+          type: string
+        mood:
+          type: string
+        notes:
+          type: string
+        present_characters:
+          type: array
+          items:
+            type: string
+        remote_characters:
+          type: array
+          items:
+            type: string
+        inventory:
+          type: array
+          items:
+            type: string
+      additionalProperties: false
+
+    StatePatch:
+      type: object
+      properties:
+        current:
+          $ref: '#/components/schemas/CurrentState'
+      additionalProperties: false
+
+    CharacterUpsert:
+      type: object
+      required: [character_id]
+      properties:
+        character_id:
+          type: string
+        name:
+          type: string
+        surname:
+          type: string
+        aliases:
+          type: array
+          items:
+            type: string
+        age:
+          type: string
+        status:
+          type: string
+        role:
+          type: string
+        is_pov:
+          type: boolean
+        story_function:
+          type: string
+        appearance:
+          type: string
+        character:
+          type: string
+        speech:
+          type: string
+        habits:
+          type: array
+          items:
+            type: string
+        work:
+          type: string
+        residence:
+          type: string
+        relationships:
+          type: array
+          items:
+            type: string
+        abilities:
+          type: array
+          items:
+            type: string
+        weaknesses:
+          type: array
+          items:
+            type: string
+        goals:
+          type: array
+          items:
+            type: string
+        background:
+          type: string
+        secrets_known_to_self:
+          type: array
+          items:
+            type: string
+        notes:
+          type: string
+        generated_details:
+          type: array
+          items:
+            type: string
+        additional:
+          type: string
+      additionalProperties: false
+
+    ContinuationCharacterMemory:
+      type: object
+      required: [character_id]
+      properties:
+        character_id:
+          type: string
+        knowledge:
+          type: array
+          items:
+            type: string
+        experiences:
+          type: array
+          items:
+            type: string
+        dialogue_memory:
+          type: array
+          items:
+            type: string
+      additionalProperties: false
+
+    ContinuationBlockSummary:
+      type: object
+      required: [chronology, characters]
+      properties:
+        chronology:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChronologyItem'
+        characters:
+          type: array
+          items:
+            $ref: '#/components/schemas/ContinuationCharacterMemory'
+        current:
+          $ref: '#/components/schemas/CurrentState'
+        threads:
+          type: array
+          items:
+            $ref: '#/components/schemas/StoryThreadUpdate'
+      additionalProperties: false
+
     ContinuationBlockCommit:
       type: object
       required: [migration_id, summary]
       properties:
-        migration_id: {type: string}
+        migration_id:
+          type: string
         summary:
-          type: object
-          additionalProperties: true
+          $ref: '#/components/schemas/ContinuationBlockSummary'
       additionalProperties: false
-    ContinuationCharacterMemory:
-      type: object
-      properties:
-        knowledge:
-          type: array
-          items: {type: string}
-        experiences:
-          type: array
-          items: {type: string}
-        dialogue_memory:
-          type: array
-          items: {type: string}
-      additionalProperties: true
 
     ContinuationFinalPackage:
       type: object
@@ -37,38 +237,43 @@ components:
         chronology:
           type: array
           items:
-            type: object
-            additionalProperties: true
+            $ref: '#/components/schemas/ChronologyItem'
         characters:
-          type: object
-          additionalProperties:
+          type: array
+          items:
             $ref: '#/components/schemas/ContinuationCharacterMemory'
         current:
-          type: object
-          additionalProperties: true
+          $ref: '#/components/schemas/CurrentState'
         threads:
-          type: object
-          additionalProperties: true
-      additionalProperties: true
+          type: array
+          items:
+            $ref: '#/components/schemas/StoryThreadUpdate'
+      additionalProperties: false
 
     ContinuationFinalCommit:
       type: object
       required: [migration_id, package]
       properties:
-        migration_id: {type: string}
+        migration_id:
+          type: string
         package:
           $ref: '#/components/schemas/ContinuationFinalPackage'
       additionalProperties: false
+
     NovelDraftCreate:
       type: object
       required: [novel_id, title]
       properties:
-        novel_id: {type: string}
-        title: {type: string}
+        novel_id:
+          type: string
+        title:
+          type: string
         version:
           type: integer
-          default: 1
-          description: Custom GPT must pass version 5 explicitly for new simple-profile drafts. Omit version only for legacy behavior; v4 and earlier drafts remain readable.
+          default: 5
+          description: Use version 5 for new simple-profile drafts.
+      additionalProperties: false
+
     NovelDraftSection:
       type: object
       required: [section_name, section_json]
@@ -78,248 +283,347 @@ components:
           enum: [novel, characters, lore, rules, hidden_lore, world, starting_state, story_direction, foundation, knowledge, intake]
         section_json:
           type: string
-          description: JSON for the named section. v5 uses simple profiles. Section knowledge may contain explicit facts each character already knows before the first scene.
+          description: JSON string for the named section. Section knowledge may contain explicit facts each character already knows before the first scene.
         expected_revision:
           type: integer
           minimum: 0
-          description: Required for v3+ writes; must equal the current draft revision.
+      additionalProperties: false
+
     NovelDraftIntakeChunk:
       type: object
       required: [block_id, stage, chunk_index, raw_text]
       properties:
-        block_id: {type: string, minLength: 1, maxLength: 120}
-        stage: {type: string, minLength: 1, maxLength: 120}
-        chunk_index: {type: integer, minimum: 0}
-        raw_text: {type: string, minLength: 1, maxLength: 6000}
-        is_last: {type: boolean, default: false}
+        block_id:
+          type: string
+          minLength: 1
+          maxLength: 120
+        stage:
+          type: string
+          minLength: 1
+          maxLength: 120
+        chunk_index:
+          type: integer
+          minimum: 0
+        raw_text:
+          type: string
+          minLength: 1
+          maxLength: 6000
+        is_last:
+          type: boolean
+          default: false
       additionalProperties: false
+
     NovelDraftIntakeMapping:
       type: object
       properties:
         fact_ids:
           type: array
-          items: {type: string}
-        reviewed_against_raw: {type: boolean, default: false}
-        contains_no_facts: {type: boolean, default: false}
+          items:
+            type: string
+        reviewed_against_raw:
+          type: boolean
+          default: false
+        contains_no_facts:
+          type: boolean
+          default: false
         replace:
           type: boolean
           default: false
-          description: Replaces the block mapping instead of appending; requires expected_revision.
-        expected_revision: {type: integer, minimum: 0}
+        expected_revision:
+          type: integer
+          minimum: 0
       additionalProperties: false
+
     NovelDraftReconciliation:
       type: object
       required: [expected_revision, confirmed_against_raw, unresolved_conflicts]
       properties:
-        expected_revision: {type: integer, minimum: 0}
-        confirmed_against_raw: {type: boolean}
+        expected_revision:
+          type: integer
+          minimum: 0
+        confirmed_against_raw:
+          type: boolean
         unresolved_conflicts:
           type: array
-          items: {type: string}
-        notes: {type: string}
+          items:
+            type: string
+        notes:
+          type: string
       additionalProperties: false
+
     NovelDraftLaunchState:
       type: object
       required: [expected_finalized_revision, starting_state_json]
       properties:
-        expected_finalized_revision: {type: integer, minimum: 0}
-        starting_state_json: {type: string}
-        launch_hint: {type: string}
+        expected_finalized_revision:
+          type: integer
+          minimum: 0
+        starting_state_json:
+          type: string
+        launch_hint:
+          type: string
       additionalProperties: false
+
     SessionCreate:
       type: object
       required: [novel_id]
       properties:
-        novel_id: {type: string}
+        novel_id:
+          type: string
+      additionalProperties: false
+
     TurnPrepare:
       type: object
       required: [user_input]
       properties:
-        user_input: {type: string}
+        user_input:
+          type: string
         request_id:
           type: string
           minLength: 1
           maxLength: 120
-          description: One stable id per gameplay turn. Reuse only for technical retries of that same turn.
         opening_scene:
           type: boolean
           default: false
-          description: True only for turn 1 after launch. Use user_input="" so the service command is not treated as POV speech.
         scene_archive_capable:
           type: boolean
           default: false
-          description: Optional. Enables bounded old-scene transport on this Action surface.
         replace_pending:
           type: boolean
           default: false
-          description: True explicitly abandons a different uncommitted turn. Never set automatically.
       additionalProperties: false
+
     SceneArchiveRead:
       type: object
       properties:
         scene_id:
           type: string
           minLength: 1
-          description: Omit for the complete compacted-scene index; provide a scene_id for that scene plus exact raw turns.
       additionalProperties: false
+
     RollbackLastTurn:
       type: object
       required: [expected_turn_number, expected_turn_id, confirm]
       properties:
-        expected_turn_number: {type: integer, minimum: 1}
-        expected_turn_id: {type: string, minLength: 1}
-        confirm: {type: boolean, const: true}
+        expected_turn_number:
+          type: integer
+          minimum: 1
+        expected_turn_id:
+          type: string
+          minLength: 1
+        confirm:
+          type: boolean
+          enum: [true]
       additionalProperties: false
+
     PresenceUpdate:
       type: object
       required: [character_id, action]
       properties:
-        character_id: {type: string}
+        character_id:
+          type: string
         action:
           type: string
           enum: [enter, leave, move]
-        zone: {type: string}
-        position: {type: string}
-        distance_to_pov: {type: string}
-        note: {type: string}
+        zone:
+          type: string
+        position:
+          type: string
+        distance_to_pov:
+          type: string
+        note:
+          type: string
       additionalProperties: false
+
     RelationshipDimensionUpdate:
       type: object
       required: [label, value]
       properties:
-        label: {type: string}
-        value: {type: number}
-        delta: {type: number}
+        label:
+          type: string
+        value:
+          type: number
+        delta:
+          type: number
       additionalProperties: false
+
     RelationshipUpdate:
       type: object
       required: [character_id]
       properties:
-        character_id: {type: string}
+        character_id:
+          type: string
         dimensions:
           type: array
-          items: {$ref: '#/components/schemas/RelationshipDimensionUpdate'}
-          description: Dynamic NPC-to-POV states. Labels are not restricted to a fixed vocabulary.
+          items:
+            $ref: '#/components/schemas/RelationshipDimensionUpdate'
         reason:
           type: string
-          description: Concrete story reason when a relationship state actually changed.
-        opinion: {type: string}
-        current_dynamic: {type: string}
+        opinion:
+          type: string
+        current_dynamic:
+          type: string
         beliefs_about_target:
           type: array
-          items: {type: string}
+          items:
+            type: string
         unresolved_between_them:
           type: array
-          items: {type: string}
-        relationship_type: {type: string}
-        relationship_context: {type: string}
-      additionalProperties: true
+          items:
+            type: string
+        relationship_type:
+          type: string
+        relationship_context:
+          type: string
+      additionalProperties: false
+
     NPCIntentUpdate:
       type: object
       required: [character_id, intent_id]
       properties:
-        character_id: {type: string}
-        intent_id: {type: string}
+        character_id:
+          type: string
+        intent_id:
+          type: string
         operation:
           type: string
           enum: [upsert, resolve, abandon]
-        kind: {type: string}
-        summary: {type: string}
-        status: {type: string}
-
-        trigger: {type: string}
-        why_it_matters: {type: string}
-        planned_action: {type: string}
-        target_character_id: {type: string}
+        kind:
+          type: string
+        summary:
+          type: string
+        status:
+          type: string
+        trigger:
+          type: string
+        why_it_matters:
+          type: string
+        planned_action:
+          type: string
+        target_character_id:
+          type: string
         source_fact_ids:
           type: array
-          items: {type: string}
-        next_eligible_game_day: {type: integer, minimum: 0}
-        pursued_now: {type: boolean}
-        resolution: {type: string}
-      additionalProperties: true
+          items:
+            type: string
+        next_eligible_game_day:
+          type: integer
+          minimum: 0
+        pursued_now:
+          type: boolean
+        resolution:
+          type: string
+      additionalProperties: false
+
     StoryThreadUpdate:
       type: object
       required: [thread_id]
       properties:
-        thread_id: {type: string}
+        thread_id:
+          type: string
         operation:
           type: string
           enum: [upsert, resolve, abandon]
-        title: {type: string}
-        summary: {type: string}
-        status: {type: string}
-
-        premise: {type: string}
-        current_goal: {type: string}
-        current_phase: {type: string}
+        title:
+          type: string
+        summary:
+          type: string
+        status:
+          type: string
+        premise:
+          type: string
+        current_goal:
+          type: string
+        current_phase:
+          type: string
         unresolved:
           type: array
-          items: {type: string}
+          items:
+            type: string
         end_conditions:
           type: array
-          items: {type: string}
+          items:
+            type: string
         possible_routes:
           type: array
-          items: {type: string}
+          items:
+            type: string
         anchor_facts:
           type: array
-          items: {type: string}
+          items:
+            type: string
         pillar_ids:
           type: array
-          items: {type: string}
+          items:
+            type: string
         participants:
           type: array
-          items: {type: string}
-        next_eligible_game_day: {type: integer, minimum: 0}
-        progressed_now: {type: boolean}
-        progress_summary: {type: string}
-        resolution: {type: string}
-      additionalProperties: true
+          items:
+            type: string
+        next_eligible_game_day:
+          type: integer
+          minimum: 0
+        progressed_now:
+          type: boolean
+        progress_summary:
+          type: string
+        resolution:
+          type: string
+      additionalProperties: false
+
+    TurnExtracted:
+      type: object
+      properties:
+        knowledge_journal_add:
+          type: array
+          items:
+            $ref: '#/components/schemas/KnowledgeJournalAdd'
+        chronology:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChronologyItem'
+        npc_intent_updates:
+          type: array
+          items:
+            $ref: '#/components/schemas/NPCIntentUpdate'
+        story_thread_updates:
+          type: array
+          items:
+            $ref: '#/components/schemas/StoryThreadUpdate'
+        scene_progressed:
+          type: boolean
+        presence_updates:
+          type: array
+          items:
+            $ref: '#/components/schemas/PresenceUpdate'
+        relationship_updates:
+          type: array
+          items:
+            $ref: '#/components/schemas/RelationshipUpdate'
+        state_patch:
+          $ref: '#/components/schemas/StatePatch'
+        character_upserts:
+          type: array
+          items:
+            $ref: '#/components/schemas/CharacterUpsert'
+      additionalProperties: false
+
     TurnCommit:
       type: object
       required: [packet_id, user_input, scene_output, extracted]
       properties:
-        packet_id: {type: string, minLength: 1}
-        user_input: {type: string}
-        scene_output: {type: string, minLength: 1}
+        packet_id:
+          type: string
+          minLength: 1
+        user_input:
+          type: string
+        scene_output:
+          type: string
+          minLength: 1
         extracted:
-          type: object
-          properties:
-            knowledge_journal_add:
-              type: array
-              items: {type: object, additionalProperties: true}
-            chronology:
-              type: array
-              items: {type: object, additionalProperties: true}
-            knowledge_add:
-              type: array
-              items: {type: object, additionalProperties: true}
-            experiences_add:
-              type: array
-              items: {type: object, additionalProperties: true}
-            dialogue_memory_add:
-              type: array
-              items: {type: object, additionalProperties: true}
-            npc_intent_updates:
-              type: array
-              items: {$ref: '#/components/schemas/NPCIntentUpdate'}
-            story_thread_updates:
-              type: array
-              items: {$ref: '#/components/schemas/StoryThreadUpdate'}
-            scene_progressed: {type: boolean}
-            presence_updates:
-              type: array
-              items: {$ref: '#/components/schemas/PresenceUpdate'}
-            relationship_updates:
-              type: array
-              items: {$ref: '#/components/schemas/RelationshipUpdate'}
-            state_patch: {type: object, additionalProperties: true}
-            character_upserts:
-              type: array
-              items: {type: object, additionalProperties: true}
-          additionalProperties: true
+          $ref: '#/components/schemas/TurnExtracted'
       additionalProperties: false
+
 paths:
   /sessions/{session_id}/rollback-last-turn:
     post:
@@ -630,7 +934,7 @@ paths:
   /sessions/{session_id}/continuation/final/commit:
     post:
       operationId: commitContinuationFinal
-      summary: Commit globally deduplicated history, personal memories, corrected current state and threads
+      summary: Commit deduplicated history, per-character memories, current state and threads
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
       requestBody:
