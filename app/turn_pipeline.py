@@ -380,7 +380,7 @@ def _prepare_context(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
     persistence.clear()
     persistence.update({
         "rule": "After the scene save only what actually changed. Empty lists are allowed.",
-        "chronology": "important durable events only",
+        "chronology": "important durable events only; knowledge_participants is the only chronology field that grants personal knowledge",
         "character_knowledge": (
             "knowledge_journal is personal memory, separate from chronology. Save durable learned facts only to each "
             "character who actually learned them; chronology never grants knowledge by itself."
