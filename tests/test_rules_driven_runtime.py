@@ -307,6 +307,16 @@ def test_opening_scene_uses_empty_gameplay_input_not_service_command():
         assert context["player_input_map"]["spoken_segments"] == []
         assert context["player_input_map"]["ordered_segments"] == []
 
+        retry = prepare_turn_request(
+            sid,
+            "запускай первую сцену",
+            request_id="opening-1",
+            opening_scene=True,
+        )
+        assert retry["packet_id"] == manifest["packet_id"]
+        assert retry["opening_scene"] is True
+        assert retry["reused_pending_packet"] is True
+
 
 def test_cast_registry_exposes_physical_contact_and_meaningful_recency_separately():
     with tempfile.TemporaryDirectory() as tmp:
