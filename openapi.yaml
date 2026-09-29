@@ -580,6 +580,77 @@ components:
         persistence_reviewed:
           type: boolean
           default: false
+        knowledge_reviewed:
+          type: boolean
+          default: false
+          description: True only after every current scene participant was checked for durable personal knowledge learned in this turn.
+        knowledge_reviewed_character_ids:
+          type: array
+          items:
+            type: string
+          description: Every character_id from the prepared packet's knowledge review contract, including characters with no new durable knowledge.
+        reconciliation_reviewed:
+          type: boolean
+          default: false
+          description: Required only when the prepared packet contains memory_reconciliation.
+        reconciliation_reviewed_character_ids:
+          type: array
+          items:
+            type: string
+          description: Every character_id listed by the prepared memory_reconciliation block.
+        reconciliation_knowledge_add:
+          type: array
+          description: Missing durable personal knowledge proven by the prepared reconciliation range. Each row uses character_id, source_turn, optional date/period, and text.
+          items:
+            type: object
+            required: [character_id, source_turn, text]
+            properties:
+              character_id:
+                type: string
+              source_turn:
+                type: integer
+                minimum: 1
+              date:
+                type: string
+              period:
+                type: string
+              text:
+                type: string
+            additionalProperties: false
+        reconciliation_chronology_add:
+          type: array
+          description: Important objective events missing from chronology but proven by the prepared reconciliation range.
+          items:
+            type: object
+            required: [source_turn, event]
+            properties:
+              event_id:
+                type: string
+              source_turn:
+                type: integer
+                minimum: 1
+              story_date:
+                type: string
+              date:
+                type: string
+              period:
+                type: string
+              location:
+                type: string
+              participants_present:
+                type: array
+                items:
+                  type: string
+              participants:
+                type: array
+                items:
+                  type: string
+              event:
+                type: string
+              importance:
+                type: string
+                enum: [normal, major, anchor, critical]
+            additionalProperties: false
         knowledge_journal_add:
           type: array
           items:
@@ -873,7 +944,7 @@ paths:
     post:
       operationId: commitTurn
       summary: Save one completed gameplay turn
-      description: Echo packet_id and exact user_input. Persist only real chronology, knowledge, relationship, intent, character and physical-state changes; empty arrays are allowed.
+      description: Echo packet_id and exact user_input. Review every current participant's durable personal knowledge before commit. When memory_reconciliation is present in the prepared packet, reconcile that saved range in the same commit. Persist only real chronology, knowledge, relationship, intent, character and physical-state changes; empty repair arrays are allowed only after review.
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
       requestBody:
