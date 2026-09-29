@@ -391,6 +391,21 @@ def commit_continuation_block(session_id: str, migration_id: str, block_index: i
     _validate_migration(migration, migration_id)
     _block_range(migration, block_index)
     _require_read_complete(migration, kind="block", block_index=block_index)
+
+    if isinstance(summary, dict) and isinstance(summary.get("characters"), list):
+        mapped = {}
+        for row in summary.get("characters", []):
+            if not isinstance(row, dict):
+                continue
+            cid = str(row.get("character_id") or row.get("id") or "").strip()
+            if cid:
+                item = deepcopy(row)
+                item.pop("character_id", None)
+                item.pop("id", None)
+                mapped[cid] = item
+        summary = deepcopy(summary)
+        summary["characters"] = mapped
+
     if not isinstance(summary, dict) or not isinstance(summary.get("chronology", []), list) or not isinstance(summary.get("characters", {}), dict):
         raise ValueError("CONTINUATION_BLOCK_SUMMARY_INVALID")
     if len(json.dumps(summary, ensure_ascii=False)) > 180000:
