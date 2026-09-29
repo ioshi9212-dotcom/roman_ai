@@ -43,7 +43,7 @@ _BASE_PARTICIPATION_BUNDLE = character_chunk_read._participation_bundle
 _BASE_CREATE_SESSION = storage.create_session
 _BASE_RECOVER_CURRENT = session_recovery.recover_session_current
 
-PIPELINE_VERSION = 4
+PIPELINE_VERSION = 5
 
 
 def _packet_manifest(packet: Dict[str, Any], *, reused: bool) -> Dict[str, Any]:
@@ -316,6 +316,7 @@ def _prepare_context(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
         persistent_state=state,
     )
     context = writer_first_runtime._rewrite_context(session_id, context)
+    context = private_knowledge_runtime.redact_private_history(context, root=root, cards=cards)
     context = _clean_director_layers(context)
 
     scene_ids = _scene_ids(state, cards)
@@ -720,6 +721,8 @@ def _disable_mandatory_audit_after_commit(session_id: str, result: Dict[str, Any
 def commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     _validate_technical_state_patch(payload)
     prepared = _prepare_profile_persistence(session_id, payload)
+    private_knowledge_runtime.validate_private_knowledge(session_id, prepared)
+    prepared = private_knowledge_runtime.add_direct_communication_memory(session_id, prepared)
     prepared = scene_presence_runtime._apply_presence_contract(
         prepared,
         root=storage.SESSIONS_DIR / session_id,
