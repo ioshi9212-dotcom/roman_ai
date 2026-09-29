@@ -14,6 +14,7 @@ from . import (
     fast_audit_runtime,
     game_day,
     knowledge_firewall_runtime,
+    knowledge_slice_runtime,
     memory_integrity_runtime,
     npc_intent,
     private_knowledge_runtime,
@@ -44,7 +45,7 @@ _BASE_PARTICIPATION_BUNDLE = character_chunk_read._participation_bundle
 _BASE_CREATE_SESSION = storage.create_session
 _BASE_RECOVER_CURRENT = session_recovery.recover_session_current
 
-PIPELINE_VERSION = 5
+PIPELINE_VERSION = 6
 
 
 def _packet_manifest(packet: Dict[str, Any], *, reused: bool) -> Dict[str, Any]:
@@ -260,6 +261,9 @@ def _clean_director_layers(context: Dict[str, Any]) -> Dict[str, Any]:
         "backend_semantic_scene_gates": False,
         "simple_name_mention_does_not_load_offscreen_card": True,
         "active_character_knowledge_rebuilt_from_persistent_memory": True,
+        "scene_local_character_slices": True,
+        "raw_director_history_removed_from_writer_packet": True,
+        "hard_character_claim_gate": False,
     })
     result["working_context_contract"] = contract
     _clean_relationship_lens(result)
@@ -390,14 +394,23 @@ def _prepare_context(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
     })
     context["persistence_contract"] = persistence
 
+    context = knowledge_slice_runtime.apply_sliced_writer_context(
+        context,
+        source=source,
+        cards=cards,
+        state=state,
+        memory=memory,
+        current_turn=current_turn,
+    )
     context = _move_runtime_documents_last(context)
     packet = _write_packet_context(root, packet, context)
     result = _packet_manifest(packet, reused=False)
     result["scene_character_card_count"] = len(
-        context.get("character_cards", [])
-        if isinstance(context.get("character_cards"), list)
-        else []
+        context.get("character_slices", {})
+        if isinstance(context.get("character_slices"), dict)
+        else {}
     )
+    result["knowledge_slice_mode"] = True
     return result
 
 
@@ -725,7 +738,9 @@ def _disable_mandatory_audit_after_commit(session_id: str, result: Dict[str, Any
 def commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     _validate_technical_state_patch(payload)
     prepared = _prepare_profile_persistence(session_id, payload)
-    private_knowledge_runtime.validate_private_knowledge(session_id, prepared)
+    # Experimental slice mode avoids a hard semantic claim gate. The writer packet
+    # should prevent cross-character leakage by construction; direct communications
+    # are still persisted to the actual sender/recipient memories.
     prepared = private_knowledge_runtime.add_direct_communication_memory(session_id, prepared)
     prepared = scene_presence_runtime._apply_presence_contract(
         prepared,

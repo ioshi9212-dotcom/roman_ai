@@ -115,7 +115,7 @@ def test_packet_has_no_hidden_director_guard_stack_and_rules_are_last():
             assert removed not in context
 
         assert list(context)[-2:] == ["runtime_rules", "scene_builder"]
-        active = {row["character_id"] for row in context["character_cards"]}
+        active = set(context["character_slices"])
         assert active == {"pov", "npc"}
         assert "away" not in active
         assert context["working_context_contract"]["hidden_director_guard_layers"] is False
@@ -135,7 +135,7 @@ def test_active_character_receives_complete_knowledge_journal_in_packet():
         storage._write_json(root / "memory.json", memory)
 
         _, context = read_context(sid, "(посмотреть на NPC)")
-        rows = context["character_memory"]["npc"]["knowledge_journal"]
+        rows = context["character_slices"]["npc"]["personal_memory"]["knowledge_journal"]
         assert len(rows) == 120
         assert rows[0]["text"] == "fact 1"
         assert rows[-1]["text"] == "fact 120"
@@ -392,7 +392,7 @@ def test_cast_registry_exposes_physical_contact_and_meaningful_recency_separatel
         )
 
         _, context = read_context(sid, "(остаться одной)")
-        row = next(x for x in context["cast_registry"]["characters"] if x["character_id"] == "npc")
+        row = next(x for x in context["director_cues"]["cast_registry"]["characters"] if x["character_id"] == "npc")
         assert row["last_physical_turn"] == 1
         assert row["last_meaningful_turn"] == 1
         assert row["turns_since_physical"] == 1
@@ -417,7 +417,8 @@ def test_legacy_pending_packet_is_refreshed_into_current_knowledge_context():
         packet = storage._read_json(root / "turn_packet.json", {})
         raw = "".join(packet["chunks"])
         context = json.loads(raw)
-        context.pop("character_memory", None)
+        context.pop("character_slices", None)
+        context["character_memory"] = {"npc": {"knowledge_journal": []}}
         context["simple_knowledge_rules"] = {
             "knowledge_transport": "prepareCharacterKnowledgeRead + getCharacterKnowledgeChunk"
         }
@@ -435,7 +436,8 @@ def test_legacy_pending_packet_is_refreshed_into_current_knowledge_context():
             "".join(storage._read_json(root / "turn_packet.json", {})["chunks"])
         )
         assert "simple_knowledge_rules" not in rebuilt
-        assert rebuilt["character_memory"]["npc"]["knowledge_journal"][0]["text"] == "NPC уже знает этот факт."
+        assert "character_memory" not in rebuilt
+        assert rebuilt["character_slices"]["npc"]["personal_memory"]["knowledge_journal"][0]["text"] == "NPC уже знает этот факт."
         assert rebuilt["working_context_contract"]["active_character_knowledge_rebuilt_from_persistent_memory"] is True
 
 
@@ -530,18 +532,20 @@ def test_private_message_is_redacted_from_shared_recent_history_and_saved_to_par
         assert "Завтра вернусь домой" not in npc_text
 
         _, context = read_context(sid, "(проснуться)")
-        recent_blob = json.dumps(context["recent_turns"], ensure_ascii=False)
-        assert "Завтра вернусь домой" not in recent_blob
-        assert "содержание приватной коммуникации скрыто" in recent_blob
+        assert "recent_turns" not in context
+        public_blob = json.dumps(context["scene_contract"]["public_dialogue_continuity"], ensure_ascii=False)
+        assert "Завтра вернусь домой" not in public_blob
+        assert context["character_slices"]["npc"]["personal_memory"]["knowledge_journal"] == []
+        assert context["knowledge_architecture"]["hard_claim_gate"] is False
 
 
-def test_sleeping_bystander_cannot_use_prior_private_message_content():
+def test_sleeping_bystander_packet_does_not_receive_prior_private_message_as_knowledge():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         novel = base_novel()
         novel["characters"] = [
             {"character_id": "pov", "name": "Рината", "is_pov": True},
-            {"character_id": "npc", "name": "Дантэ"},
+            {"character_id": "npc", "name": "Дантэ", "age": 24},
             {"character_id": "away", "name": "Эдриан"},
         ]
         novel["starting_state"]["pov"] = {"character_id": "pov"}
@@ -563,23 +567,14 @@ def test_sleeping_bystander_cannot_use_prior_private_message_content():
             },
         )
 
-        second = session_runtime.prepare_turn_packet(sid, "(проснуться)")
-        read_all(second, sid)
-
-        with pytest.raises(Exception) as exc:
-            session_runtime.commit_turn(
-                sid,
-                {
-                    "packet_id": second["packet_id"],
-                    "user_input": "(проснуться)",
-                    "scene_output": "**Дантэ** — Ты сегодня сказала Эдриану, что завтра вернёшься домой.",
-                    "extracted": {},
-                },
-            )
-        detail = getattr(exc.value, "detail", {})
-        assert isinstance(detail, dict)
-        assert detail.get("code") == "PRIVATE_COMMUNICATION_KNOWLEDGE_LEAK"
-        assert detail.get("character_id") == "npc"
+        _, context = read_context(sid, "(проснуться)")
+        dante = context["character_slices"]["npc"]
+        assert dante["self_profile"]["age"] == 24
+        assert dante["personal_memory"]["knowledge_journal"] == []
+        assert "recent_turns" not in context
+        assert "chronology_recent" not in context
+        assert "hidden_lore" not in context
+        assert context["knowledge_architecture"]["hard_claim_gate"] is False
 
 
 def test_present_character_remains_present_without_leave():

@@ -6,6 +6,7 @@ from copy import deepcopy
 from typing import Any, Dict, List
 
 from .character_access import get_character_bundle
+from . import knowledge_slice_runtime
 from .scene_compaction_runtime import active_memory_records, complete_knowledge_records
 
 
@@ -162,7 +163,8 @@ def _participation_bundle(session_id: str, character_id: str) -> Dict[str, Any]:
     return {
         "knowledge_scope": _bundle_knowledge_scope(character_id),
         "character_id": character_id,
-        "card": deepcopy(full.get("card", {})),
+        "actor_profile": deepcopy(full.get("card", {})),
+        "card": knowledge_slice_runtime.self_known_card(full.get("card", {})) or {},
         "current_state": deepcopy(full.get("current_state", {})),
         "pov_familiarity": deepcopy(full.get("pov_familiarity")),
         "personal_memory": _working_memory(full),
@@ -170,7 +172,7 @@ def _participation_bundle(session_id: str, character_id: str) -> Dict[str, Any]:
         "active_intents": deepcopy(full.get("active_intents", [])),
         "working_bundle": True,
         "persistent_lifetime_memory_complete": True,
-        "instruction": "Собственная card — self-known биография кроме явно hidden/unknown-to-self веток. personal_memory.knowledge/knowledge_journal — выученные факты; experiences/dialogue могут быть bounded.",
+        "instruction": "actor_profile нужен для характера/речи/сюжетной функции и сам по себе не является знанием NPC. card — self-known биография кроме явно hidden/unknown-to-self и author-meta веток. Возраст, имя, работа, внешность и нормальная биография не обязаны дублироваться в knowledge. personal_memory.knowledge/knowledge_journal — выученные факты о мире и других персонажах; experiences/dialogue могут быть bounded.",
     }
 
 
