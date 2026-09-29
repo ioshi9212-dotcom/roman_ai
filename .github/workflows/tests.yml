@@ -39,6 +39,7 @@ jobs:
           tests/test_setup_lossless_v4.py
           tests/test_profile_templates.py
           tests/test_custom_gpt_surface.py
+          tests/test_hidden_direct_character_actions.py
           tests/test_remote_scene_state.py
           --junitxml=pytest-current-report.xml
       - name: upload current report
