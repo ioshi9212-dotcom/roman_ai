@@ -2,7 +2,7 @@ import json
 import tempfile
 from pathlib import Path
 
-from app import runtime_access, session_runtime, storage
+from app import character_chunk_read, runtime_access, session_runtime, simple_setup_runtime, storage
 from app.models import TurnCommit
 from app.turn_rollback import rollback_last_turn
 
@@ -212,3 +212,61 @@ def test_last_turn_rollback_still_works_without_mandatory_audit():
         assert storage._read_json(root / "meta.json", {})["turn_number"] == 0
         assert storage._read_turns(root) == []
         assert storage._read_json(root / "state.json", {})["current"]["location"] == "room"
+
+
+def test_v5_setup_preserves_and_seeds_starting_character_knowledge():
+    draft = {
+        "title": "Start Knowledge",
+        "novel_id": "start-knowledge",
+        "version": 5,
+        "sections": {
+            "novel": {"pov_character": "pov"},
+            "characters": [
+                {"character_id": "pov", "name": "POV", "is_pov": True},
+                {"character_id": "npc", "name": "NPC"},
+            ],
+            "hidden_lore": {},
+            "knowledge": {
+                "pov": [
+                    {"text": "До первой сцены читала досье NPC и знает, что ему 27 лет."}
+                ]
+            },
+        },
+    }
+    template = simple_setup_runtime._content_template(draft)
+    assert template["knowledge"]["pov"][0]["text"].endswith("27 лет.")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(template)["session_id"]
+        memory = storage._normalise_memory(
+            storage._read_json(storage.SESSIONS_DIR / sid / "memory.json", {})
+        )
+        journal = memory["characters"]["pov"]["knowledge_journal"]
+        assert len(journal) == 1
+        assert journal[0]["turn"] == 0
+        assert "27 лет" in journal[0]["text"]
+        assert memory["characters"]["npc"]["knowledge_journal"] == []
+
+
+def test_v5_offscreen_bundle_contains_own_complete_knowledge_without_second_read():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(base_novel())["session_id"]
+        root = storage.SESSIONS_DIR / sid
+        memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
+        bucket = storage._memory_bucket(memory, "away")
+        bucket["knowledge_journal"] = [
+            {"entry_id": f"k{i}", "text": f"away fact {i}", "turn": i}
+            for i in range(1, 121)
+        ]
+        storage._write_json(root / "memory.json", memory)
+
+        bundle = character_chunk_read._participation_bundle(sid, "away")
+        assert bundle["knowledge_complete"] is True
+        assert len(bundle["knowledge_journal"]) == 120
+        assert bundle["knowledge_journal"][0]["text"] == "away fact 1"
+        assert bundle["knowledge_journal"][-1]["text"] == "away fact 120"
+        assert "knowledge_source" not in bundle
+        assert "prepareCharacterKnowledgeRead" not in str(bundle)
+        assert bundle["knowledge_scope"]["own_profile_is_self_known"] is True
