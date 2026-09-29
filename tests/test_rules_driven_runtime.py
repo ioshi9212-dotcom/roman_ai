@@ -522,6 +522,117 @@ def test_generated_remote_message_is_redacted_after_it_moves_to_continuity_tail(
         assert "содержание приватной коммуникации скрыто" in continuity
 
 
+def test_phone_call_marker_persists_remote_memory_without_preexisting_remote_state():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        novel = base_novel()
+        novel["characters"] = [
+            {"character_id": "pov", "name": "Рината", "is_pov": True},
+            {"character_id": "enzhe", "name": "Энже"},
+        ]
+        novel["starting_state"]["pov"] = {"character_id": "pov"}
+        novel["starting_state"]["current"]["present_characters"] = ["pov"]
+        sid = storage.create_session(novel)["session_id"]
+
+        manifest = session_runtime.prepare_turn_packet(sid, "(взять трубку)")
+        read_all(manifest, sid)
+        session_runtime.commit_turn(
+            sid,
+            {
+                "packet_id": manifest["packet_id"],
+                "user_input": "(взять трубку)",
+                "scene_output": "**Энже (по телефону)** — Ты где?",
+                "extracted": {},
+            },
+        )
+
+        memory = storage._normalise_memory(
+            storage._read_json(storage.SESSIONS_DIR / sid / "memory.json", {})
+        )
+        assert "Ты где?" in " ".join(
+            row["text"] for row in memory["characters"]["enzhe"]["knowledge_journal"]
+        )
+        assert "Ты где?" in " ".join(
+            row["text"] for row in memory["characters"]["pov"]["knowledge_journal"]
+        )
+
+
+def test_explicit_remote_target_is_not_misattributed_when_two_contacts_are_active():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        novel = base_novel()
+        novel["characters"] = [
+            {"character_id": "pov", "name": "Рината", "is_pov": True},
+            {"character_id": "enzhe", "name": "Энже"},
+            {"character_id": "dante", "name": "Дантэ"},
+        ]
+        novel["starting_state"]["pov"] = {"character_id": "pov"}
+        novel["starting_state"]["current"]["present_characters"] = ["pov"]
+        novel["starting_state"]["current"]["remote_characters"] = ["enzhe", "dante"]
+        sid = storage.create_session(novel)["session_id"]
+
+        manifest = session_runtime.prepare_turn_packet(sid, "(ответить в чате)")
+        read_all(manifest, sid)
+        session_runtime.commit_turn(
+            sid,
+            {
+                "packet_id": manifest["packet_id"],
+                "user_input": "(ответить в чате)",
+                "scene_output": "**Рината (в сообщениях Энже)** — Отвечу позже.",
+                "extracted": {},
+            },
+        )
+
+        memory = storage._normalise_memory(
+            storage._read_json(storage.SESSIONS_DIR / sid / "memory.json", {})
+        )
+        assert "Отвечу позже." in " ".join(
+            row["text"] for row in memory["characters"]["enzhe"]["knowledge_journal"]
+        )
+        assert "Отвечу позже." not in " ".join(
+            row["text"] for row in memory["characters"]["dante"]["knowledge_journal"]
+        )
+
+
+def test_generated_remote_exchange_is_compacted_to_one_durable_row_per_participant():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        novel = base_novel()
+        novel["characters"] = [
+            {"character_id": "pov", "name": "Рината", "is_pov": True},
+            {"character_id": "enzhe", "name": "Энже"},
+        ]
+        novel["starting_state"]["pov"] = {"character_id": "pov"}
+        novel["starting_state"]["current"]["present_characters"] = ["pov"]
+        novel["starting_state"]["current"]["remote_characters"] = ["enzhe"]
+        sid = storage.create_session(novel)["session_id"]
+
+        manifest = session_runtime.prepare_turn_packet(sid, "(посмотреть на телефон)")
+        read_all(manifest, sid)
+        session_runtime.commit_turn(
+            sid,
+            {
+                "packet_id": manifest["packet_id"],
+                "user_input": "(посмотреть на телефон)",
+                "scene_output": (
+                    "**Энже (в сообщениях)** — Ты живая?\n"
+                    "**Энже (в сообщениях)** — Я серьёзно.\n"
+                    "**Рината** — *(в сообщениях)* Живая."
+                ),
+                "extracted": {},
+            },
+        )
+
+        memory = storage._normalise_memory(
+            storage._read_json(storage.SESSIONS_DIR / sid / "memory.json", {})
+        )
+        assert len(memory["characters"]["enzhe"]["knowledge_journal"]) == 1
+        assert len(memory["characters"]["pov"]["knowledge_journal"]) == 1
+        assert "Ты живая?" in memory["characters"]["enzhe"]["knowledge_journal"][0]["text"]
+        assert "Я серьёзно." in memory["characters"]["enzhe"]["knowledge_journal"][0]["text"]
+        assert "Живая." in memory["characters"]["enzhe"]["knowledge_journal"][0]["text"]
+
+
 def test_turn_commit_schema_exposes_review_flags_without_exact_scene_format():
     model = TurnCommit(
         packet_id="packet",
