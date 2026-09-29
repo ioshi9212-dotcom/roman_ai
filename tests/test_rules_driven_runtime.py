@@ -4,7 +4,7 @@ import tempfile
 import pytest
 from pathlib import Path
 
-from app import character_chunk_read, continuation_runtime, runtime_access, session_runtime, simple_setup_runtime, storage
+from app import character_chunk_read, continuation_runtime, private_knowledge_runtime, runtime_access, session_runtime, simple_setup_runtime, storage
 from app.operation_service import prepare_turn_request
 from app.models import TurnCommit
 from app.turn_rollback import rollback_last_turn
@@ -467,6 +467,22 @@ def test_continuation_keeps_character_knowledge_separate_in_v5():
     assert [row["text"] for row in npc] == ["NPC знает только B."]
     assert "B" not in pov[0]["text"]
     assert "A" not in npc[0]["text"]
+
+
+def test_private_communication_parser_resolves_inflected_russian_recipient():
+    cards = [
+        {"character_id": "pov", "name": "Рината", "is_pov": True},
+        {"character_id": "npc", "name": "Дантэ"},
+        {"character_id": "away", "name": "Эдриан"},
+    ]
+    rows = private_knowledge_runtime.extract_private_communications(
+        "(ответить Эдриану - Завтра вернусь домой. продолжать гладить Дантэ)",
+        cards,
+        turn_number=1,
+    )
+    assert len(rows) == 1
+    assert rows[0]["recipient_id"] == "away"
+    assert "Завтра вернусь домой" in rows[0]["payload"]
 
 
 def test_private_message_is_redacted_from_shared_recent_history_and_saved_to_participants():
