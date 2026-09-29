@@ -17,7 +17,7 @@ _CHAT_RE = re.compile(
     r"(?iu)\b(?:переписк\w*|чат\w*)\s+(?:с|для)\s+([^\s,.;:()—-]+)"
 )
 _REMOTE_MARKER_RE = re.compile(
-    r"(?iu)\b(?:сообщен\w*|переписк\w*|чат\w*|смс|звон\w*|голосов\w*|видеосвяз\w*|мессендж\w*)\b"
+    r"(?iu)\b(?:сообщен\w*|переписк\w*|чат\w*|смс|звон\w*|телефон\w*|трубк\w*|голосов\w*|видеосвяз\w*|мессендж\w*)\b"
 )
 _ACTION_PREFIXES = {
     "встать", "сесть", "подойти", "отойти", "пойти", "уйти", "вернуться", "взять", "достать",
@@ -623,6 +623,7 @@ def add_scene_remote_communication_memory(session_id: str, payload: Dict[str, An
     for counterpart_id, rows in exchanges.items():
         counterpart_name = names.get(counterpart_id, counterpart_id)
         summary_parts: List[str] = []
+        missing_by_owner: Dict[str, List[str]] = {pov_id: [], counterpart_id: []}
 
         for row in rows:
             speaker_id = str(row.get("speaker_id") or "")
@@ -630,22 +631,27 @@ def add_scene_remote_communication_memory(session_id: str, payload: Dict[str, An
             if not speaker_id or not line:
                 continue
             speaker_name = names.get(speaker_id, pov_name if speaker_id == pov_id else speaker_id)
-            summary_parts.append(f"{speaker_name}: {line}")
+            rendered = f"{speaker_name}: {line}"
+            summary_parts.append(rendered)
 
             for owner_id in (pov_id, counterpart_id):
-                if _journal_contains_message(journal, owner_id, line):
-                    continue
-                other_name = counterpart_name if owner_id == pov_id else pov_name
-                journal.append({
-                    "character_id": owner_id,
-                    "date": date,
-                    "period": period,
-                    "text": f"Удалённая коммуникация с {other_name}: {speaker_name}: {line}",
-                })
+                if not _journal_contains_message(journal, owner_id, line):
+                    missing_by_owner[owner_id].append(rendered)
 
         content = " ".join(summary_parts).strip()[:4000]
         if not content:
             continue
+
+        for owner_id, missing_parts in missing_by_owner.items():
+            if not missing_parts:
+                continue
+            other_name = counterpart_name if owner_id == pov_id else pov_name
+            journal.append({
+                "character_id": owner_id,
+                "date": date,
+                "period": period,
+                "text": f"Удалённая коммуникация с {other_name}: {' '.join(missing_parts)[:4000]}",
+            })
 
         topic_id = f"remote_t{turn_number}_{counterpart_id}"
         if topic_id not in dialogue_ids:
