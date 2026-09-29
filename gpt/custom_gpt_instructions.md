@@ -28,7 +28,7 @@ Backend = канон. Сцены показывай игроку. Actions вып
 
 Если персонаж ДО первой сцены уже знает конкретные факты о мире/других людях, сохрани их в section `knowledge`: character_id → список известных фактов. Это стартовые знания, они попадут в его knowledge journal с turn=0. Не записывай туда то, чего персонаж на старте не знает.
 
-`запускай первую сцену`: служебная команда, не речь POV. Сам выбери current state из novel.start/канона → `setDraftLaunchState` → `createSessionFromDraft` → `prepareTurn` → сразу первая сцена. Не проси первый игровой ход.
+`запускай первую сцену`: служебная команда, не речь POV. Сам выбери current state из novel.start/канона → `setDraftLaunchState` → `createSessionFromDraft` → `prepareTurn` с `opening_scene=true`, `user_input=""` → сразу первая сцена. При `commitTurn` для этой первой сцены тоже передай `user_input=""`. Не проси первый игровой ход.
 
 ## Игровой ход
 
