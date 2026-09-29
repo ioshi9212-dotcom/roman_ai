@@ -221,6 +221,8 @@ def commit_turn_request(session_id: str, payload: Dict[str, Any]) -> Dict[str, A
             raise RuntimeError("SCENE_BUILDER_REVIEW_REQUIRED")
         if extracted.get("persistence_reviewed") is not True:
             raise RuntimeError("PERSISTENCE_REVIEW_REQUIRED")
+        if extracted.get("knowledge_reviewed") is not True:
+            raise RuntimeError("KNOWLEDGE_REVIEW_REQUIRED")
     # Relationship review is a writer/persistence requirement, not a transaction-killing gate.
     # Older live GPT schemas and long-running pending turns may omit relationship_reviewed even
     # though the scene contains a valid relationship footer/update. Do not brick the whole scene:
