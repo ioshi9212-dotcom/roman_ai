@@ -58,7 +58,7 @@ def test_static_custom_gpt_schema_has_exact_current_30_actions():
     turn_prepare = schema["components"]["schemas"]["TurnPrepare"]
     assert turn_prepare["required"] == ["user_input"]
     assert set(turn_prepare["properties"]) == {
-        "user_input", "request_id", "scene_archive_capable", "replace_pending"
+        "user_input", "request_id", "opening_scene", "scene_archive_capable", "replace_pending"
     }
 
     turn_commit = schema["components"]["schemas"]["TurnCommit"]
@@ -133,6 +133,8 @@ def test_custom_gpt_instruction_matches_rules_driven_transport():
         "createContinuationSession",
         "knowledge_journal_add",
         "request_id",
+        "opening_scene=true",
+        "user_input=\"\"",
         "packet_id",
     ):
         assert required in text
