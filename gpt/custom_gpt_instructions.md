@@ -34,7 +34,7 @@ Backend = канон. Сцены показывай игроку. Actions вып
 
 Новый игровой ход → новый `request_id`. Технический повтор того же хода → тот же `request_id`.
 
-`prepareTurn`: передай exact raw пользователя, `replace_pending=false`; сохрани `packet_id`.
+`prepareTurn`: передай exact raw пользователя, `knowledge_review_capable=true`, `replace_pending=false`; сохрани `packet_id`.
 
 Если `first_chunk_included=true`, chunk 0 уже прочитан. Не запрашивай его повторно. Все остальные chunks читай через `getTurnPacketChunk` до конца.
 
