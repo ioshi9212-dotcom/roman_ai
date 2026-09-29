@@ -2,7 +2,7 @@ import json
 import tempfile
 from pathlib import Path
 
-from app import character_chunk_read, runtime_access, session_runtime, simple_setup_runtime, storage
+from app import character_chunk_read, continuation_runtime, runtime_access, session_runtime, simple_setup_runtime, storage
 from app.operation_service import prepare_turn_request
 from app.models import TurnCommit
 from app.turn_rollback import rollback_last_turn
@@ -424,3 +424,26 @@ def test_rules_keep_director_truth_separate_from_character_truth():
         "Ошибочное мнение или убеждение персонажа не исправляется само",
     ):
         assert phrase in rules
+
+
+def test_continuation_keeps_character_knowledge_separate_in_v5():
+    source = {"version": 5, "profile_schema": {"version": 1}}
+    cards = [
+        {"character_id": "pov", "name": "POV", "is_pov": True},
+        {"character_id": "npc", "name": "NPC"},
+    ]
+    package = {
+        "characters": {
+            "pov": {"knowledge": ["POV знает только A."]},
+            "npc": {"knowledge": ["NPC знает только B."]},
+        }
+    }
+
+    memory = continuation_runtime._normalized_compact_memory(source, cards, package)
+    pov = memory["characters"]["pov"]["knowledge_journal"]
+    npc = memory["characters"]["npc"]["knowledge_journal"]
+
+    assert [row["text"] for row in pov] == ["POV знает только A."]
+    assert [row["text"] for row in npc] == ["NPC знает только B."]
+    assert "B" not in pov[0]["text"]
+    assert "A" not in npc[0]["text"]
