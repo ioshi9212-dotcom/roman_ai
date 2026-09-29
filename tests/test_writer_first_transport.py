@@ -96,17 +96,21 @@ def test_writer_first_packet_has_small_runtime_surface_and_first_chunk_inline():
             "presence_contract", "memory_contract", "continuity_contract",
         ):
             assert removed not in context
-        assert len(context["recent_turns"]) == RECENT_FULL_TURNS
-        assert len(context["continuity_turns"]) == CONTINUITY_WINDOW - RECENT_FULL_TURNS
-        assert len(context["active_threads"]) <= MAX_ACTIVE_THREADS
-        assert all(item.get("status") != "closed" for item in context["active_threads"].values())
-        npc_knowledge = context["character_memory"]["npc"]["knowledge"]
+        assert "recent_turns" not in context
+        assert "continuity_turns" not in context
+        threads = context["director_cues"]["active_threads"]
+        assert len(threads) <= MAX_ACTIVE_THREADS
+        assert all(item.get("status") != "closed" for item in threads.values())
+        npc_memory = context["character_slices"]["npc"]["personal_memory"]
+        npc_knowledge = npc_memory["knowledge"]
         assert len(npc_knowledge) == 249
         assert npc_knowledge[0]["fact_id"] == "f1"
         assert "OLD_KNOWLEDGE_" * 120 in npc_knowledge[0]["fact"]
         assert npc_knowledge[-1]["fact_id"] == "f249"
-        assert context["character_memory"]["npc"]["historical_knowledge_catalog"] == []
-        assert context["character_memory"]["npc"]["knowledge_complete_in_transport"] is True
+        assert npc_memory["historical_knowledge_catalog"] == []
+        assert npc_memory["knowledge_complete_in_transport"] is True
+        assert context["knowledge_architecture"]["raw_recent_turns_in_writer_packet"] is False
+        assert context["knowledge_architecture"]["raw_chronology_in_writer_packet"] is False
         assert set(context["runtime_document_paths"]) == {"rules", "scene_builder"}
         assert context["player_input_map"]["stage_directions"] == ["посмотреть на NPC"]
 
