@@ -60,6 +60,10 @@ def test_active_runtime_is_author_rules_plus_scene_builder():
     assert "выбор информации всегда остаётся игроку" in docs["rules"]
     assert "Источник знания должен существовать ДО" in docs["rules"]
     assert "Формат scene_builder обязателен" in docs["scene_builder"]
+    assert "unknown_to_self" in docs["rules"]
+    assert "короткое содержательное действие" in docs["rules"]
+    assert "Слухи, сообщения и чужие знания распространяются только через реальные каналы" in docs["rules"]
+    assert "Стартовая анкета, hidden_lore, правила новеллы и открытые сюжетные линии не декорация" in docs["rules"]
 
 
 def test_packet_has_no_hidden_director_guard_stack_and_rules_are_last():
@@ -78,6 +82,8 @@ def test_packet_has_no_hidden_director_guard_stack_and_rules_are_last():
             "relationship_policy",
             "cast_pressure",
             "story_pressure",
+            "simple_knowledge_rules",
+            "speaker_context",
         ):
             assert removed not in context
 
@@ -280,7 +286,8 @@ def test_v5_offscreen_bundle_contains_own_complete_knowledge_without_second_read
         assert bundle["knowledge_journal"][-1]["text"] == "away fact 120"
         assert "knowledge_source" not in bundle
         assert "prepareCharacterKnowledgeRead" not in str(bundle)
-        assert bundle["knowledge_scope"]["own_profile_is_self_known"] is True
+        assert bundle["knowledge_scope"]["own_card_is_self_known_except_explicit_hidden_branches"] is True
+    assert "unknown_to_self" in str(bundle["knowledge_scope"])
 
 
 def test_opening_scene_uses_empty_gameplay_input_not_service_command():
@@ -364,3 +371,56 @@ def test_cast_registry_exposes_physical_contact_and_meaningful_recency_separatel
         assert row["turns_since_physical"] == 1
         assert row["turns_since_meaningful"] == 1
         assert "остался рядом" in row["last_meaningful_event"]
+
+
+def test_legacy_pending_packet_is_refreshed_into_current_knowledge_context():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(base_novel())["session_id"]
+        root = storage.SESSIONS_DIR / sid
+
+        memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
+        bucket = storage._memory_bucket(memory, "npc")
+        bucket["knowledge_journal"] = [
+            {"entry_id": "old-1", "text": "NPC уже знает этот факт.", "turn": 0}
+        ]
+        storage._write_json(root / "memory.json", memory)
+
+        manifest = session_runtime.prepare_turn_packet(sid, "(посмотреть на NPC)")
+        packet = storage._read_json(root / "turn_packet.json", {})
+        raw = "".join(packet["chunks"])
+        context = json.loads(raw)
+        context.pop("character_memory", None)
+        context["simple_knowledge_rules"] = {
+            "knowledge_transport": "prepareCharacterKnowledgeRead + getCharacterKnowledgeChunk"
+        }
+        text_payload = json.dumps(context, ensure_ascii=False, separators=(",", ":"))
+        packet["chunks"] = [text_payload]
+        packet["chunk_count"] = 1
+        packet["read_chunks"] = [0]
+        packet["turn_pipeline_version"] = 3
+        storage._write_json(root / "turn_packet.json", packet)
+
+        refreshed = session_runtime.prepare_turn_packet(sid, "(посмотреть на NPC)")
+        assert refreshed["reused_pending_packet"] is True
+
+        rebuilt = json.loads(
+            "".join(storage._read_json(root / "turn_packet.json", {})["chunks"])
+        )
+        assert "simple_knowledge_rules" not in rebuilt
+        assert rebuilt["character_memory"]["npc"]["knowledge_journal"][0]["text"] == "NPC уже знает этот факт."
+        assert rebuilt["working_context_contract"]["active_character_knowledge_rebuilt_from_persistent_memory"] is True
+
+
+def test_rules_keep_director_truth_separate_from_character_truth():
+    docs = runtime_access.runtime_documents()
+    rules = docs["rules"]
+    for phrase in (
+        "chronology",
+        "hidden_lore",
+        "future_guidance",
+        "авторский план",
+        "Источник знания должен существовать ДО",
+        "Ошибочное мнение или убеждение персонажа не исправляется само",
+    ):
+        assert phrase in rules
