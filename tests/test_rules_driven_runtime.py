@@ -223,7 +223,7 @@ def test_explicit_chronology_participants_are_mirrored_into_personal_knowledge()
                     "chronology": [
                         {
                             "event": "NPC узнал, что поезд завтра уходит в шесть.",
-                            "participants": ["npc"],
+                            "knowledge_participants": ["npc"],
                             "importance": "major",
                         }
                     ]
