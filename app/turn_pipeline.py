@@ -344,8 +344,10 @@ def _prepare_context(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
         for cid in scene_ids
     }
     context["character_knowledge_rule"] = (
-        "For each POV/NPC use only that character's self-known card facts, own character_memory, "
-        "current perception and real communication. Other cards, other memory, chronology and director lore are not personal knowledge."
+        "For each POV/NPC use only that character's self-known card facts, own character_memory, current perception "
+        "and real communication. Own-card branches marked unknown_to_self/hidden_from_self/not_known_to_self/"
+        "known_to_self=false/author_only are not self-known. Other cards, other memory, chronology and director lore "
+        "are not personal knowledge."
     )
     context["cast_registry"] = {
         "persistent": True,
