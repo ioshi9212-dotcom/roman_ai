@@ -2,6 +2,7 @@ import json
 import tempfile
 
 import pytest
+from fastapi import HTTPException
 from pathlib import Path
 
 from app import character_chunk_read, continuation_runtime, private_knowledge_runtime, runtime_access, session_runtime, simple_setup_runtime, storage
@@ -122,6 +123,7 @@ def test_packet_has_no_hidden_director_guard_stack_and_rules_are_last():
         assert active == {"pov", "npc"}
         assert "away" not in active
         assert context["working_context_contract"]["hidden_director_guard_layers"] is False
+        assert context["working_context_contract"]["backend_semantic_scene_gates"] == ["scene_builder_no_fade"]
 
 
 def test_active_character_receives_complete_knowledge_journal_in_packet():
@@ -171,6 +173,64 @@ def test_dynamic_relationship_label_can_appear_without_whitelist():
         assert result["turn_number"] == 1
         state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
         assert state["relationships"]["npc"]["любовь"] == 12
+
+
+def test_commit_rejects_explicit_scene_builder_fade_to_black_without_advancing_turn():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        novel = base_novel()
+        novel["characters"] = [{"character_id": "pov", "name": "POV", "is_pov": True}]
+        novel["starting_state"]["current"]["present_characters"] = ["pov"]
+        sid = storage.create_session(novel)["session_id"]
+        root = storage.SESSIONS_DIR / sid
+
+        manifest = session_runtime.prepare_turn_packet(sid, "(остаться рядом)")
+        read_all(manifest, sid)
+        bad_scene = (
+            "Несколько следующих минут разговор перестаёт быть главным занятием троих. "
+            "Когда близость начинает переходить туда, где подробности уже ничего не добавят кроме механики, "
+            "время перескакивает вперёд само собой."
+        )
+
+        with pytest.raises(HTTPException) as exc:
+            session_runtime.commit_turn(
+                sid,
+                {
+                    "packet_id": manifest["packet_id"],
+                    "user_input": "(остаться рядом)",
+                    "scene_output": bad_scene,
+                    "extracted": {},
+                },
+            )
+
+        assert exc.value.status_code == 409
+        assert exc.value.detail["code"] == "SCENE_BUILDER_FADE_TO_BLACK"
+        assert storage._read_json(root / "meta.json", {})["turn_number"] == 0
+        pending = storage._read_json(root / "turn_packet.json", {})
+        assert pending["packet_id"] == manifest["packet_id"]
+
+
+def test_commit_allows_routine_time_compression_phrase():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        novel = base_novel()
+        novel["characters"] = [{"character_id": "pov", "name": "POV", "is_pov": True}]
+        novel["starting_state"]["current"]["present_characters"] = ["pov"]
+        sid = storage.create_session(novel)["session_id"]
+
+        manifest = session_runtime.prepare_turn_packet(sid, "(сделать чай)")
+        read_all(manifest, sid)
+        result = session_runtime.commit_turn(
+            sid,
+            {
+                "packet_id": manifest["packet_id"],
+                "user_input": "(сделать чай)",
+                "scene_output": "Через несколько минут чайник щёлкнул. POV налила чай и вернулась к столу.",
+                "extracted": {},
+            },
+        )
+
+        assert result["turn_number"] == 1
 
 
 def test_turn_commit_schema_no_longer_requires_review_flags_or_exact_scene_format():
