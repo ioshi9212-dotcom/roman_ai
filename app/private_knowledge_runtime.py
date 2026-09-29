@@ -16,6 +16,9 @@ _COMMUNICATION_RE = re.compile(
 _CHAT_RE = re.compile(
     r"(?iu)\b(?:переписк\w*|чат\w*)\s+(?:с|для)\s+([^\s,.;:()—-]+)"
 )
+_REMOTE_MARKER_RE = re.compile(
+    r"(?iu)\b(?:сообщен\w*|переписк\w*|чат\w*|смс|звон\w*|голосов\w*|видеосвяз\w*|мессендж\w*)\b"
+)
 _ACTION_PREFIXES = {
     "встать", "сесть", "подойти", "отойти", "пойти", "уйти", "вернуться", "взять", "достать",
     "убрать", "положить", "открыть", "закрыть", "посмотреть", "повернуть", "поднять", "опустить",
@@ -187,18 +190,39 @@ def _authorized_corpus(root, character_id: str, cards: List[Dict[str, Any]]) -> 
     knowledge = bucket.get("knowledge", [])
     if isinstance(knowledge, list):
         pieces.extend(str(row) for row in knowledge)
+    dialogue = bucket.get("dialogue_memory", [])
+    if isinstance(dialogue, list):
+        pieces.extend(str(row) for row in dialogue if isinstance(row, dict))
     return "\n".join(piece for piece in pieces if piece)
 
 
+def _resolve_speaker_label(label: str, exact: Dict[str, str], stems: Dict[str, str]) -> str | None:
+    normalized = _norm(label)
+    candidates = [normalized]
+    without_context = _norm(re.sub(r"\([^)]*\)", " ", normalized))
+    if without_context and without_context not in candidates:
+        candidates.append(without_context)
+    for candidate in candidates:
+        direct = exact.get(candidate)
+        if direct:
+            return direct
+        first = candidate.split()[0] if candidate else ""
+        direct = exact.get(first) or stems.get(_stem(first))
+        if direct:
+            return direct
+    return None
+
+
 def _speaker_units(scene_output: str, cards: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    exact, _, _ = _alias_maps(cards)
+    exact, stems, _ = _alias_maps(cards)
     result: List[Dict[str, Any]] = []
     for match in _SPEECH_RE.finditer(str(scene_output or "")):
-        speaker = _norm(match.group("speaker"))
-        cid = exact.get(speaker) or exact.get(speaker.split()[0] if speaker else "")
+        speaker_label = match.group("speaker").strip()
+        cid = _resolve_speaker_label(speaker_label, exact, stems)
         if cid:
             result.append({
                 "character_id": cid,
+                "speaker_label": speaker_label,
                 "text": match.group("text").strip(),
                 "position": match.start(),
             })
@@ -364,6 +388,121 @@ def add_direct_communication_memory(session_id: str, payload: Dict[str, Any]) ->
             existing_keys.add(key)
 
     extracted["knowledge_journal_add"] = existing
+    return result
+
+
+def _clean_remote_line(text: str) -> str:
+    value = str(text or "").strip()
+    value = re.sub(r"^\s*\*?\([^)]*\)\*?\s*", "", value).strip()
+    return " ".join(value.split())
+
+
+def add_scene_remote_communication_memory(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    root = storage.SESSIONS_DIR / session_id
+    result = deepcopy(payload)
+    extracted = result.get("extracted")
+    if not isinstance(extracted, dict):
+        extracted = {}
+        result["extracted"] = extracted
+
+    source = storage._read_json(root / "source.json", {})
+    cards = storage._load_cards(root, source)
+    state_before = storage._read_json(root / "state.json", {})
+    pov_id = _pov_id(state_before)
+    if not pov_id:
+        return result
+
+    state_patch = extracted.get("state_patch") if isinstance(extracted.get("state_patch"), dict) else {}
+    state_after = storage._deep_merge(state_before, state_patch)
+    present_ids = {
+        str(value)
+        for value in [*storage._present_character_ids(state_before), *storage._present_character_ids(state_after)]
+        if value
+    }
+    remote_ids = {
+        str(value)
+        for value in [*storage._remote_character_ids(state_before), *storage._remote_character_ids(state_after)]
+        if value
+    }
+
+    grouped: Dict[str, List[str]] = {}
+    for unit in _speaker_units(str(result.get("scene_output") or ""), cards):
+        cid = str(unit.get("character_id") or "")
+        if not cid or cid == pov_id or cid in present_ids:
+            continue
+        marker_text = f"{unit.get('speaker_label') or ''} {unit.get('text') or ''}"
+        if cid not in remote_ids and _REMOTE_MARKER_RE.search(marker_text) is None:
+            continue
+        line = _clean_remote_line(str(unit.get("text") or ""))
+        if line and line not in grouped.setdefault(cid, []):
+            grouped[cid].append(line)
+
+    if not grouped:
+        return result
+
+    meta = storage._read_json(root / "meta.json", {})
+    turn_number = int(meta.get("turn_number", 0) or 0) + 1
+    current = state_after.get("current") if isinstance(state_after.get("current"), dict) else {}
+    date = current.get("date")
+    period = current.get("period") or current.get("day_period")
+
+    journal = extracted.get("knowledge_journal_add")
+    journal = deepcopy(journal) if isinstance(journal, list) else []
+    journal_keys = {
+        (str(row.get("character_id") or ""), _norm(row.get("text") or row.get("fact") or row.get("summary") or ""))
+        for row in journal if isinstance(row, dict)
+    }
+
+    dialogue = extracted.get("dialogue_memory_add")
+    dialogue = deepcopy(dialogue) if isinstance(dialogue, list) else []
+    dialogue_ids = {
+        str(row.get("topic_id") or "")
+        for row in dialogue if isinstance(row, dict) and row.get("topic_id")
+    }
+
+    names = {
+        storage._card_id(card): storage._card_name(card)
+        for card in cards
+        if storage._card_id(card)
+    }
+
+    for cid, lines in grouped.items():
+        content = " ".join(lines).strip()
+        if not content:
+            continue
+        content = content[:4000]
+        remote_name = names.get(cid, cid)
+        journal_rows = (
+            (cid, f"Удалённая коммуникация с POV: {content}"),
+            (pov_id, f"Удалённая коммуникация с {remote_name}: {content}"),
+        )
+        for owner_id, text in journal_rows:
+            key = (owner_id, _norm(text))
+            if key in journal_keys:
+                continue
+            journal.append({
+                "character_id": owner_id,
+                "date": date,
+                "period": period,
+                "text": text,
+            })
+            journal_keys.add(key)
+
+        topic_id = f"remote_t{turn_number}_{cid}"
+        if topic_id not in dialogue_ids:
+            dialogue.append({
+                "topic_id": topic_id,
+                "participants": [pov_id, cid],
+                "speaker": cid,
+                "listener": pov_id,
+                "mode": "remote",
+                "summary": content,
+                "turn": turn_number,
+            })
+            dialogue_ids.add(topic_id)
+
+    extracted["knowledge_journal_add"] = journal
+    extracted["dialogue_memory_add"] = dialogue
     return result
 
 
