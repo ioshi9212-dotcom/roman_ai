@@ -580,3 +580,24 @@ def test_sleeping_bystander_cannot_use_prior_private_message_content():
         assert isinstance(detail, dict)
         assert detail.get("code") == "PRIVATE_COMMUNICATION_KNOWLEDGE_LEAK"
         assert detail.get("character_id") == "npc"
+
+
+def test_present_character_remains_present_without_leave():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(base_novel())["session_id"]
+        first = session_runtime.prepare_turn_packet(sid, "(посмотреть на NPC)")
+        read_all(first, sid)
+        session_runtime.commit_turn(
+            sid,
+            {
+                "packet_id": first["packet_id"],
+                "user_input": "(посмотреть на NPC)",
+                "scene_output": "**NPC** — Ты мне ответишь?",
+                "extracted": {},
+            },
+        )
+        _, context = read_context(sid, "Да. Отвечу.")
+        assert "npc" in context["scene_presence"]["present_character_ids"]
+        state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
+        assert "npc" in state["current"]["present_characters"]
