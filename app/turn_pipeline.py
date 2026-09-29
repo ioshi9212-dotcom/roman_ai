@@ -293,6 +293,15 @@ def _prepare_context(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
     state = storage._read_json(root / "state.json", {})
     meta = storage._read_json(root / "meta.json", {})
     current_turn = int(meta.get("turn_number", 0) or 0)
+    opening_scene = current_turn == 0 and str(packet.get("user_input") or "") == ""
+    if opening_scene:
+        context["opening_scene"] = {
+            "active": True,
+            "rule": (
+                "This is the opening scene. There is no player speech/action to execute. "
+                "Open naturally from novel.start and the saved current state."
+            ),
+        }
 
     # session_runtime/turn_context already gives full cards and complete factual knowledge
     # only for POV + physical/remote scene participants. A name mention alone is excluded.
