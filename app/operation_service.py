@@ -80,6 +80,7 @@ def prepare_turn_request(
     *,
     opening_scene: bool = False,
     scene_archive_capable: bool = False,
+    knowledge_review_capable: bool = False,
     replace_pending: bool = False,
 ) -> Dict[str, Any]:
     root = _session_root(session_id)
@@ -147,8 +148,9 @@ def prepare_turn_request(
             packet["scene_archive_capable"] = bool(scene_archive_capable)
             packet["opening_scene"] = bool(opening_scene)
             packet["writer_review_required"] = True
-            packet["knowledge_review_required"] = True
-            packet["memory_reconciliation_contract_version"] = 1
+            packet["knowledge_review_required"] = bool(knowledge_review_capable)
+            if knowledge_review_capable:
+                packet["memory_reconciliation_contract_version"] = 1
             storage._write_json(root / "turn_packet.json", packet)
 
         if scene_archive_capable:
