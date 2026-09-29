@@ -580,6 +580,9 @@ components:
         persistence_reviewed:
           type: boolean
           default: false
+        knowledge_reviewed:
+          type: boolean
+          default: false
         knowledge_journal_add:
           type: array
           items:
