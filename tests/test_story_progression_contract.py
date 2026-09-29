@@ -6,8 +6,8 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def test_scene_length_floor_is_2000_chars():
     text = (ROOT / "runtime" / "scene_builder.md").read_text(encoding="utf-8")
-    assert "2000–3000 символов" in text
-    assert "1500–3000 символов" not in text
+    assert "2000–3000 непробельных символов" in text
+    assert "1500–3000 непробельных символов" not in text
 
 
 def test_scene_endings_avoid_authorial_curtain_and_forecast():
