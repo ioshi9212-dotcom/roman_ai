@@ -49,6 +49,7 @@ def _packet_status(packet: Any) -> Dict[str, Any] | None:
         "ready_for_commit": not unread,
         "status": "ready_for_commit" if not unread else "reading",
         "scene_archive_capable": bool(packet.get("scene_archive_capable")),
+        "writer_review_required": bool(packet.get("writer_review_required")),
     }
 
 
@@ -119,6 +120,7 @@ def prepare_turn_request(
                     result["request_id"] = identity
                 result["scene_archive_capable"] = bool(packet.get("scene_archive_capable"))
                 result["opening_scene"] = bool(packet.get("opening_scene"))
+                result["writer_review_required"] = bool(packet.get("writer_review_required"))
                 result["pending_turn"] = pending_turn_status(session_id)
                 return result
 
@@ -142,6 +144,7 @@ def prepare_turn_request(
                 packet["request_id"] = identity
             packet["scene_archive_capable"] = bool(scene_archive_capable)
             packet["opening_scene"] = bool(opening_scene)
+            packet["writer_review_required"] = True
             storage._write_json(root / "turn_packet.json", packet)
 
         if scene_archive_capable:
@@ -151,6 +154,7 @@ def prepare_turn_request(
             result["request_id"] = identity
         result["scene_archive_capable"] = bool(scene_archive_capable)
         result["opening_scene"] = bool(opening_scene)
+        result["writer_review_required"] = bool(packet.get("writer_review_required"))
         result["pending_turn"] = pending_turn_status(session_id)
         return result
 
@@ -208,6 +212,12 @@ def commit_turn_request(session_id: str, payload: Dict[str, Any]) -> Dict[str, A
     packet = storage._read_json(root / "turn_packet.json", {})
     if not isinstance(packet, dict) or str(packet.get("packet_id") or "") != packet_id:
         raise RuntimeError("TURN_PACKET_REQUIRED")
+    if bool(packet.get("writer_review_required")):
+        extracted = payload.get("extracted") if isinstance(payload.get("extracted"), dict) else {}
+        if extracted.get("scene_builder_reviewed") is not True:
+            raise RuntimeError("SCENE_BUILDER_REVIEW_REQUIRED")
+        if extracted.get("persistence_reviewed") is not True:
+            raise RuntimeError("PERSISTENCE_REVIEW_REQUIRED")
     # Relationship review is a writer/persistence requirement, not a transaction-killing gate.
     # Older live GPT schemas and long-running pending turns may omit relationship_reviewed even
     # though the scene contains a valid relationship footer/update. Do not brick the whole scene:
