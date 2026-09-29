@@ -3,6 +3,7 @@ import tempfile
 from pathlib import Path
 
 from app import character_chunk_read, runtime_access, session_runtime, simple_setup_runtime, storage
+from app.operation_service import prepare_turn_request
 from app.models import TurnCommit
 from app.turn_rollback import rollback_last_turn
 
@@ -270,3 +271,76 @@ def test_v5_offscreen_bundle_contains_own_complete_knowledge_without_second_read
         assert "knowledge_source" not in bundle
         assert "prepareCharacterKnowledgeRead" not in str(bundle)
         assert bundle["knowledge_scope"]["own_profile_is_self_known"] is True
+
+
+def test_opening_scene_uses_empty_gameplay_input_not_service_command():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(base_novel())["session_id"]
+
+        manifest = prepare_turn_request(
+            sid,
+            "запускай первую сцену",
+            request_id="opening-1",
+            opening_scene=True,
+        )
+        assert manifest["opening_scene"] is True
+        root = storage.SESSIONS_DIR / sid
+        packet = storage._read_json(root / "turn_packet.json", {})
+        assert packet["user_input"] == ""
+
+        pieces = [manifest["content"]]
+        for index in range(1, manifest["chunk_count"]):
+            pieces.append(storage.get_turn_packet_chunk(sid, manifest["packet_id"], index)["content"])
+        context = json.loads("".join(pieces))
+        assert context["opening_scene"]["active"] is True
+        assert context["player_input_map"]["spoken_segments"] == []
+        assert context["player_input_map"]["ordered_segments"] == []
+
+
+def test_cast_registry_exposes_physical_contact_and_meaningful_recency_separately():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(base_novel())["session_id"]
+
+        first = session_runtime.prepare_turn_packet(sid, "Остаться рядом.")
+        read_all(first, sid)
+        session_runtime.commit_turn(
+            sid,
+            {
+                "packet_id": first["packet_id"],
+                "user_input": "Остаться рядом.",
+                "scene_output": "Сцена один.\nОтношения:\nNPC - близость 8/+1",
+                "extracted": {
+                    "relationship_updates": [
+                        {
+                            "character_id": "npc",
+                            "dimensions": [{"label": "близость", "value": 8, "delta": 1}],
+                            "reason": "впервые сознательно остался рядом с POV",
+                        }
+                    ]
+                },
+            },
+        )
+
+        second = session_runtime.prepare_turn_packet(sid, "(проводить NPC)")
+        read_all(second, sid)
+        session_runtime.commit_turn(
+            sid,
+            {
+                "packet_id": second["packet_id"],
+                "user_input": "(проводить NPC)",
+                "scene_output": "NPC ушёл.",
+                "extracted": {
+                    "presence_updates": [{"character_id": "npc", "action": "leave"}]
+                },
+            },
+        )
+
+        _, context = read_context(sid, "(остаться одной)")
+        row = next(x for x in context["cast_registry"]["characters"] if x["character_id"] == "npc")
+        assert row["last_physical_turn"] == 1
+        assert row["last_meaningful_turn"] == 1
+        assert row["turns_since_physical"] == 1
+        assert row["turns_since_meaningful"] == 1
+        assert "остался рядом" in row["last_meaningful_event"]
