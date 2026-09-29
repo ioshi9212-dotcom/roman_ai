@@ -56,7 +56,7 @@ from .startup_migration import read_migration_status, run_startup_session_migrat
 app = FastAPI(
     title="Roman AI",
     version="1.17.0",
-    description="Persistent isolated novel sessions with bounded writer-first context, lossless chunked setup intake, living cast rotation, memory, chronology, relationships, NPC intents, persistent story threads, recovery, rollback and audits.",
+    description="Persistent interactive-novel sessions with rules-driven scenes, character-scoped knowledge, dynamic relationships, cast continuity, recovery, rollback and lossless setup intake.",
 )
 
 
@@ -66,17 +66,17 @@ def startup_session_migration():
         Thread(target=run_startup_session_migration, daemon=True, name="roman-session-migration").start()
 
 
-@app.get("/health", operation_id="health")
+@app.get("/health", operation_id="health", include_in_schema=False)
 def health():
     return {"ok": True}
 
 
-@app.get("/migration-status", operation_id="getMigrationStatus")
+@app.get("/migration-status", operation_id="getMigrationStatus", include_in_schema=False)
 def migration_status_get():
     return read_migration_status()
 
 
-@app.get("/sessions/{session_id}/context-stats", operation_id="getSessionContextStats")
+@app.get("/sessions/{session_id}/context-stats", operation_id="getSessionContextStats", include_in_schema=False)
 def session_context_stats_get(session_id: str):
     try:
         return session_context_stats(session_id)
@@ -84,12 +84,12 @@ def session_context_stats_get(session_id: str):
         raise HTTPException(status_code=404, detail="Session not found")
 
 
-@app.get("/runtime", operation_id="getRuntime")
+@app.get("/runtime", operation_id="getRuntime", include_in_schema=False)
 def runtime_get():
     return runtime_manifest()
 
 
-@app.get("/runtime/{chunk_index}", operation_id="getRuntimeChunk")
+@app.get("/runtime/{chunk_index}", operation_id="getRuntimeChunk", include_in_schema=False)
 def runtime_chunk_get(chunk_index: int):
     try:
         return runtime_chunk(chunk_index)
@@ -199,7 +199,7 @@ def novel_draft_intake_mapping_update(draft_id: str, block_id: str, body: NovelD
         raise HTTPException(status_code=409, detail=messages.get(code, code))
 
 
-@app.get("/novel-drafts/{draft_id}", operation_id="getNovelDraftStatus")
+@app.get("/novel-drafts/{draft_id}", operation_id="getNovelDraftStatus", include_in_schema=False)
 def novel_draft_status_get(draft_id: str):
     try:
         return draft_status(draft_id)
@@ -300,12 +300,12 @@ def novels_list():
     return {"novels": list_novels()}
 
 
-@app.post("/novels", operation_id="saveNovel")
+@app.post("/novels", operation_id="saveNovel", include_in_schema=False)
 def novels_save(template: NovelTemplate):
     return save_novel(template.model_dump())
 
 
-@app.post("/novels/raw", operation_id="saveNovelRaw")
+@app.post("/novels/raw", operation_id="saveNovelRaw", include_in_schema=False)
 def novels_save_raw(body: NovelRawSave):
     try:
         template = json.loads(body.template_json)
@@ -318,7 +318,7 @@ def novels_save_raw(body: NovelRawSave):
     return save_novel(template)
 
 
-@app.get("/novels/{novel_id}/verify", operation_id="verifyNovel")
+@app.get("/novels/{novel_id}/verify", operation_id="verifyNovel", include_in_schema=False)
 def novel_verify_get(novel_id: str):
     try:
         return verify_novel(novel_id)
@@ -326,7 +326,7 @@ def novel_verify_get(novel_id: str):
         raise HTTPException(status_code=404, detail="Novel not found")
 
 
-@app.post("/novels/{novel_id}/read", operation_id="prepareNovelRead")
+@app.post("/novels/{novel_id}/read", operation_id="prepareNovelRead", include_in_schema=False)
 def novel_read_prepare(novel_id: str):
     try:
         return prepare_novel_read(novel_id)
@@ -344,7 +344,7 @@ def novel_read_chunk_get(read_id: str, chunk_index: int):
         raise HTTPException(status_code=404, detail="Chunk index out of range")
 
 
-@app.get("/novels/{novel_id}", operation_id="getNovel")
+@app.get("/novels/{novel_id}", operation_id="getNovel", include_in_schema=False)
 def novels_get(novel_id: str):
     try:
         return get_novel(novel_id)
@@ -361,7 +361,7 @@ def sessions_create(body: SessionCreate):
     return create_session(novel)
 
 
-@app.get("/sessions/{session_id}/preview", operation_id="getSessionPreview")
+@app.get("/sessions/{session_id}/preview", operation_id="getSessionPreview", include_in_schema=False)
 def session_preview_get(session_id: str):
     try:
         return get_session_preview(session_id)
@@ -369,7 +369,7 @@ def session_preview_get(session_id: str):
         raise HTTPException(status_code=404, detail="Session not found")
 
 
-@app.get("/sessions/{session_id}/continuation-preview", operation_id="previewContinuationSession")
+@app.get("/sessions/{session_id}/continuation-preview", operation_id="previewContinuationSession", include_in_schema=False)
 def continuation_preview_get(session_id: str):
     try:
         return build_continuation_preview(session_id)
@@ -459,7 +459,7 @@ def continuation_create(session_id: str):
         raise HTTPException(status_code=409, detail=str(exc))
 
 
-@app.get("/sessions/{session_id}", operation_id="getSession")
+@app.get("/sessions/{session_id}", operation_id="getSession", include_in_schema=False)
 def sessions_get(session_id: str):
     try:
         return load_session(session_id)
@@ -504,7 +504,7 @@ def session_last_turn_rollback(session_id: str, body: RollbackLastTurn):
         raise HTTPException(status_code=409, detail=detail)
 
 
-@app.get("/sessions/{session_id}/audit-snapshot", operation_id="getAuditSnapshot")
+@app.get("/sessions/{session_id}/audit-snapshot", operation_id="getAuditSnapshot", include_in_schema=False)
 def audit_snapshot_get(session_id: str):
     try:
         return get_audit_snapshot(session_id)
@@ -516,7 +516,7 @@ def audit_snapshot_get(session_id: str):
         raise
 
 
-@app.get("/sessions/{session_id}/audit-snapshot/{audit_id}/{chunk_index}", operation_id="getAuditSnapshotChunk")
+@app.get("/sessions/{session_id}/audit-snapshot/{audit_id}/{chunk_index}", operation_id="getAuditSnapshotChunk", include_in_schema=False)
 def audit_snapshot_chunk_get(session_id: str, audit_id: str, chunk_index: int):
     try:
         return get_audit_snapshot_chunk(session_id, audit_id, chunk_index)
@@ -607,7 +607,7 @@ def scene_archive_chunk_get(session_id: str, read_id: str, chunk_index: int, sce
 
 
 
-@app.post("/sessions/{session_id}/characters/{character_id}/knowledge-read", operation_id="prepareCharacterKnowledgeRead")
+@app.post("/sessions/{session_id}/characters/{character_id}/knowledge-read", operation_id="prepareCharacterKnowledgeRead", include_in_schema=False)
 def character_knowledge_read_prepare(session_id: str, character_id: str):
     try:
         return prepare_character_knowledge_read(session_id, character_id)
@@ -619,7 +619,7 @@ def character_knowledge_read_prepare(session_id: str, character_id: str):
         raise
 
 
-@app.get("/sessions/{session_id}/characters/{character_id}/knowledge-read/{read_id}/{chunk_index}", operation_id="getCharacterKnowledgeChunk")
+@app.get("/sessions/{session_id}/characters/{character_id}/knowledge-read/{read_id}/{chunk_index}", operation_id="getCharacterKnowledgeChunk", include_in_schema=False)
 def character_knowledge_chunk_get(session_id: str, character_id: str, read_id: str, chunk_index: int):
     try:
         return get_character_knowledge_chunk(session_id, character_id, read_id, chunk_index)
@@ -635,7 +635,7 @@ def character_knowledge_chunk_get(session_id: str, character_id: str, read_id: s
         raise HTTPException(status_code=404, detail="Character knowledge chunk index out of range")
 
 
-@app.get("/sessions/{session_id}/knowledge-read-status", operation_id="getSceneKnowledgeReadStatus")
+@app.get("/sessions/{session_id}/knowledge-read-status", operation_id="getSceneKnowledgeReadStatus", include_in_schema=False)
 def scene_knowledge_read_status_get(session_id: str):
     try:
         return scene_knowledge_read_status(session_id)
@@ -671,7 +671,7 @@ def character_bundle_chunk_get(session_id: str, character_id: str, read_id: str,
         raise HTTPException(status_code=404, detail="Character chunk index out of range")
 
 
-@app.get("/sessions/{session_id}/characters/{character_id}", operation_id="getCharacterBundle")
+@app.get("/sessions/{session_id}/characters/{character_id}", operation_id="getCharacterBundle", include_in_schema=False)
 def character_bundle_get(session_id: str, character_id: str):
     try:
         return get_character_bundle(session_id, character_id)
@@ -681,7 +681,7 @@ def character_bundle_get(session_id: str, character_id: str):
         raise HTTPException(status_code=404, detail="Character not found")
 
 
-@app.get("/sessions/{session_id}/characters/{character_id}/memory", operation_id="getCharacterMemory")
+@app.get("/sessions/{session_id}/characters/{character_id}/memory", operation_id="getCharacterMemory", include_in_schema=False)
 def character_memory_get(session_id: str, character_id: str):
     try:
         return get_character_memory(session_id, character_id)
@@ -689,7 +689,7 @@ def character_memory_get(session_id: str, character_id: str):
         raise HTTPException(status_code=404, detail="Session not found")
 
 
-@app.get("/sessions/{session_id}/turns", operation_id="getTurnRange")
+@app.get("/sessions/{session_id}/turns", operation_id="getTurnRange", include_in_schema=False)
 def turns_get(session_id: str, start_turn: int, end_turn: int):
     try:
         return {"turns": get_turn_range(session_id, start_turn, end_turn)}
@@ -729,40 +729,16 @@ def turns_commit(session_id: str, body: TurnCommit):
                 },
             )
         errors = {
-            "AUDIT_REQUIRED": "Audit is required before the next turn",
             "TURN_PACKET_ID_REQUIRED": "commitTurn requires the exact packet_id returned by prepareTurn",
             "RECENT_DUPLICATE_USER_INPUT": "Legacy duplicate guard rejected identical recent text. Upgrade prepareTurn to request_id semantics; no new turn was created.",
-            "PERSISTENCE_REVIEW_REQUIRED": "Before commitTurn explicitly review chronology and per-character memory. extracted must include persistence_reviewed=true plus chronology, knowledge_add, experiences_add and dialogue_memory_add arrays, even when empty.",
-            "RELATIONSHIP_FOOTER_REQUIRED": "The Relationships footer is missing or empty for at least one NPC physically present in the scene. Rewrite the scene footer so EVERY present NPC has an NPC->POV relationship row. If that NPC has no saved dimensions yet, initialize 1-3 natural dimensions now; do not leave the block empty.",
-            "RELATIONSHIP_FOOTER_INCOMPLETE": "A present NPC has saved relationship dimensions, but the scene footer omitted or renamed one or more of them. Rewrite the footer using all saved labels from relationship_lens, preserving current values unless this scene genuinely changed them.",
-            "RUNTIME_RULES_REVIEW_REQUIRED": "Read runtime_rules completely, rewrite the scene if needed, set extracted.runtime_rules_reviewed=true and retry the same commit.",
-            "SCENE_BUILDER_REVIEW_REQUIRED": "Read scene_builder completely, rewrite the scene if needed, set extracted.scene_builder_reviewed=true and retry the same commit.",
-            "RUNTIME_CONTRACT_VERSION_MISMATCH": "Echo runtime_contract.version from the current turn packet in extracted.runtime_contract_version and retry the same commit.",
-            "SCENE_BUILDER_STRUCTURE_INVALID": "Rewrite the scene to the exact scene_builder structure and retry the same commit.",
-            "SCENE_BUILDER_HEADER_INVALID": "Rewrite the five-line scene_builder header exactly and retry the same commit.",
-            "SCENE_BUILDER_SCENE_LABEL_TOO_LONG": "Rewrite the scene label to at most 10 words and retry the same commit.",
-            "SCENE_BUILDER_DIVIDER_INVALID": "Use exactly one scene_builder divider in the correct position and retry the same commit.",
-            "SCENE_BUILDER_OPTIONS_INVALID": "Rewrite the lower block as exactly 3 actions, 3 spoken lines and 3 thoughts, with exact headings and no extra prose between sections.",
-            "SCENE_BUILDER_MAIN_LENGTH_INVALID": "Rewrite only the main scene to 2000-3000 characters, excluding header and lower block, then retry the same commit.",
-            "SCENE_BUILDER_FOOTER_INVALID": "Rewrite State, Relationships and turn footer in the exact scene_builder order and retry the same commit.",
-            "SCENE_BUILDER_STATE_INVALID": "State must be one State: line with no more than 10 words describing only the current POV state.",
-            "SCENE_BUILDER_RELATIONSHIP_FORMAT_INVALID": "Rewrite every relationship row as Name - metric number[/delta]; metric number[/delta], with no prose.",
-            "SCENE_BUILDER_CONTENT_AFTER_FOOTER": "Nothing may appear after the final turn footer. Rewrite and retry the same commit.",
-            "SCENE_BUILDER_TITLE_MISMATCH": "The first line must use the session's fixed novel title exactly.",
-            "SCENE_BUILDER_POV_MISMATCH": "The POV name in the scene header must match the session POV exactly.",
-            "SCENE_BUILDER_TURN_FOOTER_MISMATCH": "The final turn number and cycle must match the backend's current turn exactly.",
-            "RUNTIME_RULE_PLAYER_SPEECH_NOT_PRESERVED": "The player's spoken text outside parentheses was lost or rewritten. Preserve those words in the main scene and retry the same commit.",
-            "RUNTIME_RULE_PLAYER_SPEECH_ORDER_INVALID": "The player's spoken segments were rendered out of left-to-right order. Replay ordered_segments sequentially, keeping each parenthesized action/thought before the later spoken segment; natural NPC reactions or pauses may occur between them.",
             "CAST_STORY_FUNCTION_REQUIRED": "A recurring/important story-created NPC needs character_upserts.story_function: one short director-level sentence explaining why this NPC matters to the story, not the NPC's personal goal.",
-            "CHARACTER_KNOWLEDGE_READ_REQUIRED": "Before writing/committing this scene, fully read every required scene participant via prepareCharacterKnowledgeRead and all getCharacterKnowledgeChunk chunks. Then retry the same commit.",
-            "RELATIONSHIP_REVIEW_REQUIRED": "Before commit, review whether this turn changed each participating NPC's relationship to POV. Persist every causal change through relationship_updates with reason and delta for existing metrics; if nothing changed, keep relationship_updates empty. Then set extracted.relationship_reviewed=true and retry the same commit.",
         }
         if code in errors:
             raise HTTPException(status_code=409, detail=errors[code])
         raise
 
 
-@app.post("/sessions/{session_id}/audit", operation_id="commitAudit")
+@app.post("/sessions/{session_id}/audit", operation_id="commitAudit", include_in_schema=False)
 def audit_commit(session_id: str, body: AuditCommit):
     try:
         return commit_audit_request(session_id, body.model_dump())
