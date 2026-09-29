@@ -81,7 +81,7 @@ def test_active_runtime_is_author_rules_plus_scene_builder():
     assert "Последние абзацы сцены должны не закрывать движение" in docs["scene_builder"]
     assert "Не придумывай новый активный элемент только ради эффекта финала" in docs["scene_builder"]
     assert "2000–3000 непробельных символов" in docs["scene_builder"]
-    assert "не должна превращаться в стенограмму" in docs["scene_builder"]
+    assert "не должна превращаться в чистую стенограмму" in docs["scene_builder"]
     assert "Любую сцену должно быть возможно визуально собрать в голове" in docs["scene_builder"]
     assert "ПРИСУТСТВИЕ И ФИЗИЧЕСКАЯ НЕПРЕРЫВНОСТЬ" in docs["rules"]
     assert "Молчание не удаляет NPC" in docs["rules"]
