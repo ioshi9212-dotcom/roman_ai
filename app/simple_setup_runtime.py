@@ -199,8 +199,8 @@ def _normalise_simple_section(draft: Dict[str, Any], section_name: str, value: A
     if name == "hidden_lore":
         return normalize_hidden_lore(value)
     if name == "knowledge":
-        # Knowledge starts empty. Runtime knowledge is learned during play.
-        return {}
+        # Optional explicit pre-story knowledge. Runtime knowledge learned later is appended during play.
+        return deepcopy(value) if isinstance(value, dict) else {}
     if name == "lore":
         if isinstance(value, dict):
             return deepcopy(value)
