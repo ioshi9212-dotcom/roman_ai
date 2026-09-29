@@ -38,18 +38,17 @@ Backend = канон. Сцены показывай игроку. Actions вып
 
 Если `first_chunk_included=true`, chunk 0 уже прочитан. Не запрашивай его повторно. Все остальные chunks читай через `getTurnPacketChunk` до конца.
 
-В packet уже приходят:
-- режиссёрский контекст;
-- recent/continuity;
-- POV;
-- физически присутствующие персонажи;
-- удалённо участвующие персонажи;
-- их карточки;
-- их собственные знания/knowledge journal;
-- отношения/intents;
-- cast registry;
+В экспериментальном knowledge-slice packet приходят:
+- `scene_contract` — текущая физическая сцена, ввод POV и короткая публичная непрерывность;
+- `director_cues` — направление истории, но НЕ личные знания NPC;
+- `character_slices` — отдельный срез для каждого физически/удалённо участвующего персонажа: `self_profile`, personal memory, отношения, current state и intents;
+- cast registry внутри director_cues;
 - `runtime_rules`;
 - `scene_builder`.
+
+Для реплики/вывода/осмысленной реакции конкретного NPC сначала используй ЕГО `character_slices[character_id]`. `director_cues` не являются источником фактов для NPC.
+
+`self_profile` — нормальное самознание персонажа. Возраст, имя, работа, внешность, семья, привычки и помнимая им биография доступны без дублирования в knowledge journal. Только явно hidden/unknown-to-self ветки собственной анкеты недоступны.
 
 Пиши сцену строго по `runtime_rules` и `scene_builder`. Не создавай собственный второй набор режиссёрских правил.
 
