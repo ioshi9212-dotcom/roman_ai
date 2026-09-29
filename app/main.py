@@ -734,6 +734,7 @@ def turns_commit(session_id: str, body: TurnCommit):
             "CAST_STORY_FUNCTION_REQUIRED": "A recurring/important story-created NPC needs character_upserts.story_function: one short director-level sentence explaining why this NPC matters to the story, not the NPC's personal goal.",
             "SCENE_BUILDER_REVIEW_REQUIRED": "Review the complete final scene against scene_builder before retrying the same commitTurn.",
             "PERSISTENCE_REVIEW_REQUIRED": "Review durable persistence for the completed scene before retrying the same commitTurn.",
+            "KNOWLEDGE_REVIEW_REQUIRED": "Review what every participating character learned or retained before retrying the same commitTurn.",
         }
         if code in errors:
             raise HTTPException(status_code=409, detail=errors[code])
