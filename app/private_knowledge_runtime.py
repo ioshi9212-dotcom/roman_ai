@@ -41,7 +41,7 @@ def _norm(value: Any) -> str:
 
 
 def _stem(value: str) -> str:
-    word = _norm(value).strip(".,!?;:()[]{}\\"'«»")
+    word = _norm(value).strip(".,!?;:()[]{}'«»")
     for ending in (
         "иями", "ями", "ами", "ого", "ему", "ому", "ыми", "ими",
         "ах", "ях", "ом", "ем", "ам", "ям", "ой", "ей", "ую", "юю",
