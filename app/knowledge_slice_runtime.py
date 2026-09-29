@@ -339,6 +339,7 @@ def apply_sliced_writer_context(
     result.pop("character_registry", None)
     result.pop("character_registry_instruction", None)
 
+    result["scene_state"] = {"current": deepcopy(current)}
     result["scene_contract"] = scene_contract
     result["director_cues"] = director_cues
     result["character_slices"] = slices
