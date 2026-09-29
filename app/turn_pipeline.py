@@ -67,6 +67,9 @@ def _packet_manifest(packet: Dict[str, Any], *, reused: bool) -> Dict[str, Any]:
         "next_chunk_index": unread[0] if unread else None,
         "all_chunks_read": not unread,
         "turn_pipeline_version": PIPELINE_VERSION,
+        "knowledge_review_required": bool(packet.get("knowledge_review_required")),
+        "memory_reconciliation_required": bool(packet.get("memory_reconciliation_required")),
+        "memory_reconciliation_range": deepcopy(packet.get("memory_reconciliation_range")),
         "instruction": (
             "Pending packet reused. Read only unread chunks, silently re-check the final scene against Scene Builder, and commit once."
             if reused
@@ -563,6 +566,17 @@ def _prepare_context(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
         ),
     }
     context["scene_presence"] = scene_presence
+
+    context["knowledge_persistence_review"] = {
+        "required": True,
+        "character_ids": scene_ids,
+        "instruction": (
+            "After the scene review every listed character separately. Save only durable facts that this character "
+            "personally learned and may need later into knowledge_journal_add. Do not save routine speech line-by-line, "
+            "do not copy chronology/director knowledge, and do not omit a character just because no journal entry is needed. "
+            "After checking all listed IDs set knowledge_reviewed=true and echo all of them in knowledge_reviewed_character_ids."
+        ),
+    }
 
     persistence = context.get("persistence_contract")
     persistence = deepcopy(persistence) if isinstance(persistence, dict) else {}
