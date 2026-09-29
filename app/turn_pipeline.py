@@ -14,6 +14,7 @@ from . import (
     fast_audit_runtime,
     game_day,
     knowledge_firewall_runtime,
+    knowledge_persistence_runtime,
     memory_integrity_runtime,
     npc_intent,
     private_knowledge_runtime,
@@ -410,6 +411,7 @@ def prepare_turn_packet(session_id: str, user_input: str) -> Dict[str, Any]:
     _current_pointer_guard(session_id)
     _clear_legacy_audit_gate(root)
     game_day._sync_session_game_day(session_id)
+    knowledge_persistence_runtime.repair_personal_memory_from_safe_chronology(session_id)
 
     with session_transaction(root):
         meta = storage._read_json(root / "meta.json", {})
@@ -735,7 +737,21 @@ def commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     prepared = _apply_story_and_intent_updates(session_id, prepared)
     prepared = _apply_relationship_changes(session_id, prepared)
     prepared = cast_registry_runtime._with_registry_patch(session_id, prepared)
+    raw_chronology = deepcopy(
+        prepared.get("extracted", {}).get("chronology", [])
+        if isinstance(prepared.get("extracted"), dict)
+        else []
+    )
     prepared = _normalise_chronology_for_save(session_id, prepared)
+    prepared = knowledge_persistence_runtime.attach_explicit_chronology_participants(
+        session_id,
+        prepared,
+        raw_chronology,
+    )
+    prepared = knowledge_persistence_runtime.mirror_explicit_chronology_to_personal_memory(
+        session_id,
+        prepared,
+    )
     prepared = memory_integrity_runtime._canonicalize_memory_payload(
         session_id,
         prepared,
