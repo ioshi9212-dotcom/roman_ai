@@ -683,6 +683,11 @@ def redact_private_history(context: Dict[str, Any], *, root, cards: List[Dict[st
     result = deepcopy(context)
     state = storage._read_json(root / "state.json", {})
     pov_id = _pov_id(state)
+    stored_turns = {
+        int(turn.get("turn_number", 0) or 0): turn
+        for turn in storage._read_turns(root)
+        if isinstance(turn, dict) and int(turn.get("turn_number", 0) or 0) > 0
+    }
     total = 0
     for key in ("recent_turns", "continuity_turns"):
         rows = result.get(key)
@@ -700,7 +705,8 @@ def redact_private_history(context: Dict[str, Any], *, root, cards: List[Dict[st
                 cards,
                 turn_number=int(row.get("turn_number", 0) or 0),
             )
-            remote_records = _historical_remote_records(row, cards, pov_id=pov_id)
+            source_turn = stored_turns.get(int(row.get("turn_number", 0) or 0), row)
+            remote_records = _historical_remote_records(source_turn, cards, pov_id=pov_id)
             records.extend(remote_records)
 
             if records:
