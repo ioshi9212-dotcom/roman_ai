@@ -31,6 +31,11 @@ components:
           type: array
           items:
             type: string
+        knowledge_participants:
+          type: array
+          description: Characters who personally know the durable meaning of this chronology event. Use only when they actually learned it.
+          items:
+            type: string
         importance:
           type: string
           enum: [normal, major, anchor, critical]
