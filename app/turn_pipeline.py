@@ -16,6 +16,7 @@ from . import (
     knowledge_firewall_runtime,
     memory_integrity_runtime,
     npc_intent,
+    private_knowledge_runtime,
     profile_templates,
     relationship_metadata,
     relationship_runtime,
