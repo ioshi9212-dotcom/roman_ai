@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Roman AI
-  version: 2.0.2
+  version: 2.0.3
   description: Rules-driven interactive novel sessions with character-scoped knowledge, dynamic relationships, cast continuity, recovery, rollback, continuation compaction and lossless setup intake.
 servers:
   - url: https://ai-roman-yumikofv.mia0.amvera.tech
@@ -413,7 +413,7 @@ components:
           minLength: 1
         confirm:
           type: boolean
-          enum: [true]
+          description: Must be true when the user explicitly requested rollback.
       additionalProperties: false
 
     PresenceUpdate:
