@@ -724,8 +724,7 @@ def _participation_bundle(session_id: str, character_id: str) -> Dict[str, Any]:
     if simple_profile_runtime._simple_session(storage.SESSIONS_DIR / session_id):
         simple_profile_runtime._ORIGINAL_PARTICIPATION_BUNDLE = _BASE_PARTICIPATION_BUNDLE
         return simple_profile_runtime._participation_bundle(session_id, character_id)
-    knowledge_firewall_runtime._ORIGINAL_PARTICIPATION_BUNDLE = _BASE_PARTICIPATION_BUNDLE
-    return knowledge_firewall_runtime._strict_participation_bundle(session_id, character_id)
+    return dict(_BASE_PARTICIPATION_BUNDLE(session_id, character_id))
 
 
 def install() -> None:
