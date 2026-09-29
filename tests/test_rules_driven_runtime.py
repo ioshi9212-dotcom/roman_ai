@@ -269,6 +269,134 @@ def test_generated_remote_message_is_persisted_for_sender_and_pov():
         assert "живая. чего тебе?" in bundle_text
 
 
+def test_remote_message_survives_when_sender_enters_physically_later_same_turn():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        novel = base_novel()
+        novel["characters"] = [
+            {"character_id": "pov", "name": "Рината", "is_pov": True},
+            {"character_id": "enzhe", "name": "Энже"},
+        ]
+        novel["starting_state"]["pov"] = {"character_id": "pov"}
+        novel["starting_state"]["current"]["present_characters"] = ["pov"]
+        novel["starting_state"]["current"]["remote_characters"] = ["enzhe"]
+        sid = storage.create_session(novel)["session_id"]
+
+        manifest = session_runtime.prepare_turn_packet(sid, "(посмотреть на телефон)")
+        read_all(manifest, sid)
+        session_runtime.commit_turn(
+            sid,
+            {
+                "packet_id": manifest["packet_id"],
+                "user_input": "(посмотреть на телефон)",
+                "scene_output": (
+                    "**Энже (в сообщениях)** — Открой дверь.\n"
+                    "Через некоторое время Энже вошла в комнату."
+                ),
+                "extracted": {
+                    "presence_updates": [{"character_id": "enzhe", "action": "enter"}],
+                    "state_patch": {"current": {"remote_characters": []}},
+                },
+            },
+        )
+
+        memory = storage._normalise_memory(
+            storage._read_json(storage.SESSIONS_DIR / sid / "memory.json", {})
+        )
+        enzhe_text = " ".join(
+            row["text"] for row in memory["characters"]["enzhe"]["knowledge_journal"]
+        )
+        pov_text = " ".join(
+            row["text"] for row in memory["characters"]["pov"]["knowledge_journal"]
+        )
+        assert "Открой дверь." in enzhe_text
+        assert "Открой дверь." in pov_text
+
+
+def test_autonomous_pov_remote_reply_is_persisted_when_counterpart_is_unambiguous():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        novel = base_novel()
+        novel["characters"] = [
+            {"character_id": "pov", "name": "Рината", "is_pov": True},
+            {"character_id": "enzhe", "name": "Энже"},
+        ]
+        novel["starting_state"]["pov"] = {"character_id": "pov"}
+        novel["starting_state"]["current"]["present_characters"] = ["pov"]
+        novel["starting_state"]["current"]["remote_characters"] = ["enzhe"]
+        sid = storage.create_session(novel)["session_id"]
+
+        manifest = session_runtime.prepare_turn_packet(sid, "(посмотреть на телефон)")
+        read_all(manifest, sid)
+        session_runtime.commit_turn(
+            sid,
+            {
+                "packet_id": manifest["packet_id"],
+                "user_input": "(посмотреть на телефон)",
+                "scene_output": (
+                    "**Энже (в сообщениях)** — Живая?\n"
+                    "**Рината** — *(в сообщениях)* Живая. Чего тебе?"
+                ),
+                "extracted": {},
+            },
+        )
+
+        memory = storage._normalise_memory(
+            storage._read_json(storage.SESSIONS_DIR / sid / "memory.json", {})
+        )
+        enzhe_text = " ".join(
+            row["text"] for row in memory["characters"]["enzhe"]["knowledge_journal"]
+        )
+        pov_text = " ".join(
+            row["text"] for row in memory["characters"]["pov"]["knowledge_journal"]
+        )
+        assert "Живая?" in enzhe_text
+        assert "Живая. Чего тебе?" in enzhe_text
+        assert "Живая?" in pov_text
+        assert "Живая. Чего тебе?" in pov_text
+
+
+def test_direct_user_remote_reply_is_not_duplicated_by_scene_echo():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        novel = base_novel()
+        novel["characters"] = [
+            {"character_id": "pov", "name": "Рината", "is_pov": True},
+            {"character_id": "enzhe", "name": "Энже"},
+        ]
+        novel["starting_state"]["pov"] = {"character_id": "pov"}
+        novel["starting_state"]["current"]["present_characters"] = ["pov"]
+        novel["starting_state"]["current"]["remote_characters"] = ["enzhe"]
+        sid = storage.create_session(novel)["session_id"]
+
+        user_input = "(ответить Энже - Живая. Чего тебе?)"
+        manifest = session_runtime.prepare_turn_packet(sid, user_input)
+        read_all(manifest, sid)
+        session_runtime.commit_turn(
+            sid,
+            {
+                "packet_id": manifest["packet_id"],
+                "user_input": user_input,
+                "scene_output": "**Рината** — *(в сообщениях)* Живая. Чего тебе?",
+                "extracted": {},
+            },
+        )
+
+        memory = storage._normalise_memory(
+            storage._read_json(storage.SESSIONS_DIR / sid / "memory.json", {})
+        )
+        enzhe_rows = [
+            row["text"] for row in memory["characters"]["enzhe"]["knowledge_journal"]
+            if "Живая. Чего тебе?" in row["text"]
+        ]
+        pov_rows = [
+            row["text"] for row in memory["characters"]["pov"]["knowledge_journal"]
+            if "Живая. Чего тебе?" in row["text"]
+        ]
+        assert len(enzhe_rows) == 1
+        assert len(pov_rows) == 1
+
+
 def test_turn_commit_schema_exposes_review_flags_without_exact_scene_format():
     model = TurnCommit(
         packet_id="packet",
