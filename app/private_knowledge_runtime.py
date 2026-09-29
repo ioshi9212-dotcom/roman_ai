@@ -97,7 +97,14 @@ def _resolve_recipient(token: str, exact: Dict[str, str], stems: Dict[str, str])
 
 def _looks_like_action(sentence: str) -> bool:
     words = re.findall(r"(?iu)[a-zа-яё][a-zа-яё-]+", str(sentence or ""))[:4]
-    if not words:\n        return False\n    stems = [_stem(word) for word in words[:2]]\n    return any(stem in _ACTION_STEMS or stem.startswith(("продолж", "остан", "вернут", "посмотр", "ответ")) for stem in stems)
+    if not words:
+        return False
+    stems = [_stem(word) for word in words[:2]]
+    return any(
+        stem in _ACTION_STEMS
+        or stem.startswith(("продолж", "остан", "вернут", "посмотр", "ответ"))
+        for stem in stems
+    )
 
 
 def _communication_payload(stage_text: str, match_end: int) -> tuple[str, int]:
