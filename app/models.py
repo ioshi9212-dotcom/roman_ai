@@ -64,6 +64,7 @@ class SessionCreate(BaseModel):
 class TurnPrepare(BaseModel):
     user_input: str
     request_id: Optional[str] = Field(default=None, min_length=1, max_length=120)
+    opening_scene: bool = False
     scene_archive_capable: bool = False
     replace_pending: bool = False
 
