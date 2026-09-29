@@ -388,6 +388,10 @@ components:
         scene_archive_capable:
           type: boolean
           default: false
+        knowledge_review_capable:
+          type: boolean
+          default: true
+          description: Keep true for normal gameplay so commitTurn requires explicit per-character durable-knowledge review and periodic reconciliation when due.
         replace_pending:
           type: boolean
           default: false
