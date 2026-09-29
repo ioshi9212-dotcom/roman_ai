@@ -263,6 +263,11 @@ def test_generated_remote_message_is_persisted_for_sender_and_pov():
         assert "живая. чего тебе?" in enzhe_text
         assert "Живая?" in enzhe_text
 
+        bundle = character_chunk_read._participation_bundle(sid, "enzhe")
+        bundle_text = json.dumps(bundle, ensure_ascii=False)
+        assert "Живая?" in bundle_text
+        assert "живая. чего тебе?" in bundle_text
+
 
 def test_turn_commit_schema_exposes_review_flags_without_exact_scene_format():
     model = TurnCommit(
