@@ -9,12 +9,12 @@ from fastapi import HTTPException
 from . import storage, writer_first_runtime
 
 
-_SPEECH_RE = re.compile(r"(?m)^\\s*\\*\\*(?P<speaker>[^*\\n]+)\\*\\*\\s*[—-]\\s*(?P<text>.*)$")
+_SPEECH_RE = re.compile(r"(?m)^\s*\*\*(?P<speaker>[^*\n]+)\*\*\s*[—-]\s*(?P<text>.*)$")
 _COMMUNICATION_RE = re.compile(
-    r"(?iu)\\b(?:написать|ответить|отправить|переслать|сказать|сообщить|шепнуть|показать|позвонить)\\s+([^\\s,.;:()—-]+)"
+    r"(?iu)\b(?:написать|ответить|отправить|переслать|сказать|сообщить|шепнуть|показать|позвонить)\s+([^\s,.;:()—-]+)"
 )
 _CHAT_RE = re.compile(
-    r"(?iu)\\b(?:переписк\\w*|чат\\w*)\\s+(?:с|для)\\s+([^\\s,.;:()—-]+)"
+    r"(?iu)\b(?:переписк\w*|чат\w*)\s+(?:с|для)\s+([^\s,.;:()—-]+)"
 )
 _ACTION_PREFIXES = {
     "встать", "сесть", "подойти", "отойти", "пойти", "уйти", "вернуться", "взять", "достать",
@@ -41,7 +41,7 @@ def _norm(value: Any) -> str:
 
 
 def _stem(value: str) -> str:
-    word = _norm(value).strip(".,!?;:()[]{}\\\"'«»")
+    word = _norm(value).strip(".,!?;:()[]{}\\"'«»")
     for ending in (
         "иями", "ями", "ами", "ого", "ему", "ому", "ыми", "ими",
         "ах", "ях", "ом", "ем", "ам", "ям", "ой", "ей", "ую", "юю",
@@ -102,8 +102,8 @@ def _looks_like_action(sentence: str) -> bool:
 
 def _communication_payload(stage_text: str, match_end: int) -> tuple[str, int]:
     tail_source = str(stage_text or "")[match_end:]
-    leading = len(tail_source) - len(tail_source.lstrip(" \\t,:"))
-    tail = tail_source.lstrip(" \\t,:")
+    leading = len(tail_source) - len(tail_source.lstrip(" \t,:"))
+    tail = tail_source.lstrip(" \t,:")
     consumed = leading
     if tail.startswith("-") or tail.startswith("—"):
         tail = tail[1:].strip()
@@ -111,7 +111,7 @@ def _communication_payload(stage_text: str, match_end: int) -> tuple[str, int]:
     if not tail:
         return "", match_end
 
-    parts = re.split(r"(?<=[.!?])\\s+", tail)
+    parts = re.split(r"(?<=[.!?])\s+", tail)
     kept: List[str] = []
     consumed_text = ""
     for index, part in enumerate(parts):
@@ -180,7 +180,7 @@ def _authorized_corpus(root, character_id: str, cards: List[Dict[str, Any]]) -> 
     knowledge = bucket.get("knowledge", [])
     if isinstance(knowledge, list):
         pieces.extend(str(row) for row in knowledge)
-    return "\\n".join(piece for piece in pieces if piece)
+    return "\n".join(piece for piece in pieces if piece)
 
 
 def _speaker_units(scene_output: str, cards: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -257,7 +257,7 @@ def validate_private_knowledge(session_id: str, payload: Dict[str, Any]) -> None
             continue
 
         corpus = _authorized_corpus(root, cid, cards)
-        allowed_terms = _terms(corpus + "\\n" + "\\n".join(earlier_public_speech))
+        allowed_terms = _terms(corpus + "\n" + "\n".join(earlier_public_speech))
         for record in records:
             if cid == str(record.get("recipient_id") or ""):
                 continue
