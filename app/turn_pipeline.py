@@ -30,6 +30,7 @@ from . import (
     storage,
     story_thread,
     transport_scope_runtime,
+    turn_context,
     writer_first_runtime,
 )
 from .transactional_storage import session_transaction
@@ -42,7 +43,7 @@ _BASE_PARTICIPATION_BUNDLE = character_chunk_read._participation_bundle
 _BASE_CREATE_SESSION = storage.create_session
 _BASE_RECOVER_CURRENT = session_recovery.recover_session_current
 
-PIPELINE_VERSION = 3
+PIPELINE_VERSION = 4
 
 
 def _packet_manifest(packet: Dict[str, Any], *, reused: bool) -> Dict[str, Any]:
@@ -242,6 +243,9 @@ def _clean_director_layers(context: Dict[str, Any]) -> Dict[str, Any]:
         "character_context_instruction",
         "relationship_lens_instruction",
         "npc_intent_instruction",
+        "simple_knowledge_rules",
+        "speaker_context",
+        "director_only",
     ):
         result.pop(key, None)
 
@@ -254,6 +258,7 @@ def _clean_director_layers(context: Dict[str, Any]) -> Dict[str, Any]:
         "hidden_director_guard_layers": False,
         "backend_semantic_scene_gates": False,
         "simple_name_mention_does_not_load_offscreen_card": True,
+        "active_character_knowledge_rebuilt_from_persistent_memory": True,
     })
     result["working_context_contract"] = contract
     _clean_relationship_lens(result)
@@ -315,13 +320,33 @@ def _prepare_context(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
 
     scene_ids = _scene_ids(state, cards)
     context["relevant_character_ids"] = scene_ids
-    context["character_profiles"] = {
-        cid: profile_templates.render_character_profile(
-            next(card for card in cards if storage._card_id(card) == cid)
-        )
-        for cid in scene_ids
-        if any(storage._card_id(card) == cid for card in cards)
+
+    card_map = {
+        storage._card_id(card): card
+        for card in cards
+        if storage._card_id(card)
     }
+    context["character_cards"] = [
+        deepcopy(card_map[cid])
+        for cid in scene_ids
+        if cid in card_map
+    ]
+    context["character_profiles"] = {
+        cid: profile_templates.render_character_profile(card_map[cid])
+        for cid in scene_ids
+        if cid in card_map
+    }
+
+    memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
+    memory_buckets = memory.get("characters", {}) if isinstance(memory.get("characters"), dict) else {}
+    context["character_memory"] = {
+        cid: turn_context._working_memory_bucket(memory_buckets.get(cid, {}), current_turn)
+        for cid in scene_ids
+    }
+    context["character_knowledge_rule"] = (
+        "For each POV/NPC use only that character's self-known card facts, own character_memory, "
+        "current perception and real communication. Other cards, other memory, chronology and director lore are not personal knowledge."
+    )
     context["cast_registry"] = {
         "persistent": True,
         "registry_index_path": "cast_registry.characters",
@@ -388,7 +413,20 @@ def prepare_turn_packet(session_id: str, user_input: str) -> Dict[str, Any]:
             and isinstance(pending.get("chunks"), list)
             and pending.get("chunks")
         ):
-            return _packet_manifest(pending, reused=True)
+            if int(pending.get("turn_pipeline_version", 0) or 0) == PIPELINE_VERSION:
+                return _packet_manifest(pending, reused=True)
+
+    if (
+        isinstance(pending, dict)
+        and pending.get("packet_id")
+        and int(pending.get("prepared_for_turn", 0) or 0) == expected_turn
+        and str(pending.get("user_input") or "") == str(user_input)
+        and isinstance(pending.get("chunks"), list)
+        and pending.get("chunks")
+    ):
+        _prepare_context(session_id, _packet_manifest(pending, reused=True))
+        refreshed = storage._read_json(root / "turn_packet.json", {})
+        return _packet_manifest(refreshed, reused=True)
 
     base = dict(_BASE_PREPARE(session_id, user_input))
     return _prepare_context(session_id, base)
