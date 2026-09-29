@@ -14,6 +14,10 @@ SELF_HIDDEN_KEYS = {
     "not_known_to_self",
     "author_only",
 }
+AUTHOR_META_KEYS = {
+    "is_pov",
+    "story_function",
+}
 RAW_WRITER_KEYS = {
     "recent_turns",
     "continuity_turns",
@@ -88,7 +92,7 @@ def self_known_card(value: Any) -> Any:
         result: Dict[str, Any] = {}
         for key, item in value.items():
             norm = str(key).strip().casefold()
-            if norm in SELF_HIDDEN_KEYS or norm == "known_to_self":
+            if norm in SELF_HIDDEN_KEYS or norm == "known_to_self" or norm in AUTHOR_META_KEYS:
                 continue
             cleaned = self_known_card(item)
             if cleaned is not None:
@@ -196,6 +200,7 @@ def character_slices(
         card = card_map.get(cid, {})
         result[cid] = {
             "character_id": cid,
+            "actor_profile": deepcopy(card),
             "self_profile": self_known_card(card) or {},
             "personal_memory": turn_context._working_memory_bucket(
                 memory_buckets.get(cid, {}),
@@ -209,6 +214,7 @@ def character_slices(
             "relationship_to_pov": deepcopy(storage._relationship_hint(state, cid)),
             "active_intents": deepcopy(intents.get(cid, [])),
             "knowledge_scope": {
+                "actor_profile_is_for_characterization_not_personal_knowledge": True,
                 "self_profile_is_self_known": True,
                 "ordinary_self_facts_do_not_need_duplicate_memory": True,
                 "examples_of_ordinary_self_facts": [
@@ -230,6 +236,7 @@ def character_slices(
                 ],
                 "not_personal_knowledge": [
                     "director_cues",
+                    "actor_profile author metadata unless the same fact is also in self_profile",
                     "objective chronology",
                     "another character's self_profile",
                     "another character's personal_memory",
@@ -237,6 +244,7 @@ def character_slices(
                     "offscreen private communication not received by this character",
                 ],
                 "rule": (
+                    "Use actor_profile to portray personality, voice and story function, but never as automatic factual knowledge. "
                     "Use self_profile freely for this character's own normal biography. "
                     "Do not require an age/job/name/self-history fact to be duplicated in personal_memory. "
                     "For facts about other people or offscreen events, use only this character's personal_memory "
