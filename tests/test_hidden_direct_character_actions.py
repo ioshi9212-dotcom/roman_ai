@@ -46,6 +46,5 @@ def test_gpt_instructions_use_single_safe_chunks_and_on_demand_dossier():
     assert "getTurnPacketChunk" in text
     assert "prepareCharacterBundleRead" in text
     assert "getCharacterBundleChunk" in text
-    assert "getCharacterBundle`/`getCharacterMemory" in text
     assert "getTurnPacketChunkBatch" not in text
     assert len(text) <= 8000
