@@ -223,6 +223,29 @@ def test_incomplete_packet_error_precedes_writer_review_gate():
             commit_turn_request(sid, payload)
 
 
+def test_preexisting_pending_packet_is_not_retroactively_writer_review_gated():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(base_novel())["session_id"]
+
+        # Simulates a packet created before the public writer-review flag existed.
+        manifest = session_runtime.prepare_turn_packet(sid, "(посмотреть на NPC)")
+        read_all(manifest, sid)
+        packet = storage._read_json(storage.SESSIONS_DIR / sid / "turn_packet.json", {})
+        assert not packet.get("writer_review_required")
+
+        result = commit_turn_request(
+            sid,
+            {
+                "packet_id": manifest["packet_id"],
+                "user_input": "(посмотреть на NPC)",
+                "scene_output": "Сцена продолжается.",
+                "extracted": {},
+            },
+        )
+        assert result["turn_number"] == 1
+
+
 def test_generated_remote_message_is_persisted_for_sender_and_pov():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
