@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Roman AI
-  version: 2.0.0
+  version: 2.0.1
   description: Rules-driven interactive novel sessions with character-scoped knowledge, dynamic relationships, cast continuity, recovery, rollback, continuation compaction and lossless setup intake.
 servers:
   - url: https://ai-roman-yumikofv.mia0.amvera.tech
@@ -21,13 +21,13 @@ components:
       properties:
         knowledge:
           type: array
-          items: {}
+          items: {type: string}
         experiences:
           type: array
-          items: {}
+          items: {type: string}
         dialogue_memory:
           type: array
-          items: {}
+          items: {type: string}
       additionalProperties: true
 
     ContinuationFinalPackage:
@@ -207,10 +207,10 @@ components:
         current_dynamic: {type: string}
         beliefs_about_target:
           type: array
-          items: {}
+          items: {type: string}
         unresolved_between_them:
           type: array
-          items: {}
+          items: {type: string}
         relationship_type: {type: string}
         relationship_context: {type: string}
       additionalProperties: true
@@ -226,7 +226,7 @@ components:
         kind: {type: string}
         summary: {type: string}
         status: {type: string}
-        priority: {}
+
         trigger: {type: string}
         why_it_matters: {type: string}
         planned_action: {type: string}
@@ -249,22 +249,22 @@ components:
         title: {type: string}
         summary: {type: string}
         status: {type: string}
-        priority: {}
+
         premise: {type: string}
         current_goal: {type: string}
         current_phase: {type: string}
         unresolved:
           type: array
-          items: {}
+          items: {type: string}
         end_conditions:
           type: array
-          items: {}
+          items: {type: string}
         possible_routes:
           type: array
-          items: {}
+          items: {type: string}
         anchor_facts:
           type: array
-          items: {}
+          items: {type: string}
         pillar_ids:
           type: array
           items: {type: string}
