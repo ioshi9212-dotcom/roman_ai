@@ -130,6 +130,23 @@ def test_packet_has_no_hidden_director_guard_stack_and_rules_are_last():
         assert context["working_context_contract"]["precommit_review_gates"] == ["scene_builder", "persistence", "knowledge"]
 
 
+def test_legacy_story_rule_is_absent_from_actual_turn_packet():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        novel = base_novel()
+        novel["novel"]["story_rules"] = (
+            "Если игрок не дал реплику, не придумывать её. "
+            "NPC действуют самостоятельно."
+        )
+        sid = storage.create_session(novel)["session_id"]
+
+        _, context = read_context(sid, "(посмотреть на NPC)")
+        blob = json.dumps(context, ensure_ascii=False).casefold()
+        assert "если игрок не дал реплику" not in blob
+        assert "не придумывать её" not in blob
+        assert "npc действуют самостоятельно" in blob
+
+
 def test_active_character_receives_complete_knowledge_journal_in_packet():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
@@ -143,7 +160,9 @@ def test_active_character_receives_complete_knowledge_journal_in_packet():
         ]
         storage._write_json(root / "memory.json", memory)
 
-        _, context = read_context(sid, "(посмотреть на NPC)")
+        manifest, context = read_context(sid, "(посмотреть на NPC)")
+        assert manifest["chunk_chars_max"] == 32000
+        assert manifest["chunk_count"] <= 4
         journal = context["character_memory"]["npc"]["knowledge_journal"]
         assert isinstance(journal, str)
         assert context["character_memory"]["npc"]["knowledge_journal_entry_count"] == 120
@@ -1225,7 +1244,8 @@ def test_legacy_pending_packet_is_refreshed_into_current_knowledge_context():
             "".join(storage._read_json(root / "turn_packet.json", {})["chunks"])
         )
         assert "simple_knowledge_rules" not in rebuilt
-        assert rebuilt["character_memory"]["npc"]["knowledge_journal"][0]["text"] == "NPC уже знает этот факт."
+        assert rebuilt["character_memory"]["npc"]["knowledge_journal"] == "NPC уже знает этот факт."
+        assert rebuilt["character_memory"]["npc"]["knowledge_journal_entry_count"] == 1
         assert rebuilt["working_context_contract"]["active_character_knowledge_rebuilt_from_persistent_memory"] is True
 
 
