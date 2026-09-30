@@ -40,6 +40,9 @@ _COMMUNICATION_WORDS = {
     "писать", "написать", "ответить", "отправить", "переслать", "сказать", "сообщить",
     "шепнуть", "показать", "позвонить", "сообщение", "переписка", "чат",
 }
+_EXPLICIT_SINGLE_SECRET_RE = re.compile(
+    r"(?iu)\b(?:кодовое\s+слово|секретное\s+слово|парол\w*|пин(?:-?код)?)\s*[:—-]?\s*([a-zа-яё][a-zа-яё-]{3,})\b"
+)
 
 
 def _norm(value: Any) -> str:
@@ -397,13 +400,29 @@ def _private_records(root, cards: List[Dict[str, Any]], current_user_input: str 
     return rows
 
 
-def _leaked_terms(text: str, protected_terms: set[str], allowed_terms: set[str]) -> List[str]:
+def _explicit_single_secret_terms(payload: str) -> set[str]:
+    result: set[str] = set()
+    for match in _EXPLICIT_SINGLE_SECRET_RE.finditer(str(payload or "")):
+        result.update(_terms(match.group(1)))
+    return result
+
+
+def _leaked_terms(
+    text: str,
+    protected_terms: set[str],
+    allowed_terms: set[str],
+    *,
+    protected_payload: str = "",
+) -> List[str]:
     used = _terms(text)
     leaked = (used & protected_terms) - allowed_terms
-    strong = sorted(term for term in leaked if len(term) >= 7)
-    if strong:
-        return strong
-    return sorted(leaked) if len(leaked) >= 2 else []
+    if len(leaked) >= 2:
+        return sorted(leaked)
+    if len(leaked) == 1:
+        term = next(iter(leaked))
+        if term in _explicit_single_secret_terms(protected_payload):
+            return [term]
+    return []
 
 
 def _mentions_private_contact(text: str, record: Dict[str, Any]) -> bool:
@@ -559,7 +578,12 @@ def validate_private_knowledge(session_id: str, payload: Dict[str, Any]) -> None
             record_sources = _record_source_ids(record, pov_id=pov_id)
             source_was_transferred = bool(record_sources & transfer_sources.get(cid, set()))
             protected = set(record.get("terms") or [])
-            leaked = _leaked_terms(text, protected, allowed_terms)
+            leaked = _leaked_terms(
+                text,
+                protected,
+                allowed_terms,
+                protected_payload=str(record.get("payload") or ""),
+            )
             contact_leak = _mentions_private_contact(text, record) and not source_was_transferred
             if leaked or contact_leak:
                 raise HTTPException(
@@ -595,7 +619,12 @@ def validate_private_knowledge(session_id: str, payload: Dict[str, Any]) -> None
                     continue
                 record_sources = _record_source_ids(record, pov_id=pov_id)
                 source_was_transferred = bool(record_sources & transfer_sources.get(cid, set()))
-                leaked = _leaked_terms(text, set(record.get("terms") or []), allowed_terms)
+                leaked = _leaked_terms(
+                    text,
+                    set(record.get("terms") or []),
+                    allowed_terms,
+                    protected_payload=str(record.get("payload") or ""),
+                )
                 if leaked or (_mentions_private_contact(text, record) and not source_was_transferred):
                     raise HTTPException(
                         status_code=409,
