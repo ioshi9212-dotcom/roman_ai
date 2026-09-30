@@ -170,8 +170,8 @@ def test_active_character_receives_complete_knowledge_journal_in_packet():
         storage._write_json(root / "memory.json", memory)
 
         manifest, context = read_context(sid, "(посмотреть на NPC)")
-        assert manifest["chunk_chars_max"] == 32000
-        assert manifest["chunk_count"] <= 4
+        assert manifest["chunk_chars_max"] == 16000
+        assert manifest["chunk_count"] <= 8
         journal = context["character_memory"]["npc"]["knowledge_journal"]
         assert isinstance(journal, str)
         assert context["character_memory"]["npc"]["knowledge_journal_entry_count"] == 120
