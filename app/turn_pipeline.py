@@ -120,6 +120,15 @@ def _current_pointer_guard(session_id: str) -> None:
     )
 
 
+def _strip_legacy_pov_rule_from_session_source(root) -> None:
+    source = storage._read_json(root / "source.json", {})
+    if not isinstance(source, dict) or not source:
+        return
+    cleaned = profile_templates._strip_legacy_pov_silence_rule(source)
+    if cleaned != source:
+        storage._write_json(root / "source.json", cleaned)
+
+
 def _clear_legacy_audit_gate(root) -> None:
     meta = storage._read_json(root / "meta.json", {})
     if isinstance(meta, dict) and meta.get("audit_required"):
@@ -414,6 +423,7 @@ def prepare_turn_packet(session_id: str, user_input: str) -> Dict[str, Any]:
     stability_runtime._recover_session(session_id)
     _current_pointer_guard(session_id)
     _clear_legacy_audit_gate(root)
+    _strip_legacy_pov_rule_from_session_source(root)
     game_day._sync_session_game_day(session_id)
     knowledge_persistence_runtime.repair_personal_memory_from_safe_chronology(session_id)
     knowledge_persistence_runtime.dedupe_persisted_knowledge_journal(session_id)
