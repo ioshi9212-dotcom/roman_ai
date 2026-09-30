@@ -263,6 +263,9 @@ def _clean_director_layers(context: Dict[str, Any]) -> Dict[str, Any]:
         "active_character_knowledge_rebuilt_from_persistent_memory": True,
     })
     result["working_context_contract"] = contract
+    for key in ("novel_rules", "novel", "author_context", "novel_profile"):
+        if key in result:
+            result[key] = profile_templates._strip_legacy_pov_silence_rule(result[key])
     _clean_relationship_lens(result)
     return result
 
@@ -412,6 +415,7 @@ def prepare_turn_packet(session_id: str, user_input: str) -> Dict[str, Any]:
     _clear_legacy_audit_gate(root)
     game_day._sync_session_game_day(session_id)
     knowledge_persistence_runtime.repair_personal_memory_from_safe_chronology(session_id)
+    knowledge_persistence_runtime.dedupe_persisted_knowledge_journal(session_id)
 
     with session_transaction(root):
         meta = storage._read_json(root / "meta.json", {})
@@ -749,6 +753,10 @@ def commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         raw_chronology,
     )
     prepared = knowledge_persistence_runtime.mirror_explicit_chronology_to_personal_memory(
+        session_id,
+        prepared,
+    )
+    prepared = knowledge_persistence_runtime.dedupe_new_journal_against_persisted(
         session_id,
         prepared,
     )
