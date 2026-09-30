@@ -6,6 +6,7 @@ from copy import deepcopy
 from typing import Any, Dict, List
 
 from . import storage
+from .profile_templates import render_knowledge_journal
 from .relationship_runtime import build_relationship_lens
 from .runtime_access import runtime_documents
 from .scene_compaction_runtime import active_memory_records, complete_knowledge_records
@@ -198,11 +199,12 @@ def _working_memory_bucket(bucket: Any, current_turn: int) -> Dict[str, Any]:
     # a scene participant must therefore reach the model; a recency cap can make a
     # character "forget" an older fact even though it is still persisted.
     knowledge = complete_knowledge_records(source.get("knowledge", []))
-    knowledge_journal = deepcopy(
+    journal_rows = (
         source.get("knowledge_journal", [])
         if isinstance(source.get("knowledge_journal"), list)
         else []
     )
+    knowledge_journal = render_knowledge_journal(journal_rows)
 
     # Experiences and dialogue recollection are supporting context rather than the
     # factual knowledge authority, so they can stay bounded for packet size.
@@ -211,6 +213,7 @@ def _working_memory_bucket(bucket: Any, current_turn: int) -> Dict[str, Any]:
     return {
         "knowledge": deepcopy(knowledge),
         "knowledge_journal": knowledge_journal,
+        "knowledge_journal_entry_count": len(journal_rows),
         "experiences": experiences,
         "dialogue_memory": dialogue,
         "historical_knowledge_catalog": [],
