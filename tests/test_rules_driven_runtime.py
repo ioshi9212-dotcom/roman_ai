@@ -73,6 +73,8 @@ def test_active_runtime_is_author_rules_plus_scene_builder():
     assert "Конец сцены и варианты опираются только на события" in docs["rules"]
     assert "POV не превращается в молчащую камеру" in docs["rules"]
     assert "не обязан ждать нового хода игрока после каждой реплики" in docs["rules"]
+    assert "НЕ задают новый режим молчания" in docs["rules"]
+    assert "Не продолжай молчание только потому, что POV молчал в последних сценах" in docs["rules"]
     assert "Останавливай POV только перед новым значимым выбором" in docs["rules"]
     assert "не ставь мир на паузу ради хода игрока" in docs["rules"]
     assert "Быт не должен замораживать мир" in docs["rules"]
