@@ -45,7 +45,7 @@ _BASE_PARTICIPATION_BUNDLE = character_chunk_read._participation_bundle
 _BASE_CREATE_SESSION = storage.create_session
 _BASE_RECOVER_CURRENT = session_recovery.recover_session_current
 
-PIPELINE_VERSION = 5
+PIPELINE_VERSION = 6
 
 def _packet_manifest(packet: Dict[str, Any], *, reused: bool) -> Dict[str, Any]:
     chunks = packet.get("chunks", []) if isinstance(packet.get("chunks"), list) else []
