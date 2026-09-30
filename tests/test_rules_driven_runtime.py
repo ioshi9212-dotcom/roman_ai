@@ -1615,6 +1615,143 @@ def test_ordinary_message_to_recipient_does_not_unlock_third_party_private_histo
         assert detail.get("character_id") == "chloe"
 
 
+def test_single_ordinary_word_overlap_does_not_trigger_private_leak():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        novel = base_novel()
+        novel["characters"] = [
+            {"character_id": "pov", "name": "Эмили", "is_pov": True},
+            {"character_id": "ren", "name": "Рен"},
+            {"character_id": "chloe", "name": "Хлоя"},
+        ]
+        novel["starting_state"]["pov"] = {"character_id": "pov"}
+        novel["starting_state"]["current"]["present_characters"] = ["pov"]
+        sid = storage.create_session(novel)["session_id"]
+
+        first = session_runtime.prepare_turn_packet(
+            sid,
+            "(ответить Рену - Сегодня здравый смысл победил усталость.)",
+        )
+        read_all(first, sid)
+        session_runtime.commit_turn(
+            sid,
+            {
+                "packet_id": first["packet_id"],
+                "user_input": "(ответить Рену - Сегодня здравый смысл победил усталость.)",
+                "scene_output": (
+                    "**Эмили** — *(в сообщении Рену)* "
+                    "Сегодня здравый смысл победил усталость."
+                ),
+                "extracted": {},
+            },
+        )
+
+        second = session_runtime.prepare_turn_packet(sid, "(поговорить с Хлоей)")
+        read_all(second, sid)
+        result = session_runtime.commit_turn(
+            sid,
+            {
+                "packet_id": second["packet_id"],
+                "user_input": "(поговорить с Хлоей)",
+                "scene_output": "**Хлоя** — Тогда понятно. Сильнейший инстинкт победил.",
+                "extracted": {},
+            },
+        )
+        assert result["turn_number"] == 2
+
+
+def test_two_private_content_terms_still_trigger_leak():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        novel = base_novel()
+        novel["characters"] = [
+            {"character_id": "pov", "name": "Эмили", "is_pov": True},
+            {"character_id": "ren", "name": "Рен"},
+            {"character_id": "chloe", "name": "Хлоя"},
+        ]
+        novel["starting_state"]["pov"] = {"character_id": "pov"}
+        novel["starting_state"]["current"]["present_characters"] = ["pov"]
+        sid = storage.create_session(novel)["session_id"]
+
+        first = session_runtime.prepare_turn_packet(
+            sid,
+            "(ответить Рену - Старый мост и мотоцикл.)",
+        )
+        read_all(first, sid)
+        session_runtime.commit_turn(
+            sid,
+            {
+                "packet_id": first["packet_id"],
+                "user_input": "(ответить Рену - Старый мост и мотоцикл.)",
+                "scene_output": "**Эмили** — *(в сообщении Рену)* Старый мост и мотоцикл.",
+                "extracted": {},
+            },
+        )
+
+        second = session_runtime.prepare_turn_packet(sid, "(поговорить с Хлоей)")
+        read_all(second, sid)
+        with pytest.raises(Exception) as exc:
+            session_runtime.commit_turn(
+                sid,
+                {
+                    "packet_id": second["packet_id"],
+                    "user_input": "(поговорить с Хлоей)",
+                    "scene_output": "**Хлоя** — Старый мост и мотоцикл, значит?",
+                    "extracted": {},
+                },
+            )
+        detail = getattr(exc.value, "detail", {})
+        assert isinstance(detail, dict)
+        assert detail.get("code") == "PRIVATE_COMMUNICATION_KNOWLEDGE_LEAK"
+        assert detail.get("character_id") == "chloe"
+
+
+def test_explicit_one_word_code_still_triggers_private_leak():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        novel = base_novel()
+        novel["characters"] = [
+            {"character_id": "pov", "name": "Эмили", "is_pov": True},
+            {"character_id": "ren", "name": "Рен"},
+            {"character_id": "chloe", "name": "Хлоя"},
+        ]
+        novel["starting_state"]["pov"] = {"character_id": "pov"}
+        novel["starting_state"]["current"]["present_characters"] = ["pov"]
+        sid = storage.create_session(novel)["session_id"]
+
+        first = session_runtime.prepare_turn_packet(
+            sid,
+            "(ответить Рену - Кодовое слово мандариновый.)",
+        )
+        read_all(first, sid)
+        session_runtime.commit_turn(
+            sid,
+            {
+                "packet_id": first["packet_id"],
+                "user_input": "(ответить Рену - Кодовое слово мандариновый.)",
+                "scene_output": "**Эмили** — *(в сообщении Рену)* Кодовое слово мандариновый.",
+                "extracted": {},
+            },
+        )
+
+        second = session_runtime.prepare_turn_packet(sid, "(поговорить с Хлоей)")
+        read_all(second, sid)
+        with pytest.raises(Exception) as exc:
+            session_runtime.commit_turn(
+                sid,
+                {
+                    "packet_id": second["packet_id"],
+                    "user_input": "(поговорить с Хлоей)",
+                    "scene_output": "**Хлоя** — Мандариновый.",
+                    "extracted": {},
+                },
+            )
+        detail = getattr(exc.value, "detail", {})
+        assert isinstance(detail, dict)
+        assert detail.get("code") == "PRIVATE_COMMUNICATION_KNOWLEDGE_LEAK"
+        assert detail.get("character_id") == "chloe"
+
+
 def test_present_character_remains_present_without_leave():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
