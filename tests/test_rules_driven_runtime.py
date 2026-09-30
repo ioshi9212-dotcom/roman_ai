@@ -1314,6 +1314,28 @@ def test_private_communication_parser_resolves_inflected_russian_recipient():
     assert "Завтра вернусь домой" in rows[0]["payload"]
 
 
+def test_private_communication_parser_resolves_short_inflected_russian_names():
+    cards = [
+        {"character_id": "pov", "name": "Эмили", "is_pov": True},
+        {"character_id": "ren", "name": "Рен"},
+        {"character_id": "chloe", "name": "Хлоя"},
+    ]
+    ren_rows = private_knowledge_runtime.extract_private_communications(
+        "(ответить Рену - Буду позже.)",
+        cards,
+        turn_number=1,
+    )
+    chloe_rows = private_knowledge_runtime.extract_private_communications(
+        "(переслать Хлое выбранные сообщения Рена)",
+        cards,
+        turn_number=2,
+    )
+    assert len(ren_rows) == 1
+    assert ren_rows[0]["recipient_id"] == "ren"
+    assert len(chloe_rows) == 1
+    assert chloe_rows[0]["recipient_id"] == "chloe"
+
+
 def test_private_message_is_redacted_from_shared_recent_history_and_saved_to_participants():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
@@ -1402,6 +1424,195 @@ def test_sleeping_bystander_cannot_use_prior_private_message_content():
         assert isinstance(detail, dict)
         assert detail.get("code") == "PRIVATE_COMMUNICATION_KNOWLEDGE_LEAK"
         assert detail.get("character_id") == "npc"
+
+
+def test_explicit_forward_grants_only_persisted_private_content_to_recipient_same_turn():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        novel = base_novel()
+        novel["characters"] = [
+            {"character_id": "pov", "name": "Эмили", "is_pov": True},
+            {"character_id": "ren", "name": "Рен"},
+            {"character_id": "chloe", "name": "Хлоя"},
+        ]
+        novel["starting_state"]["pov"] = {"character_id": "pov"}
+        novel["starting_state"]["current"]["present_characters"] = ["pov"]
+        sid = storage.create_session(novel)["session_id"]
+
+        first = session_runtime.prepare_turn_packet(
+            sid,
+            "(ответить Рену - Встречаемся в восемь у старого моста. Я буду на мотоцикле.)",
+        )
+        read_all(first, sid)
+        session_runtime.commit_turn(
+            sid,
+            {
+                "packet_id": first["packet_id"],
+                "user_input": "(ответить Рену - Встречаемся в восемь у старого моста. Я буду на мотоцикле.)",
+                "scene_output": (
+                    "**Эмили** — *(в сообщении Рену)* "
+                    "Встречаемся в восемь у старого моста. Я буду на мотоцикле."
+                ),
+                "extracted": {},
+            },
+        )
+
+        second = session_runtime.prepare_turn_packet(
+            sid,
+            "(переслать Хлое выбранные сообщения Рена)",
+        )
+        read_all(second, sid)
+        result = session_runtime.commit_turn(
+            sid,
+            {
+                "packet_id": second["packet_id"],
+                "user_input": "(переслать Хлое выбранные сообщения Рена)",
+                "scene_output": (
+                    "**Хлоя** — Значит, встреча в восемь у старого моста? "
+                    "И там будет мотоцикл?"
+                ),
+                "extracted": {
+                    "knowledge_journal_add": [{
+                        "character_id": "chloe",
+                        "text": (
+                            "Эмили переслала Хлое выбранные сообщения Рена: "
+                            "встреча в восемь у старого моста; упомянут мотоцикл."
+                        ),
+                    }]
+                },
+            },
+        )
+        assert result["turn_number"] == 2
+
+        memory = storage._normalise_memory(
+            storage._read_json(storage.SESSIONS_DIR / sid / "memory.json", {})
+        )
+        chloe_text = " ".join(
+            row["text"] for row in memory["characters"]["chloe"]["knowledge_journal"]
+        )
+        assert "восемь" in chloe_text
+        assert "мотоцикл" in chloe_text
+
+        third = session_runtime.prepare_turn_packet(sid, "(позвонить Хлое)")
+        read_all(third, sid)
+        result = session_runtime.commit_turn(
+            sid,
+            {
+                "packet_id": third["packet_id"],
+                "user_input": "(позвонить Хлое)",
+                "scene_output": "**Хлоя** — В восемь у старого моста, я помню.",
+                "extracted": {},
+            },
+        )
+        assert result["turn_number"] == 3
+
+
+def test_forwarding_one_private_source_does_not_unlock_another_private_source():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        novel = base_novel()
+        novel["characters"] = [
+            {"character_id": "pov", "name": "Эмили", "is_pov": True},
+            {"character_id": "ren", "name": "Рен"},
+            {"character_id": "ethan", "name": "Итан"},
+            {"character_id": "chloe", "name": "Хлоя"},
+        ]
+        novel["starting_state"]["pov"] = {"character_id": "pov"}
+        novel["starting_state"]["current"]["present_characters"] = ["pov"]
+        sid = storage.create_session(novel)["session_id"]
+
+        for user_input, scene_output in (
+            (
+                "(ответить Рену - Встречаемся у старого моста. Я буду на мотоцикле.)",
+                "**Эмили** — *(в сообщении Рену)* Встречаемся у старого моста. Я буду на мотоцикле.",
+            ),
+            (
+                "(ответить Итану - Пароль от сейфа апельсиновый.)",
+                "**Эмили** — *(в сообщении Итану)* Пароль от сейфа апельсиновый.",
+            ),
+        ):
+            manifest = session_runtime.prepare_turn_packet(sid, user_input)
+            read_all(manifest, sid)
+            session_runtime.commit_turn(
+                sid,
+                {
+                    "packet_id": manifest["packet_id"],
+                    "user_input": user_input,
+                    "scene_output": scene_output,
+                    "extracted": {},
+                },
+            )
+
+        manifest = session_runtime.prepare_turn_packet(
+            sid,
+            "(переслать Хлое выбранные сообщения Рена)",
+        )
+        read_all(manifest, sid)
+        with pytest.raises(Exception) as exc:
+            session_runtime.commit_turn(
+                sid,
+                {
+                    "packet_id": manifest["packet_id"],
+                    "user_input": "(переслать Хлое выбранные сообщения Рена)",
+                    "scene_output": "**Хлоя** — А пароль от сейфа всё ещё апельсиновый?",
+                    "extracted": {
+                        "knowledge_journal_add": [{
+                            "character_id": "chloe",
+                            "text": "Эмили переслала Хлое сообщения Рена про старый мост и мотоцикл.",
+                        }]
+                    },
+                },
+            )
+        detail = getattr(exc.value, "detail", {})
+        assert isinstance(detail, dict)
+        assert detail.get("code") == "PRIVATE_COMMUNICATION_KNOWLEDGE_LEAK"
+        assert detail.get("character_id") == "chloe"
+
+
+def test_ordinary_message_to_recipient_does_not_unlock_third_party_private_history():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        novel = base_novel()
+        novel["characters"] = [
+            {"character_id": "pov", "name": "Эмили", "is_pov": True},
+            {"character_id": "ren", "name": "Рен"},
+            {"character_id": "chloe", "name": "Хлоя"},
+        ]
+        novel["starting_state"]["pov"] = {"character_id": "pov"}
+        novel["starting_state"]["current"]["present_characters"] = ["pov"]
+        sid = storage.create_session(novel)["session_id"]
+
+        first = session_runtime.prepare_turn_packet(
+            sid,
+            "(ответить Рену - Кодовое слово мандариновый.)",
+        )
+        read_all(first, sid)
+        session_runtime.commit_turn(
+            sid,
+            {
+                "packet_id": first["packet_id"],
+                "user_input": "(ответить Рену - Кодовое слово мандариновый.)",
+                "scene_output": "**Эмили** — *(в сообщении Рену)* Кодовое слово мандариновый.",
+                "extracted": {},
+            },
+        )
+
+        second = session_runtime.prepare_turn_packet(sid, "(написать Хлое - привет)")
+        read_all(second, sid)
+        with pytest.raises(Exception) as exc:
+            session_runtime.commit_turn(
+                sid,
+                {
+                    "packet_id": second["packet_id"],
+                    "user_input": "(написать Хлое - привет)",
+                    "scene_output": "**Хлоя** — А кодовое слово всё ещё мандариновый?",
+                    "extracted": {},
+                },
+            )
+        detail = getattr(exc.value, "detail", {})
+        assert isinstance(detail, dict)
+        assert detail.get("code") == "PRIVATE_COMMUNICATION_KNOWLEDGE_LEAK"
+        assert detail.get("character_id") == "chloe"
 
 
 def test_present_character_remains_present_without_leave():
