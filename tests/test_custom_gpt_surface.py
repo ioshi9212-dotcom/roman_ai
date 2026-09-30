@@ -163,6 +163,9 @@ def test_custom_gpt_instruction_matches_rules_driven_transport():
     assert "показывай `session_id`" in text
     assert "переноса/продолжения сессии" in text
     assert "Не показывай `packet_id`" in text
+    assert "Первый видимый текст игрового ответа = сама сцена" in text
+    assert "не выводи никаких пояснений, планов" in text
+    assert "Технические пояснения допустимы только в ответ на технический вопрос пользователя" in text
 
 
 def test_static_schema_avoids_actions_parser_traps():
