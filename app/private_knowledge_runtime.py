@@ -96,9 +96,40 @@ def _alias_maps(cards: List[Dict[str, Any]]) -> tuple[Dict[str, str], Dict[str, 
     return exact, stems, aliases_by_id
 
 
-def _resolve_recipient(token: str, exact: Dict[str, str], stems: Dict[str, str]) -> str | None:
+def _recipient_candidates(token: str) -> List[str]:
     norm = _norm(token)
-    return exact.get(norm) or stems.get(_stem(norm))
+    candidates = [norm]
+    if len(norm) >= 4:
+        if norm.endswith("у"):
+            base = norm[:-1]
+            candidates.extend([base, base + "а", base + "я"])
+        elif norm.endswith("е"):
+            base = norm[:-1]
+            candidates.extend([base, base + "я", base + "а", base + "ь"])
+        elif norm.endswith("а"):
+            base = norm[:-1]
+            candidates.extend([base, base + "я"])
+        elif norm.endswith("я"):
+            base = norm[:-1]
+            candidates.extend([base, base + "а"])
+    if len(norm) >= 5:
+        for ending in ("ом", "ем", "ой", "ей", "ю"):
+            if norm.endswith(ending) and len(norm) - len(ending) >= 3:
+                base = norm[:-len(ending)]
+                candidates.extend([base, base + "а", base + "я", base + "ь"])
+                break
+    return list(dict.fromkeys(value for value in candidates if value))
+
+
+def _resolve_recipient(token: str, exact: Dict[str, str], stems: Dict[str, str]) -> str | None:
+    for candidate in _recipient_candidates(token):
+        direct = exact.get(candidate)
+        if direct:
+            return direct
+        stemmed = stems.get(_stem(candidate))
+        if stemmed:
+            return stemmed
+    return None
 
 
 def _looks_like_action(sentence: str) -> bool:
@@ -400,12 +431,16 @@ def _record_source_ids(record: Dict[str, Any], *, pov_id: str) -> set[str]:
 
 
 def _stage_mentions_character(stage_text: str, character_id: str, aliases_by_id: Dict[str, set[str]]) -> bool:
-    words = {
-        _stem(word)
-        for word in re.findall(r"(?iu)[a-zа-яё][a-zа-яё-]+", str(stage_text or ""))
-    }
-    aliases = aliases_by_id.get(character_id, set())
-    return any(_stem(alias) in words for alias in aliases if alias)
+    alias_forms: set[str] = set()
+    for alias in aliases_by_id.get(character_id, set()):
+        if not alias:
+            continue
+        alias_forms.update(_recipient_candidates(alias))
+    for word in re.findall(r"(?iu)[a-zа-яё][a-zа-яё-]+", str(stage_text or "")):
+        candidates = set(_recipient_candidates(word))
+        if candidates & alias_forms:
+            return True
+    return False
 
 
 def _current_private_transfer_sources(
