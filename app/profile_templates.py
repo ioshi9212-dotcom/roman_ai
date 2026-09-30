@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from copy import deepcopy
 from pathlib import Path
 from typing import Any, Dict, Iterable, List
@@ -203,6 +204,31 @@ def normalize_character_profiles(raw: Any) -> List[Dict[str, Any]]:
     return result
 
 
+_LEGACY_POV_SILENCE_RE = re.compile(
+    r"(?iu)(?:^|(?<=[.!?;]))\\s*если\\s+игрок\\s+не\\s+дал\\s+реплику\\s*[,—:-]?\\s*не\\s+придумыва(?:ть|й)\\s+(?:её|ее)\\s*[.!?;]*"
+)
+
+
+def _strip_legacy_pov_silence_rule(value: Any) -> Any:
+    if isinstance(value, str):
+        cleaned = _LEGACY_POV_SILENCE_RE.sub(" ", value)
+        return " ".join(cleaned.split()).strip(" ;")
+    if isinstance(value, list):
+        result = []
+        for item in value:
+            cleaned = _strip_legacy_pov_silence_rule(item)
+            if cleaned not in (None, "", [], {}):
+                result.append(cleaned)
+        return result
+    if isinstance(value, dict):
+        return {
+            key: cleaned
+            for key, item in value.items()
+            if (cleaned := _strip_legacy_pov_silence_rule(item)) not in (None, "", [], {})
+        }
+    return deepcopy(value)
+
+
 def normalize_novel_profile(raw: Any, *, title: str | None = None) -> Dict[str, Any]:
     source = deepcopy(raw) if isinstance(raw, dict) else {}
     profile = _merge_known_fields(
@@ -219,6 +245,8 @@ def normalize_novel_profile(raw: Any, *, title: str | None = None) -> Dict[str, 
     if not isinstance(genres, list):
         genres = []
     profile["genres"] = [str(value) for value in genres if value not in (None, "")]
+
+    profile["story_rules"] = _strip_legacy_pov_silence_rule(profile.get("story_rules"))
 
     core_cast = profile.get("core_cast")
     if not isinstance(core_cast, list):
