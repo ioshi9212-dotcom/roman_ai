@@ -16,6 +16,9 @@ _COMMUNICATION_RE = re.compile(
 _CHAT_RE = re.compile(
     r"(?iu)\b(?:переписк\w*|чат\w*)\s+(?:с|для)\s+([^\s,.;:()—-]+)"
 )
+_TRANSFER_RE = re.compile(
+    r"(?iu)\b(?:переслать|показать|скинуть|дать\s+прочитать)\s+([^\s,.;:()—-]+)"
+)
 _REMOTE_MARKER_RE = re.compile(
     r"(?iu)\b(?:сообщен\w*|переписк\w*|чат\w*|смс|звон\w*|телефон\w*|трубк\w*|голосов\w*|видеосвяз\w*|мессендж\w*)\b"
 )
@@ -389,6 +392,95 @@ def _record_participants(record: Dict[str, Any]) -> set[str]:
     return {recipient} if recipient else set()
 
 
+def _record_source_ids(record: Dict[str, Any], *, pov_id: str) -> set[str]:
+    return {
+        cid for cid in _record_participants(record)
+        if cid and cid != pov_id
+    }
+
+
+def _stage_mentions_character(stage_text: str, character_id: str, aliases_by_id: Dict[str, set[str]]) -> bool:
+    words = {
+        _stem(word)
+        for word in re.findall(r"(?iu)[a-zа-яё][a-zа-яё-]+", str(stage_text or ""))
+    }
+    aliases = aliases_by_id.get(character_id, set())
+    return any(_stem(alias) in words for alias in aliases if alias)
+
+
+def _current_private_transfer_sources(
+    user_input: str,
+    cards: List[Dict[str, Any]],
+    records: List[Dict[str, Any]],
+    *,
+    pov_id: str,
+) -> Dict[str, set[str]]:
+    """Return recipient -> private source characters explicitly forwarded/shown this turn.
+
+    This is deliberately narrow: ordinary writing/calling does not grant access to another
+    private conversation. The source must be named in the same stage direction.
+    """
+    mapping = writer_first_runtime._parse_player_input(str(user_input or ""))
+    exact, stems, aliases_by_id = _alias_maps(cards)
+    result: Dict[str, set[str]] = {}
+
+    for stage in mapping.get("stage_directions", []):
+        stage_text = str(stage or "")
+        for match in _TRANSFER_RE.finditer(stage_text):
+            recipient_id = _resolve_recipient(match.group(1), exact, stems)
+            if not recipient_id:
+                continue
+            sources: set[str] = set()
+            for record in records:
+                for source_id in _record_source_ids(record, pov_id=pov_id):
+                    if source_id == recipient_id:
+                        continue
+                    if _stage_mentions_character(stage_text, source_id, aliases_by_id):
+                        sources.add(source_id)
+            if sources:
+                result.setdefault(recipient_id, set()).update(sources)
+    return result
+
+
+def _current_transfer_allowed_terms(
+    payload: Dict[str, Any],
+    records: List[Dict[str, Any]],
+    transfer_sources: Dict[str, set[str]],
+    *,
+    pov_id: str,
+) -> Dict[str, set[str]]:
+    """Only terms actually written to the recipient's journal become same-turn knowledge."""
+    extracted = payload.get("extracted") if isinstance(payload.get("extracted"), dict) else {}
+    journal_rows = extracted.get("knowledge_journal_add")
+    if not isinstance(journal_rows, list):
+        return {}
+
+    protected_by_source: Dict[str, set[str]] = {}
+    for record in records:
+        protected = set(record.get("terms") or [])
+        if not protected:
+            continue
+        for source_id in _record_source_ids(record, pov_id=pov_id):
+            protected_by_source.setdefault(source_id, set()).update(protected)
+
+    result: Dict[str, set[str]] = {}
+    for row in journal_rows:
+        if not isinstance(row, dict):
+            continue
+        cid = str(row.get("character_id") or "")
+        sources = transfer_sources.get(cid, set())
+        if not cid or not sources:
+            continue
+        text = str(row.get("text") or row.get("fact") or row.get("summary") or "")
+        row_terms = _terms(text)
+        allowed = set()
+        for source_id in sources:
+            allowed.update(row_terms & protected_by_source.get(source_id, set()))
+        if allowed:
+            result.setdefault(cid, set()).update(allowed)
+    return result
+
+
 def validate_private_knowledge(session_id: str, payload: Dict[str, Any]) -> None:
     root = storage.SESSIONS_DIR / session_id
     source = storage._read_json(root / "source.json", {})
@@ -398,6 +490,19 @@ def validate_private_knowledge(session_id: str, payload: Dict[str, Any]) -> None
     records = _private_records(root, cards, str(payload.get("user_input") or ""))
     if not records:
         return
+
+    transfer_sources = _current_private_transfer_sources(
+        str(payload.get("user_input") or ""),
+        cards,
+        records,
+        pov_id=pov_id,
+    )
+    transfer_allowed_terms = _current_transfer_allowed_terms(
+        payload,
+        records,
+        transfer_sources,
+        pov_id=pov_id,
+    )
 
     units = _speaker_units(str(payload.get("scene_output") or ""), cards)
     earlier_public_speech: List[str] = []
@@ -412,12 +517,15 @@ def validate_private_knowledge(session_id: str, payload: Dict[str, Any]) -> None
 
         corpus = _authorized_corpus(root, cid, cards)
         allowed_terms = _terms(corpus + "\n" + "\n".join(earlier_public_speech))
+        allowed_terms.update(transfer_allowed_terms.get(cid, set()))
         for record in records:
             if cid in _record_participants(record):
                 continue
+            record_sources = _record_source_ids(record, pov_id=pov_id)
+            source_was_transferred = bool(record_sources & transfer_sources.get(cid, set()))
             protected = set(record.get("terms") or [])
             leaked = _leaked_terms(text, protected, allowed_terms)
-            contact_leak = _mentions_private_contact(text, record)
+            contact_leak = _mentions_private_contact(text, record) and not source_was_transferred
             if leaked or contact_leak:
                 raise HTTPException(
                     status_code=409,
@@ -446,11 +554,14 @@ def validate_private_knowledge(session_id: str, payload: Dict[str, Any]) -> None
                 continue
             text = str(row.get("text") or row.get("fact") or row.get("summary") or "")
             allowed_terms = _terms(_authorized_corpus(root, cid, cards))
+            allowed_terms.update(transfer_allowed_terms.get(cid, set()))
             for record in records:
                 if cid in _record_participants(record):
                     continue
+                record_sources = _record_source_ids(record, pov_id=pov_id)
+                source_was_transferred = bool(record_sources & transfer_sources.get(cid, set()))
                 leaked = _leaked_terms(text, set(record.get("terms") or []), allowed_terms)
-                if leaked or _mentions_private_contact(text, record):
+                if leaked or (_mentions_private_contact(text, record) and not source_was_transferred):
                     raise HTTPException(
                         status_code=409,
                         detail={
