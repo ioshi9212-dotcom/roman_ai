@@ -160,6 +160,9 @@ def test_custom_gpt_instruction_matches_rules_driven_transport():
     assert "стартовые знания" in text
     assert "turn=0" in text
     assert "Простое упоминание отсутствующего персонажа" in text
+    assert "показывай `session_id`" in text
+    assert "переноса/продолжения сессии" in text
+    assert "Не показывай `packet_id`" in text
 
 
 def test_static_schema_avoids_actions_parser_traps():
