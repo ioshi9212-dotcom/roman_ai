@@ -43,6 +43,20 @@ def test_novel_profile_shape_is_fixed():
     assert profile["additional"]["weird_custom_rule"] == "дождь важен"
 
 
+def test_legacy_pov_silence_story_rule_is_removed_but_other_rules_stay():
+    profile = normalize_novel_profile({
+        "story_rules": (
+            "Если игрок не дал реплику, не придумывать её. "
+            "NPC действуют самостоятельно. Романтика остаётся основной линией."
+        )
+    })
+
+    assert "если игрок не дал реплику" not in str(profile["story_rules"]).casefold()
+    assert "не придумывать её" not in str(profile["story_rules"]).casefold()
+    assert "NPC действуют самостоятельно" in profile["story_rules"]
+    assert "Романтика остаётся основной линией" in profile["story_rules"]
+
+
 def test_render_character_profile_is_plain_human_readable_text():
     text = render_character_profile({
         "character_id": "silas",

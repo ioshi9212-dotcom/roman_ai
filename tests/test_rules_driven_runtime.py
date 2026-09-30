@@ -130,6 +130,30 @@ def test_packet_has_no_hidden_director_guard_stack_and_rules_are_last():
         assert context["working_context_contract"]["precommit_review_gates"] == ["scene_builder", "persistence", "knowledge"]
 
 
+def test_legacy_story_rule_is_absent_from_actual_turn_packet():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        novel = base_novel()
+        novel["novel"]["story_rules"] = (
+            "Если игрок не дал реплику, не придумывать её. "
+            "NPC действуют самостоятельно."
+        )
+        sid = storage.create_session(novel)["session_id"]
+
+        _, context = read_context(sid, "(посмотреть на NPC)")
+        blob = json.dumps(context, ensure_ascii=False).casefold()
+        assert "если игрок не дал реплику" not in blob
+        assert "не придумывать её" not in blob
+        assert "npc действуют самостоятельно" in blob
+
+        source_blob = json.dumps(
+            storage._read_json(storage.SESSIONS_DIR / sid / "source.json", {}),
+            ensure_ascii=False,
+        ).casefold()
+        assert "если игрок не дал реплику" not in source_blob
+        assert "npc действуют самостоятельно" in source_blob
+
+
 def test_active_character_receives_complete_knowledge_journal_in_packet():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
@@ -143,11 +167,15 @@ def test_active_character_receives_complete_knowledge_journal_in_packet():
         ]
         storage._write_json(root / "memory.json", memory)
 
-        _, context = read_context(sid, "(посмотреть на NPC)")
-        rows = context["character_memory"]["npc"]["knowledge_journal"]
-        assert len(rows) == 120
-        assert rows[0]["text"] == "fact 1"
-        assert rows[-1]["text"] == "fact 120"
+        manifest, context = read_context(sid, "(посмотреть на NPC)")
+        assert manifest["chunk_chars_max"] == 32000
+        assert manifest["chunk_count"] <= 4
+        journal = context["character_memory"]["npc"]["knowledge_journal"]
+        assert isinstance(journal, str)
+        assert context["character_memory"]["npc"]["knowledge_journal_entry_count"] == 120
+        assert "fact 1" in journal
+        assert "fact 120" in journal
+        assert "entry_id" not in journal
 
 
 def test_dynamic_relationship_label_can_appear_without_whitelist():
@@ -257,8 +285,8 @@ def test_explicit_chronology_participants_are_mirrored_into_personal_knowledge()
         )
 
         _, context = read_context(sid, "(посмотреть на NPC)")
-        npc_rows = context["character_memory"]["npc"]["knowledge_journal"]
-        assert any("поезд завтра уходит в шесть" in row["text"] for row in npc_rows)
+        npc_journal = context["character_memory"]["npc"]["knowledge_journal"]
+        assert "поезд завтра уходит в шесть" in npc_journal
 
 
 def test_chronology_without_explicit_knowledge_participants_does_not_grant_memory():
@@ -317,14 +345,68 @@ def test_safe_chronology_marker_repairs_missing_personal_memory_before_next_pack
         )
 
         _, context = read_context(sid, "(посмотреть на NPC)")
-        npc_rows = context["character_memory"]["npc"]["knowledge_journal"]
-        assert any("NPC узнал код от сейфа" in row["text"] for row in npc_rows)
+        npc_journal = context["character_memory"]["npc"]["knowledge_journal"]
+        assert "NPC узнал код от сейфа" in npc_journal
 
         memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
         assert any(
             "NPC узнал код от сейфа" in row["text"]
             for row in memory["characters"]["npc"]["knowledge_journal"]
         )
+
+
+def test_exact_duplicate_persisted_journal_rows_are_compacted_before_packet():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(base_novel())["session_id"]
+        root = storage.SESSIONS_DIR / sid
+        memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
+        bucket = storage._memory_bucket(memory, "npc")
+        bucket["knowledge_journal"] = [
+            {"entry_id": "a", "date": "01.09.2026", "text": "Рината любит чёрный кофе.", "turn": 1},
+            {"entry_id": "b", "date": "01.09.2026", "text": "Рината любит чёрный кофе.", "turn": 2},
+            {"entry_id": "c", "date": "01.09.2026", "text": "Рината не любит молоко.", "turn": 3},
+        ]
+        storage._write_json(root / "memory.json", memory)
+
+        _, context = read_context(sid, "(посмотреть на NPC)")
+        persisted = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
+        rows = persisted["characters"]["npc"]["knowledge_journal"]
+        assert len(rows) == 2
+        assert context["character_memory"]["npc"]["knowledge_journal_entry_count"] == 2
+        assert context["character_memory"]["npc"]["knowledge_journal"].count("Рината любит чёрный кофе.") == 1
+
+
+def test_repeated_identical_new_fact_is_not_appended_on_later_turn():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(base_novel())["session_id"]
+
+        for text in ("Первый раз.", "Второй раз."):
+            manifest = session_runtime.prepare_turn_packet(sid, text)
+            read_all(manifest, sid)
+            session_runtime.commit_turn(
+                sid,
+                {
+                    "packet_id": manifest["packet_id"],
+                    "user_input": text,
+                    "scene_output": text,
+                    "extracted": {
+                        "knowledge_journal_add": [
+                            {"character_id": "npc", "text": "Рината любит чёрный кофе."}
+                        ]
+                    },
+                },
+            )
+
+        memory = storage._normalise_memory(
+            storage._read_json(storage.SESSIONS_DIR / sid / "memory.json", {})
+        )
+        rows = [
+            row for row in memory["characters"]["npc"]["knowledge_journal"]
+            if row.get("text") == "Рината любит чёрный кофе."
+        ]
+        assert len(rows) == 1
 
 
 def test_chronology_mirror_does_not_duplicate_model_supplied_journal_fact():
@@ -1169,7 +1251,8 @@ def test_legacy_pending_packet_is_refreshed_into_current_knowledge_context():
             "".join(storage._read_json(root / "turn_packet.json", {})["chunks"])
         )
         assert "simple_knowledge_rules" not in rebuilt
-        assert rebuilt["character_memory"]["npc"]["knowledge_journal"][0]["text"] == "NPC уже знает этот факт."
+        assert rebuilt["character_memory"]["npc"]["knowledge_journal"] == "NPC уже знает этот факт."
+        assert rebuilt["character_memory"]["npc"]["knowledge_journal_entry_count"] == 1
         assert rebuilt["working_context_contract"]["active_character_knowledge_rebuilt_from_persistent_memory"] is True
 
 

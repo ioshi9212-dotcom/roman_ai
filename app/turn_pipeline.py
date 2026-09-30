@@ -45,7 +45,7 @@ _BASE_PARTICIPATION_BUNDLE = character_chunk_read._participation_bundle
 _BASE_CREATE_SESSION = storage.create_session
 _BASE_RECOVER_CURRENT = session_recovery.recover_session_current
 
-PIPELINE_VERSION = 5
+PIPELINE_VERSION = 6
 
 def _packet_manifest(packet: Dict[str, Any], *, reused: bool) -> Dict[str, Any]:
     chunks = packet.get("chunks", []) if isinstance(packet.get("chunks"), list) else []
@@ -60,6 +60,7 @@ def _packet_manifest(packet: Dict[str, Any], *, reused: bool) -> Dict[str, Any]:
         "working_context": True,
         "writer_first": True,
         "writer_first_version": writer_first_runtime.WRITER_FIRST_VERSION,
+        "chunk_chars_max": writer_first_runtime.WRITER_PACKET_CHARS,
         "first_chunk_included": bool(chunks),
         "reused_pending_packet": reused,
         "read_chunks": read,
@@ -117,6 +118,15 @@ def _current_pointer_guard(session_id: str) -> None:
             "instruction": "Repair the technical current scene pointer before preparing another gameplay turn.",
         },
     )
+
+
+def _strip_legacy_pov_rule_from_session_source(root) -> None:
+    source = storage._read_json(root / "source.json", {})
+    if not isinstance(source, dict) or not source:
+        return
+    cleaned = profile_templates._strip_legacy_pov_silence_rule(source)
+    if cleaned != source:
+        storage._write_json(root / "source.json", cleaned)
 
 
 def _clear_legacy_audit_gate(root) -> None:
@@ -263,6 +273,9 @@ def _clean_director_layers(context: Dict[str, Any]) -> Dict[str, Any]:
         "active_character_knowledge_rebuilt_from_persistent_memory": True,
     })
     result["working_context_contract"] = contract
+    for key in ("novel_rules", "novel", "author_context", "novel_profile"):
+        if key in result:
+            result[key] = profile_templates._strip_legacy_pov_silence_rule(result[key])
     _clean_relationship_lens(result)
     return result
 
@@ -410,8 +423,10 @@ def prepare_turn_packet(session_id: str, user_input: str) -> Dict[str, Any]:
     stability_runtime._recover_session(session_id)
     _current_pointer_guard(session_id)
     _clear_legacy_audit_gate(root)
+    _strip_legacy_pov_rule_from_session_source(root)
     game_day._sync_session_game_day(session_id)
     knowledge_persistence_runtime.repair_personal_memory_from_safe_chronology(session_id)
+    knowledge_persistence_runtime.dedupe_persisted_knowledge_journal(session_id)
 
     with session_transaction(root):
         meta = storage._read_json(root / "meta.json", {})
@@ -749,6 +764,10 @@ def commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         raw_chronology,
     )
     prepared = knowledge_persistence_runtime.mirror_explicit_chronology_to_personal_memory(
+        session_id,
+        prepared,
+    )
+    prepared = knowledge_persistence_runtime.dedupe_new_journal_against_persisted(
         session_id,
         prepared,
     )
