@@ -146,6 +146,13 @@ def test_legacy_story_rule_is_absent_from_actual_turn_packet():
         assert "не придумывать её" not in blob
         assert "npc действуют самостоятельно" in blob
 
+        source_blob = json.dumps(
+            storage._read_json(storage.SESSIONS_DIR / sid / "source.json", {}),
+            ensure_ascii=False,
+        ).casefold()
+        assert "если игрок не дал реплику" not in source_blob
+        assert "npc действуют самостоятельно" in source_blob
+
 
 def test_active_character_receives_complete_knowledge_journal_in_packet():
     with tempfile.TemporaryDirectory() as tmp:
