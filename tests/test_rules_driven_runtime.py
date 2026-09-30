@@ -1314,6 +1314,28 @@ def test_private_communication_parser_resolves_inflected_russian_recipient():
     assert "Завтра вернусь домой" in rows[0]["payload"]
 
 
+def test_private_communication_parser_resolves_short_inflected_russian_names():
+    cards = [
+        {"character_id": "pov", "name": "Эмили", "is_pov": True},
+        {"character_id": "ren", "name": "Рен"},
+        {"character_id": "chloe", "name": "Хлоя"},
+    ]
+    ren_rows = private_knowledge_runtime.extract_private_communications(
+        "(ответить Рену - Буду позже.)",
+        cards,
+        turn_number=1,
+    )
+    chloe_rows = private_knowledge_runtime.extract_private_communications(
+        "(переслать Хлое выбранные сообщения Рена)",
+        cards,
+        turn_number=2,
+    )
+    assert len(ren_rows) == 1
+    assert ren_rows[0]["recipient_id"] == "ren"
+    assert len(chloe_rows) == 1
+    assert chloe_rows[0]["recipient_id"] == "chloe"
+
+
 def test_private_message_is_redacted_from_shared_recent_history_and_saved_to_participants():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
