@@ -169,7 +169,7 @@ def test_custom_gpt_instruction_matches_rules_driven_transport():
     assert "стартовые знания" in text
     assert "turn=0" in text
     assert "Не смягчай, не цензурируй и не литературизируй" in text
-    assert "не жди, пока POV сам его найдёт/назовёт" in text
+    assert "Не жди, пока POV сам его найдёт/назовёт" in text
     assert "но и не запрещает bundle" in text
     assert "Простое упоминание отсутствующего персонажа не делает его участником и не требует карточку" not in text
     assert "показывай `session_id`" in text
