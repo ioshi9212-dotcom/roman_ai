@@ -262,6 +262,8 @@ def _clean_director_layers(context: Dict[str, Any]) -> Dict[str, Any]:
 
     contract = result.get("working_context_contract")
     contract = deepcopy(contract) if isinstance(contract, dict) else {}
+    contract.pop("dormant_character_retrieval", None)
+    contract.pop("simple_name_mention_does_not_load_offscreen_card", None)
     contract.update({
         "turn_pipeline_version": PIPELINE_VERSION,
         "director_rules_source": "runtime_rules",
@@ -269,7 +271,7 @@ def _clean_director_layers(context: Dict[str, Any]) -> Dict[str, Any]:
         "hidden_director_guard_layers": False,
         "backend_semantic_scene_gates": False,
         "precommit_review_gates": ["scene_builder", "persistence", "knowledge"],
-        "simple_name_mention_does_not_load_offscreen_card": True,
+        "offscreen_character_retrieval": "chunked_when_relevant",
         "active_character_knowledge_rebuilt_from_persistent_memory": True,
     })
     result["working_context_contract"] = contract
