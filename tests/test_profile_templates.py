@@ -57,6 +57,18 @@ def test_legacy_pov_silence_story_rule_is_removed_but_other_rules_stay():
     assert "Романтика остаётся основной линией" in profile["story_rules"]
 
 
+def test_character_profile_normalization_preserves_strong_user_wording_exactly():
+    wording = "Ядовитая, грубая, может послать нахуй и не смягчает формулировки."
+    profile = normalize_character_profile({
+        "character_id": "rina",
+        "name": "Рината",
+        "character": wording,
+        "speech": "Говорит резко, с матом, без вежливой литературной замены.",
+    })
+    assert profile["character"] == wording
+    assert profile["speech"] == "Говорит резко, с матом, без вежливой литературной замены."
+
+
 def test_render_character_profile_is_plain_human_readable_text():
     text = render_character_profile({
         "character_id": "silas",
