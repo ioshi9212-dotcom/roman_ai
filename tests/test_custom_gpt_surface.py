@@ -79,6 +79,15 @@ def test_static_custom_gpt_schema_has_exact_current_30_actions():
     section = schema["components"]["schemas"]["NovelDraftSection"]
     assert "knowledge" in section["properties"]["section_name"]["enum"]
 
+    current = schema["components"]["schemas"]["CurrentState"]["properties"]
+    for field in ("positions", "scene_items", "unfinished_actions", "remote_channels"):
+        assert field in current
+
+    state_patch = schema["components"]["schemas"]["StatePatch"]["properties"]
+    assert {"current", "pov", "characters"} <= set(state_patch)
+    runtime_character = schema["components"]["schemas"]["RuntimeCharacterState"]["properties"]
+    assert {"location", "zone", "clothing", "inventory"} <= set(runtime_character)
+
 
 def test_dynamic_fastapi_openapi_exposes_the_same_30_actions():
     dynamic = app.openapi()
@@ -166,6 +175,7 @@ def test_custom_gpt_instruction_matches_rules_driven_transport():
     assert "Первый видимый текст игрового ответа = сама сцена" in text
     assert "не выводи никаких пояснений, планов" in text
     assert "Технические пояснения допустимы только в ответ на технический вопрос пользователя" in text
+    assert "кто где, одежда/инвентарь, значимые предметы" in text
 
 
 def test_static_schema_avoids_actions_parser_traps():
