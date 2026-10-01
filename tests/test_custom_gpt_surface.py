@@ -168,14 +168,16 @@ def test_custom_gpt_instruction_matches_rules_driven_transport():
 
     assert "стартовые знания" in text
     assert "turn=0" in text
-    assert "Простое упоминание отсутствующего персонажа" in text
+    assert "Offscreen не значит «неважен»" in text
+    assert "не запрещает естественное появление" in text
     assert "показывай `session_id`" in text
-    assert "переноса/продолжения сессии" in text
-    assert "Не показывай `packet_id`" in text
-    assert "Первый видимый текст игрового ответа = сама сцена" in text
-    assert "не выводи никаких пояснений, планов" in text
-    assert "Технические пояснения допустимы только в ответ на технический вопрос пользователя" in text
-    assert "кто где, одежда/инвентарь, значимые предметы" in text
+    assert "`packet_id`, `read_id`, chunk-статусы и сверки не показывай" in text
+    assert "первый видимый текст = сама сцена" in text
+    assert "не выводи планы/анализ/пояснения" in text
+    assert "Техпояснения только на техвопрос" in text
+    assert "не смягчай, не обобщай" in text
+    assert "Все постоянные персонажи из RAW" in text
+    assert "включая важных offscreen/nearby" in text
 
 
 def test_static_schema_avoids_actions_parser_traps():
