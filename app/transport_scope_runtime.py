@@ -144,7 +144,10 @@ def _strip_legacy_full_payloads(context: Dict[str, Any], *, persistent_state: Di
     policy["authoritative_start_snapshot_note"] = "Стартовые значения взяты из persistent state."
     result["relationship_policy"] = policy
 
-    result["character_context_instruction"] = "Knowledge активных персонажей передаётся полностью; прочая память bounded. Offscreen NPC перед участием → prepareCharacterBundleRead."
+    result["character_context_instruction"] = (
+        "Knowledge активных персонажей передаётся полностью; прочая память bounded. "
+        "Relevant offscreen NPC можно загрузить по state/registry до его содержательного участия."
+    )
     contract = result.get("working_context_contract") if isinstance(result.get("working_context_contract"), dict) else {}
     contract.update(
         {
@@ -158,7 +161,7 @@ def _strip_legacy_full_payloads(context: Dict[str, Any], *, persistent_state: Di
             "full_relationship_documents_in_packet": False,
             "full_starting_state_in_packet": False,
             "active_threads_text_is_bounded": True,
-            "dormant_character_retrieval": "chunked_on_demand",
+            "dormant_character_retrieval": "chunked_when_relevant",
             "remote_communication_requires_loaded_dossier": True,
             "persistent_storage_is_complete": True,
             "same_pending_turn_prepare_is_idempotent": True,
@@ -223,7 +226,7 @@ def _prepare_turn(session_id: str, user_input: str) -> Dict[str, Any]:
         manifest["reused_pending_packet"] = False
         manifest["instruction"] = (
             "Прочитай все turn packet chunks. Packet bounded; полный канон остаётся в Railway. "
-            "Load an absent registered character bundle before any entrance, speech, message, call, remote reaction or other material action."
+            "Use compact state/registry to notice relevant absent characters; load their bundle before any material participation."
         )
         return manifest
 
