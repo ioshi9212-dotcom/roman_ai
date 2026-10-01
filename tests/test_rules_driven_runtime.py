@@ -131,9 +131,13 @@ def test_packet_has_no_hidden_director_guard_stack_and_rules_are_last():
         active = {row["character_id"] for row in context["character_cards"]}
         assert active == {"pov", "npc"}
         assert "away" not in active
-        assert context["working_context_contract"]["hidden_director_guard_layers"] is False
-        assert context["working_context_contract"]["backend_semantic_scene_gates"] is False
-        assert context["working_context_contract"]["precommit_review_gates"] == ["scene_builder", "persistence", "knowledge"]
+        contract = context["working_context_contract"]
+        assert contract["hidden_director_guard_layers"] is False
+        assert contract["backend_semantic_scene_gates"] is False
+        assert contract["precommit_review_gates"] == ["scene_builder", "persistence", "knowledge"]
+        assert contract["offscreen_character_retrieval"] == "chunked_when_relevant"
+        assert "simple_name_mention_does_not_load_offscreen_card" not in contract
+        assert "dormant_character_retrieval" not in contract
 
 
 def test_legacy_story_rule_is_absent_from_actual_turn_packet():
