@@ -338,7 +338,11 @@ def inject_required_turn_context(context: Dict[str, Any], cards: List[Dict[str, 
 
     context["character_cards"] = scene_cards
     context["character_memory"] = scene_memory
-    context["character_context_instruction"] = "Для участников сцены knowledge передаётся полностью; experiences/dialogue могут быть bounded. Offscreen NPC перед участием → полный character bundle."
+    context["character_context_instruction"] = (
+        "Для участников сцены knowledge передаётся полностью; experiences/dialogue могут быть bounded. "
+        "Проверь compact physical state offscreen NPC: nearby/expected/causally relevant NPC можно загрузить bundle заранее, "
+        "до содержательного участия; не жди отдельного вызова POV."
+    )
     context["knowledge_guard"] = {
         "mandatory": True,
         "personal_memory_path": "character_memory[character_id]",
