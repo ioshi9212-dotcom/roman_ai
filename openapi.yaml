@@ -76,6 +76,25 @@ components:
           type: string
       additionalProperties: false
 
+    SceneItemState:
+      type: object
+      properties:
+        holder:
+          type: string
+        location:
+          type: string
+        owner:
+          type: string
+        description:
+          type: string
+        status:
+          type: string
+        medium:
+          type: string
+        note:
+          type: string
+      additionalProperties: false
+
     RuntimeCharacterState:
       type: object
       properties:
@@ -114,6 +133,7 @@ components:
           type: string
         condition:
           type: object
+          properties: {}
           additionalProperties: true
         inventory:
           type: array
@@ -162,18 +182,20 @@ components:
             type: string
         remote_channels:
           type: object
+          properties: {}
           additionalProperties:
             type: string
         positions:
           type: object
+          properties: {}
           additionalProperties:
             $ref: '#/components/schemas/ScenePositionState'
         scene_items:
           type: object
           description: Full current snapshot of significant physical or digital scene items when changed.
+          properties: {}
           additionalProperties:
-            type: object
-            additionalProperties: true
+            $ref: '#/components/schemas/SceneItemState'
         unfinished_actions:
           type: array
           items:
@@ -194,6 +216,7 @@ components:
         characters:
           type: object
           description: Current physical runtime state for continuity-relevant characters; do not fill irrelevant offscreen characters.
+          properties: {}
           additionalProperties:
             $ref: '#/components/schemas/RuntimeCharacterState'
       additionalProperties: false
