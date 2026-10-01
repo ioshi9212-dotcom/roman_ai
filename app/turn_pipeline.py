@@ -383,7 +383,8 @@ def _prepare_context(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
             "physical state: do not infer an unseen departure or time jump before executing user_input. If user_input "
             "replies to a present NPC's last line, deliver that reply while the NPC is still present unless a departure "
             "or transition was already shown. Remote contact participates without a physical position. "
-            "A mentioned offscreen character is not a participant."
+            "Mention alone does not change physical presence and does not block offscreen participation; "
+            "use scene_state.characters, cast registry and existing causal hooks to decide when a nearby/expected NPC should be loaded."
         ),
     }
     context["scene_presence"] = scene_presence
