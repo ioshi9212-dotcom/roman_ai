@@ -80,7 +80,7 @@ def test_active_runtime_is_author_rules_plus_scene_builder():
     assert "Быт не должен замораживать мир" in docs["rules"]
     assert "present_characters" in docs["rules"]
     assert "state.characters[ID]" in docs["rules"]
-    assert "не жди, пока POV специально пойдёт его искать или назовёт" in docs["rules"]
+    assert "Не жди, пока POV специально пойдёт его искать или назовёт" in docs["rules"]
     assert "упоминание также НЕ запрещает его участие" in docs["rules"]
     assert "Простое упоминание отсутствующего персонажа не означает, что нужно читать его карточку" not in docs["rules"]
     assert "Не проматывай через ожидаемого персонажа" in docs["rules"]
