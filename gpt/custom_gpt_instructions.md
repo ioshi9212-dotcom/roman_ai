@@ -94,7 +94,7 @@ Bundle даёт его собственную карточку, собствен
 - character_upserts: новый важный NPC или новая постоянная деталь;
 - relationship_updates: только реальные изменения;
 - npc_intent_updates/story_thread_updates: реальные изменения;
-- presence_updates/state_patch: физические изменения сцены.
+- presence_updates/state_patch: реальное текущее физическое состояние — кто где, одежда/инвентарь, значимые предметы и незавершённые действия.
 
 Не придумывай update ради заполнения поля.
 

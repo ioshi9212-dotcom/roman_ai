@@ -235,6 +235,13 @@ def _selected_memory(memory: Dict[str, Any], character_ids: List[str], current_t
     }
 
 
+_OFFSCREEN_PHYSICAL_KEYS = {
+    "present", "location", "last_location", "zone", "position",
+    "clothing", "outfit", "hair", "activity", "inventory",
+    "last_seen_turn", "last_seen_game_day",
+}
+
+
 def _compact_scene_state(state: Dict[str, Any], scene_ids: List[str]) -> Dict[str, Any]:
     result = deepcopy(state if isinstance(state, dict) else {})
     result.pop("relationships", None)
@@ -244,11 +251,27 @@ def _compact_scene_state(state: Dict[str, Any], scene_ids: List[str]) -> Dict[st
     runtime = result.get("characters")
     if isinstance(runtime, dict):
         wanted = set(scene_ids)
-        result["characters"] = {
-            str(character_id): deepcopy(info)
-            for character_id, info in runtime.items()
-            if str(character_id) in wanted
-        }
+        compact: Dict[str, Any] = {}
+        for character_id, raw in runtime.items():
+            cid = str(character_id)
+            if not isinstance(raw, dict):
+                continue
+            if cid in wanted:
+                compact[cid] = deepcopy(raw)
+                continue
+            physical = {
+                key: deepcopy(raw[key])
+                for key in _OFFSCREEN_PHYSICAL_KEYS
+                if key in raw and raw[key] not in (None, "", [], {})
+            }
+            if physical:
+                compact[cid] = physical
+        result["characters"] = compact
+    result["offscreen_physical_state_rule"] = (
+        "scene_state.characters may include compact physical continuity for offscreen characters "
+        "without loading their dossier. Use location/clothing/items only as state continuity. "
+        "Before an offscreen character materially participates, load that character bundle."
+    )
     return result
 
 
