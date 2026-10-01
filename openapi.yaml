@@ -63,6 +63,64 @@ components:
           type: string
       additionalProperties: false
 
+    ScenePositionState:
+      type: object
+      properties:
+        zone:
+          type: string
+        position:
+          type: string
+        distance_to_pov:
+          type: string
+        note:
+          type: string
+      additionalProperties: false
+
+    RuntimeCharacterState:
+      type: object
+      properties:
+        present:
+          type: boolean
+        location:
+          type: string
+        zone:
+          type: string
+        position:
+          type: string
+        clothing:
+          type: string
+        outfit:
+          type: string
+        hair:
+          type: string
+        activity:
+          type: string
+        inventory:
+          type: array
+          items:
+            type: string
+      additionalProperties: false
+
+    RuntimePOVState:
+      type: object
+      properties:
+        character_id:
+          type: string
+        clothing:
+          type: string
+        outfit:
+          type: string
+        hair:
+          type: string
+        condition:
+          type: object
+          additionalProperties: true
+        inventory:
+          type: array
+          items:
+            type: string
+      additionalProperties: false
+
     CurrentState:
       type: object
       properties:
@@ -102,6 +160,24 @@ components:
           type: array
           items:
             type: string
+        remote_channels:
+          type: object
+          additionalProperties:
+            type: string
+        positions:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/ScenePositionState'
+        scene_items:
+          type: object
+          description: Full current snapshot of significant physical or digital scene items when changed.
+          additionalProperties:
+            type: object
+            additionalProperties: true
+        unfinished_actions:
+          type: array
+          items:
+            type: string
         inventory:
           type: array
           items:
@@ -113,6 +189,13 @@ components:
       properties:
         current:
           $ref: '#/components/schemas/CurrentState'
+        pov:
+          $ref: '#/components/schemas/RuntimePOVState'
+        characters:
+          type: object
+          description: Current physical runtime state for continuity-relevant characters; do not fill irrelevant offscreen characters.
+          additionalProperties:
+            $ref: '#/components/schemas/RuntimeCharacterState'
       additionalProperties: false
 
     CharacterUpsert:
