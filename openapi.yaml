@@ -215,7 +215,7 @@ components:
           $ref: '#/components/schemas/RuntimePOVState'
         characters:
           type: object
-          description: Current physical runtime state for continuity-relevant characters; do not fill irrelevant offscreen characters.
+          description: Current physical runtime state for continuity-relevant characters, including important offscreen/nearby characters when their location, clothing, activity or inventory matters. Omit only irrelevant background cast.
           properties: {}
           additionalProperties:
             $ref: '#/components/schemas/RuntimeCharacterState'
