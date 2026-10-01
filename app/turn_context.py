@@ -270,7 +270,7 @@ def _compact_scene_state(state: Dict[str, Any], scene_ids: List[str]) -> Dict[st
     result["offscreen_physical_state_rule"] = (
         "scene_state.characters may include compact physical continuity for offscreen characters "
         "without loading their dossier. Use location/clothing/items only as state continuity. "
-        "Before an offscreen character materially participates, load that character bundle."
+        "Offscreen physical state may itself make participation natural; if so, load that character bundle before material participation."
     )
     return result
 
@@ -338,7 +338,7 @@ def inject_required_turn_context(context: Dict[str, Any], cards: List[Dict[str, 
 
     context["character_cards"] = scene_cards
     context["character_memory"] = scene_memory
-    context["character_context_instruction"] = "Для участников сцены knowledge передаётся полностью; experiences/dialogue могут быть bounded. Offscreen NPC перед участием → полный character bundle."
+    context["character_context_instruction"] = "Участникам сцены knowledge передаётся полностью. Offscreen state/intents/threads могут сами дать причину войти в сцену; тогда заранее загрузи полный character bundle."
     context["knowledge_guard"] = {
         "mandatory": True,
         "personal_memory_path": "character_memory[character_id]",
@@ -352,7 +352,7 @@ def inject_required_turn_context(context: Dict[str, Any], cards: List[Dict[str, 
             "NPC использует свою память, self-known факты собственной card и реально полученную информацию. "
             "Если личная деталь нигде не задана, её можно создать через canon_fill и закрепить; чужой/author canon не подмешивать."
         ),
-        "offscreen_contact_rule": "Offscreen контакт требует bundle и реального источника знания.",
+        "offscreen_contact_rule": "Offscreen не запрещён к инициативе: state/intents/threads могут вызвать естественное участие; перед содержательным участием нужен bundle и реальный источник знания.",
     }
     context["working_context_contract"] = {
         "persistent_storage_is_complete": True,
