@@ -137,6 +137,9 @@ def test_packet_has_no_hidden_director_guard_stack_and_rules_are_last():
         assert context["working_context_contract"]["hidden_director_guard_layers"] is False
         assert context["working_context_contract"]["backend_semantic_scene_gates"] is False
         assert context["working_context_contract"]["precommit_review_gates"] == ["scene_builder", "persistence", "knowledge"]
+        assert context["working_context_contract"]["offscreen_character_retrieval"] == "chunked_when_relevant"
+        assert "simple_name_mention_does_not_load_offscreen_card" not in context["working_context_contract"]
+        assert "dormant_character_retrieval" not in context["working_context_contract"]
 
 
 def test_legacy_story_rule_is_absent_from_actual_turn_packet():
