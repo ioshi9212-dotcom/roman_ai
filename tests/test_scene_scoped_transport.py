@@ -164,6 +164,8 @@ def test_offscreen_physical_state_survives_without_loading_dossier():
         assert runtime["inventory"] == ["телефон"]
         assert "private_blob" not in runtime
         assert "offscreen_physical_state_rule" in context["scene_state"]
+        assert "relevance signal" in context["scene_state"]["offscreen_physical_state_rule"]
+        assert "nearby/expected character may naturally enter or act" in context["scene_state"]["offscreen_physical_state_rule"]
 
 
 def test_thread_membership_alone_does_not_transport_full_dossier():
