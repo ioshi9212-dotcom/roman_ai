@@ -100,7 +100,9 @@ def test_turn_packet_only_transports_full_cards_for_physical_scene_and_not_menti
         assert "relationships" not in scene_state
         assert "relationship_documents" not in scene_state
         assert "threads" not in scene_state
-        assert set(scene_state.get("characters", {})) <= {"pov", "present", "messenger"}
+        assert {"pov", "present"} <= set(scene_state.get("characters", {}))
+        if "away" in scene_state.get("characters", {}):
+            assert "huge" not in scene_state["characters"]["away"]
 
         assert any(row["character_id"] == "thread_only" for row in context["character_registry"])
         assert "old_thread" in context["active_threads"]
@@ -117,6 +119,51 @@ def test_turn_packet_only_transports_full_cards_for_physical_scene_and_not_menti
         assert "thread_only" in persisted_state["relationship_documents"]
         assert len(persisted_memory["characters"]["thread_only"]["knowledge"]) == 89
         assert any(card["character_id"] == "away" and card["bio"] == huge for card in persisted_cards)
+
+
+def test_offscreen_physical_state_survives_without_loading_dossier():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        novel = {
+            "novel_id": "offscreen_physical",
+            "title": "Offscreen Physical",
+            "novel": {"pov_character": "pov"},
+            "characters": [
+                {"character_id": "pov", "name": "POV", "is_pov": True},
+                {"character_id": "adrian", "name": "Адриан", "secret": "must-not-load"},
+            ],
+            "starting_state": {
+                "pov": {"character_id": "pov", "clothing": "уличная одежда"},
+                "current": {
+                    "location": "квартира",
+                    "scene": "кухня",
+                    "present_characters": ["pov"],
+                },
+                "characters": {
+                    "adrian": {
+                        "present": False,
+                        "location": "квартира",
+                        "zone": "спальня",
+                        "clothing": "джинсы и куртка",
+                        "inventory": ["телефон"],
+                        "private_blob": "SECRET_RUNTIME_BLOB",
+                    }
+                },
+            },
+        }
+        sid = storage.create_session(novel)["session_id"]
+        _, context = _read_packet(sid, "(поставить чайник)")
+
+        assert {row["character_id"] for row in context["character_cards"]} == {"pov"}
+        assert "adrian" not in context["character_memory"]
+
+        runtime = context["scene_state"]["characters"]["adrian"]
+        assert runtime["location"] == "квартира"
+        assert runtime["zone"] == "спальня"
+        assert runtime["clothing"] == "джинсы и куртка"
+        assert runtime["inventory"] == ["телефон"]
+        assert "private_blob" not in runtime
+        assert "offscreen_physical_state_rule" in context["scene_state"]
 
 
 def test_thread_membership_alone_does_not_transport_full_dossier():
