@@ -267,9 +267,7 @@ def _compact_scene_state(state: Dict[str, Any], scene_ids: List[str]) -> Dict[st
             if physical:
                 compact[cid] = physical
         result["characters"] = compact
-    result["offscreen_physical_state_rule"] = (
-        "Offscreen physical state is continuity + relevance. Nearby/expected NPC may act; load bundle before material participation."
-    )
+    result["offscreen_physical_state_rule"] = "Offscreen physical state is real continuity; load bundle if relevant before participation."
     return result
 
 
