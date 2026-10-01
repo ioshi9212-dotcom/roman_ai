@@ -6,7 +6,7 @@ from copy import deepcopy
 from typing import Any, Dict, List
 
 from . import session_runtime, storage
-from .npc_intent import active_intents_for
+from .npc_intent import active_intents_for, normalise_store
 from .scene_compaction_runtime import active_memory_records, complete_knowledge_records, covered_turns, load_scene_history
 from .transactional_storage import session_transaction
 
@@ -433,7 +433,12 @@ def _rewrite_context(session_id: str, context: Dict[str, Any]) -> Dict[str, Any]
     chronology_source = result.get("chronology_recent")
     result["chronology_anchor_catalog"] = _anchor_catalog(chronology_source)
     result["chronology_recent"] = _compact_chronology(chronology_source, character_ids, location)
-    result["npc_active_intents"] = active_intents_for(state, character_ids, current_turn=int(meta.get("turn_number", 0) or 0))
+    intent_ids = list(dict.fromkeys([*character_ids, *normalise_store(state).keys()]))
+    result["npc_active_intents"] = active_intents_for(
+        state,
+        intent_ids,
+        current_turn=int(meta.get("turn_number", 0) or 0),
+    )
 
     contract = result.get("working_context_contract") if isinstance(result.get("working_context_contract"), dict) else {}
     contract.update({
@@ -449,6 +454,7 @@ def _rewrite_context(session_id: str, context: Dict[str, Any]) -> Dict[str, Any]
         "future_guidance_is_not_history": True,
         "npc_intents_are_persistent": True,
         "full_npc_intent_store_in_packet": False,
+        "offscreen_active_intents_in_packet": True,
         "first_packet_chunk_in_prepare_response": True,
     })
     result["working_context_contract"] = contract

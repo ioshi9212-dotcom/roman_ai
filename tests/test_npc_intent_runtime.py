@@ -103,6 +103,43 @@ def test_unresolved_npc_intent_persists_and_resurfaces_without_player_reminder()
         assert bundle["active_intents"][0]["intent_id"] == "check_account_origin"
 
 
+def test_offscreen_active_intent_is_visible_before_character_is_pulled_into_scene():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(novel())["session_id"]
+        root = storage.SESSIONS_DIR / sid
+
+        read_packet(sid, "(заняться своими делами)")
+        session_runtime.commit_turn(
+            sid,
+            {
+                "user_input": "(заняться своими делами)",
+                "scene_output": "POV остаётся дома.\n\nОтношения:\n\nХод 1 · цикл 1/15",
+                "extracted": base_extracted(
+                    npc_intent_updates=[{
+                        "character_id": "ren",
+                        "intent_id": "come_back_to_talk",
+                        "summary": "Вернуться к POV и закончить разговор",
+                        "priority": "high",
+                        "planned_action": "Подойти к POV, когда будет возможность",
+                        "next_eligible_game_day": 1,
+                    }],
+                    state_patch={"characters": {
+                        "ren": {"present": False, "location": "home", "activity": "в соседней комнате"}
+                    }},
+                ),
+            },
+        )
+
+        _, context = read_packet(sid, "(налить чай)")
+        assert "ren" not in context["relevant_character_ids"]
+        assert context["npc_active_intents"]["ren"][0]["intent_id"] == "come_back_to_talk"
+        assert context["npc_active_intents"]["ren"][0]["eligible_now"] is True
+        assert context["scene_state"]["characters"]["ren"]["location"] == "home"
+        assert context["scene_state"]["characters"]["ren"]["activity"] == "в соседней комнате"
+        assert context["working_context_contract"]["offscreen_active_intents_in_packet"] is True
+
+
 def test_intent_source_fact_may_be_added_to_same_character_in_same_commit():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)

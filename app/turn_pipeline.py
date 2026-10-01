@@ -383,7 +383,7 @@ def _prepare_context(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
             "physical state: do not infer an unseen departure or time jump before executing user_input. If user_input "
             "replies to a present NPC's last line, deliver that reply while the NPC is still present unless a departure "
             "or transition was already shown. Remote contact participates without a physical position. "
-            "A mentioned offscreen character is not a participant."
+            "Mention alone does not prove participation, but offscreen state, active intents, agreements and threads may make participation natural."
         ),
     }
     context["scene_presence"] = scene_presence
@@ -400,7 +400,7 @@ def _prepare_context(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
         ),
         "relationships": "dynamic labels are allowed; no fixed vocabulary",
         "character_upserts": "important/repeating NPC or newly fixed personal detail",
-        "state_patch": "physical scene state only when changed",
+        "state_patch": "current physical state only when changed; preserve continuity-relevant offscreen location/activity/outfit/items as well as the active scene",
     })
     context["persistence_contract"] = persistence
 
