@@ -328,6 +328,8 @@ def _relationship_update_effect(
     }
 
     dimensions = raw.get("dimensions") if isinstance(raw.get("dimensions"), list) else []
+    has_effect = False
+    seen_dimensions: set[str] = set()
     for item in dimensions:
         if not isinstance(item, dict):
             continue
@@ -335,6 +337,9 @@ def _relationship_update_effect(
         if not label:
             continue
         norm = relationship_runtime._norm(label)
+        if not norm or norm in seen_dimensions:
+            raise RuntimeError("RELATIONSHIP_DIMENSION_DUPLICATE")
+        seen_dimensions.add(norm)
         value = item.get("value")
         delta = item.get("delta")
         value_num = isinstance(value, (int, float)) and not isinstance(value, bool)
@@ -342,10 +347,11 @@ def _relationship_update_effect(
         if norm in baseline:
             if not delta_num or float(delta) == 0.0:
                 raise RuntimeError("RELATIONSHIP_EXISTING_DIMENSION_DELTA_REQUIRED")
-            return True
+            has_effect = True
+            continue
         if not value_num:
             raise RuntimeError("RELATIONSHIP_NEW_DIMENSION_VALUE_REQUIRED")
-        return True
+        has_effect = True
 
     metadata_pairs = (
         ("opinion", "current_dynamic"),
@@ -362,8 +368,8 @@ def _relationship_update_effect(
         if incoming_key in {"opinion", "current_dynamic", "relationship_type", "relationship_context"}:
             incoming = str(incoming or "").strip()
         if incoming != relation.get(relation_key):
-            return True
-    return False
+            has_effect = True
+    return has_effect
 
 
 def _validate_relationship_review_details(
@@ -402,7 +408,10 @@ def _validate_relationship_review_details(
             continue
         cid = session_runtime._resolve_character_id(cards, raw.get("character_id"))
         if cid and str(cid) != pov_id:
-            updates_by_owner[str(cid)] = raw
+            cid = str(cid)
+            if cid in updates_by_owner:
+                raise RuntimeError("RELATIONSHIP_UPDATE_DUPLICATE_OWNER")
+            updates_by_owner[cid] = raw
     if not set(updates_by_owner).issubset(set(expected)):
         raise RuntimeError("RELATIONSHIP_UPDATE_FOR_UNSEEN_NPC")
 
