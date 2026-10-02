@@ -44,7 +44,7 @@ Backend хранит канон. `scene_builder` задаёт формат сц�
 - Профиль фиксирует короткий постоянный каркас: зоны, планировку, этаж/режим и устойчивые особенности. Не придумывай новые постоянные комнаты/объекты и не переставляй каркас.
 - Для profiled места `current.location` остаётся parent place, а комната хранится отдельно в `zone`/`zone_id`; не подменяй parent одним названием комнаты.
 - `linked_characters` - режиссёрский каталог связанных зарегистрированных персонажей; до их участия нужен bundle.
-- `canon_notes_context` загружается независимо от location profile по subjects текущего места/зоны, участников или global; это director-only, не знание персонажей.
+- `canon_notes_context` загружается по canonical subjects: character_id, location_id, location_id.zone_id или global; display names не считаются subject ids. Это director-only, не знание персонажей.
 
 ## Мир и сюжет
 - Мир не ждёт POV. Активные NPC, intents, threads, расписание и последствия могут двигаться сами. Offscreen candidate означает только повод проверить релевантность; он не обязывает вводить NPC в сцену или связываться с POV.
