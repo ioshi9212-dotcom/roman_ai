@@ -36,7 +36,7 @@ def get_character_bundle(session_id: str, character_id: str) -> Dict[str, Any]:
         "active_intents": active_intents,
         "instruction": (
             "CARD is objective author context. PERSONAL_MEMORY is the authoritative source for what this character personally knows. "
-            "ACTIVE_INTENTS are unresolved character-owned follow-ups, suspicions, promises, investigations, plans and blocked goals; they may drive initiative without POV reminding the NPC when opportunity and character logic support it. "
+            "ACTIVE_INTENTS are unresolved character-owned follow-ups, suspicions, promises, investigations, plans and blocked goals. When an active intent reaches a causal next step, it drives the NPC's initiative without waiting for POV to mention or summon them; use a logical contact or appearance channel supported by state and character logic. "
             "POV_FAMILIARITY is persistent identity continuity: known/acquainted means POV already knows this person and a first-time introduction is forbidden; encountered means prior co-presence without guaranteed identity knowledge. "
             "When this registered character enters from offscreen, use this same card/ID and describe a recognizable entrance consistent with the card instead of silently turning an anonymous newcomer into this person later. "
             "RELATIONSHIP_TO_POV is this NPC's persistent directed attitude toward POV and must materially affect characterization: wording, tone, initiative, willingness to approach or avoid, trust, suspicion, jealousy, warmth, hostility, physical distance, risk-taking, help, conflict and attention. "
