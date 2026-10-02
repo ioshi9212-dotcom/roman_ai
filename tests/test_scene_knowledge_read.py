@@ -205,3 +205,6 @@ def test_completed_knowledge_status_restores_scene_direction_after_large_reads()
         assert "пассивных ощущений/наблюдений" in reminder
         assert "фоновые одноразовые NPC" in reminder
         assert "без карточки и полного knowledge-read" in reminder
+        assert "не регистрируй их ради одной сцены" in reminder
+        assert "созданном игроком касте" in reminder
+        assert "конкретной повторяющейся story_function" in reminder

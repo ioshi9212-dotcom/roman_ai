@@ -385,7 +385,8 @@ def _prepare_context(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
         "persistent": True,
         "registry_index_path": "cast_registry.characters",
         "rule": (
-            "Registry is a reminder of permanent characters, not an appearance quota. "
+            "Registry is a reminder of permanent characters, not an appearance quota. Prioritize player-created cast for returns and development. "
+            "Create no card for background extras; a new persistent NPC needs a concrete recurring story_function after checking existing cast. "
             "Use relationships, personal goals, story function, unresolved business, game days and turns to judge natural return."
         ),
         "characters": _cast_registry_rows(state, cards, source, current_turn),
@@ -474,7 +475,7 @@ def _prepare_context(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
             "A qualitatively new state may become a new dynamic metric with value; old labels are not a whitelist. "
             "If nothing changed, set changed=false and send no update."
         ),
-        "character_upserts": "important/repeating NPC or newly fixed personal detail",
+        "character_upserts": "new durable self-detail, or a new persistent NPC only with a concrete recurring story_function; never register a background extra",
         "state_patch": "current physical state only when changed; preserve continuity-relevant offscreen location/activity/outfit/items as well as the active scene",
     })
     context["persistence_contract"] = persistence
