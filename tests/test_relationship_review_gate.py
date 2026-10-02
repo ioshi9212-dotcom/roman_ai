@@ -77,10 +77,29 @@ def test_new_packet_requires_relationship_review():
         assert manifest["relationship_review_required"] is True
         assert manifest["relationship_review_details_required"] is True
         assert manifest["relationship_footer_scope_required"] is True
+        assert manifest["relationship_review_v3_required"] is True
         _read_all(sid, manifest)
 
         with pytest.raises(RuntimeError, match="RELATIONSHIP_REVIEW_REQUIRED"):
             commit_turn_request(sid, _reviewed_payload(manifest, relationship_reviewed=False))
+
+
+def test_v3_review_requires_reason_even_when_unchanged():
+    with tempfile.TemporaryDirectory() as tmp:
+        _setup(tmp)
+        sid = storage.create_session(_novel())["session_id"]
+        manifest = prepare_turn_request(sid, "(молча посмотреть)", request_id="rel-review-reason")
+        _read_all(sid, manifest)
+
+        with pytest.raises(RuntimeError, match="RELATIONSHIP_REVIEW_REASON_REQUIRED"):
+            commit_turn_request(
+                sid,
+                _reviewed_payload(
+                    manifest,
+                    relationship_reviewed=True,
+                    relationship_review=[{"character_id": "npc", "changed": False}],
+                ),
+            )
 
 
 def test_review_flag_alone_is_not_enough_anymore():
@@ -124,6 +143,94 @@ def test_unchanged_review_can_commit_without_update():
             _reviewed_payload(
                 manifest,
                 relationship_reviewed=True,
+                relationship_review=[{"character_id": "npc", "changed": False, "reason": "Эта сцена не изменила отношение."}],
+            ),
+        )
+        assert result["already_committed"] is False
+
+
+def test_changed_review_rejects_noop_update():
+    with tempfile.TemporaryDirectory() as tmp:
+        _setup(tmp)
+        sid = storage.create_session(_novel())["session_id"]
+        manifest = prepare_turn_request(sid, "(молча посмотреть)", request_id="rel-review-noop")
+        _read_all(sid, manifest)
+
+        with pytest.raises(RuntimeError, match="RELATIONSHIP_REVIEW_CHANGED_WITHOUT_EFFECT"):
+            commit_turn_request(
+                sid,
+                _reviewed_payload(
+                    manifest,
+                    relationship_reviewed=True,
+                    relationship_review=[{"character_id": "npc", "changed": True, "reason": "Проверено: отношение изменилось."}],
+                    relationship_updates=[{"character_id": "npc", "reason": "Проверено, но update пустой."}],
+                ),
+            )
+
+
+def test_existing_dimension_accepts_delta_without_value():
+    with tempfile.TemporaryDirectory() as tmp:
+        _setup(tmp)
+        sid = storage.create_session(_novel())["session_id"]
+        manifest = prepare_turn_request(sid, "(молча посмотреть)", request_id="rel-review-delta-only")
+        _read_all(sid, manifest)
+
+        result = commit_turn_request(
+            sid,
+            _reviewed_payload(
+                manifest,
+                relationship_reviewed=True,
+                relationship_review=[{"character_id": "npc", "changed": True, "reason": "POV сделал поступок, усиливший доверие."}],
+                relationship_updates=[{
+                    "character_id": "npc",
+                    "reason": "POV сделал поступок, усиливший доверие.",
+                    "dimensions": [{"label": "доверие", "delta": 1}],
+                }],
+                scene_output="Сцена.\n\nОтношения:\nNPC - доверие 11/+1\n\nХод 1",
+            ),
+        )
+        assert result["already_committed"] is False
+        state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
+        assert state["relationships"]["npc"]["доверие"] == 11
+
+
+def test_v3_footer_is_display_only_for_canonical_values():
+    with tempfile.TemporaryDirectory() as tmp:
+        _setup(tmp)
+        sid = storage.create_session(_novel())["session_id"]
+        manifest = prepare_turn_request(sid, "(молча посмотреть)", request_id="footer-display-only")
+        _read_all(sid, manifest)
+
+        result = commit_turn_request(
+            sid,
+            _reviewed_payload(
+                manifest,
+                relationship_reviewed=True,
+                relationship_review=[{"character_id": "npc", "changed": False, "reason": "В сцене не было причин для сдвига."}],
+                scene_output="Сцена.\n\nОтношения:\nNPC - доверие 99\n\nХод 1",
+            ),
+        )
+        assert result["already_committed"] is False
+        state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
+        assert state["relationships"]["npc"]["доверие"] == 10
+
+
+def test_v2_pending_packet_without_v3_marker_keeps_old_review_compatibility():
+    with tempfile.TemporaryDirectory() as tmp:
+        _setup(tmp)
+        sid = storage.create_session(_novel())["session_id"]
+        manifest = prepare_turn_request(sid, "(молча посмотреть)", request_id="v2-pending")
+        _read_all(sid, manifest)
+        root = storage.SESSIONS_DIR / sid
+        packet = storage._read_json(root / "turn_packet.json", {})
+        packet.pop("relationship_review_v3_required", None)
+        storage._write_json(root / "turn_packet.json", packet)
+
+        result = commit_turn_request(
+            sid,
+            _reviewed_payload(
+                manifest,
+                relationship_reviewed=True,
                 relationship_review=[{"character_id": "npc", "changed": False}],
             ),
         )
@@ -147,7 +254,7 @@ def test_remote_participant_must_be_reviewed_but_not_printed_in_footer():
                 _reviewed_payload(
                     manifest,
                     relationship_reviewed=True,
-                    relationship_review=[{"character_id": "npc", "changed": False}],
+                    relationship_review=[{"character_id": "npc", "changed": False, "reason": "Эта сцена не изменила отношение."}],
                 ),
             )
 
@@ -184,6 +291,7 @@ def test_old_pending_packet_without_new_markers_remains_compatible():
         packet.pop("relationship_review_required", None)
         packet.pop("relationship_review_details_required", None)
         packet.pop("relationship_footer_scope_required", None)
+        packet.pop("relationship_review_v3_required", None)
         storage._write_json(root / "turn_packet.json", packet)
 
         result = commit_turn_request(sid, _reviewed_payload(manifest, relationship_reviewed=False))
