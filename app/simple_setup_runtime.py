@@ -336,6 +336,37 @@ def _resolve_pov(template: Dict[str, Any]) -> str | None:
     return None
 
 
+def _location_identity_key(value: Any) -> str:
+    text = str(value or "").casefold().replace("ё", "е").strip()
+    return " ".join(text.replace("-", " ").replace("_", " ").split())
+
+
+def _validate_location_identity_uniqueness(locations: List[Dict[str, Any]]) -> None:
+    seen_locations: set[str] = set()
+    for profile in locations:
+        if not isinstance(profile, dict):
+            continue
+        location_id = str(profile.get("location_id") or "").strip()
+        key = _location_identity_key(location_id)
+        if not key:
+            continue
+        if key in seen_locations:
+            raise ValueError("DRAFT_LOCATION_ID_DUPLICATE")
+        seen_locations.add(key)
+
+        seen_zones: set[str] = set()
+        for zone in profile.get("zones", []) if isinstance(profile.get("zones"), list) else []:
+            if not isinstance(zone, dict):
+                continue
+            zone_id = str(zone.get("zone_id") or "").strip()
+            zone_key = _location_identity_key(zone_id)
+            if not zone_key:
+                continue
+            if zone_key in seen_zones:
+                raise ValueError("DRAFT_LOCATION_ZONE_ID_DUPLICATE")
+            seen_zones.add(zone_key)
+
+
 def _canonicalize_location_character_links(
     locations: List[Dict[str, Any]],
     characters: List[Dict[str, Any]],
@@ -393,8 +424,10 @@ def _validate_simple_content(template: Dict[str, Any]) -> tuple[Dict[str, Any], 
         normalized["characters"],
     )
     normalized["hidden_lore"] = normalize_hidden_lore(normalized.get("hidden_lore", {}))
+    normalized_locations = normalize_location_profiles(normalized.get("locations", []))
+    _validate_location_identity_uniqueness(normalized_locations)
     normalized["locations"] = _canonicalize_location_character_links(
-        normalize_location_profiles(normalized.get("locations", [])),
+        normalized_locations,
         normalized["characters"],
     )
     normalized["canon_notes"] = normalize_canon_notes(normalized.get("canon_notes", []))
