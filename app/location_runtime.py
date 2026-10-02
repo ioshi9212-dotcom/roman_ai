@@ -113,6 +113,30 @@ def resolve_physical_location(source: Dict[str, Any], state: Dict[str, Any]) -> 
     }
 
 
+def sync_current_location(source: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
+    """Keep canonical ids aligned with the visible physical scene pointer."""
+    result = deepcopy(state) if isinstance(state, dict) else {}
+    current = result.get("current") if isinstance(result.get("current"), dict) else {}
+    result["current"] = current
+
+    resolved = resolve_physical_location(source, result)
+    if resolved is None:
+        current.pop("location_id", None)
+        current.pop("zone_id", None)
+        return result
+
+    profile = resolved["profile"]
+    current["location_id"] = str(profile.get("location_id") or "")
+    zone = resolved.get("zone") if isinstance(resolved.get("zone"), dict) else None
+    if zone is not None:
+        current["zone_id"] = str(zone.get("zone_id") or "")
+        if current.get("zone") in (None, ""):
+            current["zone"] = str(zone.get("name") or zone.get("zone_id") or "")
+    else:
+        current.pop("zone_id", None)
+    return result
+
+
 def relevant_canon_notes(
     source: Dict[str, Any],
     *,
