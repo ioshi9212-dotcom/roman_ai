@@ -232,18 +232,9 @@ def relevant_canon_notes(
     relevant: set[str] = {_norm("global")}
     relevant.update(_norm(value) for value in scene_character_ids if _norm(value))
 
-    current = _current(state)
-    for value in (
-        current.get("location_id"),
-        current.get("location"),
-        current.get("place"),
-        current.get("area"),
-        current.get("zone_id"),
-        current.get("zone"),
-    ):
-        if _norm(value):
-            relevant.add(_norm(value))
-
+    # Raw current.location/current.zone text is not a durable subject namespace.
+    # Use location/zone subjects only through a successfully resolved saved profile;
+    # otherwise generic names such as "Кухня" could pull canon from the wrong place.
     location = resolve_physical_location(source, state)
     if isinstance(location, dict):
         profile = location.get("profile") if isinstance(location.get("profile"), dict) else {}
