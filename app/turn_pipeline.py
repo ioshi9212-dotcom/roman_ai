@@ -306,6 +306,7 @@ def _move_runtime_documents_last(context: Dict[str, Any]) -> Dict[str, Any]:
         "chronology and recent continuity",
         "current scene state",
         "physical location profile when present",
+        "scoped canon notes when relevant",
         "active character cards",
         "each active character's own knowledge",
         "relationships and active intents",
@@ -365,6 +366,16 @@ def _prepare_context(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
     else:
         context.pop("location_context", None)
 
+    canon_notes_context = location_runtime.build_canon_notes_context(
+        source,
+        state,
+        scene_character_ids=scene_ids,
+    )
+    if canon_notes_context is not None:
+        context["canon_notes_context"] = canon_notes_context
+    else:
+        context.pop("canon_notes_context", None)
+
     card_map = {
         storage._card_id(card): card
         for card in cards
@@ -392,11 +403,11 @@ def _prepare_context(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
         "and real communication. Knowledge is granular: a partial fact authorizes only the details actually known or strictly entailed. "
         "Never fill an unknown time/place/person/reason/plan detail with a likely or convenient value and state it as fact; ask, leave it unknown, "
         "or mark a plausible inference as a guess until confirmed. npc_active_intents[ID] are private planning state of ID only; active_threads, "
-        "future_guidance and offscreen_intent_candidates are director-only and never become another character's knowledge. Director-only truth is also "
+        "future_guidance, canon_notes_context and offscreen_intent_candidates are director-only and never become another character's knowledge. Director-only truth is also "
         "not a cause for NPC behavior: hidden identity, deception, future reveal or planned event cannot by itself trigger probing, checking or suspicion; "
         "there must be a cause available inside that NPC's own knowledge, observations, duties, goals or current situation. "
         "Own-card branches marked unknown_to_self/hidden_from_self/not_known_to_self/"
-        "known_to_self=false/author_only are not self-known. Other cards, other memory, chronology, location_context and director lore "
+        "known_to_self=false/author_only are not self-known. Other cards, other memory, chronology, location_context, canon_notes_context and director lore "
         "are not personal knowledge."
     )
     context["cast_registry"] = {
