@@ -78,6 +78,10 @@ def test_static_custom_gpt_schema_has_exact_current_30_actions():
     assert "change_scale" not in relationship["properties"]
     assert "elapsed_game_days" not in relationship["properties"]
 
+    knowledge_text = schema["components"]["schemas"]["KnowledgeJournalAdd"]["properties"]["text"]["description"]
+    assert "minimum confirmed fact" in knowledge_text
+    assert "unstated time, place, person" in knowledge_text
+
     section = schema["components"]["schemas"]["NovelDraftSection"]
     assert {"knowledge", "locations", "canon_notes"} <= set(section["properties"]["section_name"]["enum"])
 
