@@ -50,6 +50,7 @@ def _packet_status(packet: Any) -> Dict[str, Any] | None:
         "status": "ready_for_commit" if not unread else "reading",
         "scene_archive_capable": bool(packet.get("scene_archive_capable")),
         "writer_review_required": bool(packet.get("writer_review_required")),
+        "relationship_review_required": bool(packet.get("relationship_review_required")),
     }
 
 
@@ -121,6 +122,7 @@ def prepare_turn_request(
                 result["scene_archive_capable"] = bool(packet.get("scene_archive_capable"))
                 result["opening_scene"] = bool(packet.get("opening_scene"))
                 result["writer_review_required"] = bool(packet.get("writer_review_required"))
+                result["relationship_review_required"] = bool(packet.get("relationship_review_required"))
                 result["pending_turn"] = pending_turn_status(session_id)
                 return result
 
@@ -145,6 +147,9 @@ def prepare_turn_request(
             packet["scene_archive_capable"] = bool(scene_archive_capable)
             packet["opening_scene"] = bool(opening_scene)
             packet["writer_review_required"] = True
+            # Compatibility boundary: only newly prepared packets get the new hard review gate.
+            # Pending packets created by older deployments keep working unchanged.
+            packet["relationship_review_required"] = True
             storage._write_json(root / "turn_packet.json", packet)
 
         if scene_archive_capable:
@@ -155,6 +160,7 @@ def prepare_turn_request(
         result["scene_archive_capable"] = bool(scene_archive_capable)
         result["opening_scene"] = bool(opening_scene)
         result["writer_review_required"] = bool(packet.get("writer_review_required"))
+        result["relationship_review_required"] = bool(packet.get("relationship_review_required"))
         result["pending_turn"] = pending_turn_status(session_id)
         return result
 
@@ -223,10 +229,12 @@ def commit_turn_request(session_id: str, payload: Dict[str, Any]) -> Dict[str, A
             raise RuntimeError("PERSISTENCE_REVIEW_REQUIRED")
         if extracted.get("knowledge_reviewed") is not True:
             raise RuntimeError("KNOWLEDGE_REVIEW_REQUIRED")
-    # Relationship review is a writer/persistence requirement, not a transaction-killing gate.
-    # Older live GPT schemas and long-running pending turns may omit relationship_reviewed even
-    # though the scene contains a valid relationship footer/update. Do not brick the whole scene:
-    # final relationship policy plus validated relationship_updates/footer-delta fallback handle it.
+    if bool(packet.get("relationship_review_required")):
+        extracted = payload.get("extracted") if isinstance(payload.get("extracted"), dict) else {}
+        if extracted.get("relationship_reviewed") is not True:
+            raise RuntimeError("RELATIONSHIP_REVIEW_REQUIRED")
+    # Packets created before relationship_review_required existed intentionally bypass this gate.
+    # Their relationship footer/update data is still persisted by the compatibility path.
     prepared = deepcopy(payload)
     prepared["_operation_receipt"] = {
         "operation": "commit_turn",
