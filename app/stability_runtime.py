@@ -38,6 +38,8 @@ _SOURCE_STANDARD_KEYS = {
     "world",
     "starting_state",
     "story_direction",
+    "locations",
+    "canon_notes",
 }
 
 
@@ -164,7 +166,7 @@ def _compact_turn_context(context: Dict[str, Any], source: Dict[str, Any]) -> Di
         author.pop(duplicate, None)
     author["instruction"] = (
         "Auxiliary author-only metadata. Canonical working data lives at the top-level scene_builder paths: "
-        "scene_state, character_cards, character_memory, character_registry, novel/novel_rules/novel_lore/hidden_lore/world_canon/story_direction, chronology_recent and recent_turns."
+        "scene_state, location_context, character_cards, character_memory, character_registry, novel/novel_rules/novel_lore/hidden_lore/world_canon/story_direction, chronology_recent and recent_turns."
     )
     context["author_context"] = author
     context["transport_context_paths"] = {
@@ -174,6 +176,7 @@ def _compact_turn_context(context: Dict[str, Any], source: Dict[str, Any]) -> Di
         "registry": "character_registry",
         "chronology": "chronology_recent",
         "starting_state": "starting_state",
+        "location": "location_context",
     }
     contract = context.get("working_context_contract") if isinstance(context.get("working_context_contract"), dict) else {}
     contract.update(
