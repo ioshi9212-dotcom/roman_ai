@@ -262,8 +262,9 @@ def build_location_context(
         "profile": render_location_profile(profile),
         "linked_characters": deepcopy(profile.get("linked_characters", [])),
         "rule": (
-            "This profile is loaded only because POV is physically here. Treat its layout, listed zones and fixed features "
-            "as stable spatial canon. Do not invent a new permanent room, floor, facility or fixed feature just to serve the scene; "
+            "This profile is loaded because it is the POV's saved physical place at turn start. Treat its layout, listed zones and fixed features "
+            "as stable spatial canon while POV remains here. If POV physically leaves during this turn, stop applying this profile after the transition; "
+            "never reuse it as the destination profile. Do not invent a new permanent room, floor, facility or fixed feature just to serve the scene; "
             "do not move fixed layout between turns. Temporary ordinary objects may vary when they do not contradict canon. "
             "linked_characters is an author directory, not personal knowledge; load a registered offscreen character bundle before participation."
         ),
