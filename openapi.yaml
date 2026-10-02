@@ -57,6 +57,7 @@ components:
           type: string
         text:
           type: string
+          description: Store only the minimum confirmed fact actually learned. Do not add an unstated time, place, person, reason, plan or other plausible detail.
         date:
           type: string
         period:
