@@ -322,6 +322,14 @@ def normalize_location_profile(raw: Any) -> Dict[str, Any]:
     staff = profile.get("staff")
     if isinstance(staff, str):
         staff = [staff]
+    elif isinstance(staff, dict):
+        staff = [
+            f"{str(key).strip()}: {str(value).strip()}"
+            if value not in (None, "", [], {})
+            else str(key).strip()
+            for key, value in staff.items()
+            if str(key).strip()
+        ]
     if not isinstance(staff, list):
         staff = []
     profile["staff"] = [str(value).strip() for value in staff if str(value).strip()]
@@ -333,11 +341,19 @@ def normalize_location_profile(raw: Any) -> Dict[str, Any]:
         if any(key in linked for key in ("character_id", "id", "name")):
             linked = [linked]
         else:
-            linked = [
-                {"character_id": str(key), "relation": value}
-                for key, value in linked.items()
-                if str(key).strip()
-            ]
+            expanded_linked = []
+            for key, value in linked.items():
+                if not str(key).strip():
+                    continue
+                row = {"character_id": str(key)}
+                if isinstance(value, dict):
+                    relation = value.get("relation") or value.get("role") or value.get("connection")
+                else:
+                    relation = value
+                if relation not in (None, "", [], {}):
+                    row["relation"] = relation
+                expanded_linked.append(row)
+            linked = expanded_linked
     if not isinstance(linked, list):
         linked = []
     normalized_linked: List[Dict[str, Any]] = []
