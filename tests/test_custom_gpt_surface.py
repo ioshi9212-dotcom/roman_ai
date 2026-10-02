@@ -66,11 +66,11 @@ def test_static_custom_gpt_schema_has_exact_current_30_actions():
     dumped = str(turn_commit)
     assert "knowledge_reviewed" not in dumped
     assert "runtime_contract_version" not in dumped
-    assert "relationship_reviewed" not in dumped
     extracted = schema["components"]["schemas"]["TurnExtracted"]
     assert "scene_builder_reviewed" in extracted["properties"]
     assert "persistence_reviewed" in extracted["properties"]
     assert "knowledge_reviewed" in extracted["properties"]
+    assert "relationship_reviewed" in extracted["properties"]
 
     relationship = schema["components"]["schemas"]["RelationshipUpdate"]
     assert "change_scale" not in relationship["properties"]
@@ -149,6 +149,7 @@ def test_custom_gpt_instruction_matches_rules_driven_transport():
         "user_input=\"\"",
         "packet_id",
         "knowledge_reviewed=true",
+        "relationship_reviewed=true",
     ):
         assert required in text
 
@@ -162,7 +163,6 @@ def test_custom_gpt_instruction_matches_rules_driven_transport():
         "prepareCharacterKnowledgeRead",
         "getCharacterKnowledgeChunk",
         "commitAudit",
-        "relationship_reviewed=true",
     ):
         assert removed not in text
 
