@@ -589,3 +589,51 @@ def test_short_zone_name_does_not_match_inside_unrelated_word():
 
     assert "location_id" not in synced["current"]
     assert context is None
+
+
+def test_v5_setup_rejects_duplicate_canonical_location_ids_instead_of_silently_dropping_one():
+    with pytest.raises(ValueError, match="DRAFT_LOCATION_ID_DUPLICATE"):
+        simple_setup_runtime._validate_simple_content({
+            "novel_id": "duplicate_locations",
+            "title": "Duplicate Locations",
+            "version": 5,
+            "novel": {"pov_character": "rina"},
+            "characters": [{"character_id": "rina", "name": "Рина", "is_pov": True}],
+            "lore": {},
+            "locations": [
+                {"location_id": "silas_house", "name": "Дом Сайласа"},
+                {"location_id": "Silas-House", "name": "Тот же id другой записью"},
+            ],
+        })
+
+
+def test_v5_setup_rejects_duplicate_zone_ids_inside_one_location():
+    with pytest.raises(ValueError, match="DRAFT_LOCATION_ZONE_ID_DUPLICATE"):
+        simple_setup_runtime._validate_simple_content({
+            "novel_id": "duplicate_zones",
+            "title": "Duplicate Zones",
+            "version": 5,
+            "novel": {"pov_character": "rina"},
+            "characters": [{"character_id": "rina", "name": "Рина", "is_pov": True}],
+            "lore": {},
+            "locations": [{
+                "location_id": "silas_house",
+                "name": "Дом Сайласа",
+                "zones": [
+                    {"zone_id": "guest_room", "name": "Гостевая"},
+                    {"zone_id": "guest-room", "name": "Гостевая 2"},
+                ],
+            }],
+        })
+
+
+def test_location_normalization_preserves_duplicate_rows_for_explicit_validation():
+    from app.profile_templates import normalize_location_profiles
+
+    rows = normalize_location_profiles([
+        {"location_id": "same", "name": "Первая"},
+        {"location_id": "same", "name": "Вторая"},
+    ])
+
+    assert len(rows) == 2
+    assert [row["name"] for row in rows] == ["Первая", "Вторая"]
