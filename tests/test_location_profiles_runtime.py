@@ -2,7 +2,7 @@ import json
 import tempfile
 from pathlib import Path
 
-from app import location_runtime, session_runtime, storage
+from app import location_runtime, session_runtime, simple_setup_runtime, storage
 
 
 def _setup(tmp: str) -> None:
@@ -189,3 +189,53 @@ def test_parent_location_id_can_resolve_a_known_child_zone_without_creating_a_ne
     assert context["location_id"] == "silas_house"
     assert context["current_zone"]["zone_id"] == "study"
     assert context["name"] == "Дом Сайласа"
+
+
+def test_v5_setup_canonicalizes_location_links_to_existing_characters():
+    template, coverage = simple_setup_runtime._validate_simple_content({
+        "novel_id": "location_setup",
+        "title": "Location Setup",
+        "version": 5,
+        "novel": {"pov_character": "rina"},
+        "characters": [
+            {"character_id": "rina", "name": "Рина", "is_pov": True},
+            {"character_id": "rayna", "name": "Райна", "surname": "Вальтор"},
+        ],
+        "lore": {},
+        "locations": [{
+            "location_id": "silas_house",
+            "name": "Дом Сайласа",
+            "linked_characters": [{"character_id": "Райна Вальтор", "relation": "обслуживает дом"}],
+            "zones": ["Кухня", "Кабинет"],
+        }],
+        "canon_notes": [{
+            "note_id": "household",
+            "text": "Семья Вальтор связана с домом.",
+            "subjects": ["silas_house", "rayna"],
+        }],
+    })
+
+    assert coverage["ok"] is True
+    house = template["locations"][0]
+    assert house["linked_characters"] == [
+        {"character_id": "rayna", "relation": "обслуживает дом"}
+    ]
+    assert {row["name"] for row in house["zones"]} == {"Кухня", "Кабинет"}
+    assert template["canon_notes"][0]["subjects"] == ["silas_house", "rayna"]
+
+
+def test_v5_setup_rejects_location_link_to_unknown_character():
+    with __import__("pytest").raises(ValueError, match="DRAFT_LOCATION_CHARACTER_UNKNOWN"):
+        simple_setup_runtime._validate_simple_content({
+            "novel_id": "bad_location_link",
+            "title": "Bad Location Link",
+            "version": 5,
+            "novel": {"pov_character": "rina"},
+            "characters": [{"character_id": "rina", "name": "Рина", "is_pov": True}],
+            "lore": {},
+            "locations": [{
+                "location_id": "house",
+                "name": "Дом",
+                "linked_characters": [{"character_id": "invented_worker", "relation": "работает здесь"}],
+            }],
+        })
