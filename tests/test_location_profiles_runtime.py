@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from app import location_runtime, session_runtime, simple_setup_runtime, stability_runtime, storage
+from app import location_runtime, session_runtime, simple_setup_runtime, stability_runtime, storage, turn_rollback
 
 
 def _setup(tmp: str) -> None:
@@ -370,3 +370,35 @@ def test_v5_setup_rejects_ambiguous_named_location_character_link():
                 "linked_characters": [{"character_id": "Алекс", "relation": "работает здесь"}],
             }],
         })
+
+
+def test_rollback_replay_recomputes_location_ids_and_clears_old_zone_on_move():
+    source = _novel()
+    cards, state, memory, chronology = turn_rollback._initial_replay_state(source)
+    assert state["current"]["location_id"] == "silas_house"
+    assert state["current"]["zone_id"] == "kitchen"
+
+    turn = {
+        "turn_number": 1,
+        "scene_output": (
+            "🎭 Test · осень\n"
+            "🕒 День 1 · пятница, 02.10.2026, 18:30 · 📍 Случайное кафе 🌦️ Погода: дождь\n"
+            "⚙️ Сцена: кофе"
+        ),
+        "extracted": {"state_patch": {}},
+    }
+
+    cards, state, memory, chronology = turn_rollback._apply_saved_turn(
+        source,
+        cards,
+        state,
+        memory,
+        chronology,
+        [],
+        turn,
+    )
+
+    assert state["current"]["location"] == "Случайное кафе"
+    assert "location_id" not in state["current"]
+    assert "zone_id" not in state["current"]
+    assert "zone" not in state["current"]
