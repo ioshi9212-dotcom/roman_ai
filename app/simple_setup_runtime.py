@@ -7,8 +7,10 @@ from typing import Any, Dict, List
 from . import draft_intake_runtime, novel_access, novel_drafts, setup_draft_v3_runtime
 from .operation_receipts import canonical_hash
 from .profile_templates import (
+    normalize_canon_notes,
     normalize_character_profiles,
     normalize_hidden_lore,
+    normalize_location_profiles,
     normalize_novel_profile,
     profile_manifest,
 )
@@ -198,6 +200,10 @@ def _normalise_simple_section(draft: Dict[str, Any], section_name: str, value: A
         return normalize_character_profiles(value)
     if name == "hidden_lore":
         return normalize_hidden_lore(value)
+    if name == "locations":
+        return normalize_location_profiles(value)
+    if name == "canon_notes":
+        return normalize_canon_notes(value)
     if name == "knowledge":
         # Optional explicit pre-story knowledge. Runtime knowledge learned later is appended during play.
         return deepcopy(value) if isinstance(value, dict) else {}
@@ -292,6 +298,8 @@ def _content_template(draft: Dict[str, Any]) -> Dict[str, Any]:
         lore = {"text": str(lore)} if lore not in (None, "") else {}
 
     hidden_lore = normalize_hidden_lore(sections.pop("hidden_lore", {}))
+    locations = normalize_location_profiles(sections.pop("locations", []))
+    canon_notes = normalize_canon_notes(sections.pop("canon_notes", []))
     starting_knowledge = sections.pop("knowledge", {})
     if not isinstance(starting_knowledge, dict):
         starting_knowledge = {}
@@ -304,6 +312,8 @@ def _content_template(draft: Dict[str, Any]) -> Dict[str, Any]:
         "characters": characters,
         "lore": lore,
         "hidden_lore": hidden_lore,
+        "locations": locations,
+        "canon_notes": canon_notes,
         "knowledge": deepcopy(starting_knowledge),
         "profile_schema": profile_manifest(),
     }
@@ -326,6 +336,86 @@ def _resolve_pov(template: Dict[str, Any]) -> str | None:
     return None
 
 
+def _location_identity_key(value: Any) -> str:
+    text = str(value or "").casefold().replace("ё", "е").strip()
+    return " ".join(text.replace("-", " ").replace("_", " ").split())
+
+
+def _validate_location_identity_uniqueness(locations: List[Dict[str, Any]]) -> None:
+    seen_locations: set[str] = set()
+    for profile in locations:
+        if not isinstance(profile, dict):
+            continue
+        location_id = str(profile.get("location_id") or "").strip()
+        key = _location_identity_key(location_id)
+        if not key:
+            continue
+        if key in seen_locations:
+            raise ValueError("DRAFT_LOCATION_ID_DUPLICATE")
+        seen_locations.add(key)
+
+        seen_zones: set[str] = set()
+        for zone in profile.get("zones", []) if isinstance(profile.get("zones"), list) else []:
+            if not isinstance(zone, dict):
+                continue
+            zone_id = str(zone.get("zone_id") or "").strip()
+            zone_key = _location_identity_key(zone_id)
+            if not zone_key:
+                continue
+            if zone_key in seen_zones:
+                raise ValueError("DRAFT_LOCATION_ZONE_ID_DUPLICATE")
+            seen_zones.add(zone_key)
+
+
+def _canonicalize_location_character_links(
+    locations: List[Dict[str, Any]],
+    characters: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    aliases: Dict[str, set[str]] = {}
+    for card in characters:
+        if not isinstance(card, dict):
+            continue
+        cid = str(card.get("character_id") or "").strip()
+        if not cid:
+            continue
+        values = [
+            cid,
+            card.get("name"),
+            " ".join(
+                part for part in (
+                    str(card.get("name") or "").strip(),
+                    str(card.get("surname") or "").strip(),
+                )
+                if part
+            ),
+            *(card.get("aliases") if isinstance(card.get("aliases"), list) else []),
+        ]
+        for value in values:
+            key = str(value or "").casefold().replace("ё", "е").strip()
+            if key:
+                aliases.setdefault(key, set()).add(cid)
+
+    result = deepcopy(locations)
+    for profile in result:
+        linked = profile.get("linked_characters") if isinstance(profile.get("linked_characters"), list) else []
+        normalized = []
+        for row in linked:
+            if not isinstance(row, dict):
+                continue
+            raw = str(row.get("character_id") or "").strip()
+            matches = aliases.get(raw.casefold().replace("ё", "е").strip(), set())
+            if not matches:
+                raise ValueError("DRAFT_LOCATION_CHARACTER_UNKNOWN")
+            if len(matches) != 1:
+                raise ValueError("DRAFT_LOCATION_CHARACTER_AMBIGUOUS")
+            resolved = next(iter(matches))
+            clean = deepcopy(row)
+            clean["character_id"] = resolved
+            normalized.append(clean)
+        profile["linked_characters"] = normalized
+    return result
+
+
 def _validate_simple_content(template: Dict[str, Any]) -> tuple[Dict[str, Any], Dict[str, Any]]:
     normalized = deepcopy(template)
     normalized["characters"] = normalize_character_profiles(normalized.get("characters", []))
@@ -334,6 +424,13 @@ def _validate_simple_content(template: Dict[str, Any]) -> tuple[Dict[str, Any], 
         normalized["characters"],
     )
     normalized["hidden_lore"] = normalize_hidden_lore(normalized.get("hidden_lore", {}))
+    normalized_locations = normalize_location_profiles(normalized.get("locations", []))
+    _validate_location_identity_uniqueness(normalized_locations)
+    normalized["locations"] = _canonicalize_location_character_links(
+        normalized_locations,
+        normalized["characters"],
+    )
+    normalized["canon_notes"] = normalize_canon_notes(normalized.get("canon_notes", []))
     if not isinstance(normalized.get("knowledge"), dict):
         normalized["knowledge"] = {}
 

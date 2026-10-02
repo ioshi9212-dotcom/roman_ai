@@ -1,0 +1,18 @@
+{
+  "location_id": null,
+  "name": null,
+  "aliases": [],
+  "type": null,
+  "parent_location_id": null,
+  "where": null,
+  "floor": null,
+  "hours": null,
+  "staff": [],
+  "linked_characters": [],
+  "layout": null,
+  "zones": [],
+  "appearance": null,
+  "fixed_features": [],
+  "notes": null,
+  "additional": {}
+}

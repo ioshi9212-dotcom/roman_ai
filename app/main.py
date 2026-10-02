@@ -254,6 +254,10 @@ def novel_draft_finalize(draft_id: str):
             "CORE_CAST_STORY_FUNCTION_REQUIRED": "Every core cast member needs one short director-level story_function explaining why they matter to the plot.",
             "CORE_CAST_STORY_FUNCTION_TOO_LONG": "core_cast story_function must stay short (max 360 characters).",
             "CORE_CAST_POV_REQUIRED": "The POV character must be included in novel.core_cast.",
+            "DRAFT_LOCATION_ID_DUPLICATE": "Location profiles must use unique location_id values.",
+            "DRAFT_LOCATION_ZONE_ID_DUPLICATE": "Zones inside one location profile must use unique zone_id values.",
+            "DRAFT_LOCATION_CHARACTER_UNKNOWN": "A linked location character must reference an existing character.",
+            "DRAFT_LOCATION_CHARACTER_AMBIGUOUS": "A linked location character name matches more than one existing character; use character_id.",
         }
         raise HTTPException(status_code=409, detail=core_errors.get(code, "Draft is incomplete"))
     except RuntimeError:

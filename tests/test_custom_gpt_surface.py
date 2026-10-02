@@ -78,11 +78,16 @@ def test_static_custom_gpt_schema_has_exact_current_30_actions():
     assert "change_scale" not in relationship["properties"]
     assert "elapsed_game_days" not in relationship["properties"]
 
+    knowledge_text = schema["components"]["schemas"]["KnowledgeJournalAdd"]["properties"]["text"]["description"]
+    assert "minimum information actually received or learned" in knowledge_text
+    assert "source-qualified" in knowledge_text
+    assert "unstated time, place, person" in knowledge_text
+
     section = schema["components"]["schemas"]["NovelDraftSection"]
-    assert "knowledge" in section["properties"]["section_name"]["enum"]
+    assert {"knowledge", "locations", "canon_notes"} <= set(section["properties"]["section_name"]["enum"])
 
     current = schema["components"]["schemas"]["CurrentState"]["properties"]
-    for field in ("positions", "scene_items", "unfinished_actions", "remote_channels"):
+    for field in ("positions", "scene_items", "unfinished_actions", "remote_channels", "location_id", "zone_id"):
         assert field in current
 
     state_patch = schema["components"]["schemas"]["StatePatch"]["properties"]
@@ -126,6 +131,7 @@ def test_action_descriptions_stay_under_custom_gpt_limit():
 def test_custom_gpt_instruction_matches_rules_driven_transport():
     text = (ROOT / "gpt" / "custom_gpt_instructions.md").read_text(encoding="utf-8")
     assert len(text) <= 8000
+    assert len(text) + text.count("\n") <= 8000  # CRLF-safe editor budget
     for required in (
         "runtime_rules",
         "scene_builder",
@@ -175,6 +181,8 @@ def test_custom_gpt_instruction_matches_rules_driven_transport():
     assert "Фоновому NPC карточку не создавай" in text
     assert "Приоритет у созданного игроком каста" in text
     assert "конкретной повторяющейся story_function" in text
+    assert "offscreen_intent_candidates" in text
+    assert "Intent из bundle знает только его владелец" in text
     assert "не запрещает естественное появление" in text
     assert "показывай `session_id`" in text
     assert "`packet_id`, `read_id`, chunk-статусы и сверки не показывай" in text
@@ -184,6 +192,19 @@ def test_custom_gpt_instruction_matches_rules_driven_transport():
     assert "не смягчай, не обобщай" in text
     assert "Все постоянные персонажи из RAW" in text
     assert "включая важных offscreen/nearby" in text
+    assert "**Location profile:**" in text
+    assert "`locations`" in text
+    assert "`canon_notes`" in text
+    assert "`location_context` только текущего физического места" in text
+
+
+def test_runtime_contract_matches_current_knowledge_transport():
+    text = (ROOT / "runtime" / "runtime_contract.md").read_text(encoding="utf-8")
+    assert "prepareCharacterBundleRead" in text
+    assert "getCharacterBundleChunk" in text
+    assert "prepareCharacterKnowledgeRead" not in text
+    assert "getCharacterKnowledgeChunk" not in text
+    assert "getSceneKnowledgeReadStatus" not in text
 
 
 def test_static_schema_avoids_actions_parser_traps():

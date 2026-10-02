@@ -40,6 +40,8 @@ jobs:
           tests/test_setup_draft_v3.py
           tests/test_setup_lossless_v4.py
           tests/test_profile_templates.py
+          tests/test_location_profiles_runtime.py
+          tests/test_npc_intent_runtime.py
           tests/test_custom_gpt_surface.py
           tests/test_hidden_direct_character_actions.py
           tests/test_remote_scene_state.py

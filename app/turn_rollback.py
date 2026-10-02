@@ -4,7 +4,7 @@ from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Tuple
 
-from . import storage
+from . import location_runtime, storage
 from .character_registry import refresh_pov_familiarity
 from .game_day import sync_game_day
 from .relationship_runtime import repair_relationship_state
@@ -61,6 +61,7 @@ def _initial_replay_state(source: Dict[str, Any]) -> Tuple[List[Dict[str, Any]],
     chronology = storage._template("chronology.json", [])
     if not isinstance(chronology, list):
         chronology = []
+    state = location_runtime.sync_current_location(source, state)
     state = storage._refresh_runtime_presence(state, cards, 0)
     return cards, state, memory, chronology
 
@@ -98,12 +99,14 @@ def _apply_saved_turn(
     extracted = turn.get("extracted") if isinstance(turn.get("extracted"), dict) else {}
 
     cards = storage._apply_character_upserts(cards, extracted)
+    previous_state = deepcopy(state)
     state = _merge_state_patch_exact_relationships(state, extracted.get("state_patch"))
     header_current = _scene_header_current(str(turn.get("scene_output") or ""))
     if header_current:
         current = state.get("current") if isinstance(state.get("current"), dict) else {}
         state["current"] = storage._deep_merge(current, header_current)
     state = _clean_scene_pointer(state, extracted)
+    state = location_runtime.sync_current_location(source, state, previous_state=previous_state)
     state = sync_game_day(state, source)
     state = storage._refresh_runtime_presence(state, cards, turn_number)
 
@@ -133,8 +136,10 @@ def _apply_saved_audit(
 ) -> Tuple[Dict[str, Any], Dict[str, Any], List[Dict[str, Any]]]:
     end_turn = int(audit.get("end_turn", 0) or 0)
     repairs = audit.get("repairs") if isinstance(audit.get("repairs"), dict) else {}
+    previous_state = deepcopy(state)
     state = _merge_state_patch_exact_relationships(state, repairs.get("state_patch"))
     state = _clean_scene_pointer(state, repairs)
+    state = location_runtime.sync_current_location(source, state, previous_state=previous_state)
     state = sync_game_day(state, source)
     memory = storage._apply_memory_events(storage._normalise_memory(memory), repairs, end_turn)
     if isinstance(repairs.get("chronology_add"), list):

@@ -12,7 +12,7 @@ from .transactional_storage import session_transaction
 
 
 _ORIGINAL_PREPARE = None
-WRITER_FIRST_VERSION = 14
+WRITER_FIRST_VERSION = 15
 WRITER_PACKET_CHARS = 16000
 RECENT_FULL_TURNS = 2
 CONTINUITY_WINDOW = 15
@@ -21,6 +21,7 @@ MAX_WORKING_EXPERIENCES = 10
 MAX_WORKING_DIALOGUE = 10
 MAX_HISTORICAL_KNOWLEDGE_CATALOG = 8
 MAX_ACTIVE_THREADS = 12
+MAX_OFFSCREEN_INTENT_CANDIDATES = 12
 MAX_RECENT_CHRONOLOGY = 12
 MAX_CHARACTER_CHRONOLOGY = 4
 MAX_LOCATION_CHRONOLOGY = 4
@@ -433,12 +434,45 @@ def _rewrite_context(session_id: str, context: Dict[str, Any]) -> Dict[str, Any]
     chronology_source = result.get("chronology_recent")
     result["chronology_anchor_catalog"] = _anchor_catalog(chronology_source)
     result["chronology_recent"] = _compact_chronology(chronology_source, character_ids, location)
-    intent_ids = list(dict.fromkeys([*character_ids, *normalise_store(state).keys()]))
+    current_turn = int(meta.get("turn_number", 0) or 0)
     result["npc_active_intents"] = active_intents_for(
         state,
-        intent_ids,
-        current_turn=int(meta.get("turn_number", 0) or 0),
+        character_ids,
+        current_turn=current_turn,
     )
+
+    # Offscreen intents are director triggers only. Do not expose their summary/planned_action
+    # before that character is actually loaded, otherwise another scene character can
+    # accidentally "know" an offscreen person's private future plan.
+    store_ids = list(normalise_store(state).keys())
+    offscreen_ids = [cid for cid in store_ids if cid not in set(character_ids)]
+    offscreen = active_intents_for(state, offscreen_ids, current_turn=current_turn)
+    candidates = []
+    for character_id, intents in offscreen.items():
+        if not isinstance(intents, list) or not intents:
+            continue
+        eligible = [item for item in intents if isinstance(item, dict) and item.get("eligible_now") is True]
+        if not eligible:
+            continue
+        candidates.append({
+            "character_id": character_id,
+            "has_active_intent": True,
+            "highest_priority": max([int(item.get("priority") or 0) for item in eligible] or [0]),
+            "eligible_intent_count": len(eligible),
+        })
+    candidates.sort(
+        key=lambda item: (int(item.get("highest_priority") or 0), int(item.get("eligible_intent_count") or 0)),
+        reverse=True,
+    )
+    result["offscreen_intent_candidates"] = {
+        "director_only": True,
+        "rule": (
+            "Only currently eligible offscreen intent owners are listed. This is a director cue to inspect relevance, not an automatic reason "
+            "to enter or contact POV. If participation becomes causally natural, load that character bundle first; the intent content belongs "
+            "to that character and is not knowledge of anyone else."
+        ),
+        "characters": candidates[:MAX_OFFSCREEN_INTENT_CANDIDATES],
+    }
 
     contract = result.get("working_context_contract") if isinstance(result.get("working_context_contract"), dict) else {}
     contract.update({
@@ -454,7 +488,9 @@ def _rewrite_context(session_id: str, context: Dict[str, Any]) -> Dict[str, Any]
         "future_guidance_is_not_history": True,
         "npc_intents_are_persistent": True,
         "full_npc_intent_store_in_packet": False,
-        "offscreen_active_intents_in_packet": True,
+        "offscreen_active_intents_in_packet": False,
+        "offscreen_intent_candidates_in_packet": True,
+        "offscreen_intent_candidate_cap": MAX_OFFSCREEN_INTENT_CANDIDATES,
         "first_packet_chunk_in_prepare_response": True,
     })
     result["working_context_contract"] = contract

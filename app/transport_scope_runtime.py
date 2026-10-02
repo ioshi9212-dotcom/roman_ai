@@ -107,12 +107,16 @@ def _strip_legacy_full_payloads(context: Dict[str, Any], *, persistent_state: Di
     if isinstance(source, dict):
         source = deepcopy(source)
         source.pop("characters", None)
+        source.pop("locations", None)
+        source.pop("canon_notes", None)
         result["source"] = source
 
     novel_source = result.get("novel_source")
     if isinstance(novel_source, dict):
         novel_source = deepcopy(novel_source)
         novel_source.pop("characters", None)
+        novel_source.pop("locations", None)
+        novel_source.pop("canon_notes", None)
         result["novel_source"] = novel_source
 
     author = result.get("author_context")

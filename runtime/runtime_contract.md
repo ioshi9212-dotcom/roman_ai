@@ -15,14 +15,19 @@ Backend хранит канон. `scene_builder` задаёт формат сц�
 - Присутствующий NPC не исчезает без leave. Незакрытый вопрос/обещание/подозрение/цель → intent; увиливание POV intent не закрывает.
 
 ## Знания
-- Каждый physical/remote участник до сцены: `prepareCharacterKnowledgeRead` + все `getCharacterKnowledgeChunk`; дочитать весь `entry_count`.
-- V5 NPC: свой profile + полностью дочитанный knowledge-read + восприятие + отношения; свой profile = самознание. POV аналогично.
+- Для каждого physical/remote участника packet уже содержит его полный factual knowledge journal + собственный profile, восприятие и отношения; свой profile = самознание. POV аналогично.
+- Если зарегистрированный offscreen-персонаж начинает участвовать, до его участия загрузи `prepareCharacterBundleRead` + все `getCharacterBundleChunk`; bundle содержит его собственные знания и intents.
 - Чужие profiles/journals, chronology/history, hidden_lore, foundation и future_guidance не являются его знаниями.
+- Частичный факт остаётся частичным: «свидание в субботу» не даёт время/место/партнёра. Не достраивай неизвестные поля вероятными значениями. Если деталь нужна, спроси; правдоподобное предположение остаётся предположением, пока не подтверждено.
+- `npc_active_intents[ID]` знает только ID; чужой intent/plan не является знанием. `active_threads`, `future_guidance`, story direction, `character_registry`/`cast_index` и `offscreen_intent_candidates` — director-only. Полный `scene_state` — объективная непрерывность; персонаж знает из неё только реально воспринимаемое.
+- Director-only правда не является причиной NPC-поведения: скрытая личность/ложь/будущее раскрытие не создают сами по себе наводящих вопросов, проверки или подозрения. Нужна причина внутри доступной NPC картины мира.
+- Ошибочное представление NPC не исправляется автоматически авторской истиной; оно меняется только после новой доступной ему причины.
+- `knowledge_journal_add` сохраняет минимальную реально полученную информацию без обогащения. Сообщённая, но объективно не подтверждённая реплика сохраняется с источником («Елена сказала, что...»), а не исправляется director truth.
 - Отсутствующую обычную self-detail можно непротиворечиво создать через `character_upserts`; новое знание о других/мире → `knowledge_journal_add`.
 - Legacy: каждую реальную реплику проверяй до реплики по `dialogue_frame`, `knowledge_path`, `turn_knowledge`, self-known/`source_self_paths`; `canon_fill` только для отсутствующей self-detail. Это правило реальным репликам, не вариантам будущего.
 
 ## State
-- `state.current`: date/time/location, `present_characters`, `remote_characters`, `remote_channels`, `positions`, `scene_items`, `unfinished_actions`.
+- `state.current`: date/time/location + optional canonical `location_id` and `zone_id`/`zone`, `present_characters`, `remote_characters`, `remote_channels`, `positions`, `scene_items`, `unfinished_actions`.
 - `scene_state/state.pov` — физический источник истины для присутствия, позиций, одежды/инвентаря и предметов; не телепортируй людей/предметы. Remote NPC не становится physical без enter.
 - Remote NPC участвует без position. После контакта убери его; завершённый контакт → `dialogue_memory_add`.
 - `scene_items` только значимые; при изменении передавай полный актуальный снимок.
@@ -33,13 +38,21 @@ Backend хранит канон. `scene_builder` задаёт формат сц�
 - `chronology`: раскрытия, решения, договорённости, конфликты, угрозы, последствия. Рутину не сохраняй; exact time только если причинно важно.
 - Отношения NPC→POV: после сцены обязательно проверь каждого участника. Реальный сдвиг → `relationship_updates` с причиной; existing число через `delta`. Нет сдвига → без update.
 
+## Локации
+- `location_context` существует только для места, где POV физически находится; упоминание/план/remote не загружает профиль.
+- Это snapshot места на начало хода: после физического перехода внутри сцены старый profile не применять к destination; без загруженного destination profile не изобретать постоянную структуру, а сохранить новый current для следующего хода.
+- Профиль фиксирует короткий постоянный каркас: зоны, планировку, этаж/режим и устойчивые особенности. Не придумывай новые постоянные комнаты/объекты и не переставляй каркас.
+- Для profiled места `current.location` остаётся parent place, а комната хранится отдельно в `zone`/`zone_id`; не подменяй parent одним названием комнаты.
+- `linked_characters` - режиссёрский каталог связанных зарегистрированных персонажей; до их участия нужен bundle.
+- `canon_notes_context` загружается по canonical subjects: character_id, location_id, location_id.zone_id или global; display names не считаются subject ids. Это director-only, не знание персонажей.
+
 ## Мир и сюжет
-- Мир не ждёт POV. Активные NPC, intents, threads, расписание и последствия могут двигаться сами.
+- Мир не ждёт POV. Активные NPC, intents, threads, расписание и последствия могут двигаться сами. Offscreen candidate означает только повод проверить релевантность; он не обязывает вводить NPC в сцену или связываться с POV.
 - `character_registry`: приоритет у созданного игроком каста. Фоновый/одноразовый NPC не получает карточку. Устойчивый новый NPC допустим только с конкретной повторяющейся `story_function`; перед созданием проверь, нельзя ли естественно использовать уже существующего персонажа. Offscreen участие зарегистрированного NPC → сначала character bundle.
 - `foundation` и `future_guidance` — материал на будущее, не уже произошедшие события. Перемещение/ожидание/течение времени сами по себе не прогресс.
 
 ## Ход
-1. `prepareTurn`: прочитай packet; для всех `scene_knowledge_reads.required_character_ids` дочитай knowledge chunks; до сцены `getSceneKnowledgeReadStatus.all_complete=true`.
+1. `prepareTurn`: прочитай packet целиком; если по state/intents/threads должен войти зарегистрированный offscreen-персонаж, сначала дочитай его character bundle.
 2. Сцена строго по `scene_builder`; проверь знания, presence, отношения, intents, threads.
 3. Перед `commitTurn`: после проверки отношений `relationship_reviewed=true`; также `persistence_reviewed=true`, `knowledge_reviewed=true`, chronology/journal/memory/intents/threads. Один commit; сцену покажи после успеха.
 

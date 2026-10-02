@@ -61,6 +61,21 @@ def test_active_runtime_is_author_rules_plus_scene_builder():
     assert docs["scene_builder"] == sources["scene_builder"]
     assert "выбор информации всегда остаётся игроку" in docs["rules"]
     assert "Источник знания должен существовать ДО" in docs["rules"]
+    assert "Знание частичного факта не даёт автоматически его недостающие детали" in docs["rules"]
+    assert "у Ринаты свидание в субботу" in docs["rules"]
+    assert "Во сколько?" in docs["rules"]
+    assert "минимальный смысл реально полученной информации" in docs["rules"]
+    assert "Елена сказала, что она не рейдер" in docs["rules"]
+    assert "не исправляй это режиссёрской правдой" in docs["rules"]
+    assert "npc_active_intents[ID]" in docs["rules"]
+    assert "offscreen_intent_candidates" in docs["rules"]
+    assert "Если по плану Морита завтра проверит POV" in docs["rules"]
+    assert "другой NPC может сказать это только если реально узнал" in docs["rules"]
+    assert "Режиссёрское знание не является причиной поведения персонажа" in docs["rules"]
+    assert "не могут сами по себе заставить NPC задавать наводящие вопросы" in docs["rules"]
+    assert "ошибочное представление о ситуации" in docs["rules"]
+    assert "Цепочка драматических осложнений с мисдирекшном" not in docs["rules"]
+    assert "Используй подставы, ложные подозрения" not in docs["rules"]
     assert "Формат scene_builder обязателен" in docs["scene_builder"]
     assert "ТОЧКА ОСТАНОВКИ СЦЕНЫ" in docs["scene_builder"]
     assert "Если такой точки ещё нет — сцена ещё не закончена." in docs["scene_builder"]
@@ -107,6 +122,11 @@ def test_active_runtime_is_author_rules_plus_scene_builder():
     assert "не создавай ему карточку и не сохраняй через character_upserts" in docs["rules"]
     assert "обязательна конкретная `story_function`" in docs["rules"]
     assert "полная гибкость на создание интересных персонажей" not in docs["rules"]
+    assert "location_context" in docs["rules"]
+    assert "Упоминание места, планы туда поехать" in docs["rules"]
+    assert "Не придумывай ради удобства сцены новую постоянную комнату" in docs["rules"]
+    assert "linked_characters" in docs["rules"]
+    assert "location_id" in docs["rules"]
     assert "Стартовая анкета, hidden_lore, правила новеллы и открытые сюжетные линии не декорация" in docs["rules"]
 
 
@@ -190,6 +210,9 @@ def test_active_character_receives_complete_knowledge_journal_in_packet():
         assert "fact 1" in journal
         assert "fact 120" in journal
         assert "entry_id" not in journal
+        rule = context["character_knowledge_rule"]
+        assert "Knowledge is granular" in rule
+        assert "unknown time/place/person/reason/plan" in rule
 
 
 def test_dynamic_relationship_label_can_appear_without_whitelist():

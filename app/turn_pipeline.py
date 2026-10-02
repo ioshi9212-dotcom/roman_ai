@@ -15,8 +15,10 @@ from . import (
     game_day,
     knowledge_firewall_runtime,
     knowledge_persistence_runtime,
+    location_runtime,
     memory_integrity_runtime,
     npc_intent,
+    npc_intent_runtime,
     private_knowledge_runtime,
     profile_templates,
     relationship_metadata,
@@ -45,7 +47,7 @@ _BASE_PARTICIPATION_BUNDLE = character_chunk_read._participation_bundle
 _BASE_CREATE_SESSION = storage.create_session
 _BASE_RECOVER_CURRENT = session_recovery.recover_session_current
 
-PIPELINE_VERSION = 7
+PIPELINE_VERSION = 9
 
 def _packet_manifest(packet: Dict[str, Any], *, reused: bool) -> Dict[str, Any]:
     chunks = packet.get("chunks", []) if isinstance(packet.get("chunks"), list) else []
@@ -304,6 +306,8 @@ def _move_runtime_documents_last(context: Dict[str, Any]) -> Dict[str, Any]:
         "novel/director context",
         "chronology and recent continuity",
         "current scene state",
+        "physical location profile when present",
+        "scoped canon notes when relevant",
         "active character cards",
         "each active character's own knowledge",
         "relationships and active intents",
@@ -353,6 +357,26 @@ def _prepare_context(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
     scene_ids = _scene_ids(state, cards)
     context["relevant_character_ids"] = scene_ids
 
+    location_context = location_runtime.build_location_context(
+        source,
+        state,
+        scene_character_ids=scene_ids,
+    )
+    if location_context is not None:
+        context["location_context"] = location_context
+    else:
+        context.pop("location_context", None)
+
+    canon_notes_context = location_runtime.build_canon_notes_context(
+        source,
+        state,
+        scene_character_ids=scene_ids,
+    )
+    if canon_notes_context is not None:
+        context["canon_notes_context"] = canon_notes_context
+    else:
+        context.pop("canon_notes_context", None)
+
     card_map = {
         storage._card_id(card): card
         for card in cards
@@ -377,8 +401,15 @@ def _prepare_context(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
     }
     context["character_knowledge_rule"] = (
         "For each POV/NPC use only that character's self-known card facts, own character_memory, current perception "
-        "and real communication. Own-card branches marked unknown_to_self/hidden_from_self/not_known_to_self/"
-        "known_to_self=false/author_only are not self-known. Other cards, other memory, chronology and director lore "
+        "and real communication. Knowledge is granular: a partial fact authorizes only the details actually known or strictly entailed. "
+        "Never fill an unknown time/place/person/reason/plan detail with a likely or convenient value and state it as fact; ask, leave it unknown, "
+        "or mark a plausible inference as a guess until confirmed. npc_active_intents[ID] are private planning state of ID only; active_threads, "
+        "future_guidance, canon_notes_context, character_registry/cast_index and offscreen_intent_candidates are director-only and never become another character's knowledge. "
+        "scene_state is objective continuity, not personal knowledge except for the slice the character can actually perceive. Director-only truth is also "
+        "not a cause for NPC behavior: hidden identity, deception, future reveal or planned event cannot by itself trigger probing, checking or suspicion; "
+        "there must be a cause available inside that NPC's own knowledge, observations, duties, goals or current situation. "
+        "Own-card branches marked unknown_to_self/hidden_from_self/not_known_to_self/"
+        "known_to_self=false/author_only are not self-known. Other cards, other memory, chronology, location_context, canon_notes_context and director lore "
         "are not personal knowledge."
     )
     context["cast_registry"] = {
@@ -466,7 +497,9 @@ def _prepare_context(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
         "chronology": "important durable events only; knowledge_participants is the only chronology field that grants personal knowledge",
         "character_knowledge": (
             "knowledge_journal is personal memory, separate from chronology. Save durable learned facts only to each "
-            "character who actually learned them; chronology never grants knowledge by itself."
+            "character who actually received or learned them; chronology never grants knowledge by itself. Preserve exact granularity: "
+            "store the minimum received proposition and never enrich it with an unstated time, place, person, reason, plan or other detail. "
+            "A communicated claim may be stored source-qualified (for example, 'Elena said she is not a raider') without declaring it objective author truth."
         ),
         "relationships": (
             "After the complete scene, review every participating NPC->POV relationship and record one relationship_review row per NPC. "
@@ -476,7 +509,7 @@ def _prepare_context(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
             "If nothing changed, set changed=false and send no update."
         ),
         "character_upserts": "new durable self-detail, or a new persistent NPC only with a concrete recurring story_function; never register a background extra",
-        "state_patch": "current physical state only when changed; preserve continuity-relevant offscreen location/activity/outfit/items as well as the active scene",
+        "state_patch": "current physical state only when changed; for a known location preserve location_id and zone_id/zone with the visible location name; preserve continuity-relevant offscreen location/activity/outfit/items too",
     })
     context["persistence_contract"] = persistence
 
@@ -776,6 +809,9 @@ def _apply_story_and_intent_updates(session_id: str, payload: Dict[str, Any]) ->
 
     intent_updates = extracted.get("npc_intent_updates")
     if isinstance(intent_updates, list) and intent_updates:
+        # Keep only the narrow provenance check from the legacy intent adapter.
+        # Do not reinstall its gameplay wrapper.
+        npc_intent_runtime._validate_intent_sources(root, extracted, intent_updates)
         working = npc_intent.apply_updates(working, intent_updates, current_turn=turn_number)
         patch["npc_intents"] = deepcopy(working.get("npc_intents", {}))
 

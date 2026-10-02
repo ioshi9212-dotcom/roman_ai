@@ -10,6 +10,8 @@ class NovelTemplate(BaseModel):
     novel: Dict[str, Any] = Field(default_factory=dict)
     characters: List[Dict[str, Any]] = Field(default_factory=list)
     lore: Dict[str, Any] = Field(default_factory=dict)
+    locations: List[Dict[str, Any]] = Field(default_factory=list)
+    canon_notes: List[Dict[str, Any]] = Field(default_factory=list)
 
 
 class NovelRawSave(BaseModel):

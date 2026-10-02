@@ -181,7 +181,7 @@ def _rewrite_packet(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
                     "another character's profile or knowledge_journal",
                     "chronology/recent_turns/continuity_turns/scene_history",
                     "director_only hidden_lore and author context",
-                    "foundation/future_guidance/lore/world canon",
+                    "foundation/future_guidance/lore/world canon/location_context/canon_notes_context",
                     "POV parenthetical text except observable physical effects or communication explicitly addressed to this character",
                     "another character's private information",
                 ],
@@ -189,7 +189,7 @@ def _rewrite_packet(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
                     "Для каждого персонажа источник факта должен существовать ДО его реплики/вывода/осмысленного действия. "
                     "NPC: собственный profile + собственный knowledge_journal + доступное текущее восприятие/коммуникация. "
                     "POV: собственный profile + journal + доступное восприятие. Нельзя оправдывать знание задним числом; "
-                    "chronology, hidden_lore, другие profiles/journals и director-only не являются знанием персонажа."
+                    "chronology, hidden_lore, location_context, canon_notes_context, другие profiles/journals и director-only не являются знанием персонажа."
                 ),
             })
             guards["knowledge_causality"] = causality
@@ -228,6 +228,13 @@ def _rewrite_packet(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
                 "ИИ может самостоятельно писать за POV только обычные бытовые и низкорисковые реплики. "
                 "Не раскрывать за игрока личные сведения, тайны, признания, обещания, согласие/отказ, позицию в конфликте "
                 "или информацию, способную заметно изменить сюжет или отношения."
+            ),
+            "location_context": (
+                "location_context — физический канон текущего места для режиссуры, не личное знание персонажа автоматически. "
+                "Связанный offscreen персонаж требует bundle до участия."
+            ),
+            "canon_notes_context": (
+                "canon_notes_context — только релевантные устойчивые авторские факты; они не становятся личным знанием без реального источника."
             ),
             "knowledge_transport": (
                 "knowledge_journal не дублируется в writer packet. Для каждого участника он читается полностью только "
@@ -676,13 +683,16 @@ def _participation_bundle(session_id: str, character_id: str) -> Dict[str, Any]:
             ],
             "rule": (
                 "Персонаж знает self-known части собственной биографии/profile и собственный knowledge journal. "
-                "Явно скрытые от него ветки своего profile, чужие профили, чужая память, chronology, hidden lore "
-                "и приватные мысли POV знанием не становятся."
+                "Каждая запись знания частична ровно до сообщённых деталей: неизвестные время, место, участник, причина или план "
+                "не достраиваются вероятными значениями. Нужную неизвестную деталь можно уточнить вопросом; предположение остаётся "
+                "предположением до подтверждения. Явно скрытые от него ветки своего profile, чужие профили, чужая память, chronology, "
+                "hidden lore и приватные мысли POV знанием не становятся."
             ),
         },
         "instruction": (
             "Этот bundle полностью готов для участия offscreen-персонажа: own profile + own complete knowledge "
-            "+ relationship + current state. Отдельный knowledge-read не нужен."
+            "+ relationship + current state. Используй только явно известные детали; не дополняй частичный факт скрытыми "
+            "или вероятными подробностями. Отдельный knowledge-read не нужен."
         ),
     }
 
