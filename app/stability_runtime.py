@@ -22,7 +22,8 @@ _ORIGINAL_CONTINUE_SESSION = None
 _ORIGINAL_RECOVER_CURRENT = None
 
 _HEADER_RE = re.compile(
-    r"🕒\s*День\s+(?P<day>\d+)\s*·[^\n]*?(?P<date>\d{2}\.\d{2}\.\d{4})\s*,\s*(?P<time>\d{1,2}:\d{2})\s*·\s*📍\s*(?P<location>[^\n]+)",
+    r"🕒\s*День\s+(?P<day>\d+)\s*·[^\n]*?(?P<date>\d{2}\.\d{2}\.\d{4})\s*,\s*(?P<time>\d{1,2}:\d{2})\s*·\s*"
+    r"📍\s*(?P<location>.*?)(?:\s*🌦️|\n|$)",
     re.IGNORECASE,
 )
 
@@ -240,13 +241,14 @@ def _atomic_commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, A
         source = storage._read_json(root / "source.json", {})
         cards = storage._apply_character_upserts(storage._load_cards(root, source), extracted)
         state = storage._read_json(root / "state.json", {})
+        previous_state = deepcopy(state)
         state = _merge_state_patch_exact_relationships(state, extracted.get("state_patch"))
         header_current = _scene_header_current(payload.get("scene_output", ""))
         if header_current:
             current = state.get("current") if isinstance(state.get("current"), dict) else {}
             state["current"] = storage._deep_merge(current, header_current)
         state = _clean_scene_pointer(state, extracted)
-        state = location_runtime.sync_current_location(source, state)
+        state = location_runtime.sync_current_location(source, state, previous_state=previous_state)
         state = sync_game_day(state, source)
         state = storage._refresh_runtime_presence(state, cards, turn_number)
 
@@ -346,10 +348,12 @@ def _atomic_commit_audit(session_id: str, payload: Dict[str, Any]) -> Dict[str, 
             raise ValueError("AUDIT_RANGE_MISMATCH")
 
         repairs = payload.get("repairs", {}) if isinstance(payload.get("repairs"), dict) else {}
-        state = storage._read_json(root / "state.json", {})
-        state = _merge_state_patch_exact_relationships(state, repairs.get("state_patch"))
         source = storage._read_json(root / "source.json", {})
+        state = storage._read_json(root / "state.json", {})
+        previous_state = deepcopy(state)
+        state = _merge_state_patch_exact_relationships(state, repairs.get("state_patch"))
         state = _clean_scene_pointer(state, repairs)
+        state = location_runtime.sync_current_location(source, state, previous_state=previous_state)
         state = sync_game_day(state, source)
 
         memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
@@ -507,7 +511,16 @@ def _continue(session_id: str) -> Dict[str, Any]:
 
 def _recover_current(session_id: str) -> Dict[str, Any]:
     _recover_session(session_id)
-    return _ORIGINAL_RECOVER_CURRENT(session_id)
+    root = storage.SESSIONS_DIR / session_id
+    before = storage._read_json(root / "state.json", {})
+    result = _ORIGINAL_RECOVER_CURRENT(session_id)
+    with session_transaction(root):
+        source = storage._read_json(root / "source.json", {})
+        state = storage._read_json(root / "state.json", {})
+        synced = location_runtime.sync_current_location(source, state, previous_state=before)
+        if synced != state:
+            storage._write_json(root / "state.json", synced)
+    return result
 
 
 def install() -> None:
