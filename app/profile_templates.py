@@ -396,7 +396,6 @@ def normalize_location_profile(raw: Any) -> Dict[str, Any]:
     if not isinstance(zones, list):
         zones = []
     normalized_zones: List[Dict[str, Any]] = []
-    seen_zones: set[str] = set()
     for index, item in enumerate(zones):
         if isinstance(item, str):
             name = item.strip()
@@ -410,9 +409,6 @@ def normalize_location_profile(raw: Any) -> Dict[str, Any]:
                 row["summary"] = str(summary).strip()
         else:
             continue
-        if row["zone_id"] in seen_zones:
-            continue
-        seen_zones.add(row["zone_id"])
         normalized_zones.append(row)
     profile["zones"] = normalized_zones
 
@@ -440,15 +436,15 @@ def normalize_location_profiles(raw: Any) -> List[Dict[str, Any]]:
         return []
 
     result: List[Dict[str, Any]] = []
-    seen: set[str] = set()
     for item in raw:
         if not isinstance(item, dict):
             continue
         profile = normalize_location_profile(item)
         location_id = str(profile.get("location_id") or "").strip()
-        if not location_id or location_id in seen:
+        if not location_id:
             continue
-        seen.add(location_id)
+        # Preserve duplicates here. Setup validation reports duplicate canonical
+        # ids explicitly instead of silently dropping source material.
         result.append(profile)
     return result
 
