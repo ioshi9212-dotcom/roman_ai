@@ -70,7 +70,7 @@ def _profile_by_visible_location(profiles: List[Dict[str, Any]], location: Any) 
         refs = _profile_refs(profile)
         parent_match = any(ref and ref in needle for ref in refs)
         zone_match = any(
-            ref and ref in needle
+            ref and ref == needle
             for row in profile.get("zones", [])
             if isinstance(row, dict)
             for ref in _zone_refs(row)
@@ -138,7 +138,7 @@ def resolve_physical_location(source: Dict[str, Any], state: Dict[str, Any]) -> 
             visible_is_zone = bool(
                 visible_norm
                 and any(
-                    ref and ref in visible_norm
+                    ref and ref == visible_norm
                     for row in explicit.get("zones", [])
                     if isinstance(row, dict)
                     for ref in _zone_refs(row)
