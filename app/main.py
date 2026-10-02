@@ -741,6 +741,7 @@ def turns_commit(session_id: str, body: TurnCommit):
             "RELATIONSHIP_REVIEW_CHANGED_WITHOUT_UPDATE": "A relationship_review row marked changed=true requires a matching causal relationship_updates row.",
             "RELATIONSHIP_REVIEW_UPDATE_CONTRADICTION": "A relationship_review row marked changed=false cannot have a relationship_updates row for that NPC.",
             "RELATIONSHIP_FOOTER_ABSENT_NPC": "The visible Relationships footer may contain only NPCs physically present at scene end. Remove remote, departed or offscreen NPC rows and retry the same commitTurn.",
+            "RELATIONSHIP_UPDATE_FOR_UNSEEN_NPC": "relationship_updates may target only NPCs who physically or remotely participated in this turn.",
         }
         if code in errors:
             raise HTTPException(status_code=409, detail=errors[code])
