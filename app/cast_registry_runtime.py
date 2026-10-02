@@ -416,7 +416,7 @@ def _rotation_pressure(
             "turns_since_activity": inactive_for,
             "turns_since_appearance": since_appearance,
             "appearance_count": appearance_count,
-            "return_rule": "Ищи ближайшую естественную причинную возможность вернуть персонажа; не телепортируй его ради ротации.",
+            "return_rule": "Если цели, работа, story_function, незакрытое дело, отношения, время или место уже требуют следующего шага персонажа, подведи историю к ближайшему логичному контакту без напоминания от POV; не телепортируй его ради ротации.",
         }
         if inactive_days is not None:
             item["game_days_since_activity"] = inactive_days
@@ -430,8 +430,9 @@ def _rotation_pressure(
             if signals:
                 item["relationship_signals"] = signals
                 item["relationship_behavior_note"] = (
-                    "Use these values through this NPC's character. Strong warm/attachment metrics may support contact; "
-                    "strong resentment/fear/suspicion may instead support avoidance, testing, confrontation or interference."
+                    "Use these values through this NPC's character. Warm/attachment metrics increase voluntary contact; "
+                    "resentment/fear/suspicion change its form toward avoidance, testing, confrontation or interference. "
+                    "Relationships do not suppress goals, work, story function or other independent reasons to act."
                 )
         if has_intent:
             item["open_intent"] = True
