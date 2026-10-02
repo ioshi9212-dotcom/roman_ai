@@ -556,6 +556,7 @@ components:
           type: number
         delta:
           type: number
+          description: For an established metric this is the causal change from the saved value and is authoritative when supplied. New metrics are initialized from value.
       additionalProperties: false
 
     RelationshipUpdate:
@@ -694,6 +695,10 @@ components:
         knowledge_reviewed:
           type: boolean
           default: false
+        relationship_reviewed:
+          type: boolean
+          default: false
+          description: True only after reviewing every participating NPC->POV relationship after the complete scene and persisting each real causal change through relationship_updates.
         knowledge_journal_add:
           type: array
           items:

@@ -148,6 +148,7 @@ class TurnExtracted(BaseModel):
     scene_builder_reviewed: bool = False
     persistence_reviewed: bool = False
     knowledge_reviewed: bool = False
+    relationship_reviewed: bool = False
     knowledge_journal_add: List[Dict[str, Any]] = Field(default_factory=list)
     chronology: List[Dict[str, Any]] = Field(default_factory=list)
     knowledge_add: List[Dict[str, Any]] = Field(default_factory=list)

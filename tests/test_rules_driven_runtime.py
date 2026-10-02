@@ -134,7 +134,7 @@ def test_packet_has_no_hidden_director_guard_stack_and_rules_are_last():
         contract = context["working_context_contract"]
         assert contract["hidden_director_guard_layers"] is False
         assert contract["backend_semantic_scene_gates"] is False
-        assert contract["precommit_review_gates"] == ["scene_builder", "persistence", "knowledge"]
+        assert contract["precommit_review_gates"] == ["scene_builder", "persistence", "knowledge", "relationships"]
         assert contract["offscreen_character_retrieval"] == "chunked_when_relevant"
         assert "simple_name_mention_does_not_load_offscreen_card" not in contract
         assert "dormant_character_retrieval" not in contract
@@ -241,7 +241,70 @@ def test_new_public_packet_requires_scene_and_persistence_review_before_commit()
             commit_turn_request(sid, payload)
 
         payload["extracted"]["knowledge_reviewed"] = True
+        with pytest.raises(RuntimeError, match="RELATIONSHIP_REVIEW_REQUIRED"):
+            commit_turn_request(sid, payload)
+
+        payload["extracted"]["relationship_reviewed"] = True
         result = commit_turn_request(sid, payload)
+        assert result["turn_number"] == 1
+
+
+def test_relationship_delta_uses_saved_baseline_and_is_not_double_applied():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        novel = base_novel()
+        novel["starting_state"]["relationships"] = {"npc": {"доверие": 10}}
+        sid = storage.create_session(novel)["session_id"]
+        manifest = session_runtime.prepare_turn_packet(sid, "Остаться рядом.")
+        read_all(manifest, sid)
+
+        session_runtime.commit_turn(
+            sid,
+            {
+                "packet_id": manifest["packet_id"],
+                "user_input": "Остаться рядом.",
+                "scene_output": "Сцена\nОтношения:\nNPC - доверие 12/+2",
+                "extracted": {
+                    "relationship_updates": [
+                        {
+                            "character_id": "npc",
+                            "dimensions": [{"label": "доверие", "value": 10, "delta": 2}],
+                            "reason": "NPC увидел поступок POV и стал доверять больше",
+                        }
+                    ]
+                },
+            },
+        )
+        state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
+        assert state["relationships"]["npc"]["доверие"] == 12
+
+
+def test_legacy_pending_packet_without_relationship_marker_still_commits():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(base_novel())["session_id"]
+        manifest = prepare_turn_request(sid, "(посмотреть на NPC)", request_id="legacy-pending")
+        read_all(manifest, sid)
+        root = storage.SESSIONS_DIR / sid
+        packet = storage._read_json(root / "turn_packet.json", {})
+        assert packet["relationship_review_required"] is True
+        packet.pop("relationship_review_required", None)
+        storage._write_json(root / "turn_packet.json", packet)
+
+        result = commit_turn_request(
+            sid,
+            {
+                "packet_id": manifest["packet_id"],
+                "user_input": "(посмотреть на NPC)",
+                "scene_output": "Сцена продолжается.",
+                "extracted": {
+                    "scene_builder_reviewed": True,
+                    "persistence_reviewed": True,
+                    "knowledge_reviewed": True,
+                    "relationship_reviewed": False,
+                },
+            },
+        )
         assert result["turn_number"] == 1
 
 

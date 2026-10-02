@@ -735,6 +735,7 @@ def turns_commit(session_id: str, body: TurnCommit):
             "SCENE_BUILDER_REVIEW_REQUIRED": "Review the complete final scene against scene_builder before retrying the same commitTurn.",
             "PERSISTENCE_REVIEW_REQUIRED": "Review durable persistence for the completed scene before retrying the same commitTurn.",
             "KNOWLEDGE_REVIEW_REQUIRED": "Review what every participating character learned or retained before retrying the same commitTurn.",
+            "RELATIONSHIP_REVIEW_REQUIRED": "Review every participating NPC->POV relationship after the completed scene. Persist each real causal change through relationship_updates, then retry the same commitTurn with relationship_reviewed=true.",
         }
         if code in errors:
             raise HTTPException(status_code=409, detail=errors[code])
