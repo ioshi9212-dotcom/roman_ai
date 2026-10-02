@@ -189,3 +189,22 @@ def test_location_profile_preserves_mapped_staff_and_link_relations():
         {"character_id": "adrian", "relation": "владелец"},
         {"character_id": "dante", "relation": "работает тренером"},
     ]
+
+
+def test_location_renderer_keeps_unknown_extras_in_storage_but_out_of_scene_context():
+    raw = {
+        "location_id": "school",
+        "name": "Школа",
+        "layout": "два зала и кабинет",
+        "sofa_angle": "37 градусов",
+        "wall_hex": "#AABBCC",
+    }
+    profile = normalize_location_profile(raw)
+    text = render_location_profile(raw)
+
+    assert profile["additional"]["sofa_angle"] == "37 градусов"
+    assert profile["additional"]["wall_hex"] == "#AABBCC"
+    assert "два зала и кабинет" in text
+    assert "37 градусов" not in text
+    assert "#AABBCC" not in text
+    assert "Прочие данные:" not in text
