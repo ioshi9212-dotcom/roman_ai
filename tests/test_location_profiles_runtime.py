@@ -2,6 +2,8 @@ import json
 import tempfile
 from pathlib import Path
 
+import pytest
+
 from app import location_runtime, session_runtime, simple_setup_runtime, storage
 
 
@@ -225,7 +227,7 @@ def test_v5_setup_canonicalizes_location_links_to_existing_characters():
 
 
 def test_v5_setup_rejects_location_link_to_unknown_character():
-    with __import__("pytest").raises(ValueError, match="DRAFT_LOCATION_CHARACTER_UNKNOWN"):
+    with pytest.raises(ValueError, match="DRAFT_LOCATION_CHARACTER_UNKNOWN"):
         simple_setup_runtime._validate_simple_content({
             "novel_id": "bad_location_link",
             "title": "Bad Location Link",
