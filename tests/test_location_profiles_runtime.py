@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from app import location_runtime, session_runtime, simple_setup_runtime, storage
+from app import location_runtime, session_runtime, simple_setup_runtime, stability_runtime, storage
 
 
 def _setup(tmp: str) -> None:
@@ -115,9 +115,10 @@ def test_turn_packet_loads_only_the_location_where_pov_is_physically_present():
         assert location["linked_characters"] == [
             {"character_id": "rayna", "relation": "семья обслуживает дом"}
         ]
-        assert location["canon_notes"][0]["text"] == "HOUSE_NOTE_MARKER"
+        notes = context["canon_notes_context"]["notes"]
+        assert [row["text"] for row in notes] == ["HOUSE_NOTE_MARKER"]
 
-        # Mentioning another saved place is not enough to pull its profile.
+        # Mentioning another saved place is not enough to pull its profile or note.
         assert "SCHOOL_ONLY_MARKER" not in raw
         assert "SCHOOL_NOTE_MARKER" not in raw
         assert "UNSCOPED_NOTE_MARKER" not in raw
@@ -264,3 +265,108 @@ def test_combined_parent_and_zone_header_keeps_the_same_profile_and_resolves_chi
     assert synced["current"]["zone_id"] == "kitchen"
     assert context is not None
     assert context["current_zone"]["zone_id"] == "kitchen"
+
+
+def test_combined_parent_and_zone_resolves_without_preexisting_location_id():
+    source = _novel()
+    state = {
+        "current": {
+            "location": "Дом Сайласа, кухня",
+            "present_characters": ["pov"],
+        }
+    }
+
+    synced = location_runtime.sync_current_location(source, state)
+    context = location_runtime.build_location_context(
+        source,
+        synced,
+        scene_character_ids=["pov"],
+    )
+
+    assert synced["current"]["location_id"] == "silas_house"
+    assert synced["current"]["zone_id"] == "kitchen"
+    assert context is not None
+    assert context["current_zone"]["zone_id"] == "kitchen"
+
+
+def test_location_change_clears_zone_inherited_by_deep_merge():
+    source = _novel()
+    before = {
+        "current": {
+            "location": "Дом Сайласа",
+            "location_id": "silas_house",
+            "zone": "Кухня",
+            "zone_id": "kitchen",
+        }
+    }
+    after = {
+        "current": {
+            "location": "Случайное кафе",
+            "location_id": "silas_house",
+            "zone": "Кухня",
+            "zone_id": "kitchen",
+        }
+    }
+
+    synced = location_runtime.sync_current_location(source, after, previous_state=before)
+
+    assert "location_id" not in synced["current"]
+    assert "zone_id" not in synced["current"]
+    assert "zone" not in synced["current"]
+
+
+def test_canon_notes_load_without_location_profile_when_subject_is_in_scene_or_global():
+    source = _novel(location="Случайное кафе", zone="зал")
+    source["canon_notes"].extend([
+        {"note_id": "pov-note", "text": "POV_NOTE_MARKER", "subjects": ["pov"]},
+        {"note_id": "global-note", "text": "GLOBAL_NOTE_MARKER", "subjects": ["global"]},
+    ])
+    state = source["starting_state"]
+
+    assert location_runtime.build_location_context(
+        source,
+        state,
+        scene_character_ids=["pov"],
+    ) is None
+
+    notes = location_runtime.build_canon_notes_context(
+        source,
+        state,
+        scene_character_ids=["pov"],
+    )
+    assert notes is not None
+    texts = [row["text"] for row in notes["notes"]]
+    assert "POV_NOTE_MARKER" in texts
+    assert "GLOBAL_NOTE_MARKER" in texts
+    assert "HOUSE_NOTE_MARKER" not in texts
+
+
+def test_scene_header_parser_does_not_store_weather_inside_location():
+    current = stability_runtime._scene_header_current(
+        "🎭 Test · осень\n"
+        "🕒 День 1 · пятница, 02.10.2026, 18:20 · 📍 Дом Сайласа, кухня 🌦️ Погода: дождь\n"
+        "⚙️ Сцена: разговор"
+    )
+
+    assert current["location"] == "Дом Сайласа, кухня"
+
+
+def test_v5_setup_rejects_ambiguous_named_location_character_link():
+    with pytest.raises(ValueError, match="DRAFT_LOCATION_CHARACTER_AMBIGUOUS"):
+        simple_setup_runtime._validate_simple_content({
+            "novel_id": "ambiguous_location_link",
+            "title": "Ambiguous",
+            "version": 5,
+            "novel": {"pov_character": "rina"},
+            "characters": [
+                {"character_id": "rina", "name": "Рина", "is_pov": True},
+                {"character_id": "alex_one", "name": "Алекс"},
+                {"character_id": "alex_two", "name": "Алекс"},
+            ],
+            "lore": {},
+            "locations": [{
+                "location_id": "school",
+                "name": "Школа",
+                "linked_characters": [{"character_id": "Алекс", "relation": "работает здесь"}],
+            }],
+        })
