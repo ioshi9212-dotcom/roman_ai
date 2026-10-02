@@ -241,3 +241,26 @@ def test_v5_setup_rejects_location_link_to_unknown_character():
                 "linked_characters": [{"character_id": "invented_worker", "relation": "работает здесь"}],
             }],
         })
+
+
+def test_combined_parent_and_zone_header_keeps_the_same_profile_and_resolves_child_zone():
+    source = _novel()
+    state = {
+        "current": {
+            "location": "Дом Сайласа, кухня",
+            "location_id": "silas_house",
+            "present_characters": ["pov"],
+        }
+    }
+
+    synced = location_runtime.sync_current_location(source, state)
+    context = location_runtime.build_location_context(
+        source,
+        synced,
+        scene_character_ids=["pov"],
+    )
+
+    assert synced["current"]["location_id"] == "silas_house"
+    assert synced["current"]["zone_id"] == "kitchen"
+    assert context is not None
+    assert context["current_zone"]["zone_id"] == "kitchen"
