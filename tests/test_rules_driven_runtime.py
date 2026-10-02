@@ -1399,12 +1399,18 @@ def test_rules_keep_director_truth_separate_from_character_truth():
         "future_guidance",
         "авторский план",
         "Источник знания должен существовать ДО",
-        "Ошибочное мнение или убеждение персонажа не исправляется само",
-        "NPC не обязан автоматически верить POV",
-        "не обязан автоматически ему не верить",
-        "это само по себе НЕ делает NPC подозрительным",
     ):
         assert phrase in rules
+
+    for removed_belief_rule in (
+        "NPC не обязан автоматически верить POV",
+        "не обязан автоматически ему не верить",
+        "Оценивай правдоподобие слов POV",
+        "NPC не получает авторское чувство лжи",
+        "Если Элен сказала NPC «я не рейдер»",
+        "не все должны верить в доброту",
+    ):
+        assert removed_belief_rule not in rules
 
 
 def test_continuation_keeps_character_knowledge_separate_in_v5():
