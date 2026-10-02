@@ -301,7 +301,7 @@ def test_new_public_packet_requires_scene_and_persistence_review_before_commit()
             commit_turn_request(sid, payload)
 
         payload["extracted"]["relationship_review"] = [
-            {"character_id": "npc", "changed": False}
+            {"character_id": "npc", "changed": False, "reason": "Текущая сцена не изменила отношение."}
         ]
         result = commit_turn_request(sid, payload)
         assert result["turn_number"] == 1
@@ -349,6 +349,7 @@ def test_legacy_pending_packet_without_relationship_marker_still_commits():
         packet.pop("relationship_review_required", None)
         packet.pop("relationship_review_details_required", None)
         packet.pop("relationship_footer_scope_required", None)
+        packet.pop("relationship_review_v3_required", None)
         storage._write_json(root / "turn_packet.json", packet)
 
         result = commit_turn_request(
