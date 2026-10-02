@@ -340,7 +340,7 @@ def _canonicalize_location_character_links(
     locations: List[Dict[str, Any]],
     characters: List[Dict[str, Any]],
 ) -> List[Dict[str, Any]]:
-    aliases: Dict[str, str] = {}
+    aliases: Dict[str, set[str]] = {}
     for card in characters:
         if not isinstance(card, dict):
             continue
@@ -362,7 +362,7 @@ def _canonicalize_location_character_links(
         for value in values:
             key = str(value or "").casefold().replace("ё", "е").strip()
             if key:
-                aliases[key] = cid
+                aliases.setdefault(key, set()).add(cid)
 
     result = deepcopy(locations)
     for profile in result:
@@ -372,9 +372,12 @@ def _canonicalize_location_character_links(
             if not isinstance(row, dict):
                 continue
             raw = str(row.get("character_id") or "").strip()
-            resolved = aliases.get(raw.casefold().replace("ё", "е").strip())
-            if not resolved:
+            matches = aliases.get(raw.casefold().replace("ё", "е").strip(), set())
+            if not matches:
                 raise ValueError("DRAFT_LOCATION_CHARACTER_UNKNOWN")
+            if len(matches) != 1:
+                raise ValueError("DRAFT_LOCATION_CHARACTER_AMBIGUOUS")
+            resolved = next(iter(matches))
             clean = deepcopy(row)
             clean["character_id"] = resolved
             normalized.append(clean)
