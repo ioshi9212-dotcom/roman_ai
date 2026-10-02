@@ -1,9 +1,13 @@
 from app.profile_templates import (
+    normalize_canon_notes,
     normalize_character_profile,
     normalize_hidden_lore,
+    normalize_location_profile,
+    normalize_location_profiles,
     normalize_novel_profile,
     render_character_profile,
     render_knowledge_journal,
+    render_location_profile,
 )
 
 
@@ -99,3 +103,71 @@ def test_knowledge_journal_renders_date_period_and_plain_text():
     assert "Рината сказала, что ей 19 лет." in text
     assert "24.09.2026 · день" in text
     assert "fact_id" not in text
+
+
+def test_location_profile_is_short_fixed_shape_and_accepts_mapped_zones_and_people():
+    profile = normalize_location_profile({
+        "id": "silas_house",
+        "name": "Дом Сайласа",
+        "type": "частный дом",
+        "floor": "2 этажа",
+        "hours": "частный дом, без режима",
+        "people": {"rayna": "обслуживает дом"},
+        "rooms": {
+            "kitchen": "кухня на первом этаже",
+            "study": {"name": "Кабинет", "summary": "отдельная рабочая комната"},
+        },
+        "style": "старый ухоженный дом",
+        "features": ["кабинет на первом этаже"],
+        "sofa_angle": "неважная микродеталь",
+    })
+
+    assert profile["location_id"] == "silas_house"
+    assert profile["linked_characters"] == [{"character_id": "rayna", "relation": "обслуживает дом"}]
+    assert profile["zones"] == [
+        {"zone_id": "kitchen", "name": "kitchen", "summary": "кухня на первом этаже"},
+        {"zone_id": "study", "name": "Кабинет", "summary": "отдельная рабочая комната"},
+    ]
+    assert profile["appearance"] == "старый ухоженный дом"
+    assert profile["additional"]["sofa_angle"] == "неважная микродеталь"
+    assert set(profile) == {
+        "location_id", "name", "aliases", "type", "parent_location_id", "where", "floor",
+        "hours", "linked_characters", "layout", "zones", "appearance", "fixed_features",
+        "notes", "additional",
+    }
+
+
+def test_location_profile_renderer_stays_human_readable_and_compact():
+    text = render_location_profile({
+        "location_id": "adrian_school",
+        "name": "Школа Эдриана",
+        "hours": "09:00–21:00",
+        "zones": [{"zone_id": "small_hall", "name": "Малый зал"}],
+        "linked_characters": [{"character_id": "adrian", "relation": "владелец"}],
+    })
+
+    assert "Название: Школа Эдриана" in text
+    assert "Часы работы: 09:00–21:00" in text
+    assert "Малый зал" in text
+    assert "владелец" in text
+    assert "location_id:" not in text
+
+
+def test_location_collection_and_scoped_canon_notes_normalize_without_new_freeform_shapes():
+    locations = normalize_location_profiles({
+        "school": {"name": "Школа", "zones": ["зал"]},
+        "home": {"name": "Дом"},
+    })
+    notes = normalize_canon_notes({
+        "valtor_household": {
+            "text": "Семья Вальтор поколениями обслуживает дом.",
+            "subjects": ["silas_house", "valtor_family"],
+        }
+    })
+
+    assert [row["location_id"] for row in locations] == ["school", "home"]
+    assert notes == [{
+        "note_id": "valtor_household",
+        "text": "Семья Вальтор поколениями обслуживает дом.",
+        "subjects": ["silas_house", "valtor_family"],
+    }]
