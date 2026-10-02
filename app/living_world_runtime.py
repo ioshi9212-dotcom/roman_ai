@@ -18,7 +18,7 @@ _VERSION = 4
 
 # New labels come from one small shared vocabulary. Existing labels in old sessions remain valid.
 RELATIONSHIP_DIMENSIONS: Dict[str, str] = {
-    "доверие": "верит POV",
+    "доверие": "отношение доверия к POV",
     "близость": "личная дистанция",
     "привязанность": "личный приоритет",
     "симпатия": "тепло",
@@ -475,7 +475,7 @@ def _social_world(state: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "mandatory": True,
         "recent_social_signals": deepcopy(list(signals.values())[-12:]),
-        "instruction": "В населённой локации не стерилизуй фон: когда логично, обычные одноразовые люди присутствуют, двигаются, говорят между собой, обращаются к POV/NPC или вмешиваются. Одноразовому extra карточка и полный knowledge-read не нужны; повторяющийся/важный → character_upserts. Слух или ложь не становятся истиной.",
+        "instruction": "В населённой локации не стерилизуй фон: когда логично, обычные одноразовые люди присутствуют, двигаются, говорят между собой, обращаются к POV/NPC или вмешиваются. Одноразовому extra карточка и полный knowledge-read не нужны; повторяющийся/важный → character_upserts.",
     }
 
 
