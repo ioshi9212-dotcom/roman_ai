@@ -262,12 +262,18 @@ def _final_physical_ids(
     payload: Dict[str, Any],
 ) -> set[str]:
     extracted = payload.get("extracted") if isinstance(payload.get("extracted"), dict) else {}
-    patch = extracted.get("state_patch") if isinstance(extracted.get("state_patch"), dict) else {}
-    state_after = storage._deep_merge(state_before, patch)
     present = set(
-        cid for cid in _resolve_ids(cards, list(storage._present_character_ids(state_after)))
+        cid for cid in _resolve_ids(cards, list(storage._present_character_ids(state_before)))
         if cid and cid != pov_id
     )
+    patch = extracted.get("state_patch") if isinstance(extracted.get("state_patch"), dict) else {}
+    current_patch = patch.get("current") if isinstance(patch.get("current"), dict) else {}
+    direct = current_patch.get("present_characters")
+    direct_values = direct if isinstance(direct, list) else [direct] if direct not in (None, "", {}) else []
+    for cid in _resolve_ids(cards, list(direct_values)):
+        if cid and cid != pov_id:
+            present.add(cid)
+
     for row in extracted.get("presence_updates", []) if isinstance(extracted.get("presence_updates"), list) else []:
         if not isinstance(row, dict):
             continue
