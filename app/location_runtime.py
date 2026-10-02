@@ -56,8 +56,28 @@ def _profile_by_visible_location(profiles: List[Dict[str, Any]], location: Any) 
     needle = _norm(location)
     if not needle:
         return None
-    matches = [profile for profile in profiles if needle in _profile_refs(profile)]
-    return matches[0] if len(matches) == 1 else None
+
+    exact = [profile for profile in profiles if needle in _profile_refs(profile)]
+    if len(exact) == 1:
+        return exact[0]
+    if len(exact) > 1:
+        return None
+
+    # Scene headers may contain "parent, zone" while old sessions may have only
+    # the zone name. Resolve only when exactly one saved profile fits.
+    candidates: List[Dict[str, Any]] = []
+    for profile in profiles:
+        refs = _profile_refs(profile)
+        parent_match = any(ref and ref in needle for ref in refs)
+        zone_match = any(
+            ref and ref in needle
+            for row in profile.get("zones", [])
+            if isinstance(row, dict)
+            for ref in _zone_refs(row)
+        )
+        if parent_match or zone_match:
+            candidates.append(profile)
+    return candidates[0] if len(candidates) == 1 else None
 
 
 def _resolve_zone(profile: Dict[str, Any], current: Dict[str, Any]) -> Dict[str, Any] | None:
@@ -136,11 +156,30 @@ def resolve_physical_location(source: Dict[str, Any], state: Dict[str, Any]) -> 
     }
 
 
-def sync_current_location(source: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
+def sync_current_location(
+    source: Dict[str, Any],
+    state: Dict[str, Any],
+    *,
+    previous_state: Dict[str, Any] | None = None,
+) -> Dict[str, Any]:
     """Keep canonical ids aligned with the visible physical scene pointer."""
     result = deepcopy(state) if isinstance(state, dict) else {}
     current = result.get("current") if isinstance(result.get("current"), dict) else {}
     result["current"] = current
+
+    previous = _current(previous_state) if isinstance(previous_state, dict) else {}
+    old_location = _norm(previous.get("location") or previous.get("place") or previous.get("area"))
+    new_location = _norm(current.get("location") or current.get("place") or current.get("area"))
+    if old_location and new_location and old_location != new_location:
+        old_zone = _norm(previous.get("zone"))
+        new_zone = _norm(current.get("zone"))
+        old_zone_id = _norm(previous.get("zone_id"))
+        new_zone_id = _norm(current.get("zone_id"))
+        # Deep merge keeps omitted child fields. If the physical place changed
+        # but zone/zone_id stayed byte-for-byte the same, they are stale.
+        if old_zone == new_zone and old_zone_id == new_zone_id:
+            current.pop("zone", None)
+            current.pop("zone_id", None)
 
     resolved = resolve_physical_location(source, result)
     if resolved is None:
@@ -162,8 +201,8 @@ def sync_current_location(source: Dict[str, Any], state: Dict[str, Any]) -> Dict
 
 def relevant_canon_notes(
     source: Dict[str, Any],
+    state: Dict[str, Any],
     *,
-    location: Dict[str, Any] | None,
     scene_character_ids: List[str],
 ) -> List[Dict[str, Any]]:
     notes = normalize_canon_notes(source.get("canon_notes"))
@@ -173,6 +212,19 @@ def relevant_canon_notes(
     relevant: set[str] = {_norm("global")}
     relevant.update(_norm(value) for value in scene_character_ids if _norm(value))
 
+    current = _current(state)
+    for value in (
+        current.get("location_id"),
+        current.get("location"),
+        current.get("place"),
+        current.get("area"),
+        current.get("zone_id"),
+        current.get("zone"),
+    ):
+        if _norm(value):
+            relevant.add(_norm(value))
+
+    location = resolve_physical_location(source, state)
     if isinstance(location, dict):
         profile = location.get("profile") if isinstance(location.get("profile"), dict) else {}
         relevant.update(_profile_refs(profile))
@@ -203,12 +255,6 @@ def build_location_context(
 
     profile = resolved["profile"]
     zone = resolved.get("zone") if isinstance(resolved.get("zone"), dict) else None
-    notes = relevant_canon_notes(
-        source,
-        location=resolved,
-        scene_character_ids=scene_character_ids,
-    )
-
     result: Dict[str, Any] = {
         "physical_presence_only": True,
         "location_id": str(profile.get("location_id") or ""),
@@ -224,6 +270,26 @@ def build_location_context(
     }
     if zone is not None:
         result["current_zone"] = deepcopy(zone)
-    if notes:
-        result["canon_notes"] = notes
     return result
+
+
+def build_canon_notes_context(
+    source: Dict[str, Any],
+    state: Dict[str, Any],
+    *,
+    scene_character_ids: List[str],
+) -> Dict[str, Any] | None:
+    notes = relevant_canon_notes(
+        source,
+        state,
+        scene_character_ids=scene_character_ids,
+    )
+    if not notes:
+        return None
+    return {
+        "notes": notes,
+        "rule": (
+            "Scoped durable author canon only. Subjects make a note relevant to the current physical place, zone, "
+            "scene character or global context. These notes are not personal knowledge unless a character has a real source."
+        ),
+    }
