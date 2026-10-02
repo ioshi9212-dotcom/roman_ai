@@ -416,9 +416,11 @@ def _prepare_context(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
         "persistent": True,
         "registry_index_path": "cast_registry.characters",
         "rule": (
-            "Registry is a reminder of permanent characters, not an appearance quota. Prioritize player-created cast for returns and development. "
+            "Registry tracks permanent characters; it is not an appearance quota. Prioritize player-created cast for returns and development. "
             "Create no card for background extras; a new persistent NPC needs a concrete recurring story_function after checking existing cast. "
-            "Use relationships, personal goals, story function, unresolved business, game days and turns to judge natural return."
+            "Use personal goals, work, story function, unresolved business, relationships, game days and turns to determine the next causal return. "
+            "Relationships change contact form and frequency; they do not decide whether a character is allowed to act. "
+            "When a return is due by character logic, create a logical contact path instead of waiting for POV to mention the NPC."
         ),
         "characters": _cast_registry_rows(state, cards, source, current_turn),
     }
