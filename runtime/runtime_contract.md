@@ -22,7 +22,7 @@ Backend хранит канон. `scene_builder` задаёт формат сц�
 - Legacy: каждую реальную реплику проверяй до реплики по `dialogue_frame`, `knowledge_path`, `turn_knowledge`, self-known/`source_self_paths`; `canon_fill` только для отсутствующей self-detail. Это правило реальным репликам, не вариантам будущего.
 
 ## State
-- `state.current`: date/time/location, `present_characters`, `remote_characters`, `remote_channels`, `positions`, `scene_items`, `unfinished_actions`.
+- `state.current`: date/time/location + optional canonical `location_id` and `zone_id`/`zone`, `present_characters`, `remote_characters`, `remote_channels`, `positions`, `scene_items`, `unfinished_actions`.
 - `scene_state/state.pov` — физический источник истины для присутствия, позиций, одежды/инвентаря и предметов; не телепортируй людей/предметы. Remote NPC не становится physical без enter.
 - Remote NPC участвует без position. После контакта убери его; завершённый контакт → `dialogue_memory_add`.
 - `scene_items` только значимые; при изменении передавай полный актуальный снимок.
@@ -32,6 +32,11 @@ Backend хранит канон. `scene_builder` задаёт формат сц�
 ## Хронология и отношения
 - `chronology`: раскрытия, решения, договорённости, конфликты, угрозы, последствия. Рутину не сохраняй; exact time только если причинно важно.
 - Отношения NPC→POV: после сцены обязательно проверь каждого участника. Реальный сдвиг → `relationship_updates` с причиной; existing число через `delta`. Нет сдвига → без update.
+
+## Локации
+- `location_context` существует только для места, где POV физически находится; упоминание/план/remote не загружает профиль.
+- Профиль фиксирует короткий постоянный каркас: зоны, планировку, этаж/режим и устойчивые особенности. Не придумывай новые постоянные комнаты/объекты и не переставляй каркас.
+- `linked_characters` - режиссёрский каталог связанных зарегистрированных персонажей; до их участия нужен bundle.
 
 ## Мир и сюжет
 - Мир не ждёт POV. Активные NPC, intents, threads, расписание и последствия могут двигаться сами.
