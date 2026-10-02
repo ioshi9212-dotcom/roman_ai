@@ -173,8 +173,10 @@ def test_social_reactivity_allows_grounded_ambient_people_to_intervene_without_u
         assert "одноразовые люди" in instruction
         assert "говорят между собой" in instruction
         assert "вмешиваются" in instruction
-        assert "карточка и полный knowledge-read не нужны" in instruction
-        assert "повторяющийся/важный" in instruction
+        assert "фоновому/одноразовому extra карточка и character_upserts не нужны" in instruction
+        assert "созданный игроком" in instruction
+        assert "конкретной повторяющейся story_function" in instruction
+        assert "повторяющийся/важный" not in instruction
 
 
 def test_social_reactivity_has_no_belief_or_truth_directive():
