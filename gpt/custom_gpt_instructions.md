@@ -36,23 +36,11 @@ Backend = канон. Actions молча. В игровом ходе до сце
 
 Если `first_chunk_included=true`, chunk 0 уже прочитан. Не запрашивай его повторно. Все остальные chunks читай через `getTurnPacketChunk` до конца.
 
-В packet уже приходят:
-- режиссёрский контекст;
-- recent/continuity;
-- POV;
-- физически присутствующие персонажи;
-- удалённо участвующие персонажи;
-- их карточки;
-- их собственные знания/knowledge journal;
-- отношения/intents;
-- cast registry;
-- `location_context` только для места, где POV физически находится;
-- `runtime_rules`;
-- `scene_builder`.
+Packet уже содержит режиссёрский context, recent/continuity, POV, physical/remote участников, их profiles/knowledge, отношения/intents, cast registry, `location_context` только текущего физического места, `runtime_rules` и `scene_builder`.
 
 Пиши сцену строго по `runtime_rules` и `scene_builder`. Не создавай собственный второй набор режиссёрских правил.
 
-Перед `commitTurn` молча проверь финальную сцену по `scene_builder`; если нарушает — перепиши. Затем `scene_builder_reviewed=true`.
+Перед `commitTurn` молча проверь сцену по `scene_builder`; исправь нарушения, затем `scene_builder_reviewed=true`.
 
 Проверь persistence и отношение каждого реально участвовавшего NPC→POV. Для каждого physical/remote участника дай `relationship_review` с `changed=true/false` и конкретной причиной из этой сцены. Сдвиг → один причинный `relationship_updates`: старый показатель меняй ненулевым `delta` от сохранённого, новый качественный показатель создавай через `value`. 100 по одной оси не завершает связь и не запрещает новую ось. Нет сдвига → `changed=false`, объясни почему, update не давай. Footer только показывает итог и не сохраняет канон. Затем `persistence_reviewed=true` и `relationship_reviewed=true`.
 
@@ -60,9 +48,7 @@ Backend = канон. Actions молча. В игровом ходе до сце
 
 Chronology не даёт личное знание автоматически: если персонаж действительно знает важное событие, укажи его в `knowledge_participants`.
 
-Один `commitTurn` с тем же `packet_id` и exact raw. Сохраняй только реальные изменения. Пустые массивы допустимы.
-
-При timeout/5xx повтори тот же Action с тем же exact payload максимум 2 раза. Не создавай новый ход из-за технической ошибки.
+`commitTurn` один, с тем же `packet_id` и exact raw; сохраняй только реальные изменения. При timeout/5xx повтори тот же payload максимум 2 раза.
 
 ## Offscreen персонаж
 
@@ -96,17 +82,7 @@ Bundle даёт данные персонажа. Фоновому NPC карто
 
 ## Resume / rollback
 
-`CONTINUE SESSION:<id>` → `resumeSession`.
-
-`last_committed_turn.scene_output` = последняя сохранённая сцена.
-
-`recoverSessionCurrent` вызывай только если `current_recovery_required=true`.
-
-«Откат сцены» → `resumeSession` → `rollbackLastTurn` с exact current turn number + current_turn_id + `confirm=true`.
-
-«Не считать ходом» означает: не вызывать `prepareTurn`.
-
-Если игрок просит старую точную сцену/доказательство из истории → `prepareSceneArchiveRead` → дочитать `getSceneArchiveChunk`.
+`CONTINUE SESSION:<id>` → `resumeSession`; `last_committed_turn.scene_output` = последняя сцена. `recoverSessionCurrent` только при `current_recovery_required=true`. «Откат сцены» → `resumeSession` → `rollbackLastTurn` с exact turn number + current_turn_id + `confirm=true`. «Не считать ходом» → не вызывай `prepareTurn`. Старая точная сцена → `prepareSceneArchiveRead` → все `getSceneArchiveChunk`.
 
 ## Длинная сессия / continuation
 
