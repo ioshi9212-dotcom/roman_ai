@@ -305,6 +305,7 @@ def _move_runtime_documents_last(context: Dict[str, Any]) -> Dict[str, Any]:
         "novel/director context",
         "chronology and recent continuity",
         "current scene state",
+        "physical location profile when present",
         "active character cards",
         "each active character's own knowledge",
         "relationships and active intents",
