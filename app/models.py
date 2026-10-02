@@ -90,7 +90,7 @@ class SessionMeta(BaseModel):
 
 class RelationshipDimensionUpdate(BaseModel):
     label: str
-    value: float
+    value: Optional[float] = None
     delta: Optional[float] = None
 
 
