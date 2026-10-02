@@ -604,9 +604,9 @@ def render_location_profile(raw: Dict[str, Any]) -> str:
         value = _render_value(profile.get(key))
         if value:
             lines.append(f"{label}: {value}")
-    additional = _render_value(profile.get("additional"))
-    if additional:
-        lines.append(f"Прочие данные: {additional}")
+    # Keep unknown/raw extras in persistent storage for losslessness, but do not
+    # inject them into every scene. Location context is intentionally a short
+    # structural profile, not a second lore dump.
     return "\n".join(lines).strip()
 
 
