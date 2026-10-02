@@ -170,7 +170,7 @@ def _participation_bundle(session_id: str, character_id: str) -> Dict[str, Any]:
         "active_intents": deepcopy(full.get("active_intents", [])),
         "working_bundle": True,
         "persistent_lifetime_memory_complete": True,
-        "instruction": "Собственная card — self-known биография кроме явно hidden/unknown-to-self веток. personal_memory.knowledge/knowledge_journal — выученные факты; experiences/dialogue могут быть bounded.",
+        "instruction": "Собственная card — self-known биография кроме явно hidden/unknown-to-self веток. personal_memory.knowledge/knowledge_journal — выученные факты. Частичный факт остаётся частичным: неизвестные время/место/человек/причина не достраиваются вероятными значениями; нужную деталь уточняют или оставляют догадкой до подтверждения. experiences/dialogue могут быть bounded.",
     }
 
 
