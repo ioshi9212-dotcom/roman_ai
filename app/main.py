@@ -742,6 +742,13 @@ def turns_commit(session_id: str, body: TurnCommit):
             "RELATIONSHIP_REVIEW_UPDATE_CONTRADICTION": "A relationship_review row marked changed=false cannot have a relationship_updates row for that NPC.",
             "RELATIONSHIP_FOOTER_ABSENT_NPC": "The visible Relationships footer may contain only NPCs physically present at scene end. Remove remote, departed or offscreen NPC rows and retry the same commitTurn.",
             "RELATIONSHIP_UPDATE_FOR_UNSEEN_NPC": "relationship_updates may target only NPCs who physically or remotely participated in this turn.",
+            "RELATIONSHIP_REVIEW_REASON_REQUIRED": "Every relationship_review row on a new turn needs a concrete current-scene reason, including changed=false.",
+            "RELATIONSHIP_UPDATE_REASON_REQUIRED": "A changed relationship requires a non-empty causal reason in relationship_updates.",
+            "RELATIONSHIP_REVIEW_CHANGED_WITHOUT_EFFECT": "changed=true requires an actual canonical relationship effect, not an empty or no-op update.",
+            "RELATIONSHIP_EXISTING_DIMENSION_DELTA_REQUIRED": "An established relationship dimension must change through a non-zero delta from the saved value.",
+            "RELATIONSHIP_NEW_DIMENSION_VALUE_REQUIRED": "A new relationship dimension must include an absolute numeric value.",
+            "RELATIONSHIP_DIMENSION_DUPLICATE": "Do not send the same relationship dimension more than once in one NPC update.",
+            "RELATIONSHIP_UPDATE_DUPLICATE_OWNER": "Send at most one relationship_updates row per NPC in a turn.",
         }
         if code in errors:
             raise HTTPException(status_code=409, detail=errors[code])
