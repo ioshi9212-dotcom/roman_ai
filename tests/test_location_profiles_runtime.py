@@ -508,3 +508,42 @@ def test_stale_parent_id_cannot_use_room_substring_as_proof_of_same_place():
 
     assert "location_id" not in synced["current"]
     assert context is None
+
+
+def test_generic_raw_zone_name_does_not_pull_canon_note_from_another_saved_place():
+    source = _novel(location="Случайное кафе", zone="Кухня")
+    source["canon_notes"].append({
+        "note_id": "house-kitchen-only",
+        "text": "HOUSE_KITCHEN_ONLY_MARKER",
+        "subjects": ["Кухня"],
+    })
+    state = source["starting_state"]
+
+    notes = location_runtime.build_canon_notes_context(
+        source,
+        state,
+        scene_character_ids=["pov"],
+    )
+
+    assert notes is None or "HOUSE_KITCHEN_ONLY_MARKER" not in [
+        row["text"] for row in notes["notes"]
+    ]
+
+
+def test_zone_subject_loads_when_that_zone_is_resolved_inside_the_saved_location():
+    source = _novel()
+    source["canon_notes"].append({
+        "note_id": "house-kitchen",
+        "text": "HOUSE_KITCHEN_MARKER",
+        "subjects": ["Кухня"],
+    })
+    state = source["starting_state"]
+
+    notes = location_runtime.build_canon_notes_context(
+        source,
+        state,
+        scene_character_ids=["pov"],
+    )
+
+    assert notes is not None
+    assert "HOUSE_KITCHEN_MARKER" in [row["text"] for row in notes["notes"]]
