@@ -17,6 +17,14 @@ def _norm(value: Any) -> str:
     return " ".join(text.split())
 
 
+def _contains_ref(text: Any, ref: Any) -> bool:
+    haystack = _norm(text)
+    needle = _norm(ref)
+    if not haystack or not needle:
+        return False
+    return f" {needle} " in f" {haystack} "
+
+
 def _current(state: Dict[str, Any]) -> Dict[str, Any]:
     return state.get("current") if isinstance(state.get("current"), dict) else {}
 
@@ -68,7 +76,7 @@ def _profile_by_visible_location(profiles: List[Dict[str, Any]], location: Any) 
     candidates: List[Dict[str, Any]] = []
     for profile in profiles:
         refs = _profile_refs(profile)
-        parent_match = any(ref and ref in needle for ref in refs)
+        parent_match = any(_contains_ref(needle, ref) for ref in refs)
         zone_match = any(
             ref and ref == needle
             for row in profile.get("zones", [])
@@ -105,7 +113,7 @@ def _resolve_zone(profile: Dict[str, Any], current: Dict[str, Any]) -> Dict[str,
             zone
             for zone in zones
             if isinstance(zone, dict)
-            and any(ref and ref in visible_location for ref in _zone_refs(zone))
+            and any(_contains_ref(visible_location, ref) for ref in _zone_refs(zone))
         ]
         if len(matches) == 1:
             return matches[0]
@@ -133,7 +141,7 @@ def resolve_physical_location(source: Dict[str, Any], state: Dict[str, Any]) -> 
             visible_norm = _norm(visible)
             visible_is_profile = bool(
                 visible_norm
-                and any(ref and ref in visible_norm for ref in _profile_refs(explicit))
+                and any(_contains_ref(visible_norm, ref) for ref in _profile_refs(explicit))
             )
             visible_is_zone = bool(
                 visible_norm
@@ -196,7 +204,7 @@ def sync_current_location(
         inherited = _profile_by_id(_locations(source), current.get("location_id"))
         new_names_same_parent = bool(
             inherited
-            and any(ref and ref in new_location for ref in _profile_refs(inherited))
+            and any(_contains_ref(new_location, ref) for ref in _profile_refs(inherited))
         )
         if not new_names_same_parent:
             current.pop("location_id", None)
