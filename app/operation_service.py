@@ -53,6 +53,7 @@ def _packet_status(packet: Any) -> Dict[str, Any] | None:
         "relationship_review_required": bool(packet.get("relationship_review_required")),
         "relationship_review_details_required": bool(packet.get("relationship_review_details_required")),
         "relationship_footer_scope_required": bool(packet.get("relationship_footer_scope_required")),
+        "relationship_review_v3_required": bool(packet.get("relationship_review_v3_required")),
     }
 
 
@@ -127,6 +128,7 @@ def prepare_turn_request(
                 result["relationship_review_required"] = bool(packet.get("relationship_review_required"))
                 result["relationship_review_details_required"] = bool(packet.get("relationship_review_details_required"))
                 result["relationship_footer_scope_required"] = bool(packet.get("relationship_footer_scope_required"))
+                result["relationship_review_v3_required"] = bool(packet.get("relationship_review_v3_required"))
                 result["pending_turn"] = pending_turn_status(session_id)
                 return result
 
@@ -158,6 +160,10 @@ def prepare_turn_request(
             # Existing pending turns from older code remain committable unchanged.
             packet["relationship_review_details_required"] = True
             packet["relationship_footer_scope_required"] = True
+            # v3 closes the remaining loopholes without retroactively gating pending turns:
+            # review rows need reasons, changed=true must describe a real canonical effect,
+            # and the visible footer becomes display-only for persistence.
+            packet["relationship_review_v3_required"] = True
             storage._write_json(root / "turn_packet.json", packet)
 
         if scene_archive_capable:
@@ -171,6 +177,7 @@ def prepare_turn_request(
         result["relationship_review_required"] = bool(packet.get("relationship_review_required"))
         result["relationship_review_details_required"] = bool(packet.get("relationship_review_details_required"))
         result["relationship_footer_scope_required"] = bool(packet.get("relationship_footer_scope_required"))
+        result["relationship_review_v3_required"] = bool(packet.get("relationship_review_v3_required"))
         result["pending_turn"] = pending_turn_status(session_id)
         return result
 
@@ -288,7 +295,83 @@ def _final_physical_ids(
     return present
 
 
-def _validate_relationship_review_details(session_id: str, payload: Dict[str, Any]) -> None:
+def _relationship_update_effect(
+    session_id: str,
+    cards: list[Dict[str, Any]],
+    pov_id: str,
+    raw: Dict[str, Any],
+) -> bool:
+    root = _session_root(session_id)
+    source = storage._read_json(root / "source.json", {})
+    state = storage._read_json(root / "state.json", {})
+    state = relationship_runtime.repair_relationship_state(
+        state,
+        source=source,
+        turns=storage._read_turns(root),
+        cards=cards,
+        resolve_character_id=session_runtime._resolve_character_id,
+    )
+    owner = session_runtime._resolve_character_id(cards, raw.get("character_id"))
+    if not owner or str(owner) == pov_id:
+        return False
+    owner = str(owner)
+    docs = relationship_runtime._canonical_docs(
+        state,
+        cards=cards,
+        resolve_character_id=session_runtime._resolve_character_id,
+    )
+    relation = relationship_runtime._pov_relation(docs.get(owner, {}), pov_id)
+    relation = relation if isinstance(relation, dict) else {}
+    baseline = {
+        relationship_runtime._norm(item.get("label") or item.get("key")): item.get("value")
+        for item in relation.get("dimensions", []) if isinstance(item, dict)
+    }
+
+    dimensions = raw.get("dimensions") if isinstance(raw.get("dimensions"), list) else []
+    for item in dimensions:
+        if not isinstance(item, dict):
+            continue
+        label = str(item.get("label") or item.get("key") or "").strip()
+        if not label:
+            continue
+        norm = relationship_runtime._norm(label)
+        value = item.get("value")
+        delta = item.get("delta")
+        value_num = isinstance(value, (int, float)) and not isinstance(value, bool)
+        delta_num = isinstance(delta, (int, float)) and not isinstance(delta, bool)
+        if norm in baseline:
+            if not delta_num or float(delta) == 0.0:
+                raise RuntimeError("RELATIONSHIP_EXISTING_DIMENSION_DELTA_REQUIRED")
+            return True
+        if not value_num:
+            raise RuntimeError("RELATIONSHIP_NEW_DIMENSION_VALUE_REQUIRED")
+        return True
+
+    metadata_pairs = (
+        ("opinion", "current_dynamic"),
+        ("current_dynamic", "current_dynamic"),
+        ("beliefs_about_target", "beliefs_about_target"),
+        ("unresolved_between_them", "unresolved_between_them"),
+        ("relationship_type", "relationship_type"),
+        ("relationship_context", "relationship_context"),
+    )
+    for incoming_key, relation_key in metadata_pairs:
+        if incoming_key not in raw:
+            continue
+        incoming = raw.get(incoming_key)
+        if incoming_key in {"opinion", "current_dynamic", "relationship_type", "relationship_context"}:
+            incoming = str(incoming or "").strip()
+        if incoming != relation.get(relation_key):
+            return True
+    return False
+
+
+def _validate_relationship_review_details(
+    session_id: str,
+    payload: Dict[str, Any],
+    *,
+    strict_v3: bool = False,
+) -> None:
     cards, pov_id, expected = _relationship_review_expected_ids(session_id, payload)
     extracted = payload.get("extracted") if isinstance(payload.get("extracted"), dict) else {}
     rows = extracted.get("relationship_review")
@@ -305,28 +388,36 @@ def _validate_relationship_review_details(session_id: str, payload: Dict[str, An
         cid = str(cid)
         if cid in reviewed or not isinstance(raw.get("changed"), bool):
             raise RuntimeError("RELATIONSHIP_REVIEW_DETAIL_INVALID")
+        if strict_v3 and not str(raw.get("reason") or "").strip():
+            raise RuntimeError("RELATIONSHIP_REVIEW_REASON_REQUIRED")
         reviewed[cid] = raw
 
     if set(reviewed) != set(expected):
         raise RuntimeError("RELATIONSHIP_REVIEW_DETAIL_REQUIRED")
 
     updates = extracted.get("relationship_updates") if isinstance(extracted.get("relationship_updates"), list) else []
-    update_owners = {
-        str(cid)
-        for raw in updates
-        if isinstance(raw, dict)
-        for cid in [session_runtime._resolve_character_id(cards, raw.get("character_id"))]
-        if cid and str(cid) != pov_id
-    }
-    if not update_owners.issubset(set(expected)):
+    updates_by_owner: Dict[str, Dict[str, Any]] = {}
+    for raw in updates:
+        if not isinstance(raw, dict):
+            continue
+        cid = session_runtime._resolve_character_id(cards, raw.get("character_id"))
+        if cid and str(cid) != pov_id:
+            updates_by_owner[str(cid)] = raw
+    if not set(updates_by_owner).issubset(set(expected)):
         raise RuntimeError("RELATIONSHIP_UPDATE_FOR_UNSEEN_NPC")
 
     for cid in expected:
         changed = reviewed[cid].get("changed") is True
-        if changed and cid not in update_owners:
+        update = updates_by_owner.get(cid)
+        if changed and update is None:
             raise RuntimeError("RELATIONSHIP_REVIEW_CHANGED_WITHOUT_UPDATE")
-        if not changed and cid in update_owners:
+        if not changed and update is not None:
             raise RuntimeError("RELATIONSHIP_REVIEW_UPDATE_CONTRADICTION")
+        if strict_v3 and changed:
+            if not str(update.get("reason") or "").strip():
+                raise RuntimeError("RELATIONSHIP_UPDATE_REASON_REQUIRED")
+            if not _relationship_update_effect(session_id, cards, pov_id, update):
+                raise RuntimeError("RELATIONSHIP_REVIEW_CHANGED_WITHOUT_EFFECT")
 
 
 def _validate_relationship_footer_scope(session_id: str, payload: Dict[str, Any]) -> None:
@@ -383,7 +474,11 @@ def commit_turn_request(session_id: str, payload: Dict[str, Any]) -> Dict[str, A
         if extracted.get("relationship_reviewed") is not True:
             raise RuntimeError("RELATIONSHIP_REVIEW_REQUIRED")
     if bool(packet.get("relationship_review_details_required")):
-        _validate_relationship_review_details(session_id, payload)
+        _validate_relationship_review_details(
+            session_id,
+            payload,
+            strict_v3=bool(packet.get("relationship_review_v3_required")),
+        )
     if bool(packet.get("relationship_footer_scope_required")):
         _validate_relationship_footer_scope(session_id, payload)
     # Packets created before the relationship review markers existed intentionally bypass these gates.
