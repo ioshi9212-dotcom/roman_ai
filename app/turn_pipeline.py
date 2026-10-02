@@ -435,7 +435,7 @@ def _prepare_context(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
                 elif owner_id in remote_set:
                     row["participation_mode"] = "remote"
                 last_changed = int(row.get("last_changed_turn", 0) or 0)
-                row["turns_since_change"] = max(0, current_turn - last_changed) if last_changed else None
+                row["turns_since_change"] = max(0, current_turn - last_changed) if last_changed else max(0, current_turn)
                 saturated = [
                     str(item.get("label") or item.get("key"))
                     for item in row.get("dimensions", []) if isinstance(item, dict)
