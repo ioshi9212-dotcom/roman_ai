@@ -57,7 +57,7 @@ components:
           type: string
         text:
           type: string
-          description: Store only the minimum confirmed fact actually learned. Do not add an unstated time, place, person, reason, plan or other plausible detail.
+          description: Store only the minimum information actually received or learned. A claim may be source-qualified without asserting objective truth. Do not add unstated time, place, person, reason, plan or other plausible detail.
         date:
           type: string
         period:
