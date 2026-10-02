@@ -57,7 +57,7 @@ Backend = канон. Actions молча. В игровом ходе до сце
 
 Перед `commitTurn` молча проверь финальную сцену по `scene_builder`; если нарушает — перепиши. Затем `scene_builder_reviewed=true`.
 
-Проверь persistence и отношение каждого реально участвовавшего NPC→POV. Реальный причинный сдвиг → `relationship_updates` с причиной; существующий показатель → `delta` от сохранённого, новый → `value`; нет сдвига → без update. Не замораживай отношение, которое сцена реально изменила. Затем `persistence_reviewed=true` и `relationship_reviewed=true`.
+Проверь persistence и отношение каждого реально участвовавшего NPC→POV. Для каждого physical/remote участника запиши одну строку `relationship_review`: `changed=true/false`. Реальный сдвиг → `changed=true` + `relationship_updates` с причиной; существующий показатель → `delta`, качественно новое состояние → новый `value`. Старый показатель не является whitelist; 100 по одной оси не завершает связь. Нет сдвига → `changed=false`, без update. Затем `persistence_reviewed=true` и `relationship_reviewed=true`.
 
 Проверь знания каждого физического/удалённого участника. Новое долговременное знание → `knowledge_journal_add` только тому, кто реально его получил; чужие тайны без источника не копируй. Затем `knowledge_reviewed=true`.
 
