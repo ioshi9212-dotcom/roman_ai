@@ -18,6 +18,7 @@ from . import (
     location_runtime,
     memory_integrity_runtime,
     npc_intent,
+    npc_intent_runtime,
     private_knowledge_runtime,
     profile_templates,
     relationship_metadata,
@@ -814,6 +815,9 @@ def _apply_story_and_intent_updates(session_id: str, payload: Dict[str, Any]) ->
 
     intent_updates = extracted.get("npc_intent_updates")
     if isinstance(intent_updates, list) and intent_updates:
+        # Keep only the narrow provenance check from the legacy intent adapter.
+        # Do not reinstall its gameplay wrapper.
+        npc_intent_runtime._validate_intent_sources(root, extracted, intent_updates)
         working = npc_intent.apply_updates(working, intent_updates, current_turn=turn_number)
         patch["npc_intents"] = deepcopy(working.get("npc_intents", {}))
 
