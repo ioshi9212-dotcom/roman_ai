@@ -467,3 +467,44 @@ def test_location_id_change_clears_zone_inherited_under_same_generic_location_na
     assert synced["current"]["location_id"] == "adrian_apartment"
     assert "zone_id" not in synced["current"]
     assert "zone" not in synced["current"]
+
+
+def test_room_name_substring_does_not_attach_an_unrelated_one_off_place_to_saved_profile():
+    source = _novel()
+    state = {
+        "current": {
+            "location": "Кабинет врача",
+            "present_characters": ["pov"],
+        }
+    }
+
+    synced = location_runtime.sync_current_location(source, state)
+    context = location_runtime.build_location_context(
+        source,
+        synced,
+        scene_character_ids=["pov"],
+    )
+
+    assert "location_id" not in synced["current"]
+    assert context is None
+
+
+def test_stale_parent_id_cannot_use_room_substring_as_proof_of_same_place():
+    source = _novel()
+    state = {
+        "current": {
+            "location": "Кабинет врача",
+            "location_id": "silas_house",
+            "present_characters": ["pov"],
+        }
+    }
+
+    synced = location_runtime.sync_current_location(source, state)
+    context = location_runtime.build_location_context(
+        source,
+        synced,
+        scene_character_ids=["pov"],
+    )
+
+    assert "location_id" not in synced["current"]
+    assert context is None
