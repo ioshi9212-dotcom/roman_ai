@@ -736,6 +736,11 @@ def turns_commit(session_id: str, body: TurnCommit):
             "PERSISTENCE_REVIEW_REQUIRED": "Review durable persistence for the completed scene before retrying the same commitTurn.",
             "KNOWLEDGE_REVIEW_REQUIRED": "Review what every participating character learned or retained before retrying the same commitTurn.",
             "RELATIONSHIP_REVIEW_REQUIRED": "Review every participating NPC->POV relationship after the completed scene. Persist each real causal change through relationship_updates, then retry the same commitTurn with relationship_reviewed=true.",
+            "RELATIONSHIP_REVIEW_DETAIL_REQUIRED": "Send exactly one relationship_review row for every physical or remote NPC who participated in this turn.",
+            "RELATIONSHIP_REVIEW_DETAIL_INVALID": "relationship_review must contain unique known NPC character_id values and boolean changed flags.",
+            "RELATIONSHIP_REVIEW_CHANGED_WITHOUT_UPDATE": "A relationship_review row marked changed=true requires a matching causal relationship_updates row.",
+            "RELATIONSHIP_REVIEW_UPDATE_CONTRADICTION": "A relationship_review row marked changed=false cannot have a relationship_updates row for that NPC.",
+            "RELATIONSHIP_FOOTER_ABSENT_NPC": "The visible Relationships footer may contain only NPCs physically present at scene end. Remove remote, departed or offscreen NPC rows and retry the same commitTurn.",
         }
         if code in errors:
             raise HTTPException(status_code=409, detail=errors[code])
