@@ -389,7 +389,9 @@ def _prepare_context(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
     }
     context["character_knowledge_rule"] = (
         "For each POV/NPC use only that character's self-known card facts, own character_memory, current perception "
-        "and real communication. Own-card branches marked unknown_to_self/hidden_from_self/not_known_to_self/"
+        "and real communication. Knowledge is granular: a partial fact authorizes only the details actually known or strictly entailed. "
+        "Never fill an unknown time/place/person/reason/plan detail with a likely or convenient value and state it as fact; ask, leave it unknown, "
+        "or mark a plausible inference as a guess until confirmed. Own-card branches marked unknown_to_self/hidden_from_self/not_known_to_self/"
         "known_to_self=false/author_only are not self-known. Other cards, other memory, chronology, location_context and director lore "
         "are not personal knowledge."
     )
@@ -478,7 +480,8 @@ def _prepare_context(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
         "chronology": "important durable events only; knowledge_participants is the only chronology field that grants personal knowledge",
         "character_knowledge": (
             "knowledge_journal is personal memory, separate from chronology. Save durable learned facts only to each "
-            "character who actually learned them; chronology never grants knowledge by itself."
+            "character who actually learned them; chronology never grants knowledge by itself. Preserve exact granularity: "
+            "store the minimum confirmed proposition and never enrich it with an unstated time, place, person, reason, plan or other detail."
         ),
         "relationships": (
             "After the complete scene, review every participating NPC->POV relationship and record one relationship_review row per NPC. "
