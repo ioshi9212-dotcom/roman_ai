@@ -170,16 +170,36 @@ def sync_current_location(
     previous = _current(previous_state) if isinstance(previous_state, dict) else {}
     old_location = _norm(previous.get("location") or previous.get("place") or previous.get("area"))
     new_location = _norm(current.get("location") or current.get("place") or current.get("area"))
-    if old_location and new_location and old_location != new_location:
+    old_location_id = _norm(previous.get("location_id"))
+    new_location_id = _norm(current.get("location_id"))
+    visible_location_changed = bool(old_location and new_location and old_location != new_location)
+    canonical_parent_changed = bool(
+        old_location_id and new_location_id and old_location_id != new_location_id
+    )
+
+    if visible_location_changed or canonical_parent_changed:
         old_zone = _norm(previous.get("zone"))
         new_zone = _norm(current.get("zone"))
         old_zone_id = _norm(previous.get("zone_id"))
         new_zone_id = _norm(current.get("zone_id"))
-        # Deep merge keeps omitted child fields. If the physical place changed
+        # Deep merge keeps omitted child fields. If the physical parent changed
         # but zone/zone_id stayed byte-for-byte the same, they are stale.
         if old_zone == new_zone and old_zone_id == new_zone_id:
             current.pop("zone", None)
             current.pop("zone_id", None)
+
+    if visible_location_changed and old_location_id and new_location_id == old_location_id:
+        # A same-valued location_id is often inherited by deep merge. Trust it only
+        # when the new visible location still names that parent. A bare generic room
+        # such as "Кухня" must not pin POV to the previous house just because both
+        # places have a kitchen.
+        inherited = _profile_by_id(_locations(source), current.get("location_id"))
+        new_names_same_parent = bool(
+            inherited
+            and any(ref and ref in new_location for ref in _profile_refs(inherited))
+        )
+        if not new_names_same_parent:
+            current.pop("location_id", None)
 
     resolved = resolve_physical_location(source, result)
     if resolved is None:
