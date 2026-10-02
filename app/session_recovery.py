@@ -245,7 +245,6 @@ def _previous_same_location_roster(
         current_patch = patch.get("current") if isinstance(patch.get("current"), dict) else {}
         candidates = (
             (_normalise_present(cards, current_patch.get("present_characters")), "state_patch"),
-            (_footer_present_ids(turn.get("scene_output"), cards=cards), "relationship_footer"),
             (_speaker_present_ids(turn.get("scene_output"), cards=cards), "dialogue_speakers"),
             (_named_actor_present_ids(turn.get("scene_output"), cards=cards), "named_actors"),
         )
@@ -339,9 +338,10 @@ def _reconstruct_current(root, source: Dict[str, Any], cards: List[Dict[str, Any
     # Prefer exact end-of-scene state, then exact T44 scene evidence, then weaker persisted fallbacks.
     # Dialogue speakers and paragraph-leading named actors are strong evidence because they physically act in the saved scene.
     latest_scene_evidence = list(dict.fromkeys(speaker_present + actor_present))
+    # Relationship footer rows are presentation metadata, not proof of physical presence.
+    # Never reconstruct scene roster from them: one stray footer row must not resurrect an NPC.
     presence_sources = (
         (explicit_present, f"turn:{latest_turn_number}:state_patch"),
-        (footer_present, f"turn:{latest_turn_number}:relationship_footer"),
         (latest_scene_evidence, f"turn:{latest_turn_number}:scene_evidence"),
         (runtime_present, "runtime_character_presence"),
         (persisted_chronology_present, f"turn:{latest_turn_number}:persisted_chronology"),
