@@ -515,7 +515,7 @@ def test_generic_raw_zone_name_does_not_pull_canon_note_from_another_saved_place
     source["canon_notes"].append({
         "note_id": "house-kitchen-only",
         "text": "HOUSE_KITCHEN_ONLY_MARKER",
-        "subjects": ["Кухня"],
+        "subjects": ["silas_house.kitchen"],
     })
     state = source["starting_state"]
 
@@ -535,7 +535,7 @@ def test_zone_subject_loads_when_that_zone_is_resolved_inside_the_saved_location
     source["canon_notes"].append({
         "note_id": "house-kitchen",
         "text": "HOUSE_KITCHEN_MARKER",
-        "subjects": ["Кухня"],
+        "subjects": ["silas_house.kitchen"],
     })
     state = source["starting_state"]
 
@@ -637,3 +637,41 @@ def test_location_normalization_preserves_duplicate_rows_for_explicit_validation
 
     assert len(rows) == 2
     assert [row["name"] for row in rows] == ["Первая", "Вторая"]
+
+
+def test_display_name_is_not_a_canon_note_subject_key_for_character():
+    source = _novel()
+    source["canon_notes"].append({
+        "note_id": "name-only",
+        "text": "DISPLAY_NAME_NOTE_MARKER",
+        "subjects": ["Рината"],
+    })
+    state = source["starting_state"]
+
+    notes = location_runtime.build_canon_notes_context(
+        source,
+        state,
+        scene_character_ids=["pov"],
+    )
+
+    assert notes is not None
+    assert "DISPLAY_NAME_NOTE_MARKER" not in [row["text"] for row in notes["notes"]]
+
+
+def test_location_display_name_is_not_a_canon_note_subject_key():
+    source = _novel()
+    source["canon_notes"].append({
+        "note_id": "location-name-only",
+        "text": "LOCATION_DISPLAY_NAME_MARKER",
+        "subjects": ["Дом Сайласа"],
+    })
+    state = source["starting_state"]
+
+    notes = location_runtime.build_canon_notes_context(
+        source,
+        state,
+        scene_character_ids=["pov"],
+    )
+
+    assert notes is not None
+    assert "LOCATION_DISPLAY_NAME_MARKER" not in [row["text"] for row in notes["notes"]]
