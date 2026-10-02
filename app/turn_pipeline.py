@@ -67,6 +67,7 @@ def _packet_manifest(packet: Dict[str, Any], *, reused: bool) -> Dict[str, Any]:
         "next_chunk_index": unread[0] if unread else None,
         "all_chunks_read": not unread,
         "turn_pipeline_version": PIPELINE_VERSION,
+        "relationship_review_required": bool(packet.get("relationship_review_required")),
         "instruction": (
             "Pending packet reused. Read only unread chunks, silently re-check the final scene against Scene Builder, and commit once."
             if reused
@@ -270,7 +271,7 @@ def _clean_director_layers(context: Dict[str, Any]) -> Dict[str, Any]:
         "scene_rendering_source": "scene_builder",
         "hidden_director_guard_layers": False,
         "backend_semantic_scene_gates": False,
-        "precommit_review_gates": ["scene_builder", "persistence", "knowledge"],
+        "precommit_review_gates": ["scene_builder", "persistence", "knowledge", "relationships"],
         "offscreen_character_retrieval": "chunked_when_relevant",
         "active_character_knowledge_rebuilt_from_persistent_memory": True,
     })
@@ -400,7 +401,12 @@ def _prepare_context(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
             "knowledge_journal is personal memory, separate from chronology. Save durable learned facts only to each "
             "character who actually learned them; chronology never grants knowledge by itself."
         ),
-        "relationships": "dynamic labels are allowed; no fixed vocabulary",
+        "relationships": (
+            "After the complete scene, review every participating NPC->POV relationship. "
+            "If the scene causally changed it, write relationship_updates with a concrete reason. "
+            "For an existing metric send delta from the saved value; value may echo the final/snapshot value but delta is authoritative. "
+            "A genuinely new metric may be added with value. If nothing changed, send no update. Dynamic labels are allowed; no fixed vocabulary."
+        ),
         "character_upserts": "important/repeating NPC or newly fixed personal detail",
         "state_patch": "current physical state only when changed; preserve continuity-relevant offscreen location/activity/outfit/items as well as the active scene",
     })
@@ -513,14 +519,22 @@ def _dynamic_merge_dimensions(existing: Any, incoming: Iterable[Dict[str, Any]])
         old_value = result[by_norm[norm]]["value"] if norm in by_norm else None
         value = raw.get("value")
         delta = raw.get("delta")
-        if isinstance(value, (int, float)) and not isinstance(value, bool):
+        value_is_number = isinstance(value, (int, float)) and not isinstance(value, bool)
+        delta_is_number = isinstance(delta, (int, float)) and not isinstance(delta, bool)
+
+        # Compatibility rule:
+        # - established metrics use delta when it is supplied, so a stale snapshot value cannot cancel change;
+        # - legacy absolute writes without delta still work;
+        # - a new metric needs an absolute value because it has no saved baseline.
+        if old_value is not None:
+            if delta_is_number:
+                final = old_value + delta
+            elif value_is_number:
+                final = value
+            else:
+                continue
+        elif value_is_number:
             final = value
-        elif (
-            old_value is not None
-            and isinstance(delta, (int, float))
-            and not isinstance(delta, bool)
-        ):
-            final = old_value + delta
         else:
             continue
 
@@ -578,6 +592,23 @@ def _apply_relationship_changes(session_id: str, payload: Dict[str, Any]) -> Dic
     if not footer and not relationship_updates:
         return result
 
+    # The visible footer is a compatibility fallback. If the same owner/metric has an explicit
+    # relationship_update, do not apply the footer copy first or a delta would be counted twice.
+    explicit_labels: Dict[str, set[str]] = {}
+    for raw in relationship_updates:
+        if not isinstance(raw, dict):
+            continue
+        owner_id = session_runtime._resolve_character_id(cards, raw.get("character_id"))
+        if not owner_id:
+            continue
+        owner_key = str(owner_id)
+        for item in raw.get("dimensions", []) if isinstance(raw.get("dimensions"), list) else []:
+            if not isinstance(item, dict):
+                continue
+            label = str(item.get("label") or item.get("key") or "").strip()
+            if label:
+                explicit_labels.setdefault(owner_key, set()).add(relationship_runtime._norm(label))
+
     for owner_id, dimensions in footer.items():
         owner_id = str(owner_id)
         if not owner_id or owner_id == pov_id or owner_id not in present:
@@ -587,7 +618,13 @@ def _apply_relationship_changes(session_id: str, payload: Dict[str, Any]) -> Dic
         if relation is None:
             relation = relationship_runtime._empty_relation(pov_id, [])
             doc["relations"].append(relation)
-        relation["dimensions"] = _dynamic_merge_dimensions(relation.get("dimensions"), dimensions)
+        blocked = explicit_labels.get(owner_id, set())
+        fallback_dimensions = [
+            item for item in dimensions
+            if isinstance(item, dict)
+            and relationship_runtime._norm(item.get("label") or item.get("key")) not in blocked
+        ]
+        relation["dimensions"] = _dynamic_merge_dimensions(relation.get("dimensions"), fallback_dimensions)
 
     meta = storage._read_json(root / "meta.json", {})
     turn_number = int(meta.get("turn_number", 0) or 0) + 1
