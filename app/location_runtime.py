@@ -246,9 +246,13 @@ def relevant_canon_notes(
     location = resolve_physical_location(source, state)
     if isinstance(location, dict):
         profile = location.get("profile") if isinstance(location.get("profile"), dict) else {}
-        relevant.update(_profile_refs(profile))
+        location_id = _norm(profile.get("location_id"))
+        if location_id:
+            relevant.add(location_id)
         zone = location.get("zone") if isinstance(location.get("zone"), dict) else {}
-        relevant.update(_zone_refs(zone))
+        zone_id = _norm(zone.get("zone_id"))
+        if location_id and zone_id:
+            relevant.add(f"{location_id}.{zone_id}")
 
     result: List[Dict[str, Any]] = []
     for note in notes:
@@ -309,7 +313,8 @@ def build_canon_notes_context(
     return {
         "notes": notes,
         "rule": (
-            "Scoped durable author canon only. Subjects make a note relevant to the current physical place, zone, "
-            "scene character or global context. These notes are not personal knowledge unless a character has a real source."
+            "Scoped durable author canon only. Subjects use canonical IDs: character_id, location_id, "
+            "location_id.zone_id, or global. Display names are not subject keys. These notes are not personal knowledge "
+            "unless a character has a real source."
         ),
     }
