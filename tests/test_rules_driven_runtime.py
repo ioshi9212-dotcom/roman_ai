@@ -103,6 +103,10 @@ def test_active_runtime_is_author_rules_plus_scene_builder():
     assert "unknown_to_self" in docs["rules"]
     assert "короткое содержательное действие" in docs["rules"]
     assert "Слухи, сообщения и чужие знания распространяются только через реальные каналы" in docs["rules"]
+    assert "основной акцент держи на персонажах, созданных игроком" in docs["rules"]
+    assert "не создавай ему карточку и не сохраняй через character_upserts" in docs["rules"]
+    assert "обязательна конкретная `story_function`" in docs["rules"]
+    assert "полная гибкость на создание интересных персонажей" not in docs["rules"]
     assert "Стартовая анкета, hidden_lore, правила новеллы и открытые сюжетные линии не декорация" in docs["rules"]
 
 
