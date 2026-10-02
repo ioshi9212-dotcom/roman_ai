@@ -38,7 +38,7 @@ Backend = канон. Actions молча. В игровом ходе до сце
 
 Packet уже содержит режиссёрский context, recent/continuity, POV, physical/remote участников, их profiles/knowledge, отношения/intents, cast registry, `location_context` только текущего физического места, `runtime_rules` и `scene_builder`.
 
-Пиши сцену строго по `runtime_rules` и `scene_builder`. Не создавай собственный второй набор режиссёрских правил.
+Пиши строго по `runtime_rules` и `scene_builder`; второго набора правил не создавай.
 
 Перед `commitTurn` молча проверь сцену по `scene_builder`; исправь нарушения, затем `scene_builder_reviewed=true`.
 
@@ -52,7 +52,7 @@ Chronology не даёт личное знание автоматически: �
 
 ## Offscreen персонаж
 
-Offscreen не значит «неважен». Упоминание само по себе не требует bundle. Смотри `cast_registry`, `scene_state.characters`, `active_threads`, `offscreen_intent_candidates`. Candidate только сигнал проверить персонажа; чужой план не раскрывает.
+Offscreen не значит «неважен». Упоминание не требует bundle и не запрещает естественное появление. Смотри `cast_registry`, `scene_state.characters`, `active_threads`, `offscreen_intent_candidates`. Candidate лишь сигнал; чужой план не раскрывает.
 
 Если персонаж рядом по state, ожидается по договорённости/расписанию, имеет candidate/другую естественную причину участвовать, ДО участия прочитай `prepareCharacterBundleRead` → остальные `getCharacterBundleChunk`. Intent из bundle знает только его владелец.
 
