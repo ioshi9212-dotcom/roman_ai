@@ -273,7 +273,7 @@ def test_visible_footer_rejects_absent_registered_npc():
                 _reviewed_payload(
                     manifest,
                     relationship_reviewed=True,
-                    relationship_review=[{"character_id": "npc", "changed": False}],
+                    relationship_review=[{"character_id": "npc", "changed": False, "reason": "В сцене не было причин для сдвига."}],
                     scene_output=scene_output,
                 ),
             )
