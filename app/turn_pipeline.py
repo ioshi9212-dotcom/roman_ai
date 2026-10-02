@@ -505,8 +505,9 @@ def _prepare_context(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
         "chronology": "important durable events only; knowledge_participants is the only chronology field that grants personal knowledge",
         "character_knowledge": (
             "knowledge_journal is personal memory, separate from chronology. Save durable learned facts only to each "
-            "character who actually learned them; chronology never grants knowledge by itself. Preserve exact granularity: "
-            "store the minimum confirmed proposition and never enrich it with an unstated time, place, person, reason, plan or other detail."
+            "character who actually received or learned them; chronology never grants knowledge by itself. Preserve exact granularity: "
+            "store the minimum received proposition and never enrich it with an unstated time, place, person, reason, plan or other detail. "
+            "A communicated claim may be stored source-qualified (for example, 'Elena said she is not a raider') without declaring it objective author truth."
         ),
         "relationships": (
             "After the complete scene, review every participating NPC->POV relationship and record one relationship_review row per NPC. "
