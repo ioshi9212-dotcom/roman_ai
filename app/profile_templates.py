@@ -316,8 +316,17 @@ def normalize_location_profile(raw: Any) -> Dict[str, Any]:
     profile["aliases"] = [str(value).strip() for value in aliases if str(value).strip()]
 
     linked = profile.get("linked_characters")
-    if isinstance(linked, (str, dict)):
+    if isinstance(linked, str):
         linked = [linked]
+    elif isinstance(linked, dict):
+        if any(key in linked for key in ("character_id", "id", "name")):
+            linked = [linked]
+        else:
+            linked = [
+                {"character_id": str(key), "relation": value}
+                for key, value in linked.items()
+                if str(key).strip()
+            ]
     if not isinstance(linked, list):
         linked = []
     normalized_linked: List[Dict[str, Any]] = []
@@ -340,8 +349,23 @@ def normalize_location_profile(raw: Any) -> Dict[str, Any]:
     profile["linked_characters"] = normalized_linked
 
     zones = profile.get("zones")
-    if isinstance(zones, (str, dict)):
+    if isinstance(zones, str):
         zones = [zones]
+    elif isinstance(zones, dict):
+        expanded_zones = []
+        for key, value in zones.items():
+            if isinstance(value, dict):
+                row = deepcopy(value)
+                row.setdefault("zone_id", str(key))
+                row.setdefault("name", str(key))
+            else:
+                row = {
+                    "zone_id": str(key),
+                    "name": str(key),
+                    "summary": value,
+                }
+            expanded_zones.append(row)
+        zones = expanded_zones
     if not isinstance(zones, list):
         zones = []
     normalized_zones: List[Dict[str, Any]] = []
