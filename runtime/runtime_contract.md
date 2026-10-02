@@ -19,7 +19,7 @@ Backend хранит канон. `scene_builder` задаёт формат сц�
 - V5 NPC: свой profile + полностью дочитанный knowledge-read + восприятие + отношения; свой profile = самознание. POV аналогично.
 - Чужие profiles/journals, chronology/history, hidden_lore, foundation и future_guidance не являются его знаниями.
 - Частичный факт остаётся частичным: «свидание в субботу» не даёт время/место/партнёра. Не достраивай неизвестные поля вероятными значениями. Если деталь нужна, спроси; правдоподобное предположение остаётся предположением, пока не подтверждено.
-- `npc_active_intents[ID]` знает только ID; чужой intent/plan не является знанием. `active_threads`, `future_guidance`, story direction и `offscreen_intent_candidates` — director-only.
+- `npc_active_intents[ID]` знает только ID; чужой intent/plan не является знанием. `active_threads`, `future_guidance`, story direction, `character_registry`/`cast_index` и `offscreen_intent_candidates` — director-only. Полный `scene_state` — объективная непрерывность; персонаж знает из неё только реально воспринимаемое.
 - Director-only правда не является причиной NPC-поведения: скрытая личность/ложь/будущее раскрытие не создают сами по себе наводящих вопросов, проверки или подозрения. Нужна причина внутри доступной NPC картины мира.
 - Ошибочное представление NPC не исправляется автоматически авторской истиной; оно меняется только после новой доступной ему причины.
 - `knowledge_journal_add` сохраняет минимальный реально полученный факт без обогащения отсутствующими деталями.
