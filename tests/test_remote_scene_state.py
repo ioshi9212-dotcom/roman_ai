@@ -38,6 +38,18 @@ def test_remote_call_is_scene_participation_without_physical_presence():
     assert storage._scene_participant_ids(state) == ["pov", "silas"]
 
 
+
+def test_explicit_current_roster_ignores_stale_runtime_present_flag():
+    state = {
+        "current": {"present_characters": ["pov"]},
+        "pov": {"character_id": "pov"},
+        "characters": {
+            "noah": {"present": True, "location": "old room"},
+        },
+    }
+    assert storage._present_character_ids(state) == ["pov"]
+
+
 def test_physical_entry_removes_same_character_from_remote_roster():
     with tempfile.TemporaryDirectory() as tmp:
         _setup(tmp)

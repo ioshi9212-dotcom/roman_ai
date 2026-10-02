@@ -94,6 +94,12 @@ class RelationshipDimensionUpdate(BaseModel):
     delta: Optional[float] = None
 
 
+class RelationshipReview(BaseModel):
+    character_id: str
+    changed: bool
+    reason: Optional[str] = None
+
+
 class RelationshipUpdate(BaseModel):
     character_id: str
     dimensions: Optional[List[RelationshipDimensionUpdate]] = None
@@ -149,6 +155,7 @@ class TurnExtracted(BaseModel):
     persistence_reviewed: bool = False
     knowledge_reviewed: bool = False
     relationship_reviewed: bool = False
+    relationship_review: List[RelationshipReview] = Field(default_factory=list)
     knowledge_journal_add: List[Dict[str, Any]] = Field(default_factory=list)
     chronology: List[Dict[str, Any]] = Field(default_factory=list)
     knowledge_add: List[Dict[str, Any]] = Field(default_factory=list)

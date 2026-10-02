@@ -4,7 +4,7 @@ from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Any, Dict
 
-from . import audit_runtime, session_runtime, storage
+from . import audit_runtime, relationship_runtime, session_runtime, storage
 from .operation_receipts import (
     OperationReceiptConflict,
     current_turn_identity,
@@ -51,6 +51,8 @@ def _packet_status(packet: Any) -> Dict[str, Any] | None:
         "scene_archive_capable": bool(packet.get("scene_archive_capable")),
         "writer_review_required": bool(packet.get("writer_review_required")),
         "relationship_review_required": bool(packet.get("relationship_review_required")),
+        "relationship_review_details_required": bool(packet.get("relationship_review_details_required")),
+        "relationship_footer_scope_required": bool(packet.get("relationship_footer_scope_required")),
     }
 
 
@@ -123,6 +125,8 @@ def prepare_turn_request(
                 result["opening_scene"] = bool(packet.get("opening_scene"))
                 result["writer_review_required"] = bool(packet.get("writer_review_required"))
                 result["relationship_review_required"] = bool(packet.get("relationship_review_required"))
+                result["relationship_review_details_required"] = bool(packet.get("relationship_review_details_required"))
+                result["relationship_footer_scope_required"] = bool(packet.get("relationship_footer_scope_required"))
                 result["pending_turn"] = pending_turn_status(session_id)
                 return result
 
@@ -150,6 +154,10 @@ def prepare_turn_request(
             # Compatibility boundary: only newly prepared packets get the new hard review gate.
             # Pending packets created by older deployments keep working unchanged.
             packet["relationship_review_required"] = True
+            # These v2 gates are added only to packets prepared after this deployment.
+            # Existing pending turns from older code remain committable unchanged.
+            packet["relationship_review_details_required"] = True
+            packet["relationship_footer_scope_required"] = True
             storage._write_json(root / "turn_packet.json", packet)
 
         if scene_archive_capable:
@@ -161,6 +169,8 @@ def prepare_turn_request(
         result["opening_scene"] = bool(opening_scene)
         result["writer_review_required"] = bool(packet.get("writer_review_required"))
         result["relationship_review_required"] = bool(packet.get("relationship_review_required"))
+        result["relationship_review_details_required"] = bool(packet.get("relationship_review_details_required"))
+        result["relationship_footer_scope_required"] = bool(packet.get("relationship_footer_scope_required"))
         result["pending_turn"] = pending_turn_status(session_id)
         return result
 
@@ -179,7 +189,7 @@ def _turn_participant_ids_from_payload(payload: Dict[str, Any]) -> list[str]:
             if text_value not in result:
                 result.append(text_value)
 
-    for field in ("presence_updates", "dialogue_memory_add", "relationship_updates"):
+    for field in ("presence_updates",):
         rows = extracted.get(field)
         if not isinstance(rows, list):
             continue
@@ -187,8 +197,27 @@ def _turn_participant_ids_from_payload(payload: Dict[str, Any]) -> list[str]:
             if isinstance(row, dict):
                 add(row.get("character_id"))
 
+    dialogue_rows = extracted.get("dialogue_memory_add")
+    if isinstance(dialogue_rows, list):
+        for row in dialogue_rows:
+            if not isinstance(row, dict):
+                continue
+            add(row.get("character_id"))
+            participants = row.get("participants")
+            if isinstance(participants, list):
+                for value in participants:
+                    add(value)
+            elif participants not in (None, "", {}):
+                add(participants)
+
     patch = extracted.get("state_patch") if isinstance(extracted.get("state_patch"), dict) else {}
     current = patch.get("current") if isinstance(patch.get("current"), dict) else {}
+    direct = current.get("present_characters")
+    if isinstance(direct, list):
+        for value in direct:
+            add(value)
+    elif direct not in (None, "", {}):
+        add(direct)
     remote = current.get("remote_characters")
     if isinstance(remote, list):
         for value in remote:
@@ -197,6 +226,126 @@ def _turn_participant_ids_from_payload(payload: Dict[str, Any]) -> list[str]:
         add(remote)
 
     return result
+
+
+def _resolve_ids(cards: list[Dict[str, Any]], values: list[Any]) -> list[str]:
+    result: list[str] = []
+    for value in values:
+        resolved = session_runtime._resolve_character_id(cards, value)
+        if resolved and str(resolved) not in result:
+            result.append(str(resolved))
+    return result
+
+
+def _relationship_review_expected_ids(session_id: str, payload: Dict[str, Any]) -> tuple[list[Dict[str, Any]], str, list[str]]:
+    root = _session_root(session_id)
+    source = storage._read_json(root / "source.json", {})
+    extracted = payload.get("extracted") if isinstance(payload.get("extracted"), dict) else {}
+    cards = storage._apply_character_upserts(storage._load_cards(root, source), extracted)
+    state = storage._read_json(root / "state.json", {})
+    pov = state.get("pov") if isinstance(state.get("pov"), dict) else {}
+    pov_id = str(pov.get("character_id") or storage._find_pov_id(source, cards) or "")
+
+    raw_ids: list[Any] = list(storage._scene_participant_ids(state))
+    raw_ids.extend(_turn_participant_ids_from_payload(payload))
+    expected = [
+        cid for cid in _resolve_ids(cards, raw_ids)
+        if cid and cid != pov_id
+    ]
+    return cards, pov_id, list(dict.fromkeys(expected))
+
+
+def _final_physical_ids(
+    cards: list[Dict[str, Any]],
+    pov_id: str,
+    state_before: Dict[str, Any],
+    payload: Dict[str, Any],
+) -> set[str]:
+    extracted = payload.get("extracted") if isinstance(payload.get("extracted"), dict) else {}
+    present = set(
+        cid for cid in _resolve_ids(cards, list(storage._present_character_ids(state_before)))
+        if cid and cid != pov_id
+    )
+    patch = extracted.get("state_patch") if isinstance(extracted.get("state_patch"), dict) else {}
+    current_patch = patch.get("current") if isinstance(patch.get("current"), dict) else {}
+    direct = current_patch.get("present_characters")
+    direct_values = direct if isinstance(direct, list) else [direct] if direct not in (None, "", {}) else []
+    for cid in _resolve_ids(cards, list(direct_values)):
+        if cid and cid != pov_id:
+            present.add(cid)
+
+    for row in extracted.get("presence_updates", []) if isinstance(extracted.get("presence_updates"), list) else []:
+        if not isinstance(row, dict):
+            continue
+        cid = session_runtime._resolve_character_id(cards, row.get("character_id"))
+        if not cid or str(cid) == pov_id:
+            continue
+        action = str(row.get("action") or "").casefold().strip()
+        if action == "enter":
+            present.add(str(cid))
+        elif action == "leave":
+            present.discard(str(cid))
+    return present
+
+
+def _validate_relationship_review_details(session_id: str, payload: Dict[str, Any]) -> None:
+    cards, pov_id, expected = _relationship_review_expected_ids(session_id, payload)
+    extracted = payload.get("extracted") if isinstance(payload.get("extracted"), dict) else {}
+    rows = extracted.get("relationship_review")
+    if not isinstance(rows, list):
+        raise RuntimeError("RELATIONSHIP_REVIEW_DETAIL_REQUIRED")
+
+    reviewed: Dict[str, Dict[str, Any]] = {}
+    for raw in rows:
+        if not isinstance(raw, dict):
+            raise RuntimeError("RELATIONSHIP_REVIEW_DETAIL_INVALID")
+        cid = session_runtime._resolve_character_id(cards, raw.get("character_id"))
+        if not cid or str(cid) == pov_id:
+            raise RuntimeError("RELATIONSHIP_REVIEW_DETAIL_INVALID")
+        cid = str(cid)
+        if cid in reviewed or not isinstance(raw.get("changed"), bool):
+            raise RuntimeError("RELATIONSHIP_REVIEW_DETAIL_INVALID")
+        reviewed[cid] = raw
+
+    if set(reviewed) != set(expected):
+        raise RuntimeError("RELATIONSHIP_REVIEW_DETAIL_REQUIRED")
+
+    updates = extracted.get("relationship_updates") if isinstance(extracted.get("relationship_updates"), list) else []
+    update_owners = {
+        str(cid)
+        for raw in updates
+        if isinstance(raw, dict)
+        for cid in [session_runtime._resolve_character_id(cards, raw.get("character_id"))]
+        if cid and str(cid) != pov_id
+    }
+    if not update_owners.issubset(set(expected)):
+        raise RuntimeError("RELATIONSHIP_UPDATE_FOR_UNSEEN_NPC")
+
+    for cid in expected:
+        changed = reviewed[cid].get("changed") is True
+        if changed and cid not in update_owners:
+            raise RuntimeError("RELATIONSHIP_REVIEW_CHANGED_WITHOUT_UPDATE")
+        if not changed and cid in update_owners:
+            raise RuntimeError("RELATIONSHIP_REVIEW_UPDATE_CONTRADICTION")
+
+
+def _validate_relationship_footer_scope(session_id: str, payload: Dict[str, Any]) -> None:
+    root = _session_root(session_id)
+    source = storage._read_json(root / "source.json", {})
+    extracted = payload.get("extracted") if isinstance(payload.get("extracted"), dict) else {}
+    cards = storage._apply_character_upserts(storage._load_cards(root, source), extracted)
+    state = storage._read_json(root / "state.json", {})
+    pov = state.get("pov") if isinstance(state.get("pov"), dict) else {}
+    pov_id = str(pov.get("character_id") or storage._find_pov_id(source, cards) or "")
+    final_present = _final_physical_ids(cards, pov_id, state, payload)
+    footer = relationship_runtime._parse_footer(
+        str(payload.get("scene_output") or ""),
+        cards=cards,
+        resolve_character_id=session_runtime._resolve_character_id,
+    )
+    extra = {str(cid) for cid in footer if str(cid) not in final_present and str(cid) != pov_id}
+    if extra:
+        raise RuntimeError("RELATIONSHIP_FOOTER_ABSENT_NPC")
 
 
 def commit_turn_request(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -233,7 +382,11 @@ def commit_turn_request(session_id: str, payload: Dict[str, Any]) -> Dict[str, A
         extracted = payload.get("extracted") if isinstance(payload.get("extracted"), dict) else {}
         if extracted.get("relationship_reviewed") is not True:
             raise RuntimeError("RELATIONSHIP_REVIEW_REQUIRED")
-    # Packets created before relationship_review_required existed intentionally bypass this gate.
+    if bool(packet.get("relationship_review_details_required")):
+        _validate_relationship_review_details(session_id, payload)
+    if bool(packet.get("relationship_footer_scope_required")):
+        _validate_relationship_footer_scope(session_id, payload)
+    # Packets created before the relationship review markers existed intentionally bypass these gates.
     # Their relationship footer/update data is still persisted by the compatibility path.
     prepared = deepcopy(payload)
     prepared["_operation_receipt"] = {

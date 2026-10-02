@@ -559,6 +559,18 @@ components:
           description: For an established metric this is the causal change from the saved value and is authoritative when supplied. New metrics are initialized from value.
       additionalProperties: false
 
+    RelationshipReview:
+      type: object
+      required: [character_id, changed]
+      properties:
+        character_id:
+          type: string
+        changed:
+          type: boolean
+        reason:
+          type: string
+      additionalProperties: false
+
     RelationshipUpdate:
       type: object
       required: [character_id]
@@ -699,6 +711,11 @@ components:
           type: boolean
           default: false
           description: True only after reviewing every participating NPC->POV relationship after the complete scene and persisting each real causal change through relationship_updates.
+        relationship_review:
+          type: array
+          description: One explicit review row for every physical or remote NPC who participated in this turn.
+          items:
+            $ref: '#/components/schemas/RelationshipReview'
         knowledge_journal_add:
           type: array
           items:

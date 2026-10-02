@@ -209,7 +209,7 @@ def test_missing_pov_from_present_is_damage_and_recovery_reinserts_pov():
         assert "adrian" in repaired["current"]["present_characters"]
 
 
-def test_recovery_can_restore_roster_from_latest_footer_when_state_patch_has_no_roster():
+def test_recovery_uses_scene_evidence_not_relationship_footer_when_state_patch_has_no_roster():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         sid = storage.create_session(novel())["session_id"]
@@ -239,7 +239,47 @@ def test_recovery_can_restore_roster_from_latest_footer_when_state_patch_has_no_
 
         repaired = recover_session_current(sid)
         assert set(repaired["current"]["present_characters"]) == {"rina", "adrian"}
-        assert repaired["provenance"]["present_source"] == "turn:1:relationship_footer"
+        assert repaired["provenance"]["present_source"] == "turn:1:scene_evidence"
+
+
+def test_relationship_footer_cannot_resurrect_absent_registered_character():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        value = novel()
+        value["characters"].append({"character_id": "ghost", "name": "Призрак"})
+        sid = storage.create_session(value)["session_id"]
+        read_packet(sid, "test")
+        output = scene().replace(
+            "Эдриан - настороженность 6; симпатия 4",
+            "Эдриан - настороженность 6; симпатия 4\nПризрак - интерес 99",
+        )
+        session_runtime.commit_turn(
+            sid,
+            {
+                "user_input": "test",
+                "scene_output": output,
+                "extracted": reviewed(
+                    state_patch={
+                        "current": {
+                            "date": "03.09.2026",
+                            "time": "14:20",
+                            "location": "мастерская",
+                            "scene": "разговор у верстака",
+                        }
+                    }
+                ),
+            },
+        )
+        root = storage.SESSIONS_DIR / sid
+        state = storage._read_json(root / "state.json", {})
+        state["current"]["present_characters"] = []
+        state["characters"] = {}
+        storage._write_json(root / "state.json", state)
+
+        repaired = recover_session_current(sid)
+        assert set(repaired["current"]["present_characters"]) == {"rina", "adrian"}
+        assert "ghost" not in repaired["current"]["present_characters"]
+        assert repaired["provenance"]["present_source"] == "turn:1:scene_evidence"
 
 
 def test_prepare_turn_blocks_when_current_pointer_is_empty():

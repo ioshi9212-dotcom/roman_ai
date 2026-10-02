@@ -217,6 +217,58 @@ def test_dynamic_relationship_label_can_appear_without_whitelist():
         assert state["relationships"]["npc"]["любовь"] == 12
 
 
+def test_relationship_lens_separates_physical_footer_from_remote_and_does_not_freeze_at_100():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        novel = base_novel()
+        novel["starting_state"]["relationships"] = {
+            "npc": {"интерес": 100},
+            "away": {"доверие": 40},
+        }
+        novel["starting_state"]["current"]["remote_characters"] = ["away"]
+        sid = storage.create_session(novel)["session_id"]
+
+        _, context = read_context(sid, "(посмотреть на NPC)")
+        lens = context["relationship_lens"]
+        assert lens["footer_character_ids"] == ["npc"]
+        assert lens["remote_participant_ids"] == ["away"]
+        assert lens["qualitative_review_required"] is True
+        assert "100" in lens["rule"]
+        assert "not a whitelist" in lens["rule"]
+        assert "physically present" in lens["footer_rule"]
+
+
+def test_saturated_old_metric_does_not_block_new_dynamic_dimension():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        novel = base_novel()
+        novel["starting_state"]["relationships"] = {"npc": {"интерес": 100}}
+        sid = storage.create_session(novel)["session_id"]
+        manifest = session_runtime.prepare_turn_packet(sid, "Сблизиться.")
+        read_all(manifest, sid)
+
+        session_runtime.commit_turn(
+            sid,
+            {
+                "packet_id": manifest["packet_id"],
+                "user_input": "Сблизиться.",
+                "scene_output": "Сцена\nОтношения:\nNPC - интерес 100; влечение 7",
+                "extracted": {
+                    "relationship_updates": [
+                        {
+                            "character_id": "npc",
+                            "dimensions": [{"label": "влечение", "value": 7}],
+                            "reason": "В сцене возникло качественно новое влечение.",
+                        }
+                    ]
+                },
+            },
+        )
+        state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
+        assert state["relationships"]["npc"]["интерес"] == 100
+        assert state["relationships"]["npc"]["влечение"] == 7
+
+
 def test_new_public_packet_requires_scene_and_persistence_review_before_commit():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
@@ -245,6 +297,12 @@ def test_new_public_packet_requires_scene_and_persistence_review_before_commit()
             commit_turn_request(sid, payload)
 
         payload["extracted"]["relationship_reviewed"] = True
+        with pytest.raises(RuntimeError, match="RELATIONSHIP_REVIEW_DETAIL_REQUIRED"):
+            commit_turn_request(sid, payload)
+
+        payload["extracted"]["relationship_review"] = [
+            {"character_id": "npc", "changed": False}
+        ]
         result = commit_turn_request(sid, payload)
         assert result["turn_number"] == 1
 
@@ -289,6 +347,8 @@ def test_legacy_pending_packet_without_relationship_marker_still_commits():
         packet = storage._read_json(root / "turn_packet.json", {})
         assert packet["relationship_review_required"] is True
         packet.pop("relationship_review_required", None)
+        packet.pop("relationship_review_details_required", None)
+        packet.pop("relationship_footer_scope_required", None)
         storage._write_json(root / "turn_packet.json", packet)
 
         result = commit_turn_request(

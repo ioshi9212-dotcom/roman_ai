@@ -219,6 +219,7 @@ def _load_cards(root: Path, source: Dict[str, Any]) -> List[Dict[str, Any]]:
 def _present_character_ids(state: Dict[str, Any]) -> List[str]:
     result: List[str] = []
     current = state.get("current", {}) if isinstance(state.get("current"), dict) else {}
+    explicit_roster = "present_characters" in current
     present = current.get("present_characters", [])
     if isinstance(present, dict):
         present = list(present.keys())
@@ -229,10 +230,15 @@ def _present_character_ids(state: Dict[str, Any]) -> List[str]:
             value = value.get("character_id") or value.get("id") or value.get("name")
         if value:
             result.append(str(value))
-    runtime = state.get("characters", {}) if isinstance(state.get("characters"), dict) else {}
-    for cid, info in runtime.items():
-        if isinstance(info, dict) and info.get("present") is True:
-            result.append(str(cid))
+
+    # current.present_characters is the physical source of truth. Runtime character
+    # presence flags are only a legacy fallback when old state has no roster field.
+    # Never merge stale mirror flags into an explicit current roster.
+    if not explicit_roster:
+        runtime = state.get("characters", {}) if isinstance(state.get("characters"), dict) else {}
+        for cid, info in runtime.items():
+            if isinstance(info, dict) and info.get("present") is True:
+                result.append(str(cid))
     pov = state.get("pov", {}) if isinstance(state.get("pov"), dict) else {}
     pov_id = pov.get("character_id")
     if pov_id:
