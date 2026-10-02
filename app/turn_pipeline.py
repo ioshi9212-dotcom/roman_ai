@@ -15,6 +15,7 @@ from . import (
     game_day,
     knowledge_firewall_runtime,
     knowledge_persistence_runtime,
+    location_runtime,
     memory_integrity_runtime,
     npc_intent,
     private_knowledge_runtime,
@@ -353,6 +354,16 @@ def _prepare_context(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
     scene_ids = _scene_ids(state, cards)
     context["relevant_character_ids"] = scene_ids
 
+    location_context = location_runtime.build_location_context(
+        source,
+        state,
+        scene_character_ids=scene_ids,
+    )
+    if location_context is not None:
+        context["location_context"] = location_context
+    else:
+        context.pop("location_context", None)
+
     card_map = {
         storage._card_id(card): card
         for card in cards
@@ -378,7 +389,7 @@ def _prepare_context(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
     context["character_knowledge_rule"] = (
         "For each POV/NPC use only that character's self-known card facts, own character_memory, current perception "
         "and real communication. Own-card branches marked unknown_to_self/hidden_from_self/not_known_to_self/"
-        "known_to_self=false/author_only are not self-known. Other cards, other memory, chronology and director lore "
+        "known_to_self=false/author_only are not self-known. Other cards, other memory, chronology, location_context and director lore "
         "are not personal knowledge."
     )
     context["cast_registry"] = {
@@ -476,7 +487,7 @@ def _prepare_context(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
             "If nothing changed, set changed=false and send no update."
         ),
         "character_upserts": "new durable self-detail, or a new persistent NPC only with a concrete recurring story_function; never register a background extra",
-        "state_patch": "current physical state only when changed; preserve continuity-relevant offscreen location/activity/outfit/items as well as the active scene",
+        "state_patch": "current physical state only when changed; for a known location preserve location_id and zone_id/zone with the visible location name; preserve continuity-relevant offscreen location/activity/outfit/items too",
     })
     context["persistence_contract"] = persistence
 
