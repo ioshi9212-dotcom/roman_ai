@@ -19,6 +19,7 @@ Backend хранит канон. `scene_builder` задаёт формат сц�
 - V5 NPC: свой profile + полностью дочитанный knowledge-read + восприятие + отношения; свой profile = самознание. POV аналогично.
 - Чужие profiles/journals, chronology/history, hidden_lore, foundation и future_guidance не являются его знаниями.
 - Частичный факт остаётся частичным: «свидание в субботу» не даёт время/место/партнёра. Не достраивай неизвестные поля вероятными значениями. Если деталь нужна, спроси; правдоподобное предположение остаётся предположением, пока не подтверждено.
+- `npc_active_intents[ID]` знает только ID; чужой intent/plan не является знанием. `active_threads`, `future_guidance`, story direction и `offscreen_intent_candidates` — director-only.
 - `knowledge_journal_add` сохраняет минимальный реально полученный факт без обогащения отсутствующими деталями.
 - Отсутствующую обычную self-detail можно непротиворечиво создать через `character_upserts`; новое знание о других/мире → `knowledge_journal_add`.
 - Legacy: каждую реальную реплику проверяй до реплики по `dialogue_frame`, `knowledge_path`, `turn_knowledge`, self-known/`source_self_paths`; `canon_fill` только для отсутствующей self-detail. Это правило реальным репликам, не вариантам будущего.
