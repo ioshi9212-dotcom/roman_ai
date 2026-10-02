@@ -130,6 +130,7 @@ def test_action_descriptions_stay_under_custom_gpt_limit():
 def test_custom_gpt_instruction_matches_rules_driven_transport():
     text = (ROOT / "gpt" / "custom_gpt_instructions.md").read_text(encoding="utf-8")
     assert len(text) <= 8000
+    assert len(text) + text.count("\n") <= 8000  # CRLF-safe editor budget
     for required in (
         "runtime_rules",
         "scene_builder",
