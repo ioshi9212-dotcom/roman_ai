@@ -345,7 +345,7 @@ def inject_required_turn_context(context: Dict[str, Any], cards: List[Dict[str, 
         "present_at_turn_start_path": "present_character_ids_at_turn_start",
         "author_only_paths": [
             "character_cards[OTHER_CHARACTER_ID]", "character_registry", "cast_index", "scene_state", "relationships", "active_threads",
-            "novel", "novel_rules", "novel_lore", "hidden_lore", "world_canon", "story_direction", "location_context",
+            "novel", "novel_rules", "novel_lore", "hidden_lore", "world_canon", "story_direction", "location_context", "canon_notes_context",
             "chronology_recent", "recent_turns", "character_memory[OTHER_CHARACTER_ID]",
         ],
         "instruction": (
