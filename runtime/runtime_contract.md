@@ -15,8 +15,8 @@ Backend хранит канон. `scene_builder` задаёт формат сц�
 - Присутствующий NPC не исчезает без leave. Незакрытый вопрос/обещание/подозрение/цель → intent; увиливание POV intent не закрывает.
 
 ## Знания
-- Каждый physical/remote участник до сцены: `prepareCharacterKnowledgeRead` + все `getCharacterKnowledgeChunk`; дочитать весь `entry_count`.
-- V5 NPC: свой profile + полностью дочитанный knowledge-read + восприятие + отношения; свой profile = самознание. POV аналогично.
+- Для каждого physical/remote участника packet уже содержит его полный factual knowledge journal + собственный profile, восприятие и отношения; свой profile = самознание. POV аналогично.
+- Если зарегистрированный offscreen-персонаж начинает участвовать, до его участия загрузи `prepareCharacterBundleRead` + все `getCharacterBundleChunk`; bundle содержит его собственные знания и intents.
 - Чужие profiles/journals, chronology/history, hidden_lore, foundation и future_guidance не являются его знаниями.
 - Частичный факт остаётся частичным: «свидание в субботу» не даёт время/место/партнёра. Не достраивай неизвестные поля вероятными значениями. Если деталь нужна, спроси; правдоподобное предположение остаётся предположением, пока не подтверждено.
 - `npc_active_intents[ID]` знает только ID; чужой intent/plan не является знанием. `active_threads`, `future_guidance`, story direction, `character_registry`/`cast_index` и `offscreen_intent_candidates` — director-only. Полный `scene_state` — объективная непрерывность; персонаж знает из неё только реально воспринимаемое.
@@ -51,7 +51,7 @@ Backend хранит канон. `scene_builder` задаёт формат сц�
 - `foundation` и `future_guidance` — материал на будущее, не уже произошедшие события. Перемещение/ожидание/течение времени сами по себе не прогресс.
 
 ## Ход
-1. `prepareTurn`: прочитай packet; для всех `scene_knowledge_reads.required_character_ids` дочитай knowledge chunks; до сцены `getSceneKnowledgeReadStatus.all_complete=true`.
+1. `prepareTurn`: прочитай packet целиком; если по state/intents/threads должен войти зарегистрированный offscreen-персонаж, сначала дочитай его character bundle.
 2. Сцена строго по `scene_builder`; проверь знания, presence, отношения, intents, threads.
 3. Перед `commitTurn`: после проверки отношений `relationship_reviewed=true`; также `persistence_reviewed=true`, `knowledge_reviewed=true`, chronology/journal/memory/intents/threads. Один commit; сцену покажи после успеха.
 
