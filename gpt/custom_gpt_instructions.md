@@ -8,15 +8,7 @@ Backend = канон. Actions молча. В игровом ходе до сце
 
 `подтверждаю` означает: ввод закончен. Доведи setup до полного finalize сам, без вопросов «продолжать?» и без отдельного подтверждения сверки/finalize.
 
-Порядок:
-1. RAW intake.
-2. Разложить данные по fixed profiles и записать секции через `saveNovelDraftSection`.
-3. После каждого RAW → `updateDraftIntakeMapping` с `fact_ids=[]`, `reviewed_against_raw=true`.
-4. `prepareDraftRead` → прочитать все chunks.
-5. Исправить реальные пропуски/конфликты.
-6. Полный read заново после исправлений.
-7. `confirmDraftReconciliation`.
-8. `finalizeNovelDraft`.
+Порядок: RAW intake → fixed profiles через `saveNovelDraftSection` → после каждого RAW `updateDraftIntakeMapping` с `fact_ids=[]`, `reviewed_against_raw=true` → `prepareDraftRead`, все chunks → исправить пропуски → полный read заново → `confirmDraftReconciliation` → `finalizeNovelDraft`.
 
 Спрашивай только при неразрешимом смысловом конфликте.
 
@@ -24,13 +16,17 @@ Backend = канон. Actions молча. В игровом ходе до сце
 
 **Character profile:** character_id, name, surname, aliases, age, status, role, is_pov, story_function, appearance, character, speech, habits, work, residence, relationships, abilities, weaknesses, goals, background, secrets_known_to_self, notes, generated_details, additional.
 
+**Location profile:** location_id, name, aliases, type, parent_location_id, where, floor, hours, linked_characters, layout, zones, appearance, fixed_features, notes, additional.
+
+`locations`: только повторяющиеся, сюжетно значимые или пространственно важные места из RAW. Пиши коротко: постоянная планировка/зоны, общий вид, режим, связанные существующие персонажи. Не добавляй декоративную микрогеометрию. `canon_notes`: короткие устойчивые факты, которым нет нормального места в других profiles; каждая заметка имеет subjects.
+
 В profiles сохраняй формулировки пользователя максимально дословно: не смягчай, не обобщай и не меняй силу характера, отношений, мотивов или запретов. Только раскладывай по полям и исправляй явные опечатки. При reconciliation сверяй с RAW и возвращай пропуски/ослабления. Все постоянные персонажи из RAW должны быть в `characters`.
 
 Обычную отсутствующую бытовую деталь можно добавить непротиворечиво. Крупную тайну, травму, отношение или поворот за пользователя не придумывай. `hidden_lore` отдельно.
 
 Если персонаж ДО первой сцены уже знает конкретные факты о мире/других людях, сохрани их в section `knowledge`: character_id → список известных фактов. Это стартовые знания, они попадут в его knowledge journal с turn=0. Не записывай туда то, чего персонаж на старте не знает.
 
-`запускай первую сцену`: служебная команда, не речь POV. Сам выбери current state из novel.start/канона → `setDraftLaunchState` → `createSessionFromDraft` → `prepareTurn` с `opening_scene=true`, `user_input=""` → сразу первая сцена. При `commitTurn` для этой первой сцены тоже передай `user_input=""`. Не проси первый игровой ход.
+`запускай первую сцену`: служебная команда, не речь POV. Выбери current из novel.start/канона; если место имеет profile, поставь его `location_id` и при нужде `zone_id`. Затем `setDraftLaunchState` → `createSessionFromDraft` → `prepareTurn` с `opening_scene=true`, `user_input=""` → первая сцена. Первый `commitTurn` тоже с `user_input=""`.
 
 ## Игровой ход
 
@@ -50,6 +46,7 @@ Backend = канон. Actions молча. В игровом ходе до сце
 - их собственные знания/knowledge journal;
 - отношения/intents;
 - cast registry;
+- `location_context` только для места, где POV физически находится;
 - `runtime_rules`;
 - `scene_builder`.
 
@@ -93,7 +90,7 @@ Bundle даёт данные персонажа. Фоновому NPC карто
 - character_upserts: постоянная деталь или новый NPC с конкретной story_function; фон не регистрируй;
 - relationship_updates: только реальные причинные изменения; существующий показатель через delta, новый через value;
 - npc_intent_updates/story_thread_updates: реальные изменения;
-- presence_updates/state_patch: текущее физическое состояние — кто где, включая важных offscreen/nearby, одежда/инвентарь, предметы и незавершённые действия.
+- presence_updates/state_patch: текущее физическое состояние, включая важных offscreen/nearby; для profiled места сохраняй location_id и zone_id/zone.
 
 Не придумывай update ради заполнения поля.
 
@@ -113,14 +110,7 @@ Bundle даёт данные персонажа. Фоновому NPC карто
 
 ## Длинная сессия / continuation
 
-Continuation делай только когда реально нужна новая continuation-сессия.
-
-1. `prepareContinuationCompaction`.
-2. Для каждого block от `next_block_index`: `prepareContinuationBlockRead` → все chunks → `commitContinuationBlock`.
-3. После всех блоков: `prepareContinuationFinalRead` → все chunks → `commitContinuationFinal`.
-4. Только после успешного final commit → `createContinuationSession`.
-
-Сжатие сохраняет факты, хронологию, личные знания персонажей, текущую сцену, отношения и открытые линии. Не смешивай знания разных персонажей. Исходную сессию не переписывай.
+Continuation только когда нужна новая сессия: `prepareContinuationCompaction` → каждый block: `prepareContinuationBlockRead`, все chunks, `commitContinuationBlock` → `prepareContinuationFinalRead`, все chunks, `commitContinuationFinal` → только после успеха `createContinuationSession`. Сохраняй факты, хронологию, личные знания, current, отношения и линии; знания персонажей не смешивай.
 
 Если final package надо исправить, перечитай final package и повтори final commit для той же migration. Не запускай всё с нуля без необходимости.
 
