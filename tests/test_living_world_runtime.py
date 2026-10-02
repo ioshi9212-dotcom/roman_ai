@@ -177,13 +177,12 @@ def test_social_reactivity_allows_grounded_ambient_people_to_intervene_without_u
         assert "повторяющийся/важный" in instruction
 
 
-def test_social_reactivity_allows_npc_to_npc_reports_without_turning_them_into_truth():
+def test_social_reactivity_has_no_belief_or_truth_directive():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         sid = storage.create_session(novel())["session_id"]
         packet = read_packet(sid, "Остаться рядом")
         instruction = packet["living_world"]["social_reactivity"]["instruction"].casefold()
 
-        assert "слух" in instruction
-        assert "ложь" in instruction
-        assert "не становятся истиной" in instruction
+        assert "не становятся истиной" not in instruction
+        assert "верит pov" not in RELATIONSHIP_DIMENSIONS["доверие"].casefold()
