@@ -134,15 +134,17 @@ def test_offscreen_active_intent_is_visible_before_character_is_pulled_into_scen
         _, context = read_packet(sid, "(налить чай)")
         assert "ren" not in context["relevant_character_ids"]
         assert "ren" not in context["npc_active_intents"]
+        candidates = context["offscreen_intent_candidates"]
+        assert candidates["director_only"] is True
         candidate = next(
-            row for row in context["offscreen_intent_candidates"]
+            row for row in candidates["characters"]
             if row["character_id"] == "ren"
         )
         assert candidate["has_active_intent"] is True
-        assert candidate["eligible_now"] is True
+        assert candidate["eligible_intent_count"] == 1
         assert "summary" not in candidate
         assert "planned_action" not in candidate
-        assert "come_back_to_talk" not in json.dumps(candidate, ensure_ascii=False)
+        assert "come_back_to_talk" not in json.dumps(candidates, ensure_ascii=False)
         assert context["scene_state"]["characters"]["ren"]["location"] == "home"
         assert context["scene_state"]["characters"]["ren"]["activity"] == "в соседней комнате"
         assert context["working_context_contract"]["offscreen_active_intents_in_packet"] is False
@@ -263,3 +265,46 @@ def test_terminal_operation_without_concrete_resolution_keeps_intent_active():
     assert item["last_outcome"] == "POV отшутилась и сменила тему"
     active = active_intents_for(result, ["ren"], current_turn=9)
     assert active["ren"][0]["intent_id"] == "need_answer"
+
+
+def test_future_offscreen_intent_is_not_exposed_as_candidate_before_eligible_day():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(novel())["session_id"]
+        root = storage.SESSIONS_DIR / sid
+
+        read_packet(sid, "(заняться своими делами)")
+        session_runtime.commit_turn(
+            sid,
+            {
+                "user_input": "(заняться своими делами)",
+                "scene_output": "POV остаётся дома.\n\nОтношения:\n\nХод 1 · цикл 1/15",
+                "extracted": base_extracted(
+                    npc_intent_updates=[{
+                        "character_id": "ren",
+                        "intent_id": "future_visit",
+                        "summary": "Вернуться к POV позже",
+                        "priority": "high",
+                        "planned_action": "Прийти к POV, когда наступит срок",
+                        "next_eligible_game_day": 5,
+                    }]
+                ),
+            },
+        )
+
+        state = storage._read_json(root / "state.json", {})
+        state["current"]["game_day"] = 2
+        storage._write_json(root / "state.json", state)
+
+        _, context = read_packet(sid, "(налить чай)")
+        candidates = context["offscreen_intent_candidates"]["characters"]
+        assert not any(row["character_id"] == "ren" for row in candidates)
+
+        state = storage._read_json(root / "state.json", {})
+        state["current"]["game_day"] = 5
+        storage._write_json(root / "state.json", state)
+        (root / "turn_packet.json").unlink(missing_ok=True)
+
+        _, context = read_packet(sid, "(налить чай)")
+        candidates = context["offscreen_intent_candidates"]["characters"]
+        assert any(row["character_id"] == "ren" for row in candidates)
