@@ -129,6 +129,7 @@ def test_location_profile_is_short_fixed_shape_and_accepts_mapped_zones_and_peop
         {"zone_id": "study", "name": "Кабинет", "summary": "отдельная рабочая комната"},
     ]
     assert profile["appearance"] == "старый ухоженный дом"
+    assert profile["staff"] == []
     assert profile["additional"]["sofa_angle"] == "неважная микродеталь"
     assert set(profile) == {
         "location_id", "name", "aliases", "type", "parent_location_id", "where", "floor",
@@ -171,3 +172,20 @@ def test_location_collection_and_scoped_canon_notes_normalize_without_new_freefo
         "text": "Семья Вальтор поколениями обслуживает дом.",
         "subjects": ["silas_house", "valtor_family"],
     }]
+
+
+def test_location_profile_preserves_mapped_staff_and_link_relations():
+    profile = normalize_location_profile({
+        "id": "school",
+        "employees": {"администраторы": "2 человека", "тренеры": "сменами"},
+        "linked_characters": {
+            "adrian": {"relation": "владелец"},
+            "dante": "работает тренером",
+        },
+    })
+
+    assert profile["staff"] == ["администраторы: 2 человека", "тренеры: сменами"]
+    assert profile["linked_characters"] == [
+        {"character_id": "adrian", "relation": "владелец"},
+        {"character_id": "dante", "relation": "работает тренером"},
+    ]
