@@ -172,6 +172,9 @@ def test_custom_gpt_instruction_matches_rules_driven_transport():
     assert "стартовые знания" in text
     assert "turn=0" in text
     assert "Offscreen не значит «неважен»" in text
+    assert "Фоновому NPC карточку не создавай" in text
+    assert "Приоритет у созданного игроком каста" in text
+    assert "конкретной повторяющейся story_function" in text
     assert "не запрещает естественное появление" in text
     assert "показывай `session_id`" in text
     assert "`packet_id`, `read_id`, chunk-статусы и сверки не показывай" in text
