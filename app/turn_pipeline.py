@@ -68,6 +68,8 @@ def _packet_manifest(packet: Dict[str, Any], *, reused: bool) -> Dict[str, Any]:
         "all_chunks_read": not unread,
         "turn_pipeline_version": PIPELINE_VERSION,
         "relationship_review_required": bool(packet.get("relationship_review_required")),
+        "relationship_review_details_required": bool(packet.get("relationship_review_details_required")),
+        "relationship_footer_scope_required": bool(packet.get("relationship_footer_scope_required")),
         "instruction": (
             "Pending packet reused. Read only unread chunks, silently re-check the final scene against Scene Builder, and commit once."
             if reused
@@ -221,11 +223,21 @@ def _clean_relationship_lens(context: Dict[str, Any]) -> None:
     candidates = lens.get("present_npc_candidates")
     if isinstance(candidates, list):
         for row in candidates:
-            if isinstance(row, dict):
+            if not isinstance(row, dict):
+                continue
+            if not row.get("saved_dimensions"):
+                row["initialization_rule"] = (
+                    "No saved dimensions yet: once this NPC meaningfully forms an attitude toward POV in the scene, "
+                    "create 1-3 natural dimensions. Do not create them without a real basis."
+                )
+            else:
                 row.pop("initialization_rule", None)
+    lens["qualitative_review_required"] = True
     lens["rule"] = (
-        "Current saved NPC->POV relationship state. Existing dimensions persist; "
-        "new dimensions may appear naturally when the story creates them. No fixed vocabulary."
+        "Current saved NPC->POV relationship state. Existing dimensions persist but are not a whitelist. "
+        "After the complete scene, if the relationship changed qualitatively, append a new natural dimension instead of "
+        "forcing every development into an old label. A value of 100 in one dimension is not relationship completion and "
+        "does not block new dimensions. Do not invent a new dimension merely because a number is high. No fixed vocabulary."
     )
     context["relationship_lens"] = lens
 
@@ -391,6 +403,26 @@ def _prepare_context(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
     }
     context["scene_presence"] = scene_presence
 
+    lens = context.get("relationship_lens")
+    if isinstance(lens, dict):
+        pov = state.get("pov") if isinstance(state.get("pov"), dict) else {}
+        pov_id = str(pov.get("character_id") or "")
+        physical_ids = [
+            str(value) for value in storage._present_character_ids(state)
+            if value and str(value) != pov_id
+        ]
+        remote_ids = [
+            str(value) for value in storage._remote_character_ids(state)
+            if value and str(value) != pov_id
+        ]
+        lens["footer_character_ids"] = physical_ids
+        lens["remote_participant_ids"] = remote_ids
+        lens["footer_rule"] = (
+            "Visible Relationships footer contains only NPCs physically present at scene end. "
+            "Remote or departed NPC relationship changes persist through relationship_updates but are not printed."
+        )
+        context["relationship_lens"] = lens
+
     persistence = context.get("persistence_contract")
     persistence = deepcopy(persistence) if isinstance(persistence, dict) else {}
     persistence.clear()
@@ -402,10 +434,11 @@ def _prepare_context(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
             "character who actually learned them; chronology never grants knowledge by itself."
         ),
         "relationships": (
-            "After the complete scene, review every participating NPC->POV relationship. "
-            "If the scene causally changed it, write relationship_updates with a concrete reason. "
+            "After the complete scene, review every participating NPC->POV relationship and record one relationship_review row per NPC. "
+            "If the scene causally changed it, set changed=true and write relationship_updates with a concrete reason. "
             "For an existing metric send delta from the saved value; value may echo the final/snapshot value but delta is authoritative. "
-            "A genuinely new metric may be added with value. If nothing changed, send no update. Dynamic labels are allowed; no fixed vocabulary."
+            "A qualitatively new state may become a new dynamic metric with value; old labels are not a whitelist. "
+            "If nothing changed, set changed=false and send no update."
         ),
         "character_upserts": "important/repeating NPC or newly fixed personal detail",
         "state_patch": "current physical state only when changed; preserve continuity-relevant offscreen location/activity/outfit/items as well as the active scene",
