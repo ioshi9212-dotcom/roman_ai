@@ -391,7 +391,9 @@ def _prepare_context(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
         "For each POV/NPC use only that character's self-known card facts, own character_memory, current perception "
         "and real communication. Knowledge is granular: a partial fact authorizes only the details actually known or strictly entailed. "
         "Never fill an unknown time/place/person/reason/plan detail with a likely or convenient value and state it as fact; ask, leave it unknown, "
-        "or mark a plausible inference as a guess until confirmed. Own-card branches marked unknown_to_self/hidden_from_self/not_known_to_self/"
+        "or mark a plausible inference as a guess until confirmed. npc_active_intents[ID] are private planning state of ID only; active_threads, "
+        "future_guidance and offscreen_intent_candidates are director-only and never become another character's knowledge. "
+        "Own-card branches marked unknown_to_self/hidden_from_self/not_known_to_self/"
         "known_to_self=false/author_only are not self-known. Other cards, other memory, chronology, location_context and director lore "
         "are not personal knowledge."
     )
