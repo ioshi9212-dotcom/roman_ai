@@ -6,7 +6,7 @@ from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Any, Dict
 
-from . import session_recovery, session_runtime, storage
+from . import location_runtime, session_recovery, session_runtime, storage
 from .game_day import sync_game_day
 from .relationship_runtime import overwrite_relationship_snapshots
 from .operation_receipts import RECEIPTS_FILE, ledger_with_receipt, make_receipt
@@ -246,6 +246,7 @@ def _atomic_commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, A
             current = state.get("current") if isinstance(state.get("current"), dict) else {}
             state["current"] = storage._deep_merge(current, header_current)
         state = _clean_scene_pointer(state, extracted)
+        state = location_runtime.sync_current_location(source, state)
         state = sync_game_day(state, source)
         state = storage._refresh_runtime_presence(state, cards, turn_number)
 
