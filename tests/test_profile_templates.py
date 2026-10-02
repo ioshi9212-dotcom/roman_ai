@@ -132,7 +132,7 @@ def test_location_profile_is_short_fixed_shape_and_accepts_mapped_zones_and_peop
     assert profile["additional"]["sofa_angle"] == "неважная микродеталь"
     assert set(profile) == {
         "location_id", "name", "aliases", "type", "parent_location_id", "where", "floor",
-        "hours", "linked_characters", "layout", "zones", "appearance", "fixed_features",
+        "hours", "staff", "linked_characters", "layout", "zones", "appearance", "fixed_features",
         "notes", "additional",
     }
 
