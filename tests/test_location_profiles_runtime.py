@@ -547,3 +547,45 @@ def test_zone_subject_loads_when_that_zone_is_resolved_inside_the_saved_location
 
     assert notes is not None
     assert "HOUSE_KITCHEN_MARKER" in [row["text"] for row in notes["notes"]]
+
+
+def test_short_location_alias_does_not_match_inside_unrelated_word():
+    source = _novel()
+    source["locations"][0]["aliases"].append("дом")
+    state = {
+        "current": {
+            "location": "роддом",
+            "present_characters": ["pov"],
+        }
+    }
+
+    synced = location_runtime.sync_current_location(source, state)
+    context = location_runtime.build_location_context(
+        source,
+        synced,
+        scene_character_ids=["pov"],
+    )
+
+    assert "location_id" not in synced["current"]
+    assert context is None
+
+
+def test_short_zone_name_does_not_match_inside_unrelated_word():
+    source = _novel()
+    source["locations"][0]["zones"].append({"zone_id": "hall", "name": "Зал"})
+    state = {
+        "current": {
+            "location": "Вокзал",
+            "present_characters": ["pov"],
+        }
+    }
+
+    synced = location_runtime.sync_current_location(source, state)
+    context = location_runtime.build_location_context(
+        source,
+        synced,
+        scene_character_ids=["pov"],
+    )
+
+    assert "location_id" not in synced["current"]
+    assert context is None
