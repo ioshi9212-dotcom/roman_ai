@@ -16,7 +16,7 @@ Backend = канон. Actions молча. В игровом ходе до сце
 
 **Character profile:** character_id, name, surname, aliases, age, status, role, is_pov, story_function, appearance, character, speech, habits, work, residence, relationships, abilities, weaknesses, goals, background, secrets_known_to_self, notes, generated_details, additional.
 
-**Location profile:** location_id, name, aliases, type, parent_location_id, where, floor, hours, staff, linked_characters, layout, zones, appearance, fixed_features, notes, additional.
+**Location profile:** location_id, name, aliases, type, parent_location_id, where, floor, hours, staff, linked_characters, layout, zones, appearance, fixed_features, notes.
 
 `locations`: только повторяющиеся, сюжетно значимые или пространственно важные места из RAW. Пиши коротко: планировка/зоны, общий вид, режим, staff ролями; named постоянных людей клади в linked_characters. Не добавляй декоративную микрогеометрию. `canon_notes`: короткие устойчивые факты, которым нет нормального места в других profiles; каждая заметка имеет subjects.
 
