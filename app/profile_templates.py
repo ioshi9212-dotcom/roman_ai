@@ -55,6 +55,9 @@ _LOCATION_ALIASES = {
     "district": "where",
     "opening_hours": "hours",
     "work_hours": "hours",
+    "workers": "staff",
+    "employees": "staff",
+    "staff_roles": "staff",
     "characters": "linked_characters",
     "people": "linked_characters",
     "rooms": "zones",
@@ -107,6 +110,7 @@ _LOCATION_LABELS = (
     ("where", "Где находится"),
     ("floor", "Этаж"),
     ("hours", "Часы работы"),
+    ("staff", "Работники"),
     ("linked_characters", "Связанные персонажи"),
     ("layout", "Планировка"),
     ("zones", "Постоянные зоны"),
@@ -314,6 +318,13 @@ def normalize_location_profile(raw: Any) -> Dict[str, Any]:
     if not isinstance(aliases, list):
         aliases = []
     profile["aliases"] = [str(value).strip() for value in aliases if str(value).strip()]
+
+    staff = profile.get("staff")
+    if isinstance(staff, str):
+        staff = [staff]
+    if not isinstance(staff, list):
+        staff = []
+    profile["staff"] = [str(value).strip() for value in staff if str(value).strip()]
 
     linked = profile.get("linked_characters")
     if isinstance(linked, str):
