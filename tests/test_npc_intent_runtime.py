@@ -133,11 +133,25 @@ def test_offscreen_active_intent_is_visible_before_character_is_pulled_into_scen
 
         _, context = read_packet(sid, "(налить чай)")
         assert "ren" not in context["relevant_character_ids"]
-        assert context["npc_active_intents"]["ren"][0]["intent_id"] == "come_back_to_talk"
-        assert context["npc_active_intents"]["ren"][0]["eligible_now"] is True
+        assert "ren" not in context["npc_active_intents"]
+        candidate = next(
+            row for row in context["offscreen_intent_candidates"]
+            if row["character_id"] == "ren"
+        )
+        assert candidate["has_active_intent"] is True
+        assert candidate["eligible_now"] is True
+        assert "summary" not in candidate
+        assert "planned_action" not in candidate
+        assert "come_back_to_talk" not in json.dumps(candidate, ensure_ascii=False)
         assert context["scene_state"]["characters"]["ren"]["location"] == "home"
         assert context["scene_state"]["characters"]["ren"]["activity"] == "в соседней комнате"
-        assert context["working_context_contract"]["offscreen_active_intents_in_packet"] is True
+        assert context["working_context_contract"]["offscreen_active_intents_in_packet"] is False
+        assert context["working_context_contract"]["offscreen_intent_candidates_in_packet"] is True
+
+        # The owner still gets the full private intent once their dossier is loaded.
+        bundle = get_character_bundle(sid, "ren")
+        assert bundle["active_intents"][0]["intent_id"] == "come_back_to_talk"
+        assert "Подойти к POV" in bundle["active_intents"][0]["planned_action"]
 
 
 def test_intent_source_fact_may_be_added_to_same_character_in_same_commit():
