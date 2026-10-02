@@ -52,9 +52,9 @@ Chronology не даёт личное знание автоматически: �
 
 ## Offscreen персонаж
 
-Offscreen не значит «неважен». Упоминание не требует bundle и не запрещает естественное появление. Смотри `cast_registry`, `scene_state.characters`, `active_threads`, `offscreen_intent_candidates`. Candidate лишь сигнал; чужой план не раскрывает.
+Offscreen не значит «неважен». Упоминание не требует bundle и не запрещает естественное появление. Смотри `cast_registry`, `scene_state.characters`, `active_threads`, `offscreen_intent_candidates`. Candidate лишь повод проверить релевантность, не приказ вводить персонажа; чужой план не раскрывает.
 
-Если персонаж рядом по state, ожидается по договорённости/расписанию, имеет candidate/другую естественную причину участвовать, ДО участия прочитай `prepareCharacterBundleRead` → остальные `getCharacterBundleChunk`. Intent из bundle знает только его владелец.
+Если участие причинно естественно по state/договорённости/линии/candidate, ДО участия прочитай `prepareCharacterBundleRead` → остальные `getCharacterBundleChunk`. Intent из bundle знает только его владелец.
 
 Bundle даёт данные персонажа. Фоновому NPC карточку не создавай. Приоритет у созданного игроком каста. Новый постоянный NPC только с конкретной повторяющейся story_function после проверки существующего каста.
 
