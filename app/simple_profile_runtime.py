@@ -181,7 +181,7 @@ def _rewrite_packet(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
                     "another character's profile or knowledge_journal",
                     "chronology/recent_turns/continuity_turns/scene_history",
                     "director_only hidden_lore and author context",
-                    "foundation/future_guidance/lore/world canon",
+                    "foundation/future_guidance/lore/world canon/location_context",
                     "POV parenthetical text except observable physical effects or communication explicitly addressed to this character",
                     "another character's private information",
                 ],
@@ -189,7 +189,7 @@ def _rewrite_packet(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
                     "Для каждого персонажа источник факта должен существовать ДО его реплики/вывода/осмысленного действия. "
                     "NPC: собственный profile + собственный knowledge_journal + доступное текущее восприятие/коммуникация. "
                     "POV: собственный profile + journal + доступное восприятие. Нельзя оправдывать знание задним числом; "
-                    "chronology, hidden_lore, другие profiles/journals и director-only не являются знанием персонажа."
+                    "chronology, hidden_lore, location_context, другие profiles/journals и director-only не являются знанием персонажа."
                 ),
             })
             guards["knowledge_causality"] = causality
@@ -228,6 +228,10 @@ def _rewrite_packet(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
                 "ИИ может самостоятельно писать за POV только обычные бытовые и низкорисковые реплики. "
                 "Не раскрывать за игрока личные сведения, тайны, признания, обещания, согласие/отказ, позицию в конфликте "
                 "или информацию, способную заметно изменить сюжет или отношения."
+            ),
+            "location_context": (
+                "location_context — физический канон текущего места для режиссуры, не личное знание персонажа автоматически. "
+                "Связанный offscreen персонаж требует bundle до участия."
             ),
             "knowledge_transport": (
                 "knowledge_journal не дублируется в writer packet. Для каждого участника он читается полностью только "
