@@ -322,7 +322,7 @@ def inject_required_turn_context(context: Dict[str, Any], cards: List[Dict[str, 
     }
     context["scene_builder_instruction"] = "scene_builder обязателен; формат не менять."
     context["pov_participation_instruction"] = "POV участвует сам в мелочах и обычной речи; значимые решения оставляй игроку."
-    context["npc_agency_instruction"] = "NPC действует по характеру, целям, знаниям и отношениям; не по универсальной правильности."
+    context["npc_agency_instruction"] = "NPC решает из себя: кто он, чего хочет, что чувствует, что знает и во что верит, затем действует. Не прогоняй действие заранее через универсальную правильность, психологию, границы или последствия, если сам NPC об этом не думает."
 
     relationship_lens = build_relationship_lens(
         state,
