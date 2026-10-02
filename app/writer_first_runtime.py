@@ -433,12 +433,34 @@ def _rewrite_context(session_id: str, context: Dict[str, Any]) -> Dict[str, Any]
     chronology_source = result.get("chronology_recent")
     result["chronology_anchor_catalog"] = _anchor_catalog(chronology_source)
     result["chronology_recent"] = _compact_chronology(chronology_source, character_ids, location)
-    intent_ids = list(dict.fromkeys([*character_ids, *normalise_store(state).keys()]))
+    current_turn = int(meta.get("turn_number", 0) or 0)
     result["npc_active_intents"] = active_intents_for(
         state,
-        intent_ids,
-        current_turn=int(meta.get("turn_number", 0) or 0),
+        character_ids,
+        current_turn=current_turn,
     )
+
+    # Offscreen intents are director triggers only. Do not expose their summary/planned_action
+    # before that character is actually loaded, otherwise another scene character can
+    # accidentally "know" an offscreen person's private future plan.
+    store_ids = list(normalise_store(state).keys())
+    offscreen_ids = [cid for cid in store_ids if cid not in set(character_ids)]
+    offscreen = active_intents_for(state, offscreen_ids, current_turn=current_turn)
+    candidates = []
+    for character_id, intents in offscreen.items():
+        if not isinstance(intents, list) or not intents:
+            continue
+        candidates.append({
+            "character_id": character_id,
+            "has_active_intent": True,
+            "eligible_now": any(bool(item.get("eligible_now")) for item in intents if isinstance(item, dict)),
+            "highest_priority": max(
+                [int(item.get("priority") or 0) for item in intents if isinstance(item, dict)] or [0]
+            ),
+            "intent_count": len(intents),
+            "rule": "Director cue only. Load this character's bundle before participation; intent content belongs to that character and is not knowledge of anyone else.",
+        })
+    result["offscreen_intent_candidates"] = candidates
 
     contract = result.get("working_context_contract") if isinstance(result.get("working_context_contract"), dict) else {}
     contract.update({
@@ -454,7 +476,8 @@ def _rewrite_context(session_id: str, context: Dict[str, Any]) -> Dict[str, Any]
         "future_guidance_is_not_history": True,
         "npc_intents_are_persistent": True,
         "full_npc_intent_store_in_packet": False,
-        "offscreen_active_intents_in_packet": True,
+        "offscreen_active_intents_in_packet": False,
+        "offscreen_intent_candidates_in_packet": True,
         "first_packet_chunk_in_prepare_response": True,
     })
     result["working_context_contract"] = contract
