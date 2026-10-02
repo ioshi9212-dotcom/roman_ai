@@ -107,6 +107,11 @@ def test_active_runtime_is_author_rules_plus_scene_builder():
     assert "не создавай ему карточку и не сохраняй через character_upserts" in docs["rules"]
     assert "обязательна конкретная `story_function`" in docs["rules"]
     assert "полная гибкость на создание интересных персонажей" not in docs["rules"]
+    assert "location_context" in docs["rules"]
+    assert "Упоминание места, планы туда поехать" in docs["rules"]
+    assert "Не придумывай ради удобства сцены новую постоянную комнату" in docs["rules"]
+    assert "linked_characters" in docs["rules"]
+    assert "location_id" in docs["rules"]
     assert "Стартовая анкета, hidden_lore, правила новеллы и открытые сюжетные линии не декорация" in docs["rules"]
 
 
