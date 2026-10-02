@@ -252,7 +252,7 @@ def relevant_canon_notes(
         zone = location.get("zone") if isinstance(location.get("zone"), dict) else {}
         zone_id = _norm(zone.get("zone_id"))
         if location_id and zone_id:
-            relevant.add(f"{location_id}.{zone_id}")
+            relevant.add(_norm(f"{location_id}.{zone_id}"))
 
     result: List[Dict[str, Any]] = []
     for note in notes:
