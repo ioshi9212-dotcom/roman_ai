@@ -10,7 +10,7 @@ from . import storage
 
 _SCENE_HEADER_RE = re.compile(
     r"🕒\s*День\s+\d+\s*·[^\n]*?(?P<date>\d{2}\.\d{2}\.\d{4}),\s*"
-    r"(?P<time>\d{1,2}:\d{2})\s*·\s*📍\s*(?P<location>[^\n]+)"
+    r"(?P<time>\d{1,2}:\d{2})\s*·\s*📍\s*(?P<location>.*?)(?:\s*🌦️|\n|$)"
 )
 _SCENE_NAME_RE = re.compile(r"^⚙️\s*Сцена:\s*(?P<scene>.+?)\s*$", re.MULTILINE)
 _RELATIONSHIP_LINE_RE = re.compile(r"^(.+?)\s+-\s+.+$", re.MULTILINE)
