@@ -467,8 +467,9 @@ def _rewrite_context(session_id: str, context: Dict[str, Any]) -> Dict[str, Any]
     result["offscreen_intent_candidates"] = {
         "director_only": True,
         "rule": (
-            "Only currently eligible offscreen intent owners are listed. Load a character bundle before participation; "
-            "the intent content belongs to that character and is not knowledge of anyone else."
+            "Only currently eligible offscreen intent owners are listed. This is a director cue to inspect relevance, not an automatic reason "
+            "to enter or contact POV. If participation becomes causally natural, load that character bundle first; the intent content belongs "
+            "to that character and is not knowledge of anyone else."
         ),
         "characters": candidates[:MAX_OFFSCREEN_INTENT_CANDIDATES],
     }
