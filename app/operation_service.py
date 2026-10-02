@@ -189,7 +189,7 @@ def _turn_participant_ids_from_payload(payload: Dict[str, Any]) -> list[str]:
             if text_value not in result:
                 result.append(text_value)
 
-    for field in ("presence_updates", "relationship_updates"):
+    for field in ("presence_updates",):
         rows = extracted.get(field)
         if not isinstance(rows, list):
             continue
@@ -312,6 +312,9 @@ def _validate_relationship_review_details(session_id: str, payload: Dict[str, An
         for cid in [session_runtime._resolve_character_id(cards, raw.get("character_id"))]
         if cid and str(cid) != pov_id
     }
+    if not update_owners.issubset(set(expected)):
+        raise RuntimeError("RELATIONSHIP_UPDATE_FOR_UNSEEN_NPC")
+
     for cid in expected:
         changed = reviewed[cid].get("changed") is True
         if changed and cid not in update_owners:
