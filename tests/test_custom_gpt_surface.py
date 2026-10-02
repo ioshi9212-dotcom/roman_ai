@@ -79,10 +79,10 @@ def test_static_custom_gpt_schema_has_exact_current_30_actions():
     assert "elapsed_game_days" not in relationship["properties"]
 
     section = schema["components"]["schemas"]["NovelDraftSection"]
-    assert "knowledge" in section["properties"]["section_name"]["enum"]
+    assert {"knowledge", "locations", "canon_notes"} <= set(section["properties"]["section_name"]["enum"])
 
     current = schema["components"]["schemas"]["CurrentState"]["properties"]
-    for field in ("positions", "scene_items", "unfinished_actions", "remote_channels"):
+    for field in ("positions", "scene_items", "unfinished_actions", "remote_channels", "location_id", "zone_id"):
         assert field in current
 
     state_patch = schema["components"]["schemas"]["StatePatch"]["properties"]
@@ -184,6 +184,10 @@ def test_custom_gpt_instruction_matches_rules_driven_transport():
     assert "не смягчай, не обобщай" in text
     assert "Все постоянные персонажи из RAW" in text
     assert "включая важных offscreen/nearby" in text
+    assert "**Location profile:**" in text
+    assert "`locations`" in text
+    assert "`canon_notes`" in text
+    assert "`location_context` только текущего физического места" in text
 
 
 def test_static_schema_avoids_actions_parser_traps():
