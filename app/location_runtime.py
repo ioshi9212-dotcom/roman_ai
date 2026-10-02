@@ -62,12 +62,24 @@ def _profile_by_visible_location(profiles: List[Dict[str, Any]], location: Any) 
 
 def _resolve_zone(profile: Dict[str, Any], current: Dict[str, Any]) -> Dict[str, Any] | None:
     zones = profile.get("zones") if isinstance(profile.get("zones"), list) else []
-    explicit = _norm(current.get("zone_id"))
-    visible = _norm(current.get("zone"))
-    for needle in (explicit, visible):
+    exact_needles = (_norm(current.get("zone_id")), _norm(current.get("zone")))
+    for needle in exact_needles:
         if not needle:
             continue
         matches = [zone for zone in zones if isinstance(zone, dict) and needle in _zone_refs(zone)]
+        if len(matches) == 1:
+            return matches[0]
+
+    # Headers may render a parent + child together, e.g. "Дом Сайласа, кухня".
+    # Use the visible physical location only when exactly one saved zone is named inside it.
+    visible_location = _norm(current.get("location") or current.get("place") or current.get("area"))
+    if visible_location:
+        matches = [
+            zone
+            for zone in zones
+            if isinstance(zone, dict)
+            and any(ref and ref in visible_location for ref in _zone_refs(zone))
+        ]
         if len(matches) == 1:
             return matches[0]
     return None
@@ -93,15 +105,12 @@ def resolve_physical_location(source: Dict[str, Any], state: Dict[str, Any]) -> 
             # pointer is absent or the visible text is this profile/one of its zones.
             visible_norm = _norm(visible)
             zone = _resolve_zone(explicit, current)
-            visible_is_zone = bool(
+            visible_is_profile = bool(
                 visible_norm
-                and any(
-                    visible_norm in _zone_refs(row)
-                    for row in explicit.get("zones", [])
-                    if isinstance(row, dict)
-                )
+                and any(ref and ref in visible_norm for ref in _profile_refs(explicit))
             )
-            if not visible_norm or visible_norm in _profile_refs(explicit) or visible_is_zone:
+            visible_is_zone = bool(zone)
+            if not visible_norm or visible_norm in _profile_refs(explicit) or visible_is_profile or visible_is_zone:
                 profile = explicit
 
     if profile is None:
