@@ -189,7 +189,7 @@ def _turn_participant_ids_from_payload(payload: Dict[str, Any]) -> list[str]:
             if text_value not in result:
                 result.append(text_value)
 
-    for field in ("presence_updates", "dialogue_memory_add", "relationship_updates"):
+    for field in ("presence_updates", "relationship_updates"):
         rows = extracted.get(field)
         if not isinstance(rows, list):
             continue
@@ -197,8 +197,27 @@ def _turn_participant_ids_from_payload(payload: Dict[str, Any]) -> list[str]:
             if isinstance(row, dict):
                 add(row.get("character_id"))
 
+    dialogue_rows = extracted.get("dialogue_memory_add")
+    if isinstance(dialogue_rows, list):
+        for row in dialogue_rows:
+            if not isinstance(row, dict):
+                continue
+            add(row.get("character_id"))
+            participants = row.get("participants")
+            if isinstance(participants, list):
+                for value in participants:
+                    add(value)
+            elif participants not in (None, "", {}):
+                add(participants)
+
     patch = extracted.get("state_patch") if isinstance(extracted.get("state_patch"), dict) else {}
     current = patch.get("current") if isinstance(patch.get("current"), dict) else {}
+    direct = current.get("present_characters")
+    if isinstance(direct, list):
+        for value in direct:
+            add(value)
+    elif direct not in (None, "", {}):
+        add(direct)
     remote = current.get("remote_characters")
     if isinstance(remote, list):
         for value in remote:
