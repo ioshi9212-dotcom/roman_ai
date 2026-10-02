@@ -367,18 +367,10 @@ def _prepare_context(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
     else:
         context.pop("location_context", None)
 
-    scene_note_subjects = list(scene_ids)
-    scene_id_set = set(scene_ids)
-    for card in cards:
-        cid = storage._card_id(card)
-        if not cid or cid not in scene_id_set:
-            continue
-        scene_note_subjects.extend(str(value) for value in storage._card_names(card) if value)
-
     canon_notes_context = location_runtime.build_canon_notes_context(
         source,
         state,
-        scene_character_ids=list(dict.fromkeys(scene_note_subjects)),
+        scene_character_ids=scene_ids,
     )
     if canon_notes_context is not None:
         context["canon_notes_context"] = canon_notes_context
