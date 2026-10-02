@@ -402,3 +402,68 @@ def test_rollback_replay_recomputes_location_ids_and_clears_old_zone_on_move():
     assert "location_id" not in state["current"]
     assert "zone_id" not in state["current"]
     assert "zone" not in state["current"]
+
+
+def test_ambiguous_room_name_cannot_keep_inherited_previous_location_id():
+    source = _novel()
+    source["locations"].append({
+        "location_id": "adrian_apartment",
+        "name": "Квартира Эдриана",
+        "zones": [{"zone_id": "kitchen", "name": "Кухня"}],
+    })
+    before = {
+        "current": {
+            "location": "Дом Сайласа",
+            "location_id": "silas_house",
+            "zone": "Кабинет",
+            "zone_id": "study",
+        }
+    }
+    # Deep merge left the previous parent id behind while the visible pointer
+    # was changed to a generic room name that exists in more than one place.
+    after = {
+        "current": {
+            "location": "Кухня",
+            "location_id": "silas_house",
+            "zone": "Кабинет",
+            "zone_id": "study",
+        }
+    }
+
+    synced = location_runtime.sync_current_location(source, after, previous_state=before)
+
+    assert "location_id" not in synced["current"]
+    assert "zone_id" not in synced["current"]
+    assert "zone" not in synced["current"]
+
+
+def test_location_id_change_clears_zone_inherited_under_same_generic_location_name():
+    source = _novel()
+    source["locations"].append({
+        "location_id": "adrian_apartment",
+        "name": "Квартира Эдриана",
+        "aliases": ["дом"],
+        "zones": [{"zone_id": "bedroom", "name": "Спальня"}],
+    })
+    before = {
+        "current": {
+            "location": "дом",
+            "location_id": "silas_house",
+            "zone": "Кухня",
+            "zone_id": "kitchen",
+        }
+    }
+    after = {
+        "current": {
+            "location": "дом",
+            "location_id": "adrian_apartment",
+            "zone": "Кухня",
+            "zone_id": "kitchen",
+        }
+    }
+
+    synced = location_runtime.sync_current_location(source, after, previous_state=before)
+
+    assert synced["current"]["location_id"] == "adrian_apartment"
+    assert "zone_id" not in synced["current"]
+    assert "zone" not in synced["current"]
