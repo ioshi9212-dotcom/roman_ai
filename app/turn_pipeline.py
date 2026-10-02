@@ -70,6 +70,7 @@ def _packet_manifest(packet: Dict[str, Any], *, reused: bool) -> Dict[str, Any]:
         "relationship_review_required": bool(packet.get("relationship_review_required")),
         "relationship_review_details_required": bool(packet.get("relationship_review_details_required")),
         "relationship_footer_scope_required": bool(packet.get("relationship_footer_scope_required")),
+        "relationship_review_v3_required": bool(packet.get("relationship_review_v3_required")),
         "instruction": (
             "Pending packet reused. Read only unread chunks, silently re-check the final scene against Scene Builder, and commit once."
             if reused
@@ -415,11 +416,44 @@ def _prepare_context(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
             str(value) for value in storage._remote_character_ids(state)
             if value and str(value) != pov_id
         ]
+        physical_set = set(physical_ids)
+        remote_set = set(remote_ids)
         lens["footer_character_ids"] = physical_ids
         lens["remote_participant_ids"] = remote_ids
         lens["footer_rule"] = (
             "Visible Relationships footer contains only NPCs physically present at scene end. "
             "Remote or departed NPC relationship changes persist through relationship_updates but are not printed."
+        )
+        relations = lens.get("relations_in_current_scene")
+        if isinstance(relations, list):
+            for row in relations:
+                if not isinstance(row, dict):
+                    continue
+                owner_id = str(row.get("owner_character_id") or "")
+                if owner_id in physical_set:
+                    row["participation_mode"] = "physical"
+                elif owner_id in remote_set:
+                    row["participation_mode"] = "remote"
+                last_changed = int(row.get("last_changed_turn", 0) or 0)
+                row["turns_since_change"] = max(0, current_turn - last_changed) if last_changed else max(0, current_turn)
+                saturated = [
+                    str(item.get("label") or item.get("key"))
+                    for item in row.get("dimensions", []) if isinstance(item, dict)
+                    and isinstance(item.get("value"), (int, float)) and not isinstance(item.get("value"), bool)
+                    and float(item.get("value")) >= 100.0
+                ]
+                if saturated:
+                    row["saturated_dimensions"] = saturated
+        candidates = lens.get("present_npc_candidates")
+        if isinstance(candidates, list):
+            lens["present_npc_candidates"] = [
+                row for row in candidates
+                if isinstance(row, dict) and str(row.get("character_id") or "") in physical_set
+            ]
+        lens["stagnation_rule"] = (
+            "turns_since_change and saturated_dimensions are diagnostics, not automatic score triggers. "
+            "Judge the completed scene qualitatively: if a new relationship state arose that old labels do not represent, append a new dimension. "
+            "A saturated old metric is never a reason by itself to report changed=false."
         )
         context["relationship_lens"] = lens
 
@@ -612,7 +646,9 @@ def _apply_relationship_changes(session_id: str, payload: Dict[str, Any]) -> Dic
     pov_id = str(pov.get("character_id") or "")
     present = set(storage._present_character_ids(state_after))
 
-    footer = runtime_fixes_compat._parse_footer_compat(
+    packet = storage._read_json(root / "turn_packet.json", {})
+    footer_is_display_only = bool(packet.get("relationship_review_v3_required"))
+    footer = {} if footer_is_display_only else runtime_fixes_compat._parse_footer_compat(
         str(result.get("scene_output") or ""),
         cards=cards,
         resolve_character_id=session_runtime._resolve_character_id,
@@ -701,7 +737,8 @@ def _apply_relationship_changes(session_id: str, payload: Dict[str, Any]) -> Dic
         meta_row["character_id"] = owner_id
         meta_row["_numeric_changes"] = numeric_changes
         metadata_rows.append(meta_row)
-        relation["last_changed_turn"] = turn_number
+        if numeric_changes:
+            relation["last_changed_turn"] = turn_number
 
     synced = relationship_runtime._sync_state(state_after, docs)
     synced, _ = relationship_metadata.apply_relationship_metadata(

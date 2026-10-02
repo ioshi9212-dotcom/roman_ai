@@ -548,12 +548,13 @@ components:
 
     RelationshipDimensionUpdate:
       type: object
-      required: [label, value]
+      required: [label]
       properties:
         label:
           type: string
         value:
           type: number
+          description: Required only when creating a new relationship dimension; optional for an established metric changed by delta.
         delta:
           type: number
           description: For an established metric this is the causal change from the saved value and is authoritative when supplied. New metrics are initialized from value.
@@ -569,6 +570,7 @@ components:
           type: boolean
         reason:
           type: string
+          description: Concrete current-scene reason for this review. New v3 turn packets require a non-empty reason even when changed=false.
       additionalProperties: false
 
     RelationshipUpdate:
