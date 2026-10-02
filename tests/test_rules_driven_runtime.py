@@ -61,6 +61,10 @@ def test_active_runtime_is_author_rules_plus_scene_builder():
     assert docs["scene_builder"] == sources["scene_builder"]
     assert "выбор информации всегда остаётся игроку" in docs["rules"]
     assert "Источник знания должен существовать ДО" in docs["rules"]
+    assert "Знание частичного факта не даёт автоматически его недостающие детали" in docs["rules"]
+    assert "у Ринаты свидание в субботу" in docs["rules"]
+    assert "Во сколько?" in docs["rules"]
+    assert "минимальный фактический смысл" in docs["rules"]
     assert "Формат scene_builder обязателен" in docs["scene_builder"]
     assert "ТОЧКА ОСТАНОВКИ СЦЕНЫ" in docs["scene_builder"]
     assert "Если такой точки ещё нет — сцена ещё не закончена." in docs["scene_builder"]
@@ -195,6 +199,9 @@ def test_active_character_receives_complete_knowledge_journal_in_packet():
         assert "fact 1" in journal
         assert "fact 120" in journal
         assert "entry_id" not in journal
+        rule = context["character_knowledge_rule"]
+        assert "Knowledge is granular" in rule
+        assert "unknown time/place/person/reason/plan" in rule
 
 
 def test_dynamic_relationship_label_can_appear_without_whitelist():
