@@ -198,3 +198,43 @@ def test_relationship_contract_keeps_npc_to_npc_qualitative_and_footer_scene_sco
     assert "description:" in schema
     assert "relationship_review:" not in schema
     assert len(instructions) + 93 < 8000
+
+def test_legacy_npc_relation_migration_keeps_qualitative_lists_in_compact_description():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(novel())["session_id"]
+        root = storage.SESSIONS_DIR / sid
+        (root / "relationships.json").unlink()
+
+        state = storage._read_json(root / "state.json", {})
+        state["npc_relationships"] = {
+            "adrian": {
+                "dante": {
+                    "relationship_type": "лучшие друзья",
+                    "current_dynamic": "после ссоры держит дистанцию",
+                    "beliefs_about_target": ["считает Данте ненадёжным в серьёзных разговорах"],
+                    "unresolved_between_them": ["не обсудили последнюю провокацию"],
+                    "dynamic_constraints": ["не доверяет ему личные признания"],
+                    "interaction_hooks": ["Данте снова может вывести его на ревность"],
+                    "status": "active",
+                }
+            }
+        }
+        storage._write_json(root / "state.json", state)
+
+        cards = storage._load_cards(root, storage._read_json(root / "source.json", {}))
+        migrated = relationship_file_runtime.load(
+            root,
+            cards=cards,
+            state=state,
+            pov_id="rina",
+        )
+
+        description = migrated["npc_to_npc"]["adrian"]["dante"]
+        assert "лучшие друзья" in description
+        assert "держит дистанцию" in description
+        assert "ненадёжным" in description
+        assert "не обсудили" in description
+        assert "не доверяет ему личные признания" in description
+        assert "вывести его на ревность" in description
+
