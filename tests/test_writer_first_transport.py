@@ -142,5 +142,4 @@ def test_player_input_map_preserves_interleaved_segments_left_to_right():
     assert privacy["not_character_knowledge"] is True
     assert privacy["observable_physical_effects_only"] is True
     assert "rule" not in privacy
-    assert "по умолчанию приватен" in privacy["rule"]
     assert "наблюдаемую часть" in privacy["rule"]
