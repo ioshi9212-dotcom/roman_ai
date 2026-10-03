@@ -349,8 +349,7 @@ def inject_required_turn_context(context: Dict[str, Any], cards: List[Dict[str, 
                     {
                         "label": label,
                         "value": item.get("value"),
-                        "last_delta": item.get("last_delta", 0),
-                        "reason": item.get("reason", ""),
+                        "last_change": deepcopy(item.get("last_change", {})),
                     }
                     for label, item in row.get("dimensions", {}).items()
                     if isinstance(item, dict)
