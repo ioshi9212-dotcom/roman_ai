@@ -470,7 +470,7 @@ def _prepare_context(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
             "If nothing changed, set changed=false and send no update."
         ),
         "character_upserts": "new durable self-detail, or a new persistent NPC only with a concrete recurring story_function; never register a background extra",
-        "state_patch": "current physical state only when changed; for a known location preserve location_id and zone_id/zone with the visible location name; preserve continuity-relevant offscreen location/activity/outfit/items too",
+        "state_patch": "save changed physical state. POV clothing/inventory -> state_patch.pov; NPC clothing/inventory/location/activity -> state_patch.characters[ID]. For a known location preserve location_id and zone_id/zone with the visible location name.",
     })
     context["persistence_contract"] = persistence
 
