@@ -4,12 +4,13 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_scene_length_is_variable_1500_to_3000():
+def test_scene_length_uses_normal_and_important_targets_without_minimum_default():
     text = (ROOT / "runtime" / "scene_builder.md").read_text(encoding="utf-8")
-    assert "1500–3000 непробельных символов" in text
-    assert "Не выбирай минимальную длину по умолчанию" in text
-    assert "2200–3000" in text
-    assert "НЕ означает искусственно удерживать персонажей в одной сцене" in text
+    assert "2000–2400 непробельных символов" in text
+    assert "вплоть до ~1500" in text
+    assert "Не выбирай 1500 как обычную цель" in text
+    assert "2500–3000 непробельных символов" in text
+    assert "НЕ означает искусственно удерживать персонажей в одном эпизоде" in text
 
 
 def test_scene_endings_leave_a_concrete_playable_hook():
