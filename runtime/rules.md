@@ -423,6 +423,8 @@ NPC inventory/state → `state.characters[ID]`.
 
 `cast_registry.characters` - полный director-only список постоянного каста на текущий ход.
 
+`pov_familiarity` в строке `cast_registry` хранит непрерывность знакомства POV с этим персонажем: `known/acquainted` запрещает повторное первое знакомство; `encountered` означает прошлое присутствие без гарантии, что имя уже известно.
+
 Перед сценой просмотри весь список постоянных NPC.
 
 Это не очередь и не ротация.
