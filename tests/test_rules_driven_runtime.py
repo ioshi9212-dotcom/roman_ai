@@ -4,7 +4,7 @@ import tempfile
 import pytest
 from pathlib import Path
 
-from app import character_chunk_read, continuation_runtime, private_knowledge_runtime, runtime_access, session_runtime, simple_setup_runtime, storage
+from app import character_chunk_read, continuation_runtime, private_knowledge_runtime, runtime_access, session_runtime, simple_setup_runtime, storage, turn_pipeline
 from app.operation_service import commit_turn_request, prepare_turn_request
 from app.models import TurnCommit
 from app.turn_rollback import rollback_last_turn
@@ -143,6 +143,8 @@ def test_packet_has_no_hidden_director_guard_stack_and_rules_are_last():
         ):
             assert removed not in context
 
+        assert "character_registry" not in context
+        assert "scene_characters" not in context
         assert list(context)[-2:] == ["runtime_rules", "scene_builder"]
         active = {row["character_id"] for row in context["character_cards"]}
         assert active == {"pov", "npc"}
@@ -198,8 +200,8 @@ def test_active_character_receives_complete_knowledge_journal_in_packet():
         storage._write_json(root / "memory.json", memory)
 
         manifest, context = read_context(sid, "(посмотреть на NPC)")
-        assert manifest["chunk_chars_max"] == 16000
-        assert manifest["chunk_count"] <= 8
+        assert manifest["chunk_chars_max"] == 48000
+        assert manifest["chunk_count"] <= 4
         journal = context["character_memory"]["npc"]["knowledge_journal"]
         assert isinstance(journal, str)
         assert context["character_memory"]["npc"]["knowledge_journal_entry_count"] == 120
@@ -211,6 +213,22 @@ def test_active_character_receives_complete_knowledge_journal_in_packet():
         assert "character_knowledge_rule" not in context
         assert "Частичный факт остаётся частичным." in context["runtime_rules"]
 
+
+
+def test_base_prepare_refreshes_familiarity_once(monkeypatch):
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(base_novel())["session_id"]
+        original = session_runtime._refresh_session_familiarity
+        calls = {"count": 0}
+
+        def counted(session_id):
+            calls["count"] += 1
+            return original(session_id)
+
+        monkeypatch.setattr(session_runtime, "_refresh_session_familiarity", counted)
+        turn_pipeline._BASE_PREPARE(sid, "(осмотреться)")
+        assert calls["count"] == 1
 
 
 def test_dynamic_relationship_label_can_appear_without_whitelist():
@@ -1365,6 +1383,7 @@ def test_cast_registry_exposes_causal_character_data_without_recency_pressure():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         novel = base_novel()
+        novel["characters"][1]["known_to_pov"] = True
         novel["characters"][1]["work"] = "инструктор"
         novel["characters"][1]["residence"] = "база"
         novel["characters"][1]["relationships"] = [
@@ -1425,6 +1444,7 @@ def test_cast_registry_exposes_causal_character_data_without_recency_pressure():
         assert registry["recency_rotation_disabled"] is True
         assert "не очередь и не ротация" in registry["instruction"]
         assert row["story_function"] == "possible romance"
+        assert row["pov_familiarity"]["status"] == "known"
         assert "добиться ответа" in row["goals"]
         assert "work" not in row
         assert "residence" not in row
