@@ -1,8 +1,11 @@
 import json
 import tempfile
+from copy import deepcopy
 from pathlib import Path
 
-from app import session_runtime, storage
+import pytest
+
+from app import session_runtime, simple_setup_runtime, storage
 from app.operation_service import commit_turn_request, prepare_turn_request
 
 
@@ -127,7 +130,8 @@ def test_scene_builder_requires_pov_presence_visual_anchoring_and_no_early_cut()
     instructions = Path("gpt/custom_gpt_instructions.md").read_text(encoding="utf-8")
     rules = Path("runtime/rules.md").read_text(encoding="utf-8")
 
-    assert "POV должен оставаться физически и речево присутствующим" in builder
+    assert "POV должен оставаться живым и наблюдаемым участником сцены" in builder
+    assert "Это не означает обязательную речь" in builder
     assert "Диалог не должен превращаться в радиопьесу" in builder
     assert "не закончена ли она раньше ближайшего реального выбора POV" in builder
     assert "сцена не оборвана сразу после user_input" in instructions
@@ -136,6 +140,115 @@ def test_scene_builder_requires_pov_presence_visual_anchoring_and_no_early_cut()
     assert "changed=false" in rules
     assert "безопасное значение по умолчанию" in rules
     assert len(instructions) < 8000
+
+
+def test_v5_setup_rejects_free_text_relationship_instead_of_silently_losing_starting_baseline():
+    template = relationship_novel()
+    template["characters"][1]["relationships"] = "Эдриан давно влюблён в Ринату."
+
+    with pytest.raises(ValueError, match="DRAFT_CHARACTER_RELATIONSHIP_STRUCTURE_REQUIRED"):
+        simple_setup_runtime._validate_simple_content(template)
+
+
+def test_v5_setup_merges_multiple_rows_to_same_target_without_losing_dimensions():
+    template = relationship_novel()
+    template["characters"][1]["relationships"] = [
+        {
+            "target_character_id": "rina",
+            "relationship_type": "лучшие друзья",
+            "relationship_context": "Дружат много лет.",
+            "dimensions": [
+                {"label": "близость", "value": 74},
+                {"label": "доверие", "value": 70},
+            ],
+        },
+        {
+            "target_character_id": "Рината",
+            "relationship_type": "скрытая влюблённость",
+            "current_dynamic": "Эдриан скрывает чувства.",
+            "dimensions": [
+                {"label": "влечение", "value": 82},
+                {"label": "ревность", "value": 35},
+            ],
+        },
+    ]
+
+    normalized, _ = simple_setup_runtime._validate_simple_content(template)
+    adrian = next(row for row in normalized["characters"] if row["character_id"] == "adrian")
+    assert len(adrian["relationships"]) == 1
+    relation = adrian["relationships"][0]
+    assert relation["target_character_id"] == "rina"
+    assert "лучшие друзья" in relation["relationship_type"]
+    assert "скрытая влюблённость" in relation["relationship_type"]
+    values = {item["label"]: item["value"] for item in relation["dimensions"]}
+    assert values == {
+        "близость": 74,
+        "доверие": 70,
+        "влечение": 82,
+        "ревность": 35,
+    }
+
+    sid = storage.create_session(normalized)["session_id"]
+    state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
+    assert state["relationships"]["adrian"] == values
+
+
+def test_v5_setup_requires_numeric_baseline_for_explicit_pre_story_npc_to_pov_relation():
+    template = relationship_novel()
+    template["characters"][1]["relationships"] = [
+        {
+            "target_character_id": "rina",
+            "relationship_type": "давняя влюблённость",
+            "current_dynamic": "Скрывает чувства.",
+        }
+    ]
+
+    with pytest.raises(ValueError, match="DRAFT_NPC_POV_RELATIONSHIP_DIMENSIONS_REQUIRED"):
+        simple_setup_runtime._validate_simple_content(template)
+
+
+def test_v5_setup_resolves_full_name_target_to_canonical_character_id():
+    template = relationship_novel()
+    template["characters"][0]["surname"] = "Дейл"
+    template["characters"][1]["relationships"][0]["target_character_id"] = "Рината Дейл"
+
+    normalized, _ = simple_setup_runtime._validate_simple_content(template)
+    adrian = next(row for row in normalized["characters"] if row["character_id"] == "adrian")
+    assert adrian["relationships"][0]["target_character_id"] == "rina"
+
+
+def test_legacy_v4_session_does_not_gain_new_profile_seed_behavior():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        novel = deepcopy(relationship_novel())
+        novel["version"] = 4
+        sid = storage.create_session(novel)["session_id"]
+        state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
+        assert state.get("relationships", {}).get("adrian", {}) == {}
+
+
+def test_direct_v5_session_merges_multiple_profile_rows_if_setup_was_bypassed():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        novel = relationship_novel()
+        novel["characters"][1]["relationships"] = [
+            {
+                "target_character_id": "rina",
+                "relationship_type": "дружба",
+                "dimensions": [{"label": "близость", "value": 70}],
+            },
+            {
+                "target_character_id": "rina",
+                "relationship_type": "влюблённость",
+                "dimensions": [{"label": "влечение", "value": 80}],
+            },
+        ]
+        sid = storage.create_session(novel)["session_id"]
+        state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
+        assert state["relationships"]["adrian"] == {
+            "близость": 70,
+            "влечение": 80,
+        }
 
 
 def test_small_relationship_delta_persists_and_is_visible_next_turn():
