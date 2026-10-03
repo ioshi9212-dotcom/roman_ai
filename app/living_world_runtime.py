@@ -412,7 +412,7 @@ def _enrich_cast_pressure(context: Dict[str, Any], state: Dict[str, Any]) -> Non
             "name": member.get("name") or member.get("full_name"),
             "relationship_salience": round(strength, 2),
             "guidance": (
-                "Сильная связь сама создаёт поводы для контакта. Проверь ближайший причинный способ проявить NPC; "
+                "Сильная связь сама создаёт поводы для контакта. Проверь ближайший причинный способ проявить NPC без запроса POV; "
                 "не оставляй его pending только потому, что POV занят текущей сценой."
             ),
         })
