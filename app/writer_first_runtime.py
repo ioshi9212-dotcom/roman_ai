@@ -78,11 +78,6 @@ def _parse_player_input(text: str) -> Dict[str, Any]:
             "not_spoken": True,
             "not_character_knowledge": True,
             "observable_physical_effects_only": True,
-            "rule": (
-                "Текст внутри ( ) не произносится и по умолчанию приватен для NPC. "
-                "Мысли, мотивы, цели и скрытые факты недоступны; физическое действие даёт только реально наблюдаемую часть. "
-                "Исключение: явно адресованная коммуникация внутри ( ) доступна только указанному получателю, не окружающим."
-            ),
         },
         "unclosed_parenthesis": depth > 0,
     }
@@ -466,11 +461,6 @@ def _rewrite_context(session_id: str, context: Dict[str, Any]) -> Dict[str, Any]
     )
     result["offscreen_intent_candidates"] = {
         "director_only": True,
-        "rule": (
-            "Only currently eligible offscreen intent owners are listed. This is a director cue to inspect relevance, not an automatic reason "
-            "to enter or contact POV. If participation becomes causally natural, load that character bundle first; the intent content belongs "
-            "to that character and is not knowledge of anyone else."
-        ),
         "characters": candidates[:MAX_OFFSCREEN_INTENT_CANDIDATES],
     }
 
