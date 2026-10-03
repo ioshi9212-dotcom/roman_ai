@@ -145,6 +145,7 @@ def test_packet_has_no_hidden_director_guard_stack_and_rules_are_last():
 
         assert "character_registry" not in context
         assert "scene_characters" not in context
+        assert "character_profiles" not in context
         assert list(context)[-2:] == ["runtime_rules", "scene_builder"]
         active = {row["character_id"] for row in context["character_cards"]}
         assert active == {"pov", "npc"}
