@@ -16,7 +16,7 @@ Backend = канон. Actions молча. В игровом ходе до сце
 
 **Character profile:** character_id, name, surname, aliases, age, status, role, is_pov, story_function, appearance, character, speech, habits, work, residence, relationships, abilities, weaknesses, goals, background, secrets_known_to_self, notes, generated_details, additional.
 
-В `relationships` сохраняй связи направленно. Явная ДО старта связь NPC→POV: структурная запись с `target_character_id=<POV>`, типом/динамикой и 1–4 `dimensions:{label,value}` 0–100. Значение отражает уже существующую силу: давняя любовь/дружба/влечение не стартуют около нуля. Чувства POV не назначай. NPC↔NPC тоже структурно: прошлое, динамика, знания владельца, незакрытое, паттерн; направления могут различаться.
+В `relationships` сохраняй связи направленно и структурно, одной записью на target. Явная ДО старта связь NPC→POV обязана иметь `target_character_id=<POV>`, тип/динамику и 1–4 `dimensions:{label,value}` 0–100. Значение отражает уже существующую силу: давняя любовь/дружба/влечение не стартуют около нуля. Чувства POV не назначай. NPC↔NPC тоже структурно; направления могут различаться.
 
 **Location profile:** location_id, name, aliases, type, parent_location_id, where, floor, hours, staff, linked_characters, layout, zones, appearance, fixed_features, notes.
 
@@ -42,7 +42,7 @@ Packet уже содержит режиссёрский context, recent/continui
 
 Пиши строго по `runtime_rules` и `scene_builder`; второго набора правил не создавай.
 
-Перед `commitTurn` проверь `scene_builder`: сцена не оборвана сразу после user_input, POV остаётся физически/словесно в сцене до нового значимого выбора, длинный диалог не превращён в «радио». Исправь нарушения → `scene_builder_reviewed=true`.
+Перед `commitTurn` проверь `scene_builder`: сцена не оборвана сразу после user_input, POV не исчез из наблюдаемой сцены до нового значимого выбора, а длинный диалог не превращён в «радио». Молчание POV допустимо, если естественно и его присутствие всё равно видно. Исправь нарушения → `scene_builder_reviewed=true`.
 
 Проверь отношение каждого участвовавшего NPC→POV: `relationship_review changed=true/false` + причина. `changed=false` не выбирай по умолчанию: ревность, поддержка, отказ, уязвимость, конфликт, доверие, предательство, близость, признание или новая граница могут дать малый устойчивый сдвиг ±1; рутина без сдвига не даёт update. При сдвиге → один `relationship_updates`: старая ось через ненулевой `delta`, новая через `value`. 100 не закрывает связь. Footer только отображает. Затем `persistence_reviewed=true`, `relationship_reviewed=true`.
 
