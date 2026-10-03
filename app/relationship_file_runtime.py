@@ -351,14 +351,19 @@ def apply_updates(
         if scale not in {"ordinary", "critical_event"}:
             raise ValueError("RELATIONSHIP_CHANGE_SCALE_INVALID")
 
+        incoming_dimensions = raw.get("dimensions") if isinstance(raw.get("dimensions"), list) else []
+        if not incoming_dimensions:
+            raise ValueError("RELATIONSHIP_UPDATE_EMPTY")
+
         owner = npc_to_pov.setdefault(owner_id, {"dimensions": {}})
         dimensions = owner.setdefault("dimensions", {})
         if not isinstance(dimensions, dict):
             dimensions = {}
             owner["dimensions"] = dimensions
 
+        changed_any = False
         seen: set[str] = set()
-        for item in raw.get("dimensions", []) if isinstance(raw.get("dimensions"), list) else []:
+        for item in incoming_dimensions:
             if not isinstance(item, dict):
                 continue
             label = " ".join(str(item.get("label") or "").split())
@@ -377,6 +382,7 @@ def apply_updates(
                 new_value = float(dimensions[existing_label]["value"]) + float(delta)
                 if new_value == 0.0:
                     dimensions.pop(existing_label, None)
+                    changed_any = True
                     continue
                 dimensions[existing_label] = {
                     "value": _number(new_value),
@@ -384,6 +390,7 @@ def apply_updates(
                     "last_turn": int(turn_number),
                     "reason": reason,
                 }
+                changed_any = True
                 continue
 
             value = item.get("value")
@@ -399,7 +406,10 @@ def apply_updates(
                 "last_turn": int(turn_number),
                 "reason": reason,
             }
+            changed_any = True
 
+        if not changed_any:
+            raise ValueError("RELATIONSHIP_UPDATE_EMPTY")
         if not dimensions:
             npc_to_pov.pop(owner_id, None)
 
