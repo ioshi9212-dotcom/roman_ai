@@ -80,6 +80,8 @@ Bundle даёт данные персонажа. Фоновому NPC карто
 
 Не придумывай update ради заполнения поля.
 
+Если commitTurn возвращает `STORY_PROGRESS_REQUIRED`, перепиши этот же ход с тем же packet/request без случайного события: естественно закончи/переведи затянувшуюся сцену или дай уже существующей линии мира, NPC, сообщению, расписанию или причинному пересечению реально изменить ситуацию. Новый ход не начинай.
+
 ## Resume / rollback
 
 `CONTINUE SESSION:<id>` → `resumeSession`; `last_committed_turn.scene_output` = последняя сцена. `recoverSessionCurrent` только при `current_recovery_required=true`. «Откат сцены» → `resumeSession` → `rollbackLastTurn` с exact turn number + current_turn_id + `confirm=true`. «Не считать ходом» → не вызывай `prepareTurn`. Старая точная сцена → `prepareSceneArchiveRead` → все `getSceneArchiveChunk`.
