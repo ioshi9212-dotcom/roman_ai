@@ -9,7 +9,7 @@ from .transactional_storage import session_transaction
 
 
 _ORIGINAL_PREPARE = None
-_GUARDRAIL_VERSION = 18
+_GUARDRAIL_VERSION = 19
 _TERMINAL = {"resolved", "closed", "expired", "cancelled", "canceled", "done", "abandoned"}
 _HOOK_KEYS = (
     "fear", "страх", "weak", "слаб", "past", "прошл", "history", "истор",
@@ -78,7 +78,7 @@ def _cast_pressure(context: Dict[str, Any], state: Dict[str, Any], current_turn:
             "active_intent": has_intent,
             "important_role": important,
             "must_reconsider": True,
-            "guidance": "Если уместно по канону — верни NPC; иначе оставь pending.",
+            "guidance": "Проверь ближайший причинный способ вернуть NPC. Не оставляй pending только ради сохранения текущей сцены; если его цель, роль, состояние, место или открытая линия уже дают повод, создай логичный контакт без запроса POV.",
         }
         scored.append((score, {k: v for k, v in item.items() if v not in (None, "", False)}))
     scored.sort(key=lambda pair: pair[0], reverse=True)
@@ -244,9 +244,11 @@ def _scene_momentum_rule(context: Dict[str, Any]) -> Dict[str, Any]:
         "mandatory": True,
         "player_input_scope": _player_input_scope(context),
         "rule": (
-            "Рутину веди до конца, вмешательства или следующего значимого выбора. "
+            "Рутину веди до естественного конца, вмешательства или следующего значимого выбора. "
             "Короткое действие доводи до результата и реакции, но не проживай за POV следующий самостоятельный этап. "
-            "Важную сцену не проматывай, пока в ней реально меняются действие, контакт, эмоция, риск, информация или цель."
+            "Важную сцену не проматывай, пока в ней реально меняются действие, контакт, эмоция, риск, информация или цель. "
+            "Но текущая сцена не имеет иммунитета от мира: если вне неё уже наступил причинный следующий шаг NPC, открытой линии, расписания, времени суток или ситуации, "
+            "дай ему войти в кадр, прервать сцену либо естественно перевести её дальше. Не сохраняй одну и ту же бытовую/романтическую сцену только потому, что её приятно или безопасно продолжать."
         ),
     }
 
