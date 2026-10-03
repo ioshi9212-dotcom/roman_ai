@@ -59,81 +59,58 @@ def test_active_runtime_is_author_rules_plus_scene_builder():
     sources = runtime_access.author_runtime_sources()
     assert docs["rules"] == sources["rules"]
     assert docs["scene_builder"] == sources["scene_builder"]
-    assert "выбор информации всегда остаётся игроку" in docs["rules"]
-    assert "Источник знания должен существовать ДО" in docs["rules"]
-    assert "Знание частичного факта не даёт автоматически его недостающие детали" in docs["rules"]
-    assert "у Ринаты свидание в субботу" in docs["rules"]
-    assert "Во сколько?" in docs["rules"]
-    assert "минимальный смысл реально полученной информации" in docs["rules"]
-    assert "Елена сказала, что она не рейдер" in docs["rules"]
-    assert "не исправляй это режиссёрской правдой" in docs["rules"]
-    assert "npc_active_intents[ID]" in docs["rules"]
-    assert "Intent не является отдельным источником знаний" in docs["rules"]
-    assert "сохраняй intent как «узнать где/во сколько»" in docs["rules"]
-    assert "offscreen_intent_candidates" in docs["rules"]
-    assert "Если по плану Морита завтра проверит POV" in docs["rules"]
-    assert "другой NPC может сказать это только если реально узнал" in docs["rules"]
-    assert "Режиссёрское знание не является причиной поведения персонажа" in docs["rules"]
-    assert "не могут сами по себе заставить NPC задавать наводящие вопросы" in docs["rules"]
-    assert "ошибочное представление о ситуации" in docs["rules"]
-    assert "Цепочка драматических осложнений с мисдирекшном" not in docs["rules"]
-    assert "Используй подставы, ложные подозрения" not in docs["rules"]
-    assert "Формат scene_builder обязателен" in docs["scene_builder"]
-    assert "ТОЧКА ОСТАНОВКИ СЦЕНЫ" in docs["scene_builder"]
-    assert "Если такой точки ещё нет — сцена ещё не закончена." in docs["scene_builder"]
-    assert "Не придумывай ради этого обязательный звонок" not in docs["scene_builder"]
-    assert "Если такой точки ещё нет — сцена ещё не закончена." in docs["scene_builder"]
-    assert "Варианты появляются только ПОСЛЕ" in docs["scene_builder"]
-    assert "НЕ ОПИСЫВАЙ НЕСЛУЧИВШЕЕСЯ" in docs["scene_builder"]
-    assert "Отсутствие действия само по себе не является событием" in docs["scene_builder"]
-    assert "Не перечисляй отсутствующие действия" in docs["scene_builder"]
-    assert "Конец сцены и варианты опираются только на события" in docs["rules"]
-    assert "POV не превращается в молчащую камеру" in docs["rules"]
-    assert "не обязан ждать нового хода игрока после каждой реплики" in docs["rules"]
-    assert "НЕ задают новый режим молчания" in docs["rules"]
-    assert "Не продолжай молчание только потому, что POV молчал в последних сценах" in docs["rules"]
-    assert "Останавливай POV только перед новым значимым выбором" in docs["rules"]
-    assert "не ставь мир на паузу ради хода игрока" in docs["rules"]
-    assert "Быт не должен замораживать мир" in docs["rules"]
-    assert "если POV ничего не инициирует" in docs["rules"]
-    assert "world_movement_context" in docs["rules"]
-    assert "structural_movement_due=true" in docs["rules"]
-    assert "предыдущий состав сцены не переносится автоматически" in docs["rules"]
-    assert "present_characters" in docs["rules"]
-    assert "state.characters[ID]" in docs["rules"]
-    assert "Не проматывай через ожидаемого персонажа" in docs["rules"]
-    assert "ROUTINE снижает плотность визуального покрытия" in docs["scene_builder"]
-    assert "Отношения — часть причин поведения NPC" in docs["rules"]
-    assert "Содержание сцены не шаблонизируй" in docs["scene_builder"]
-    assert "Не объясняй смысл реплик, поведения, эмоций и отношений" in docs["scene_builder"]
-    assert "Последние абзацы сцены должны не закрывать движение" in docs["scene_builder"]
-    assert "Не придумывай новый активный элемент только ради эффекта финала" in docs["scene_builder"]
-    assert "2000–3000 непробельных символов" in docs["scene_builder"]
-    assert "не должна превращаться в чистую стенограмму" in docs["scene_builder"]
-    assert "Любую сцену должно быть возможно визуально собрать в голове" in docs["scene_builder"]
-    assert "ПРИСУТСТВИЕ И ФИЗИЧЕСКАЯ НЕПРЕРЫВНОСТЬ" in docs["rules"]
-    assert "Молчание не удаляет NPC" in docs["rules"]
-    assert "Между двумя ходами нет скрытого монтажа" in docs["rules"]
-    assert "Начало нового хода физически продолжает конец предыдущего" in docs["scene_builder"]
-    assert "Центральный beat важной интимной сцены нельзя заменять" in docs["scene_builder"]
-    assert "снижай графичность, а не непрерывность" in docs["scene_builder"]
-    assert "Авторский комментарий не заменяет саму сцену" in docs["scene_builder"]
-    assert "Плохой монтаж:" not in docs["scene_builder"]
-    assert "Плохие варианты:" not in docs["scene_builder"]
-    assert "Примеры:" not in docs["scene_builder"]
-    assert "unknown_to_self" in docs["rules"]
-    assert "короткое содержательное действие" in docs["rules"]
-    assert "Слухи, сообщения и чужие знания распространяются только через реальные каналы" in docs["rules"]
-    assert "основной акцент держи на персонажах, созданных игроком" in docs["rules"]
-    assert "не создавай ему карточку и не сохраняй через character_upserts" in docs["rules"]
-    assert "обязательна конкретная `story_function`" in docs["rules"]
-    assert "полная гибкость на создание интересных персонажей" not in docs["rules"]
-    assert "location_context" in docs["rules"]
-    assert "Упоминание места, планы туда поехать" in docs["rules"]
-    assert "Не придумывай ради удобства сцены новую постоянную комнату" in docs["rules"]
-    assert "linked_characters" in docs["rules"]
-    assert "location_id" in docs["rules"]
-    assert "Стартовая анкета, hidden_lore, правила новеллы и открытые сюжетные линии не декорация" in docs["rules"]
+
+    rules = docs["rules"]
+    builder = docs["scene_builder"]
+
+    # Proven behavior that must stay.
+    assert "Запрещено использовать психологию" in rules
+    assert "здоровую коммуникацию" in rules
+    assert "Явная провокация, флирт, поддразнивание" in rules
+    assert "Не сохраняй автоматическую галантность" in rules
+    assert "Не являются декорацией или фоном" in rules
+    assert "основной акцент держи на персонажах, созданных игроком" in rules
+    assert "Отношения — живое состояние" in rules
+    assert "Не усредняй противоречивые черты персонажа" in rules
+
+    # Knowledge and continuity protections remain.
+    assert "Частичный факт не даёт недостающие детали" in rules
+    assert "Источник знания должен существовать ДО" in rules
+    assert "npc_active_intents[ID]" in rules
+    assert "если он не знает где/во сколько" in rules
+    assert "Молчание не удаляет NPC" in rules
+    assert "present_characters" in rules
+    assert "state.characters[ID]" in rules
+
+    # Living world without a turn-count pacing leash.
+    assert "Мир не ждёт POV" in rules
+    assert "нет обязательной частоты событий" in rules
+    assert "Не регулируй темп счётчиком ходов" in rules
+    assert "Каждый ход заканчивай на конкретном активном крючке" in rules
+    assert "можно было просто побыть так" in rules
+
+    # Scene builder keeps format, variable length and a usable ending,
+    # but no ROUTINE/STANDARD/CINEMATIC state machine or meaningful-choice lock.
+    assert builder.startswith("Формат Scene Builder обязателен")
+    assert "1500–3000 непробельных символов" in builder
+    assert "2200–3000" in builder
+    assert "Не выбирай минимальную длину по умолчанию" in builder
+    assert "конкретный активный крючок" in builder
+    assert "ВАРИАНТЫ" in builder
+    assert "НЕ ОПИСЫВАЙ НЕСЛУЧИВШЕЕСЯ" in builder
+    assert "важную сцену нельзя заканчивать" in builder
+
+    for removed in (
+        "ROUTINE",
+        "STANDARD",
+        "CINEMATIC",
+        "ТОЧКА ОСТАНОВКИ СЦЕНЫ",
+        "Если такой точки ещё нет — сцена ещё не закончена.",
+        "world_movement_context",
+        "structural_movement_due",
+        "Важные романтические, конфликтные, эмоциональные, интимные и экшн-сцены не торопи",
+    ):
+        assert removed not in rules + "\n" + builder
 
 
 def test_packet_has_no_hidden_director_guard_stack_and_rules_are_last():
@@ -216,9 +193,10 @@ def test_active_character_receives_complete_knowledge_journal_in_packet():
         assert "fact 1" in journal
         assert "fact 120" in journal
         assert "entry_id" not in journal
-        rule = context["character_knowledge_rule"]
-        assert "Knowledge is granular" in rule
-        assert "unknown time/place/person/reason/plan" in rule
+
+        # Knowledge directing lives in runtime_rules, not another packet rule.
+        assert "character_knowledge_rule" not in context
+        assert "Частичный факт не даёт недостающие детали" in context["runtime_rules"]
 
 
 def test_dynamic_relationship_label_can_appear_without_whitelist():
@@ -250,7 +228,7 @@ def test_dynamic_relationship_label_can_appear_without_whitelist():
         assert state["relationships"]["npc"]["любовь"] == 12
 
 
-def test_relationship_lens_separates_physical_footer_from_remote_and_does_not_freeze_at_100():
+def test_relationship_lens_separates_physical_footer_from_remote_without_hidden_director_prose():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         novel = base_novel()
@@ -265,10 +243,10 @@ def test_relationship_lens_separates_physical_footer_from_remote_and_does_not_fr
         lens = context["relationship_lens"]
         assert lens["footer_character_ids"] == ["npc"]
         assert lens["remote_participant_ids"] == ["away"]
-        assert lens["qualitative_review_required"] is True
-        assert "100" in lens["rule"]
-        assert "not a whitelist" in lens["rule"]
-        assert "physically present" in lens["footer_rule"]
+        assert "rule" not in lens
+        assert "footer_rule" not in lens
+        assert "stagnation_rule" not in lens
+        assert "Отношения — живое состояние" in context["runtime_rules"]
 
 
 def test_saturated_old_metric_does_not_block_new_dynamic_dimension():
