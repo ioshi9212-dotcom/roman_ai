@@ -125,10 +125,6 @@ def prepare_turn_request(
                 result["scene_archive_capable"] = bool(packet.get("scene_archive_capable"))
                 result["opening_scene"] = bool(packet.get("opening_scene"))
                 result["writer_review_required"] = bool(packet.get("writer_review_required"))
-                result["relationship_review_required"] = bool(packet.get("relationship_review_required"))
-                result["relationship_review_details_required"] = bool(packet.get("relationship_review_details_required"))
-                result["relationship_footer_scope_required"] = bool(packet.get("relationship_footer_scope_required"))
-                result["relationship_review_v3_required"] = bool(packet.get("relationship_review_v3_required"))
                 result["pending_turn"] = pending_turn_status(session_id)
                 return result
 
@@ -173,10 +169,6 @@ def prepare_turn_request(
         result["scene_archive_capable"] = bool(scene_archive_capable)
         result["opening_scene"] = bool(opening_scene)
         result["writer_review_required"] = bool(packet.get("writer_review_required"))
-        result["relationship_review_required"] = bool(packet.get("relationship_review_required"))
-        result["relationship_review_details_required"] = bool(packet.get("relationship_review_details_required"))
-        result["relationship_footer_scope_required"] = bool(packet.get("relationship_footer_scope_required"))
-        result["relationship_review_v3_required"] = bool(packet.get("relationship_review_v3_required"))
         result["pending_turn"] = pending_turn_status(session_id)
         return result
 
