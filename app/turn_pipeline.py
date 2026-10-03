@@ -48,7 +48,7 @@ _BASE_PARTICIPATION_BUNDLE = character_chunk_read._participation_bundle
 _BASE_CREATE_SESSION = storage.create_session
 _BASE_RECOVER_CURRENT = session_recovery.recover_session_current
 
-PIPELINE_VERSION = 13
+PIPELINE_VERSION = 14
 
 def _packet_manifest(packet: Dict[str, Any], *, reused: bool) -> Dict[str, Any]:
     chunks = packet.get("chunks", []) if isinstance(packet.get("chunks"), list) else []
@@ -158,6 +158,7 @@ def _cast_registry_rows(
     cards: List[Dict[str, Any]],
     source: Dict[str, Any],
     current_turn: int,
+    npc_network: Dict[str, Any],
 ) -> List[Dict[str, Any]]:
     source_ids = {
         storage._card_id(card)
@@ -183,12 +184,6 @@ def _cast_registry_rows(
     pov_id = str(pov.get("character_id") or "")
     present = {str(value) for value in storage._present_character_ids(state) if value}
     remote = {str(value) for value in storage._remote_character_ids(state) if value}
-    npc_network = npc_relationship_runtime.build_network(
-        cards,
-        state,
-        resolve_character_id=session_runtime._resolve_character_id,
-    )
-
     def compact(value: Any, limit: int = 520) -> str | None:
         if value in (None, "", [], {}):
             return None
@@ -262,15 +257,12 @@ def _cast_registry_rows(
         card = card_map.get(cid, {})
         info = runtime.get(cid) if isinstance(runtime.get(cid), dict) else {}
 
-        identity = card.get("identity") if isinstance(card.get("identity"), dict) else {}
         goals = card.get("goals")
         story_function = (
             raw.get("story_function")
             or card.get("story_function")
             or (goals.get("story_function") if isinstance(goals, dict) else None)
         )
-        work = card.get("work") or card.get("occupation") or identity.get("occupation")
-        residence = card.get("residence") or card.get("home") or card.get("lives_at")
         relationship_to_pov = relationships.get(cid) if isinstance(relationships.get(cid), dict) else None
 
         row = {
@@ -285,14 +277,11 @@ def _cast_registry_rows(
             "present": cid in present,
             "remote": cid in remote,
             "goals": compact(goals),
-            "work": compact(work, 320),
-            "residence": compact(residence, 320),
             "current_location": compact(info.get("location") or info.get("location_id"), 220),
             "current_zone": compact(info.get("zone") or info.get("zone_id"), 180),
             "current_activity": compact(info.get("activity"), 320),
             "relationship_to_pov": relationship_to_pov,
-            "known_relationships": compact(card.get("relationships"), 520),
-            "npc_relationships": npc_relationship_runtime.relations_for_character(npc_network, cid),
+            "npc_relation_refs": npc_relationship_runtime.relation_refs_for_character(npc_network, cid),
             "full_card_retrieval": (
                 {
                     "action": "prepareCharacterBundleRead",
@@ -515,12 +504,13 @@ def _prepare_context(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
         "instruction": (
             "Перед сценой просмотри ВЕСЬ постоянный NPC-каст и npc_relationship_network. Это не очередь и не ротация. "
             "Давность, число появлений и то, что персонажа давно не было, сами по себе никогда не являются причиной вывести его в сцену. "
-            "Для каждого NPC оцени role/story_function, goals, work/residence, current_location/current_activity, "
-            "relationship_to_pov, связи NPC↔NPC, active_intents, active_threads и реальные последствия. "
+            "Для каждого NPC оцени role/story_function, goals, current_location/current_activity, "
+            "relationship_to_pov, npc_relation_refs, active_intents, active_threads и реальные последствия; "
+            "полный текст NPC↔NPC связей читай один раз из npc_relationship_network. "
             "Если собственная линия NPC или его связь с другим NPC создаёт причинный путь к текущей/ближайшей сцене, мир сам подводит пересечение. "
             "POV не обязан искать, звать или вспоминать персонажа. Если причины нет, не вставляй NPC ради камео."
         ),
-        "characters": _cast_registry_rows(state, cards, source, current_turn),
+        "characters": _cast_registry_rows(state, cards, source, current_turn, npc_network),
     }
     context["npc_relationship_network"] = npc_network
 
