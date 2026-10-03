@@ -368,7 +368,7 @@ def _clean_director_layers(context: Dict[str, Any]) -> Dict[str, Any]:
         "scene_rendering_source": "scene_builder",
         "hidden_director_guard_layers": False,
         "backend_semantic_scene_gates": False,
-        "precommit_review_gates": ["scene_builder", "persistence", "knowledge", "relationships"],
+        "precommit_review_gates": ["scene_builder", "persistence", "knowledge"],
         "offscreen_character_retrieval": "chunked_when_relevant",
         "active_character_knowledge_rebuilt_from_persistent_memory": True,
     })
@@ -533,32 +533,14 @@ def _prepare_context(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
         remote_set = set(remote_ids)
         lens["footer_character_ids"] = physical_ids
         lens["remote_participant_ids"] = remote_ids
-        relations = lens.get("relations_in_current_scene")
-        if isinstance(relations, list):
-            for row in relations:
-                if not isinstance(row, dict):
-                    continue
-                owner_id = str(row.get("owner_character_id") or "")
-                if owner_id in physical_set:
-                    row["participation_mode"] = "physical"
-                elif owner_id in remote_set:
-                    row["participation_mode"] = "remote"
-                last_changed = int(row.get("last_changed_turn", 0) or 0)
-                row["turns_since_change"] = max(0, current_turn - last_changed) if last_changed else max(0, current_turn)
-                saturated = [
-                    str(item.get("label") or item.get("key"))
-                    for item in row.get("dimensions", []) if isinstance(item, dict)
-                    and isinstance(item.get("value"), (int, float)) and not isinstance(item.get("value"), bool)
-                    and float(item.get("value")) >= 100.0
-                ]
-                if saturated:
-                    row["saturated_dimensions"] = saturated
-        candidates = lens.get("present_npc_candidates")
-        if isinstance(candidates, list):
-            lens["present_npc_candidates"] = [
-                row for row in candidates
-                if isinstance(row, dict) and str(row.get("character_id") or "") in physical_set
-            ]
+        for row in lens.get("relations_in_current_scene", []) if isinstance(lens.get("relations_in_current_scene"), list) else []:
+            if not isinstance(row, dict):
+                continue
+            owner_id = str(row.get("owner_character_id") or "")
+            if owner_id in physical_set:
+                row["participation_mode"] = "physical"
+            elif owner_id in remote_set:
+                row["participation_mode"] = "remote"
         context["relationship_lens"] = lens
 
     persistence = context.get("persistence_contract")
