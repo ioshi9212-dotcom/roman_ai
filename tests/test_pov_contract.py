@@ -21,7 +21,8 @@ def test_scene_builder_uses_content_based_detail_without_mode_machine():
     assert "Важное физическое действие должно быть понятно глазами" in builder
     assert "Не нужен покадровый каталог микродвижений" in builder
     assert "Рутину, повтор и ожидание сжимай" in builder
-    assert "1500–3000 непробельных символов" in builder
+    assert "2000–2400 непробельных символов" in builder
+    assert "2500–3000 непробельных символов" in builder
     assert "ROUTINE" not in builder
     assert "STANDARD" not in builder
     assert "CINEMATIC" not in builder
