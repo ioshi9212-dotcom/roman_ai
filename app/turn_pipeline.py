@@ -659,7 +659,18 @@ def _apply_relationship_changes(session_id: str, payload: Dict[str, Any]) -> Dic
     state_after = storage._deep_merge(state, patch)
     pov = state_after.get("pov") if isinstance(state_after.get("pov"), dict) else {}
     pov_id = str(pov.get("character_id") or "")
-    participants = storage._scene_participant_ids(state_after)
+    participants = list(dict.fromkeys([
+        *storage._scene_participant_ids(state),
+        *storage._scene_participant_ids(state_after),
+    ]))
+    current_patch = patch.get("current") if isinstance(patch.get("current"), dict) else {}
+    for key in ("entered_characters", "left_characters"):
+        values = current_patch.get(key, [])
+        if isinstance(values, str):
+            values = [values]
+        if isinstance(values, list):
+            participants.extend(str(value) for value in values if value)
+    participants = list(dict.fromkeys(participants))
     meta = storage._read_json(root / "meta.json", {})
     turn_number = int(meta.get("turn_number", 0) or 0) + 1
 
