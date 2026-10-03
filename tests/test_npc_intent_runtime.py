@@ -97,7 +97,8 @@ def test_unresolved_npc_intent_persists_and_resurfaces_without_player_reminder()
         assert "npc_intent_instruction" not in context
         assert "Смена темы intent не закрывает." in context["runtime_rules"]
         assert "narrative_guardrails" not in context
-        assert context["working_context_contract"]["npc_intents_are_persistent"] is True
+        assert "working_context_contract" not in context
+        assert "Intent остаётся активным" in context["runtime_rules"]
 
         bundle = get_character_bundle(sid, "ren")
         assert bundle["active_intents"][0]["intent_id"] == "check_account_origin"
@@ -147,7 +148,8 @@ def test_offscreen_active_intent_is_visible_before_character_is_pulled_into_scen
         assert "come_back_to_talk" not in json.dumps(candidates, ensure_ascii=False)
         assert context["scene_state"]["characters"]["ren"]["location"] == "home"
         assert context["scene_state"]["characters"]["ren"]["activity"] == "в соседней комнате"
-        assert context["working_context_contract"]["offscreen_active_intents_in_packet"] is False
+        assert "working_context_contract" not in context
+        assert "offscreen_intent_candidates" in context["runtime_rules"]
         assert context["working_context_contract"]["offscreen_intent_candidates_in_packet"] is True
 
         # The owner still gets the full private intent once their dossier is loaded.
