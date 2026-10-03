@@ -142,6 +142,32 @@ def _other_personal_knowledge_rows(root, character_id: str) -> list[tuple[str, s
     return rows
 
 
+def _other_same_commit_personal_rows(container: Dict[str, Any], character_id: str) -> list[tuple[str, str]]:
+    rows: list[tuple[str, str]] = []
+    for field in ("knowledge_journal_add", "knowledge_add", "dialogue_memory_add"):
+        values = container.get(field)
+        if not isinstance(values, list):
+            continue
+        for row in values:
+            if not isinstance(row, dict):
+                continue
+            source_id = str(row.get("character_id") or row.get("owner_character_id") or "")
+            if not source_id or source_id == character_id:
+                continue
+            for key in ("text", "content", "fact", "summary"):
+                value = str(row.get(key) or "").strip()
+                if value:
+                    rows.append((source_id, value))
+            segments = row.get("segments")
+            if isinstance(segments, list):
+                for segment in segments:
+                    if isinstance(segment, dict):
+                        value = str(segment.get("text") or "").strip()
+                        if value:
+                            rows.append((source_id, value))
+    return rows
+
+
 def _validate_intent_personal_knowledge(root, container: Dict[str, Any], updates: Any) -> None:
     if not isinstance(updates, list):
         return
@@ -170,7 +196,10 @@ def _validate_intent_personal_knowledge(root, container: Dict[str, Any], updates
                 allowed_text + "\n" + same_commit
             )
         if character_id not in protected_cache:
-            protected_cache[character_id] = _other_personal_knowledge_rows(root, character_id)
+            protected_cache[character_id] = [
+                *_other_personal_knowledge_rows(root, character_id),
+                *_other_same_commit_personal_rows(container, character_id),
+            ]
 
         allowed_terms = allowed_cache[character_id]
         for source_character_id, protected_text in protected_cache[character_id]:
