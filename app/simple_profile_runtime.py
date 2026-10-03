@@ -7,7 +7,7 @@ from typing import Any, Dict, List
 
 from fastapi import HTTPException
 
-from . import character_chunk_read, npc_relationship_runtime, session_runtime, storage, writer_first_runtime
+from . import character_chunk_read, relationship_file_runtime, session_runtime, storage, writer_first_runtime
 from .profile_templates import (
     normalize_character_profile,
     render_character_profile,
@@ -647,14 +647,16 @@ def _participation_bundle(session_id: str, character_id: str) -> Dict[str, Any]:
         raise KeyError(character_id)
 
     state = storage._read_json(root / "state.json", {})
-    network = npc_relationship_runtime.build_network(
-        cards,
-        state,
-        resolve_character_id=session_runtime._resolve_character_id,
+    pov = state.get("pov") if isinstance(state.get("pov"), dict) else {}
+    relationship_store = relationship_file_runtime.load(
+        root,
+        cards=cards,
+        state=state,
+        pov_id=str(pov.get("character_id") or ""),
     )
     runtime = state.get("characters", {}) if isinstance(state.get("characters"), dict) else {}
     current_state = runtime.get(character_id, {}) if isinstance(runtime.get(character_id), dict) else {}
-    relationship = storage._relationship_hint(state, character_id)
+    relationship = relationship_file_runtime.character_relation(relationship_store, character_id)
 
     memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
     bucket = storage._memory_bucket(memory, character_id)
@@ -674,8 +676,8 @@ def _participation_bundle(session_id: str, character_id: str) -> Dict[str, Any]:
         "profile": render_character_profile(card),
         "current_state": deepcopy(current_state),
         "relationship_to_pov": deepcopy(relationship),
-        "npc_relationships_director_only": npc_relationship_runtime.outgoing_relations_for_character(
-            network,
+        "npc_relationships_director_only": relationship_file_runtime.outgoing_npc_relations(
+            relationship_store,
             character_id,
         ),
         "knowledge_journal": journal,
@@ -700,7 +702,7 @@ def _participation_bundle(session_id: str, character_id: str) -> Dict[str, Any]:
         },
         "instruction": (
             "Этот bundle полностью готов для участия offscreen-персонажа: own profile + own complete knowledge "
-            "+ relationship + current state. npc_relationships_director_only влияет на режиссуру поведения, но не является "
+            "+ relationship + current state. relationship берётся только из relationships.json. npc_relationships_director_only влияет на режиссуру поведения, но не является "
             "личным factual knowledge и не сообщает персонажу неизвестные факты о другом NPC. Используй только явно известные "
             "детали; не дополняй частичный факт скрытыми или вероятными подробностями. Отдельный knowledge-read не нужен."
         ),
