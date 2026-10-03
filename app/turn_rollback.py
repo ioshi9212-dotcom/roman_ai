@@ -7,7 +7,6 @@ from typing import Any, Dict, List, Tuple
 from . import location_runtime, relationship_file_runtime, storage
 from .character_registry import refresh_pov_familiarity
 from .game_day import sync_game_day
-from .relationship_runtime import repair_relationship_state
 from .rollback_snapshot_runtime import PREVIOUS2_SNAPSHOT_FILE, PREVIOUS_SNAPSHOT_FILE, SNAPSHOT_FILE
 from .operation_receipts import (
     RECEIPTS_FILE,
@@ -37,7 +36,7 @@ def _initial_replay_state(source: Dict[str, Any]) -> Tuple[List[Dict[str, Any]],
     cards = storage._normalise_cards(source.get("characters", []))
     state = storage._template(
         "state.json",
-        {"current": {}, "pov": {}, "characters": {}, "relationships": {}, "threads": {}, "world": {}},
+        {"current": {}, "pov": {}, "characters": {}, "threads": {}, "world": {}},
     )
     starting_state = source.get("starting_state") if isinstance(source.get("starting_state"), dict) else {}
     state = storage._deep_merge(state, starting_state)
@@ -76,13 +75,8 @@ def _refresh_derived_state(
     turn_number: int,
 ) -> Dict[str, Any]:
     state = _canonicalize_state_character_refs(cards, state)
-    state = repair_relationship_state(
-        state,
-        source=source,
-        turns=turns,
-        cards=cards,
-        resolve_character_id=_resolve_character_id,
-    )
+    for key in ("relationships", "relationship_documents", "relationship_schemas", "npc_relationships"):
+        state.pop(key, None)
     return refresh_pov_familiarity(cards, state, memory, chronology, turns, turn_number)
 
 
