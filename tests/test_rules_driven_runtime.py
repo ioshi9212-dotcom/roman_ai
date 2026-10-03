@@ -64,7 +64,7 @@ def test_active_runtime_is_author_rules_plus_scene_builder():
     builder = docs["scene_builder"]
 
     # Proven behavior that must stay.
-    assert "Запрещено использовать психологию" in rules
+    assert "Запрещено автоматически применять психологию" in rules
     assert "здоровую коммуникацию" in rules
     assert "Явная провокация, флирт, поддразнивание" in rules
     assert "Не сохраняй автоматическую галантность" in rules
@@ -86,8 +86,8 @@ def test_active_runtime_is_author_rules_plus_scene_builder():
     assert "Мир не ждёт POV" in rules
     assert "нет обязательной частоты событий" in rules
     assert "Не регулируй темп счётчиком ходов" in rules
-    assert "Каждый ход заканчивай на конкретном активном крючке" in rules
-    assert "можно было просто побыть так" in rules
+    assert "конкретный активный крючок" in builder
+    assert "можно просто побыть" in builder
 
     # Scene builder keeps format, variable length and a usable ending,
     # but no ROUTINE/STANDARD/CINEMATIC state machine or meaningful-choice lock.
@@ -132,6 +132,8 @@ def test_character_perception_and_scene_quality_stay_causal_without_pacing_modes
     assert "Заметное действие POV, направленное на NPC, получает наблюдаемую реакцию" in builder
     assert "В экшне сохраняй географию сцены" in builder
     assert "Восприятие должно проявляться через сцену и индивидуальную реакцию персонажа" in builder
+    assert "Степень открытости и детализации соответствует категории" in builder
+    assert "уменьши графичность, но сохрани понятную непрерывность действия" in builder
 
     assert "ROUTINE" not in builder
     assert "STANDARD" not in builder
