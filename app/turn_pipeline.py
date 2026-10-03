@@ -221,29 +221,23 @@ def _clean_relationship_lens(context: Dict[str, Any]) -> None:
     if not isinstance(lens, dict):
         return
     lens = deepcopy(lens)
-    lens["initialization_required"] = False
-    lens.pop("initialization_instruction", None)
+    for key in (
+        "instruction",
+        "rule",
+        "initialization_instruction",
+        "initialization_rule",
+        "stagnation_rule",
+    ):
+        lens.pop(key, None)
     candidates = lens.get("present_npc_candidates")
     if isinstance(candidates, list):
         for row in candidates:
-            if not isinstance(row, dict):
-                continue
-            if not row.get("saved_dimensions"):
-                row["initialization_rule"] = (
-                    "No saved dimensions yet: once this NPC meaningfully forms an attitude toward POV in the scene, "
-                    "create 1-3 natural dimensions. Do not create them without a real basis."
-                )
-            else:
+            if isinstance(row, dict):
                 row.pop("initialization_rule", None)
-    lens["qualitative_review_required"] = True
-    lens["rule"] = (
-        "Current saved NPC->POV relationship state. Existing dimensions persist but are not a whitelist. "
-        "After the complete scene, if the relationship changed qualitatively, append a new natural dimension instead of "
-        "forcing every development into an old label. A value of 100 in one dimension is not relationship completion and "
-        "does not block new dimensions. Do not invent a new dimension merely because a number is high. No fixed vocabulary."
-    )
+                row.pop("instruction", None)
+                row.pop("rule", None)
+    lens["initialization_required"] = False
     context["relationship_lens"] = lens
-
 
 def _clean_director_layers(context: Dict[str, Any]) -> Dict[str, Any]:
     result = deepcopy(context)
