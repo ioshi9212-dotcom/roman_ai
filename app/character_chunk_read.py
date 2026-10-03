@@ -6,7 +6,7 @@ from copy import deepcopy
 from typing import Any, Dict, List
 
 from .character_access import get_character_bundle
-from . import npc_relationship_runtime, storage, session_runtime
+from . import relationship_file_runtime, storage, session_runtime
 from .scene_compaction_runtime import active_memory_records, complete_knowledge_records
 
 
@@ -164,10 +164,12 @@ def _participation_bundle(session_id: str, character_id: str) -> Dict[str, Any]:
     source = storage._read_json(root / "source.json", {})
     cards = storage._load_cards(root, source)
     state = storage._read_json(root / "state.json", {})
-    network = npc_relationship_runtime.build_network(
-        cards,
-        state,
-        resolve_character_id=session_runtime._resolve_character_id,
+    pov = state.get("pov") if isinstance(state.get("pov"), dict) else {}
+    relationship_store = relationship_file_runtime.load(
+        root,
+        cards=cards,
+        state=state,
+        pov_id=str(pov.get("character_id") or ""),
     )
     return {
         "knowledge_scope": _bundle_knowledge_scope(character_id),
@@ -177,11 +179,11 @@ def _participation_bundle(session_id: str, character_id: str) -> Dict[str, Any]:
         "pov_familiarity": deepcopy(full.get("pov_familiarity")),
         "personal_memory": _working_memory(full),
         "relationship_to_pov": deepcopy(full.get("relationship_to_pov")),
-        "npc_relationships_director_only": npc_relationship_runtime.outgoing_relations_for_character(network, character_id),
+        "npc_relationships_director_only": relationship_file_runtime.outgoing_npc_relations(relationship_store, character_id),
         "active_intents": deepcopy(full.get("active_intents", [])),
         "working_bundle": True,
         "persistent_lifetime_memory_complete": True,
-        "instruction": "Собственная card — self-known биография кроме явно hidden/unknown-to-self веток. personal_memory.knowledge/knowledge_journal — выученные факты. npc_relationships_director_only задаёт режиссёрскую динамику владельца связи, но НЕ является личным factual knowledge и не даёт неизвестных фактов о target. Частичный факт остаётся частичным: неизвестные время/место/человек/причина не достраиваются вероятными значениями; нужную деталь уточняют или оставляют догадкой до подтверждения. experiences/dialogue могут быть bounded.",
+        "instruction": "Собственная card — self-known биография кроме явно hidden/unknown-to-self веток. personal_memory.knowledge/knowledge_journal — выученные факты. relationship_to_pov и npc_relationships_director_only берутся только из relationships.json. npc_relationships_director_only задаёт режиссёрскую динамику владельца связи, но НЕ является личным factual knowledge и не даёт неизвестных фактов о target. Частичный факт остаётся частичным: неизвестные время/место/человек/причина не достраиваются вероятными значениями; нужную деталь уточняют или оставляют догадкой до подтверждения. experiences/dialogue могут быть bounded.",
     }
 
 
