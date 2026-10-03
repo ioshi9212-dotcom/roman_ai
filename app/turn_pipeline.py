@@ -293,8 +293,12 @@ def _cast_registry_rows(
             "relationship_to_pov": relationship_to_pov,
             "known_relationships": compact(card.get("relationships"), 520),
             "npc_relationships": npc_relationship_runtime.relations_for_character(npc_network, cid),
-            "full_card_action": (
-                f"prepareCharacterBundleRead(character_id={cid})"
+            "full_card_retrieval": (
+                {
+                    "action": "prepareCharacterBundleRead",
+                    "character_id": cid,
+                    "then": "read all getCharacterBundleChunk chunks before participation",
+                }
                 if cid != pov_id else None
             ),
             "active_intents": active_intents(cid),
@@ -449,6 +453,9 @@ def _prepare_context(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
     context = writer_first_runtime._rewrite_context(session_id, context)
     context = private_knowledge_runtime.redact_private_history(context, root=root, cards=cards)
     context = _clean_director_layers(context)
+    # cast_registry below is the single always-read cast index. Remove the older
+    # writer-facing cast_index so recency metadata cannot compete with causal selection.
+    context.pop("cast_index", None)
 
     scene_ids = _scene_ids(state, cards)
     context["relevant_character_ids"] = scene_ids
