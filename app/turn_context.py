@@ -287,6 +287,9 @@ def _prune_scene_character_lenses(context: Dict[str, Any], scene_ids: List[str])
     }
     for character_id, lens in context["scene_characters"].items():
         lens.pop("personal_memory", None)
+        # NPC→POV relationship state comes only from relationships.json via
+        # relationship_lens. Never leave the legacy state hint beside it.
+        lens.pop("relationship_to_pov", None)
         lens["personal_memory_path"] = f"character_memory[{character_id}]"
 
 
