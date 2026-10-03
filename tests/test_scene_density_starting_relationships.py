@@ -369,3 +369,112 @@ def test_critical_event_may_change_more_than_three_and_ten_dimension_cap_is_real
             turn_number=7,
             participant_ids=["adrian"],
         )
+
+def test_relationship_change_survives_npc_leaving_at_end_of_same_scene():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(relationship_novel())["session_id"]
+
+        manifest = prepare_turn_request(sid, "Ладно, иди.", request_id="relationship-before-leave")
+        read_all_pending_chunks(sid, manifest)
+
+        result = commit_turn_request(
+            sid,
+            {
+                "packet_id": manifest["packet_id"],
+                "user_input": "Ладно, иди.",
+                "scene_output": "Эдриан злится, отвечает и уходит из комнаты.\n\nСостояние: раздражение\nОтношения:\n\nХод 1 · цикл 1/15",
+                "extracted": {
+                    "scene_builder_reviewed": True,
+                    "persistence_reviewed": True,
+                    "knowledge_reviewed": True,
+                    "presence_updates": [{"character_id": "adrian", "action": "leave"}],
+                    "relationship_updates": [
+                        {
+                            "character_id": "adrian",
+                            "reason": "Ушёл раздражённым после резкого ответа POV.",
+                            "dimensions": [{"label": "ревность", "delta": -1}],
+                        }
+                    ],
+                    "state_patch": {},
+                },
+            },
+        )
+
+        assert result["turn_number"] == 1
+        state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
+        assert "adrian" not in state["current"]["present_characters"]
+        store = read_relationships(sid)
+        assert store["npc_to_pov"]["adrian"]["dimensions"]["ревность"]["value"] == 35
+
+
+def test_same_dimension_cannot_be_split_across_updates_to_bypass_per_scene_limit():
+    cards = relationship_novel()["characters"]
+    store = relationship_file_runtime.build_initial_store(
+        cards,
+        relationship_novel()["starting_state"],
+        "rina",
+    )
+
+    with pytest.raises(ValueError, match="RELATIONSHIP_DIMENSION_DUPLICATE"):
+        relationship_file_runtime.apply_updates(
+            store,
+            [
+                {
+                    "character_id": "adrian",
+                    "reason": "Первая часть той же сцены.",
+                    "dimensions": [{"label": "ревность", "delta": 3}],
+                },
+                {
+                    "character_id": "adrian",
+                    "reason": "Вторая часть той же сцены.",
+                    "dimensions": [{"label": "РЕВНОСТЬ", "delta": 3}],
+                },
+            ],
+            cards=cards,
+            pov_id="rina",
+            turn_number=8,
+            participant_ids=["adrian"],
+        )
+
+
+def test_ten_dimension_cap_checks_final_state_not_array_order():
+    cards = relationship_novel()["characters"]
+    store = relationship_file_runtime.build_initial_store(
+        cards,
+        relationship_novel()["starting_state"],
+        "rina",
+    )
+    dims = store["npc_to_pov"]["adrian"]["dimensions"]
+    dims["временная"] = {
+        "value": 1,
+        "last_change": {"turn": 0, "delta": 0, "reason": "test"},
+    }
+    while len(dims) < 10:
+        idx = len(dims)
+        dims[f"ось-{idx}"] = {
+            "value": 1,
+            "last_change": {"turn": 0, "delta": 0, "reason": "test"},
+        }
+
+    changed = relationship_file_runtime.apply_updates(
+        store,
+        [{
+            "character_id": "adrian",
+            "reason": "Одна реакция исчезла, другая появилась.",
+            "dimensions": [
+                {"label": "новая реакция", "value": 1},
+                {"label": "временная", "delta": -1},
+            ],
+        }],
+        cards=cards,
+        pov_id="rina",
+        turn_number=9,
+        participant_ids=["adrian"],
+    )
+
+    final_dims = changed["npc_to_pov"]["adrian"]["dimensions"]
+    assert len(final_dims) == 10
+    assert "временная" not in final_dims
+    assert final_dims["новая реакция"]["value"] == 1
+
