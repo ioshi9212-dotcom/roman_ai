@@ -267,6 +267,7 @@ def _cast_registry_rows(
             "is_pov": cid == pov_id,
             "present": cid in present,
             "remote": cid in remote,
+            "pov_familiarity": deepcopy(info.get("pov_familiarity")) if isinstance(info.get("pov_familiarity"), dict) else info.get("pov_familiarity"),
             "goals": compact(goals),
             "current_location": compact(info.get("location") or info.get("location_id"), 220),
             "current_zone": compact(info.get("zone") or info.get("zone_id"), 180),
@@ -370,6 +371,8 @@ def _clean_director_layers(context: Dict[str, Any]) -> Dict[str, Any]:
         "speaker_context",
         "director_only",
         "character_registry_instruction",
+        "character_registry",
+        "scene_characters",
     ):
         result.pop(key, None)
 
@@ -451,8 +454,9 @@ def _prepare_context(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
     context = writer_first_runtime._rewrite_context(session_id, context)
     context = private_knowledge_runtime.redact_private_history(context, root=root, cards=cards)
     context = _clean_director_layers(context)
-    # cast_registry below is the single always-read cast index. Remove the older
-    # writer-facing cast_index so recency metadata cannot compete with causal selection.
+    # cast_registry below is the single always-read cast index. Older cast_index,
+    # character_registry and scene_characters were compatibility mirrors of data that
+    # already lives in scene_state, character_cards, character_memory and cast_registry.
     context.pop("cast_index", None)
 
     scene_ids = _scene_ids(state, cards)
