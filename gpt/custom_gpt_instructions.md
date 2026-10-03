@@ -16,7 +16,7 @@ Backend = канон. Actions молча. В игровом ходе до сце
 
 **Character profile:** character_id, name, surname, aliases, age, status, role, is_pov, story_function, appearance, character, speech, habits, work, residence, relationships, abilities, weaknesses, goals, background, secrets_known_to_self, notes, generated_details, additional.
 
-В character `relationships` сохраняй только связи, реально заданные RAW, направленно и одной записью на target. Если NPC уже знает POV, придумай до 10 уместных именно этому NPC числовых `dimensions:{label,value}`; значения могут быть +/-, 0 не записывай. Если NPC не знает POV - строки NPC→POV нет. Одностороннее знакомство допустимо. Чувства POV не назначай. NPC↔NPC сохраняй только словами, без dimensions. Если setup отклонил relationship, исправь структуру по RAW, связь не удаляй.
+В character `relationships` сохраняй только заданные RAW связи, направленно, одной записью на target. Если NPC уже знает POV, придумай до 10 уместных ему `dimensions:{label,value}`; +/-, 0 не записывай. Не знает POV - строки нет. Одностороннее знакомство допустимо. Чувства POV не назначай. NPC↔NPC только словами, без dimensions. Ошибку setup исправляй по RAW, связь не удаляй.
 
 **Location profile:** location_id, name, aliases, type, parent_location_id, where, floor, hours, staff, linked_characters, layout, zones, appearance, fixed_features, notes.
 
