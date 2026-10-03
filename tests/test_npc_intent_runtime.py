@@ -150,7 +150,7 @@ def test_offscreen_active_intent_is_visible_before_character_is_pulled_into_scen
         assert context["scene_state"]["characters"]["ren"]["activity"] == "в соседней комнате"
         assert "working_context_contract" not in context
         assert "offscreen_intent_candidates" in context["runtime_rules"]
-        assert context["working_context_contract"]["offscreen_intent_candidates_in_packet"] is True
+        assert any(row["character_id"] == "ren" for row in context["offscreen_intent_candidates"]["characters"])
 
         # The owner still gets the full private intent once their dossier is loaded.
         bundle = get_character_bundle(sid, "ren")
