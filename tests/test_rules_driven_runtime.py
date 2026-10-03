@@ -1417,9 +1417,14 @@ def test_cast_registry_exposes_causal_character_data_without_recency_pressure():
         assert "не очередь и не ротация" in registry["instruction"]
         assert row["story_function"] == "possible romance"
         assert "добиться ответа" in row["goals"]
-        assert row["work"] == "инструктор"
-        assert row["residence"] == "база"
-        assert "давно знаком с Away" in row["known_relationships"]
+        assert "work" not in row
+        assert "residence" not in row
+        assert "known_relationships" not in row
+        assert "npc_relationships" not in row
+        assert any(
+            ref.get("other_character_id") == "away"
+            for ref in row.get("npc_relation_refs", [])
+        )
         assert "вернуться к незакрытому вопросу" in row["active_intents"]
         assert "остался рядом" in row["last_meaningful_event"]
 
