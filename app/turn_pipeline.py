@@ -324,6 +324,25 @@ def _clean_relationship_lens(context: Dict[str, Any]) -> None:
 
 def _clean_director_layers(context: Dict[str, Any]) -> Dict[str, Any]:
     result = deepcopy(context)
+
+    # relationships.json is the sole relationship canon. Base compatibility
+    # builders may still have copied legacy relationship stores into the packet
+    # before migration runs, especially on the first turn of an old session.
+    legacy_relationship_keys = (
+        "relationships",
+        "relationship_documents",
+        "relationship_schemas",
+        "npc_relationships",
+    )
+    for key in legacy_relationship_keys:
+        result.pop(key, None)
+    scene_state = result.get("scene_state")
+    if isinstance(scene_state, dict):
+        scene_state = deepcopy(scene_state)
+        for key in legacy_relationship_keys:
+            scene_state.pop(key, None)
+        result["scene_state"] = scene_state
+
     for key in (
         "runtime_contract",
         "knowledge_guard",
@@ -375,7 +394,7 @@ def _clean_director_layers(context: Dict[str, Any]) -> Dict[str, Any]:
     author = result.get("author_context")
     if isinstance(author, dict):
         author = deepcopy(author)
-        for key in ("instruction", "knowledge_quarantine", "chronology_context_rule"):
+        for key in ("instruction", "knowledge_quarantine", "chronology_context_rule", *legacy_relationship_keys):
             author.pop(key, None)
         result["author_context"] = author
     _clean_relationship_lens(result)
@@ -644,6 +663,58 @@ def _validate_technical_state_patch(payload: Dict[str, Any]) -> None:
         )
 
 
+def _relationship_scene_participants(
+    state_before: Dict[str, Any],
+    state_after: Dict[str, Any],
+    extracted: Dict[str, Any],
+    *,
+    cards: List[Dict[str, Any]],
+    user_input: str,
+) -> List[str]:
+    """Return every NPC who actually participated at any point in this turn."""
+    result: List[str] = []
+
+    def add(value: Any) -> None:
+        if isinstance(value, dict):
+            value = value.get("character_id") or value.get("id") or value.get("name")
+        resolved = session_runtime._resolve_character_id(cards, value)
+        cid = str(resolved or value or "").strip()
+        if cid and cid not in result:
+            result.append(cid)
+
+    for value in storage._scene_participant_ids(state_before):
+        add(value)
+    for value in storage._scene_participant_ids(state_after):
+        add(value)
+
+    # Physical NPCs may enter and leave inside one turn, so neither the opening
+    # nor the final roster alone is enough evidence of scene participation.
+    for row in extracted.get("presence_updates", []) if isinstance(extracted.get("presence_updates"), list) else []:
+        if isinstance(row, dict):
+            add(row.get("character_id"))
+
+    # A remote exchange can also begin and end inside one turn. The remote
+    # communication memory is created before relationship persistence.
+    for row in extracted.get("dialogue_memory_add", []) if isinstance(extracted.get("dialogue_memory_add"), list) else []:
+        if not isinstance(row, dict) or str(row.get("mode") or "").casefold() != "remote":
+            continue
+        participants = row.get("participants") or row.get("participant_ids") or []
+        if isinstance(participants, str):
+            participants = [participants]
+        for value in participants if isinstance(participants, list) else []:
+            add(value)
+
+    # Direct user-input messages are persisted as private communication even when
+    # no remote state remains open at the end of the scene.
+    for row in private_knowledge_runtime.extract_private_communications(str(user_input or ""), cards):
+        if isinstance(row, dict):
+            add(row.get("recipient_id"))
+
+    pov = state_after.get("pov") if isinstance(state_after.get("pov"), dict) else {}
+    pov_id = str(pov.get("character_id") or "")
+    return [cid for cid in result if cid and cid != pov_id]
+
+
 def _apply_relationship_changes(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     result = deepcopy(payload)
     extracted = result.get("extracted") if isinstance(result.get("extracted"), dict) else {}
@@ -659,7 +730,13 @@ def _apply_relationship_changes(session_id: str, payload: Dict[str, Any]) -> Dic
     state_after = storage._deep_merge(state, patch)
     pov = state_after.get("pov") if isinstance(state_after.get("pov"), dict) else {}
     pov_id = str(pov.get("character_id") or "")
-    participants = storage._scene_participant_ids(state_after)
+    participants = _relationship_scene_participants(
+        state,
+        state_after,
+        extracted,
+        cards=cards,
+        user_input=str(result.get("user_input") or ""),
+    )
     meta = storage._read_json(root / "meta.json", {})
     turn_number = int(meta.get("turn_number", 0) or 0) + 1
 
@@ -881,6 +958,8 @@ def commit_audit(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
 def continue_session(session_id: str) -> Dict[str, Any]:
     stability_runtime._recover_session(session_id)
     result = dict(_BASE_CONTINUE(session_id))
+    for key in ("relationships", "relationship_documents", "relationship_schemas", "npc_relationships"):
+        result.pop(key, None)
     status = session_recovery.current_recovery_status(session_id)
     result["current_recovery_required"] = bool(status.get("required"))
     if status.get("required"):
