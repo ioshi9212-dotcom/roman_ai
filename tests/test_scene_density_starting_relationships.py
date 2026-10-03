@@ -3,6 +3,7 @@ import tempfile
 from pathlib import Path
 
 from app import session_runtime, storage
+from app.operation_service import commit_turn_request, prepare_turn_request
 
 
 def setup_temp_storage(tmp: str):
@@ -135,3 +136,77 @@ def test_scene_builder_requires_pov_presence_visual_anchoring_and_no_early_cut()
     assert "changed=false" in rules
     assert "безопасное значение по умолчанию" in rules
     assert len(instructions) < 8000
+
+
+def test_small_relationship_delta_persists_and_is_visible_next_turn():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(relationship_novel())["session_id"]
+
+        manifest = prepare_turn_request(
+            sid,
+            "Ты ревнуешь?",
+            request_id="small-rel-shift",
+        )
+        start = 1 if manifest.get("first_chunk_included") else 0
+        for index in range(start, manifest["chunk_count"]):
+            storage.get_turn_packet_chunk(sid, manifest["packet_id"], index)
+
+        result = commit_turn_request(
+            sid,
+            {
+                "packet_id": manifest["packet_id"],
+                "user_input": "Ты ревнуешь?",
+                "scene_output": (
+                    "🎭 Starting Relationship · весна\n"
+                    "Сцена. Эдриан впервые выдаёт ревность заметной реакцией.\n\n"
+                    "Состояние: напряжение\n"
+                    "Отношения:\n"
+                    "Эдриан - близость 72; привязанность 81; влечение 68; ревность 37/+1\n\n"
+                    "Ход 1 · цикл 1/15"
+                ),
+                "extracted": {
+                    "scene_builder_reviewed": True,
+                    "persistence_reviewed": True,
+                    "knowledge_reviewed": True,
+                    "relationship_reviewed": True,
+                    "relationship_review": [
+                        {
+                            "character_id": "adrian",
+                            "changed": True,
+                            "reason": "Эдриан впервые открыто выдал ревность в разговоре с POV.",
+                        }
+                    ],
+                    "chronology": [],
+                    "knowledge_add": [],
+                    "knowledge_journal_add": [],
+                    "experiences_add": [],
+                    "dialogue_memory_add": [],
+                    "npc_intent_updates": [],
+                    "npc_relationship_updates": [],
+                    "story_thread_updates": [],
+                    "presence_updates": [],
+                    "relationship_updates": [
+                        {
+                            "character_id": "adrian",
+                            "reason": "Эдриан впервые открыто выдал ревность в разговоре с POV.",
+                            "dimensions": [{"label": "ревность", "delta": 1}],
+                        }
+                    ],
+                    "state_patch": {},
+                    "character_upserts": [],
+                },
+            },
+        )
+        assert result["already_committed"] is False
+
+        state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
+        assert state["relationships"]["adrian"]["ревность"] == 37
+
+        next_context = read_context(sid)
+        row = next(
+            item for item in next_context["relationship_lens"]["relations_in_current_scene"]
+            if item["owner_character_id"] == "adrian"
+        )
+        values = {item["label"]: item["value"] for item in row["dimensions"]}
+        assert values["ревность"] == 37
