@@ -135,6 +135,10 @@ def test_character_perception_and_scene_quality_stay_causal_without_pacing_modes
     assert "Если новелла 18+, не замыливай происходящее цензурными обобщениями" in builder
     assert "Название или итог события не заменяет само событие" in builder
     assert "покажи само взаимодействие, а не его итоговый пересказ" in builder
+    assert "не переноси служебный вывод о динамике прямо в прозу" in builder
+    assert "Если такая динамика уже установлена действиями" in builder
+    assert "Служебные выводы из отношений, инициативы и persistence" in builder
+    assert "На каждом значимом физическом переходе читатель должен понимать" in builder
     assert "не объясняй и не доказывай этот выбор авторским текстом" in rules
     assert "не ожидая нового user_input на каждый следующий физический шаг" in rules
     assert "POV может в любой момент изменить реакцию" in rules
