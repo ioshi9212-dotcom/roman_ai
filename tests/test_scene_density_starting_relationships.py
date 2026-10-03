@@ -576,3 +576,37 @@ def test_continuation_copies_relationship_file_exactly_without_reapplying_deltas
         assert copied == source_relationships
         assert copied["npc_to_pov"]["adrian"]["dimensions"]["ревность"]["value"] == 38
 
+def test_visible_footer_never_persists_relationships_without_explicit_update():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(relationship_novel())["session_id"]
+        before = deepcopy(read_relationships(sid))
+
+        manifest = prepare_turn_request(sid, "Мм.", request_id="footer-is-display-only")
+        read_all_pending_chunks(sid, manifest)
+        commit_turn_request(
+            sid,
+            {
+                "packet_id": manifest["packet_id"],
+                "user_input": "Мм.",
+                "scene_output": (
+                    "Эдриан молчит.\n\n"
+                    "Состояние: спокойно\n"
+                    "Отношения:\n"
+                    "Эдриан - близость 72/0; привязанность 81/0; влечение 68/0; ревность 39/+3\n\n"
+                    "Ход 1 · цикл 1/15"
+                ),
+                "extracted": {
+                    "scene_builder_reviewed": True,
+                    "persistence_reviewed": True,
+                    "knowledge_reviewed": True,
+                    "relationship_updates": [],
+                    "state_patch": {},
+                },
+            },
+        )
+
+        assert read_relationships(sid) == before
+        state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
+        assert "relationships" not in state
+
