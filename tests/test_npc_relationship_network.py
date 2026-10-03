@@ -193,7 +193,7 @@ def test_relationship_contract_keeps_npc_to_npc_qualitative_and_footer_scene_sco
     assert "Связи NPC между собой" in rules
     assert "только словами, без числовых шкал" in rules
     assert "только физически присутствующих NPC" in rules
-    assert "Remote/offscreen NPC не показывай" in instructions
+    assert "Footer показывает все активные оси только физически присутствующих NPC" in instructions
     assert "все его активные NPC→POV показатели из relationships.json" in builder
     assert "description:" in schema
     assert "relationship_review:" not in schema
