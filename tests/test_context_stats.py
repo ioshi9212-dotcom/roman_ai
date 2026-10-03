@@ -196,7 +196,5 @@ def test_turn_zero_prepare_diagnostic(capsys):
                 "exact_duplicate_blocks": packet["exact_duplicate_blocks"][:10],
             })
 
-    print("TURN_ZERO_PERF_DIAGNOSTIC=" + json.dumps(rows, ensure_ascii=False))
-    captured = capsys.readouterr()
-    assert "TURN_ZERO_PERF_DIAGNOSTIC=" in captured.out
+    raise AssertionError("TURN_ZERO_PERF_DIAGNOSTIC=" + json.dumps(rows, ensure_ascii=False))
 
