@@ -352,11 +352,15 @@ def _atomic_commit_audit(session_id: str, payload: Dict[str, Any]) -> Dict[str, 
         if int(payload.get("end_turn", 0)) != expected_end:
             raise ValueError("AUDIT_RANGE_MISMATCH")
 
-        repairs = payload.get("repairs", {}) if isinstance(payload.get("repairs"), dict) else {}
+        repairs = deepcopy(payload.get("repairs", {})) if isinstance(payload.get("repairs"), dict) else {}
+        audit_state_patch = deepcopy(repairs.get("state_patch")) if isinstance(repairs.get("state_patch"), dict) else {}
+        for key in ("relationships", "relationship_documents", "relationship_schemas", "npc_relationships"):
+            audit_state_patch.pop(key, None)
+        repairs["state_patch"] = audit_state_patch
         source = storage._read_json(root / "source.json", {})
         state = storage._read_json(root / "state.json", {})
         previous_state = deepcopy(state)
-        state = _merge_state_patch_exact_relationships(state, repairs.get("state_patch"))
+        state = _merge_state_patch_exact_relationships(state, audit_state_patch)
         state = _clean_scene_pointer(state, repairs)
         state = location_runtime.sync_current_location(source, state, previous_state=previous_state)
         state = sync_game_day(state, source)
