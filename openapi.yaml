@@ -567,19 +567,6 @@ components:
           description: Signed change for an established dimension. Ordinary changes are limited to -3..+3. A final value of zero deletes the dimension.
       additionalProperties: false
 
-    RelationshipReview:
-      type: object
-      required: [character_id, changed]
-      properties:
-        character_id:
-          type: string
-        changed:
-          type: boolean
-        reason:
-          type: string
-          description: Concrete current-scene reason for this review. New v3 turn packets require a non-empty reason even when changed=false.
-      additionalProperties: false
-
     RelationshipUpdate:
       type: object
       required: [character_id, reason]
