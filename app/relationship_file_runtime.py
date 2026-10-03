@@ -278,6 +278,21 @@ def npc_network(store: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def outgoing_npc_relations(store: Dict[str, Any], character_id: str) -> List[Dict[str, str]]:
+    targets = store.get("npc_to_npc", {}).get(str(character_id), {})
+    if not isinstance(targets, dict):
+        return []
+    return [
+        {
+            "owner_character_id": str(character_id),
+            "target_character_id": str(target_id),
+            "description": str(description),
+        }
+        for target_id, description in targets.items()
+        if str(description).strip()
+    ]
+
+
 def apply_npc_updates(
     store: Dict[str, Any],
     updates: Any,
