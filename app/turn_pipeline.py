@@ -68,10 +68,6 @@ def _packet_manifest(packet: Dict[str, Any], *, reused: bool) -> Dict[str, Any]:
         "next_chunk_index": unread[0] if unread else None,
         "all_chunks_read": not unread,
         "turn_pipeline_version": PIPELINE_VERSION,
-        "relationship_review_required": bool(packet.get("relationship_review_required")),
-        "relationship_review_details_required": bool(packet.get("relationship_review_details_required")),
-        "relationship_footer_scope_required": bool(packet.get("relationship_footer_scope_required")),
-        "relationship_review_v3_required": bool(packet.get("relationship_review_v3_required")),
         "instruction": (
             "Pending packet reused. Read only unread chunks, silently re-check the final scene against Scene Builder, and commit once."
             if reused
