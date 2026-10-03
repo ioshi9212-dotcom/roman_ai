@@ -275,7 +275,7 @@ def _story_drive(context: Dict[str, Any], root, current_turn: int, pressure: lis
         "future_direction_cues": _future_direction_cues(context),
         "scene_progress_flag": (
             "scene_progressed=true отмечает только локальный реальный сдвиг и не даёт одной сцене жить бесконечно. "
-            "Перемещение, ожидание и течение времени сами по себе не прогресс. Новый relationship delta, новый intent, бытовой обмен, поза "
+            "перемещение, ожидание и течение времени сами по себе не прогресс. Новый relationship delta, новый intent, бытовой обмен, поза "
             "или движение внутри той же сцены не считаются самостоятельным движением мира."
         ),
         "rule": (
