@@ -607,6 +607,43 @@ def build_relationship_lens(
     }
 
 
+def relationship_footer_snapshot_for_character(
+    state: Dict[str, Any],
+    *,
+    cards: Iterable[Dict[str, Any]],
+    character_id: str,
+    resolve_character_id: Callable[[Iterable[Dict[str, Any]], Any], str | None],
+) -> Dict[str, Any]:
+    """Exact directed NPC→POV relationship snapshot for an offscreen participation bundle.
+
+    This is writer/director context for footer continuity. It deliberately keeps
+    the saved dimension labels and values intact so a character entering mid-turn
+    cannot make older visible metrics disappear.
+    """
+    docs = _canonical_docs(state, cards=cards, resolve_character_id=resolve_character_id)
+    pov = state.get("pov") if isinstance(state.get("pov"), dict) else {}
+    pov_id = str(pov.get("character_id") or "")
+    owner_id = str(character_id or "")
+    relation = _pov_relation(docs.get(owner_id, {}), pov_id) if owner_id and pov_id else None
+    dimensions = _normalise_dimensions(relation.get("dimensions")) if isinstance(relation, dict) else []
+    return {
+        "owner_character_id": owner_id,
+        "target_character_id": pov_id,
+        "relationship_type": relation.get("relationship_type") if isinstance(relation, dict) else None,
+        "relationship_context": relation.get("relationship_context") if isinstance(relation, dict) else None,
+        "current_dynamic": relation.get("current_dynamic") if isinstance(relation, dict) else None,
+        "dimensions": deepcopy(dimensions),
+        "has_saved_dimensions": bool(dimensions),
+        "footer_required_if_physical": True,
+        "instruction": (
+            "If this character becomes physically present by scene end, include a visible Relationships footer row. "
+            "Carry every saved dimension label forward. Unchanged saved dimensions keep the same value; changed dimensions "
+            "show the final value and causal delta. If there is no saved baseline and this turn creates the first real "
+            "NPC→POV relationship state, initialize it through relationship_updates before showing it."
+        ),
+    }
+
+
 def relationship_snapshot_for_present(
     state: Dict[str, Any],
     *,
