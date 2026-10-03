@@ -95,7 +95,7 @@ def test_unresolved_npc_intent_persists_and_resurfaces_without_player_reminder()
         assert intent["intent_id"] == "check_account_origin"
         assert intent["eligible_now"] is True
         assert "npc_intent_instruction" not in context
-        assert "Незакрытый вопрос" in context["runtime_rules"]
+        assert "Смена темы не закрывает intent" in context["runtime_rules"]
         assert "intent не закрывает" in context["runtime_rules"]
         assert "narrative_guardrails" not in context
         assert context["working_context_contract"]["npc_intents_are_persistent"] is True
