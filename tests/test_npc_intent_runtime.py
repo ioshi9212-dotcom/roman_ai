@@ -207,6 +207,88 @@ def test_intent_cannot_launder_author_only_fact_into_future_npc_behavior():
         assert "ren" not in state.get("npc_intents", {})
 
 
+def test_intent_cannot_copy_pov_only_time_and_place_without_source_fact_ids():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(novel())["session_id"]
+        root = storage.SESSIONS_DIR / sid
+
+        memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
+        storage._memory_bucket(memory, "pov")["knowledge_journal"].append({
+            "turn": 21,
+            "text": "POV узнала от другого человека: выступление будет у стойки после семи.",
+        })
+        storage._memory_bucket(memory, "ren")["knowledge_journal"].append({
+            "turn": 20,
+            "text": "Ren знает только, что POV будет играть вечером.",
+        })
+        storage._write_json(root / "memory.json", memory)
+
+        read_packet(sid, "(продолжить вечер)")
+        with pytest.raises(HTTPException) as exc:
+            session_runtime.commit_turn(
+                sid,
+                {
+                    "user_input": "(продолжить вечер)",
+                    "scene_output": "POV remains alone.\n\nОтношения:\n\nХод 1 · цикл 1/15",
+                    "extracted": base_extracted(
+                        npc_intent_updates=[{
+                            "character_id": "ren",
+                            "intent_id": "come_to_show",
+                            "summary": "Прийти к стойке после семи послушать POV",
+                            "planned_action": "Быть у стойки после семи",
+                        }]
+                    ),
+                },
+            )
+
+        assert exc.value.status_code == 409
+        assert exc.value.detail["code"] == "NPC_INTENT_PERSONAL_KNOWLEDGE_LEAK"
+        assert exc.value.detail["character_id"] == "ren"
+        state = storage._read_json(root / "state.json", {})
+        assert "ren" not in state.get("npc_intents", {})
+
+
+def test_intent_may_keep_unanswered_detail_as_question_instead_of_inventing_answer():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(novel())["session_id"]
+        root = storage.SESSIONS_DIR / sid
+
+        memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
+        storage._memory_bucket(memory, "pov")["knowledge_journal"].append({
+            "turn": 21,
+            "text": "POV узнала от другого человека: выступление будет у стойки после семи.",
+        })
+        storage._memory_bucket(memory, "ren")["knowledge_journal"].append({
+            "turn": 20,
+            "text": "Ren знает только, что POV будет играть вечером.",
+        })
+        storage._write_json(root / "memory.json", memory)
+
+        read_packet(sid, "(продолжить вечер)")
+        result = session_runtime.commit_turn(
+            sid,
+            {
+                "user_input": "(продолжить вечер)",
+                "scene_output": "POV remains alone.\n\nОтношения:\n\nХод 1 · цикл 1/15",
+                "extracted": base_extracted(
+                    npc_intent_updates=[{
+                        "character_id": "ren",
+                        "intent_id": "find_show_details",
+                        "summary": "Узнать, где и во сколько POV будет играть вечером",
+                        "planned_action": "Спросить POV о месте и времени",
+                    }]
+                ),
+            },
+        )
+
+        assert result["ok"] is True
+        state = storage._read_json(root / "state.json", {})
+        saved = state["npc_intents"]["ren"][0]
+        assert saved["summary"] == "Узнать, где и во сколько POV будет играть вечером"
+
+
 def test_intent_can_be_marked_pursued_and_resolved():
     from app.npc_intent import apply_updates, active_intents_for
 
