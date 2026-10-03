@@ -136,6 +136,10 @@ def test_character_perception_and_scene_quality_stay_causal_without_pacing_modes
     assert "Название или итог события не заменяет само событие" in builder
     assert "покажи само взаимодействие, а не его итоговый пересказ" in builder
     assert "не объясняй и не доказывай этот выбор авторским текстом" in rules
+    assert "не ожидая нового user_input на каждый следующий физический шаг" in rules
+    assert "POV может в любой момент изменить реакцию" in rules
+    assert "Не удерживай сцену на одном уже состоявшемся физическом beat" in builder
+    assert "не растягивай повторяющиеся поцелуи" in builder
 
     assert "ROUTINE" not in builder
     assert "STANDARD" not in builder
