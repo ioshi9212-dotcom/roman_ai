@@ -15,8 +15,9 @@ from .transactional_storage import session_transaction
 _ORIGINAL_PREPARE = None
 _ORIGINAL_COMMIT_TURN = None
 _ORIGINAL_COMMIT_AUDIT = None
-_STORY_ENGINE_VERSION = 7
+_STORY_ENGINE_VERSION = 8
 _STAGNATION_LIMIT = 3
+_WORLD_STAGNATION_LIMIT = 10
 _THREAD_SOFT_AGE = 4
 _THREAD_HARD_AGE = 6
 _RELATIONSHIP_DELTA_RE = re.compile(r"/delta\s*[+-]?\d", re.IGNORECASE)
@@ -78,6 +79,85 @@ def _container_has_progress(container: Any, scene_output: str = "") -> bool:
 def _turn_has_progress(turn: Dict[str, Any]) -> bool:
     extracted = turn.get("extracted") if isinstance(turn.get("extracted"), dict) else {}
     return _container_has_progress(extracted, str(turn.get("scene_output") or ""))
+
+
+def _thread_world_progress(values: Any) -> bool:
+    if not isinstance(values, list):
+        return False
+    for raw in values:
+        if not isinstance(raw, dict):
+            continue
+        operation = str(raw.get("operation") or "upsert").casefold().strip()
+        if operation in {"resolve", "abandon"} or raw.get("progressed_now") is True:
+            return True
+    return False
+
+
+def _intent_world_progress(values: Any) -> bool:
+    if not isinstance(values, list):
+        return False
+    for raw in values:
+        if not isinstance(raw, dict):
+            continue
+        operation = str(raw.get("operation") or "upsert").casefold().strip()
+        if operation in {"resolve", "abandon"} or raw.get("pursued_now") is True:
+            return True
+    return False
+
+
+def _presence_world_progress(values: Any) -> bool:
+    if not isinstance(values, list):
+        return False
+    return any(
+        isinstance(raw, dict)
+        and str(raw.get("action") or "").casefold().strip() in {"enter", "leave"}
+        for raw in values
+    )
+
+
+def _container_has_world_progress(container: Any) -> bool:
+    """Structural/story movement, deliberately stricter than scene_progressed.
+
+    Soft local motion such as another conversational beat, a relationship delta,
+    creating an unresolved intent, or moving within the same scene must not keep
+    one scene alive forever.
+    """
+    if not isinstance(container, dict):
+        return False
+    if isinstance(container.get("chronology"), list) and container["chronology"]:
+        return True
+    if _thread_world_progress(container.get("story_thread_updates")):
+        return True
+    if _intent_world_progress(container.get("npc_intent_updates")):
+        return True
+    if _presence_world_progress(container.get("presence_updates")):
+        return True
+
+    patch = container.get("state_patch") if isinstance(container.get("state_patch"), dict) else {}
+    world_patch = patch.get("world") if isinstance(patch.get("world"), dict) else {}
+    meaningful_world_patch = {key: value for key, value in world_patch.items() if key != "cast_registry"}
+    if meaningful_world_patch:
+        return True
+
+    current_patch = patch.get("current") if isinstance(patch.get("current"), dict) else {}
+    if any(key in current_patch for key in ("date", "location", "location_id", "scene")):
+        return True
+    return False
+
+
+def _turn_has_world_progress(turn: Dict[str, Any]) -> bool:
+    extracted = turn.get("extracted") if isinstance(turn.get("extracted"), dict) else {}
+    return _container_has_world_progress(extracted)
+
+
+def trailing_world_stagnant_turns(root, *, limit: int = 24) -> int:
+    turns = storage._read_turns(root)
+    count = 0
+    for turn in reversed(turns[-limit:]):
+        if not isinstance(turn, dict) or _turn_has_world_progress(turn):
+            break
+        count += 1
+    return count
 
 
 def trailing_stagnant_turns(root, *, limit: int = 12) -> int:
@@ -182,15 +262,27 @@ def _future_direction_cues(context: Dict[str, Any]) -> list[Dict[str, str]]:
 
 def _story_drive(context: Dict[str, Any], root, current_turn: int, pressure: list[Dict[str, Any]]) -> Dict[str, Any]:
     streak = trailing_stagnant_turns(root)
+    world_streak = trailing_world_stagnant_turns(root)
     hard_thread_due = any(item.get("must_advance_or_causally_pause") is True for item in pressure)
+    force_world = world_streak >= _WORLD_STAGNATION_LIMIT
     return {
         "mandatory": True,
         "stagnant_turns": streak,
-        "force_progress_this_turn": streak >= _STAGNATION_LIMIT or hard_thread_due,
+        "world_stagnant_turns": world_streak,
+        "force_progress_this_turn": streak >= _STAGNATION_LIMIT or hard_thread_due or force_world,
+        "force_world_movement_this_turn": force_world,
         "active_thread_count": len(active_threads(storage._read_json(root / "state.json", {}))),
         "future_direction_cues": _future_direction_cues(context),
-        "scene_progress_flag": "scene_progressed=true только при реальном изменении ситуации; перемещение, ожидание и течение времени сами по себе не прогресс.",
-        "rule": "Двигай существующие линии причинно. Значимый выбор POV оставляй игроку. Просроченную линию продвинь или явно поставь на причинную паузу.",
+        "scene_progress_flag": (
+            "scene_progressed=true отмечает только локальный реальный сдвиг и не даёт одной сцене жить бесконечно. "
+            "Новый relationship delta, новый intent, ожидание, бытовой обмен, поза или движение внутри той же сцены не считаются самостоятельным движением мира."
+        ),
+        "rule": (
+            "Двигай существующие линии причинно. Значимый выбор POV оставляй игроку. Просроченную линию продвинь или явно поставь на причинную паузу. "
+            "Если force_world_movement_this_turn=true, текущая сцена исчерпала право удерживать мир: доведи её до естественного конца/перехода "
+            "или дай уже назревшему внешнему действию, персонажу, сообщению, расписанию либо открытой линии реально изменить ситуацию. "
+            "Не выдумывай случайное событие ради счётчика."
+        ),
     }
 
 
@@ -202,6 +294,23 @@ def _progress_required_error(streak: int) -> None:
             "message": "Static streak: continue/compress to a real change, interruption, natural end or meaningful POV choice. Routine/position/time alone are not progress.",
             "stagnant_turns_before_this_commit": streak,
             "maximum_consecutive_static_turns": _STAGNATION_LIMIT,
+        },
+    )
+
+
+def _world_progress_required_error(streak: int) -> None:
+    raise HTTPException(
+        status_code=409,
+        detail={
+            "code": "STORY_PROGRESS_REQUIRED",
+            "message": (
+                "The current scene has continued too long without structural world/story movement. "
+                "Do not invent a random event. End or transition the scene naturally, or advance an already causal NPC action, "
+                "arrival/departure, message, schedule, open thread or other existing world line. "
+                "Relationship deltas, new pending intents and scene_progressed=true alone do not reset this long-horizon gate."
+            ),
+            "world_stagnant_turns_before_this_commit": streak,
+            "maximum_consecutive_world_static_turns": _WORLD_STAGNATION_LIMIT,
         },
     )
 
@@ -221,6 +330,10 @@ def _with_story_patch(session_id: str, payload: Dict[str, Any], *, audit: bool =
         streak = trailing_stagnant_turns(root)
         if streak >= _STAGNATION_LIMIT and not _container_has_progress(container, str(result.get("scene_output") or "")):
             _progress_required_error(streak)
+
+        world_streak = trailing_world_stagnant_turns(root)
+        if world_streak >= _WORLD_STAGNATION_LIMIT and not _container_has_world_progress(container):
+            _world_progress_required_error(world_streak)
 
     if not isinstance(updates, list) or not updates:
         return result
