@@ -90,6 +90,19 @@ def _qualitative_relation(row: Dict[str, Any]) -> str:
         value = " ".join(str(row.get(key) or "").split())
         if value and value not in parts:
             parts.append(value)
+
+    status = " ".join(str(row.get("status") or "").split())
+    if status and _norm(status) not in {"active", "активно", "активный"} and status not in parts:
+        parts.append(status)
+
+    for key in ("beliefs_about_target", "unresolved_between_them", "dynamic_constraints", "interaction_hooks"):
+        raw = row.get(key)
+        values = raw if isinstance(raw, list) else [raw] if raw not in (None, "", [], {}) else []
+        for item in values:
+            value = " ".join(str(item or "").split())
+            if value and value not in parts:
+                parts.append(value)
+
     return " | ".join(parts)[:700]
 
 
@@ -370,6 +383,7 @@ def apply_updates(
     result = deepcopy(store)
     npc_to_pov = result.setdefault("npc_to_pov", {})
     participants = {str(value) for value in participant_ids if value}
+    seen_by_owner: Dict[str, set[str]] = {}
 
     for raw in updates:
         if not isinstance(raw, dict):
@@ -398,15 +412,17 @@ def apply_updates(
             owner["dimensions"] = dimensions
 
         changed_any = False
-        seen: set[str] = set()
+        owner_seen = seen_by_owner.setdefault(owner_id, set())
         for item in incoming_dimensions:
             if not isinstance(item, dict):
                 continue
             label = " ".join(str(item.get("label") or "").split())
             key = _norm(label)
-            if not label or not key or key in seen:
+            if not label or not key:
                 raise ValueError("RELATIONSHIP_DIMENSION_INVALID")
-            seen.add(key)
+            if key in owner_seen:
+                raise ValueError("RELATIONSHIP_DIMENSION_DUPLICATE")
+            owner_seen.add(key)
 
             existing_label = next((name for name in dimensions if _norm(name) == key), None)
             if existing_label is not None:
@@ -432,8 +448,6 @@ def apply_updates(
                 raise ValueError("RELATIONSHIP_NEW_DIMENSION_VALUE_REQUIRED")
             if scale == "ordinary" and abs(float(value)) > ORDINARY_DELTA_LIMIT:
                 raise ValueError("RELATIONSHIP_ORDINARY_DELTA_LIMIT")
-            if len(dimensions) >= MAX_DIMENSIONS_PER_NPC:
-                raise ValueError("RELATIONSHIP_DIMENSION_LIMIT")
             dimensions[label] = {
                 "value": _number(value),
                 "last_change": _change(turn_number, value, reason),
@@ -444,6 +458,11 @@ def apply_updates(
             raise ValueError("RELATIONSHIP_UPDATE_EMPTY")
         if not dimensions:
             npc_to_pov.pop(owner_id, None)
+
+    for raw_owner in npc_to_pov.values():
+        dimensions = raw_owner.get("dimensions") if isinstance(raw_owner, dict) else {}
+        if isinstance(dimensions, dict) and len(dimensions) > MAX_DIMENSIONS_PER_NPC:
+            raise ValueError("RELATIONSHIP_DIMENSION_LIMIT")
 
     return result
 
