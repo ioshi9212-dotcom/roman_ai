@@ -108,13 +108,26 @@ def _profile_store(cards: List[Dict[str, Any]], pov_id: str) -> Dict[str, Any]:
             if not target_id or target_id == owner_id:
                 continue
             if target_id == pov_id:
-                dimensions: Dict[str, Dict[str, Any]] = {}
+                owner = npc_to_pov.setdefault(owner_id, {"dimensions": {}})
+                dimensions = owner.setdefault("dimensions", {})
+                if not isinstance(dimensions, dict):
+                    dimensions = {}
+                    owner["dimensions"] = dimensions
                 for raw_dim in row.get("dimensions", []) if isinstance(row.get("dimensions"), list) else []:
                     if not isinstance(raw_dim, dict):
                         continue
                     label = " ".join(str(raw_dim.get("label") or raw_dim.get("key") or "").split())
                     value = raw_dim.get("value")
                     if not label or not _is_number(value) or float(value) == 0.0:
+                        continue
+                    existing_label = next((name for name in dimensions if _norm(name) == _norm(label)), None)
+                    if existing_label is not None:
+                        dimensions[existing_label] = {
+                            "value": _number(value),
+                            "last_delta": 0,
+                            "last_turn": 0,
+                            "reason": _reason_from_relation(row),
+                        }
                         continue
                     if len(dimensions) >= MAX_DIMENSIONS_PER_NPC:
                         break
@@ -124,8 +137,8 @@ def _profile_store(cards: List[Dict[str, Any]], pov_id: str) -> Dict[str, Any]:
                         "last_turn": 0,
                         "reason": _reason_from_relation(row),
                     }
-                if dimensions:
-                    npc_to_pov[owner_id] = {"dimensions": dimensions}
+                if not dimensions:
+                    npc_to_pov.pop(owner_id, None)
             else:
                 text = _qualitative_relation(row)
                 if text:
