@@ -453,25 +453,52 @@ def seed_relationship_state_from_profiles(
         if int(relation.get("last_changed_turn", 0) or 0) > 0:
             continue
 
+        explicit_numeric_baseline = owner_id in flat and bool(flat.get(owner_id))
+        profile_dims: List[Dict[str, Any]] = []
+        by_label: Dict[str, Dict[str, Any]] = {}
         for row in matching:
-            if not _normalise_dimensions(relation.get("dimensions")):
-                dims = _profile_dimensions(row.get("dimensions"))
-                if dims:
-                    relation["dimensions"] = dims
+            for dim in _profile_dimensions(row.get("dimensions")):
+                key = _norm(dim.get("label"))
+                existing = by_label.get(key)
+                if existing and existing.get("value") != dim.get("value"):
+                    raise ValueError("PROFILE_RELATIONSHIP_DIMENSION_CONFLICT")
+                if not existing:
+                    by_label[key] = deepcopy(dim)
+                    profile_dims.append(by_label[key])
 
             for key in ("relationship_type", "relationship_context", "current_dynamic"):
                 incoming = row.get(key)
                 current = relation.get(key)
-                if incoming not in (None, "", [], {}) and current in (None, "", "не установлено", "установленная связь"):
+                if incoming in (None, "", [], {}):
+                    continue
+                if current in (None, "", "не установлено", "установленная связь"):
                     relation[key] = deepcopy(incoming)
+                elif str(incoming) not in str(current).split(" | "):
+                    relation[key] = f"{current} | {incoming}"
 
             for key in ("beliefs_about_target", "unresolved_between_them", "dynamic_constraints"):
                 incoming = row.get(key)
-                if isinstance(incoming, list) and incoming and not relation.get(key):
-                    relation[key] = deepcopy(incoming)
+                if not isinstance(incoming, list):
+                    continue
+                current = relation.get(key) if isinstance(relation.get(key), list) else []
+                merged = list(current)
+                for item in incoming:
+                    if item not in merged:
+                        merged.append(deepcopy(item))
+                relation[key] = merged
 
-            relation.setdefault("last_changed_turn", 0)
-            relation["starting_source"] = "character_profile"
+        if not explicit_numeric_baseline:
+            current_dims = _normalise_dimensions(relation.get("dimensions"))
+            current_by_label = {_norm(item.get("label")): item for item in current_dims}
+            for dim in profile_dims:
+                key = _norm(dim.get("label"))
+                if key not in current_by_label:
+                    current_dims.append(deepcopy(dim))
+                    current_by_label[key] = current_dims[-1]
+            relation["dimensions"] = current_dims[:MAX_DIMENSIONS]
+
+        relation.setdefault("last_changed_turn", 0)
+        relation["starting_source"] = "character_profile"
 
     return _sync_state(result, docs)
 
