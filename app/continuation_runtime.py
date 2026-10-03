@@ -38,11 +38,22 @@ def _load_source_parts(session_id: str) -> Dict[str, Any]:
     if not root.exists():
         raise FileNotFoundError(session_id)
     source = storage._read_json(root / "source.json", {})
+    cards = storage._load_cards(root, source)
+    state = storage._read_json(root / "state.json", {})
+    pov = state.get("pov") if isinstance(state.get("pov"), dict) else {}
+    relationships = relationship_file_runtime.load(
+        root,
+        cards=cards,
+        state=state,
+        pov_id=str(pov.get("character_id") or storage._find_pov_id(source, cards) or ""),
+    )
+    state = storage._read_json(root / "state.json", state)
     return {
         "root": root,
         "source": source,
-        "cards": storage._load_cards(root, source),
-        "state": storage._read_json(root / "state.json", {}),
+        "cards": cards,
+        "state": state,
+        "relationships": relationships,
         "memory": storage._normalise_memory(storage._read_json(root / "memory.json", {})),
         "chronology": storage._read_json(root / "chronology.json", []),
         "meta": storage._read_json(root / "meta.json", {}),
@@ -444,11 +455,7 @@ def prepare_continuation_final_read(session_id: str, migration_id: str) -> Dict[
             {"character_id": storage._card_id(c), "name": storage._card_name(c), "role": storage._card_role(c)}
             for c in p["cards"] if storage._card_id(c)
         ],
-        "relationship_state_raw": {
-            "relationships": deepcopy(p["state"].get("relationships", {})),
-            "relationship_documents": deepcopy(p["state"].get("relationship_documents", {})),
-            "relationship_schemas": deepcopy(p["state"].get("relationship_schemas", {})),
-        },
+        "relationships_file": deepcopy(p["relationships"]),
         "required_package_shape": {
             "chronology": [{"date": "story date", "summary": "durable history", "participants": [], "importance": "normal|major|anchor|critical"}],
             "characters": {"CHARACTER_ID": {"knowledge": [], "experiences": [], "dialogue_memory": []}},
@@ -460,7 +467,7 @@ def prepare_continuation_final_read(session_id: str, migration_id: str) -> Dict[
             "Character memory remains strictly per-character. Never add a fact merely because chronology or another character knows it.",
             "Reconstruct current from the latest exact turns, not stale current_state_raw fields.",
             "Close or update stale threads according to actual later events; preserve genuinely unresolved questions.",
-            "Do not alter relationship numeric/document stores here; they are copied from persistent current state.",
+            "Do not rewrite relationships_file here; it is copied exactly as the relationship canon.",
             "Do not invent facts. If evidence conflicts, prefer the latest exact committed turn and preserve uncertainty where unresolved.",
         ],
     }
@@ -745,14 +752,7 @@ def create_continuation_session(session_id: str) -> Dict[str, Any]:
     )
     new_id = str(new_meta["session_id"])
     new_root = storage.SESSIONS_DIR / new_id
-    old_root = storage.SESSIONS_DIR / session_id
-    pov = p["state"].get("pov") if isinstance(p["state"].get("pov"), dict) else {}
-    relationships = relationship_file_runtime.load(
-        old_root,
-        cards=p["cards"],
-        state=p["state"],
-        pov_id=str(pov.get("character_id") or ""),
-    )
+    relationships = deepcopy(p["relationships"])
     recent_turns = deepcopy(p["turns"][-RECENT_TURN_COUNT:])
     last_source_turn = deepcopy(recent_turns[-1]) if recent_turns and isinstance(recent_turns[-1], dict) else None
     write_batch(
