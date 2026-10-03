@@ -106,13 +106,13 @@ def test_character_perception_and_scene_quality_stay_causal_without_pacing_modes
     assert "NPC - самостоятельный персонаж, а не функция для POV." in builder
     assert "Не выбирай поведение по принципу «как правильно»" in builder
     assert "Заметное действие POV в сторону NPC получает естественную реакцию NPC" in builder
-    assert "Ощущения POV не заменяют то, что физически происходит." in rules
-    assert "На каждом значимом физическом переходе читатель должен понимать" in rules
-    assert "Если новелла 18+, допустимы взрослые темы, включая секс." in rules
-    assert "Служебные выводы из отношений, инициативы и persistence" in rules
-    assert "Не удерживай сцену на одном уже состоявшемся физическом beat" in builder
-    assert "не растягивай повторяющиеся поцелуи" in builder
-    assert "не объясняй и не доказывай этот выбор авторским текстом" in builder
+    assert "Ощущения POV не заменяют то, что физически происходит." in builder
+    assert "На каждом значимом физическом переходе читатель должен понимать" in builder
+    assert "Если новелла 18+, допустимы взрослые темы, включая секс." in builder
+    assert "Служебные выводы из отношений, инициативы и persistence" in builder
+    assert "Не растягивай один и тот же beat на несколько ходов без развития." in builder
+    assert "не повторять один поцелуй пять ходов" in builder
+    assert "Не давай психологический, моральный или авторский анализ." in builder
 
     assert "ROUTINE" not in builder
     assert "STANDARD" not in builder
