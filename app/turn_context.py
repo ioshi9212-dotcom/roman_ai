@@ -247,6 +247,7 @@ def _compact_scene_state(state: Dict[str, Any], scene_ids: List[str]) -> Dict[st
     result.pop("relationships", None)
     result.pop("relationship_documents", None)
     result.pop("relationship_schemas", None)
+    result.pop("npc_relationships", None)
     result.pop("threads", None)
     runtime = result.get("characters")
     if isinstance(runtime, dict):
@@ -344,7 +345,7 @@ def inject_required_turn_context(context: Dict[str, Any], cards: List[Dict[str, 
         "personal_memory_path": "character_memory[character_id]",
         "present_at_turn_start_path": "present_character_ids_at_turn_start",
         "author_only_paths": [
-            "character_cards[OTHER_CHARACTER_ID]", "character_registry", "cast_index", "scene_state", "relationships", "active_threads",
+            "character_cards[OTHER_CHARACTER_ID]", "character_registry", "cast_index", "npc_relationship_network", "scene_state", "relationships", "active_threads",
             "novel", "novel_rules", "novel_lore", "hidden_lore", "world_canon", "story_direction", "location_context", "canon_notes_context",
             "chronology_recent", "recent_turns", "character_memory[OTHER_CHARACTER_ID]",
         ],
