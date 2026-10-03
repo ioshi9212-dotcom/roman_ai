@@ -6,7 +6,7 @@ import secrets
 from copy import deepcopy
 from typing import Any, Dict, List
 
-from . import storage
+from . import relationship_file_runtime, storage
 from .scene_compaction_runtime import active_memory_records, load_scene_history
 from .transactional_storage import json_text, write_batch
 
@@ -743,6 +743,14 @@ def create_continuation_session(session_id: str) -> Dict[str, Any]:
     )
     new_id = str(new_meta["session_id"])
     new_root = storage.SESSIONS_DIR / new_id
+    old_root = storage.SESSIONS_DIR / session_id
+    pov = p["state"].get("pov") if isinstance(p["state"].get("pov"), dict) else {}
+    relationships = relationship_file_runtime.load(
+        old_root,
+        cards=p["cards"],
+        state=p["state"],
+        pov_id=str(pov.get("character_id") or ""),
+    )
     recent_turns = deepcopy(p["turns"][-RECENT_TURN_COUNT:])
     last_source_turn = deepcopy(recent_turns[-1]) if recent_turns and isinstance(recent_turns[-1], dict) else None
     write_batch(
@@ -751,6 +759,7 @@ def create_continuation_session(session_id: str) -> Dict[str, Any]:
             "source.json": json_text(source),
             "characters.json": json_text(p["cards"]),
             "state.json": json_text(state),
+            relationship_file_runtime.FILE_NAME: json_text(relationships),
             "memory.json": json_text(package["memory_normalized"]),
             "chronology.json": json_text(package["chronology_normalized"]),
             "handoff_tail.json": json_text(recent_turns),
