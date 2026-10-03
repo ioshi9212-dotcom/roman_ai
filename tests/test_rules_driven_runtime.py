@@ -68,6 +68,8 @@ def test_active_runtime_is_author_rules_plus_scene_builder():
     assert "Елена сказала, что она не рейдер" in docs["rules"]
     assert "не исправляй это режиссёрской правдой" in docs["rules"]
     assert "npc_active_intents[ID]" in docs["rules"]
+    assert "Intent не является отдельным источником знаний" in docs["rules"]
+    assert "сохраняй intent как «узнать где/во сколько»" in docs["rules"]
     assert "offscreen_intent_candidates" in docs["rules"]
     assert "Если по плану Морита завтра проверит POV" in docs["rules"]
     assert "другой NPC может сказать это только если реально узнал" in docs["rules"]
