@@ -16,6 +16,8 @@ Backend = канон. Actions молча. В игровом ходе до сце
 
 **Character profile:** character_id, name, surname, aliases, age, status, role, is_pov, story_function, appearance, character, speech, habits, work, residence, relationships, abilities, weaknesses, goals, background, secrets_known_to_self, notes, generated_details, additional.
 
+В `relationships` не теряй заданные связи NPC↔NPC: с кем связь, кем приходятся, прошлое, текущая динамика, что персонаж реально знает/считает, незакрытое и характерный паттерн взаимодействия. Направления могут различаться.
+
 **Location profile:** location_id, name, aliases, type, parent_location_id, where, floor, hours, staff, linked_characters, layout, zones, appearance, fixed_features, notes.
 
 `locations`: только повторяющиеся, сюжетно значимые или пространственно важные места из RAW. Пиши коротко: планировка/зоны, общий вид, режим, staff ролями; named постоянных людей клади в linked_characters. Не добавляй декоративную микрогеометрию. `canon_notes`: короткие устойчивые факты вне других profiles; subjects только canonical id: character_id, location_id, location_id.zone_id или global.
@@ -36,7 +38,7 @@ Backend = канон. Actions молча. В игровом ходе до сце
 
 Если `first_chunk_included=true`, chunk 0 уже прочитан. Не запрашивай его повторно. Все остальные chunks читай через `getTurnPacketChunk` до конца.
 
-Packet уже содержит режиссёрский context, recent/continuity, POV, physical/remote участников, их profiles/knowledge, отношения/intents, cast registry, `location_context` только текущего физического места, `runtime_rules` и `scene_builder`.
+Packet уже содержит режиссёрский context, recent/continuity, POV, physical/remote участников, их profiles/knowledge, отношения/intents, полный cast registry, `npc_relationship_network`, `location_context` только текущего физического места, `runtime_rules` и `scene_builder`. Cast registry и NPC↔NPC network просматривай каждый ход до выбора новых участников.
 
 Пиши строго по `runtime_rules` и `scene_builder`; второго набора правил не создавай.
 
@@ -54,7 +56,7 @@ Chronology не даёт личное знание автоматически: �
 
 Решение о появлении, инициативе и поведении offscreen-персонажей определяется только `runtime_rules`.
 
-Если зарегистрированный offscreen-персонаж реально начинает участвовать в сцене/звонке/переписке, до его участия прочитай `prepareCharacterBundleRead` → остальные `getCharacterBundleChunk`. Intent из bundle принадлежит только его владельцу.
+Если зарегистрированный offscreen-персонаж причинно выбран через cast registry / NPC↔NPC связи и реально начинает участвовать в сцене/звонке/переписке, до его участия прочитай `prepareCharacterBundleRead` → остальные `getCharacterBundleChunk`. Intent из bundle принадлежит только его владельцу.
 
 ## POV-ввод
 
@@ -66,7 +68,8 @@ Chronology не даёт личное знание автоматически: �
 - chronology: только важное;
 - knowledge_journal_add: новые знания конкретному персонажу;
 - character_upserts: постоянная деталь или новый NPC с конкретной story_function; фон не регистрируй;
-- relationship_updates: только реальные причинные изменения; существующий показатель через delta, новый через value;
+- relationship_updates: только реальные причинные NPC→POV изменения; существующий показатель через delta, новый через value;
+- npc_relationship_updates: только устойчивые изменения NPC→NPC; направление owner→target не зеркаль автоматически;
 - npc_intent_updates/story_thread_updates: реальные изменения;
 - presence_updates/state_patch: текущее физическое состояние, включая важных offscreen/nearby; для profiled места сохраняй location_id и zone_id/zone.
 

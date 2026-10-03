@@ -19,6 +19,7 @@ from . import (
     memory_integrity_runtime,
     npc_intent,
     npc_intent_runtime,
+    npc_relationship_runtime,
     private_knowledge_runtime,
     profile_templates,
     relationship_metadata,
@@ -47,7 +48,7 @@ _BASE_PARTICIPATION_BUNDLE = character_chunk_read._participation_bundle
 _BASE_CREATE_SESSION = storage.create_session
 _BASE_RECOVER_CURRENT = session_recovery.recover_session_current
 
-PIPELINE_VERSION = 12
+PIPELINE_VERSION = 13
 
 def _packet_manifest(packet: Dict[str, Any], *, reused: bool) -> Dict[str, Any]:
     chunks = packet.get("chunks", []) if isinstance(packet.get("chunks"), list) else []
@@ -182,6 +183,11 @@ def _cast_registry_rows(
     pov_id = str(pov.get("character_id") or "")
     present = {str(value) for value in storage._present_character_ids(state) if value}
     remote = {str(value) for value in storage._remote_character_ids(state) if value}
+    npc_network = npc_relationship_runtime.build_network(
+        cards,
+        state,
+        resolve_character_id=session_runtime._resolve_character_id,
+    )
 
     def compact(value: Any, limit: int = 520) -> str | None:
         if value in (None, "", [], {}):
@@ -286,6 +292,15 @@ def _cast_registry_rows(
             "current_activity": compact(info.get("activity"), 320),
             "relationship_to_pov": relationship_to_pov,
             "known_relationships": compact(card.get("relationships"), 520),
+            "npc_relationships": npc_relationship_runtime.relations_for_character(npc_network, cid),
+            "full_card_retrieval": (
+                {
+                    "action": "prepareCharacterBundleRead",
+                    "character_id": cid,
+                    "then": "read all getCharacterBundleChunk chunks before participation",
+                }
+                if cid != pov_id else None
+            ),
             "active_intents": active_intents(cid),
             "active_threads": active_threads(cid),
             "last_meaningful_event": raw.get("last_meaningful_event"),
@@ -402,6 +417,7 @@ def _move_runtime_documents_last(context: Dict[str, Any]) -> Dict[str, Any]:
         "each active character's own knowledge",
         "relationships and active intents",
         "cast registry",
+        "NPC relationship network",
         "runtime_rules",
         "scene_builder",
     ]
@@ -437,6 +453,9 @@ def _prepare_context(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
     context = writer_first_runtime._rewrite_context(session_id, context)
     context = private_knowledge_runtime.redact_private_history(context, root=root, cards=cards)
     context = _clean_director_layers(context)
+    # cast_registry below is the single always-read cast index. Remove the older
+    # writer-facing cast_index so recency metadata cannot compete with causal selection.
+    context.pop("cast_index", None)
 
     scene_ids = _scene_ids(state, cards)
     context["relevant_character_ids"] = scene_ids
@@ -483,22 +502,27 @@ def _prepare_context(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
         cid: turn_context._working_memory_bucket(memory_buckets.get(cid, {}), current_turn)
         for cid in scene_ids
     }
+    npc_network = npc_relationship_runtime.build_network(
+        cards,
+        state,
+        resolve_character_id=session_runtime._resolve_character_id,
+    )
     context["cast_registry"] = {
         "persistent": True,
         "registry_index_path": "cast_registry.characters",
         "mandatory_causal_review": True,
         "recency_rotation_disabled": True,
         "instruction": (
-            "Перед сценой просмотри ВЕСЬ постоянный NPC-каст. Это не очередь и не ротация. "
+            "Перед сценой просмотри ВЕСЬ постоянный NPC-каст и npc_relationship_network. Это не очередь и не ротация. "
             "Давность, число появлений и то, что персонажа давно не было, сами по себе никогда не являются причиной вывести его в сцену. "
-            "Для каждого NPC оцени вместе role/story_function, goals, work/residence, current_location/current_activity, "
-            "relationship_to_pov, known_relationships, active_intents, active_threads и реальные последствия. "
-            "Если собственная линия NPC создаёт причинный путь к текущей или ближайшей сцене, мир должен сам подвести это пересечение "
-            "через работу, место, другого NPC, сообщение, звонок, обязательство, конфликт, событие или последствие; POV не обязан его искать или вспоминать. "
-            "Если причинного пути нет, не вставляй NPC ради камео. Нормально, если в этом ходе никто новый не появляется."
+            "Для каждого NPC оцени role/story_function, goals, work/residence, current_location/current_activity, "
+            "relationship_to_pov, связи NPC↔NPC, active_intents, active_threads и реальные последствия. "
+            "Если собственная линия NPC или его связь с другим NPC создаёт причинный путь к текущей/ближайшей сцене, мир сам подводит пересечение. "
+            "POV не обязан искать, звать или вспоминать персонажа. Если причины нет, не вставляй NPC ради камео."
         ),
         "characters": _cast_registry_rows(state, cards, source, current_turn),
     }
+    context["npc_relationship_network"] = npc_network
 
     scene_presence = {
         "present_character_ids": [str(value) for value in storage._present_character_ids(state) if value],
@@ -568,6 +592,11 @@ def _prepare_context(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
             "For an existing metric send delta from the saved value; value may echo the final/snapshot value but delta is authoritative. "
             "A qualitatively new state may become a new dynamic metric with value; old labels are not a whitelist. "
             "If nothing changed, set changed=false and send no update."
+        ),
+        "npc_relationships": (
+            "NPC↔NPC is separate from NPC→POV. If an interaction between two persistent NPCs creates a durable change, "
+            "write npc_relationship_updates with owner_character_id, target_character_id and only the qualitative fields that actually changed. "
+            "Direction matters; never mirror A→B into B→A automatically."
         ),
         "character_upserts": "new durable self-detail, or a new persistent NPC only with a concrete recurring story_function; never register a background extra",
         "state_patch": "save changed physical state. POV clothing/inventory -> state_patch.pov; NPC clothing/inventory/location/activity -> state_patch.characters[ID]. For a known location preserve location_id and zone_id/zone with the visible location name.",
@@ -881,6 +910,43 @@ def _apply_story_and_intent_updates(session_id: str, payload: Dict[str, Any]) ->
     return result
 
 
+def _apply_npc_relationship_updates(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    result = deepcopy(payload)
+    extracted = result.get("extracted") if isinstance(result.get("extracted"), dict) else {}
+    extracted = deepcopy(extracted)
+    updates = extracted.get("npc_relationship_updates")
+    if not isinstance(updates, list) or not updates:
+        return result
+
+    root = storage.SESSIONS_DIR / session_id
+    source = storage._read_json(root / "source.json", {})
+    cards = storage._apply_character_upserts(storage._load_cards(root, source), extracted)
+    state = storage._read_json(root / "state.json", {})
+    patch = deepcopy(extracted.get("state_patch")) if isinstance(extracted.get("state_patch"), dict) else {}
+    working = storage._deep_merge(state, patch)
+    meta = storage._read_json(root / "meta.json", {})
+    turn_number = int(meta.get("turn_number", 0) or 0) + 1
+
+    try:
+        working = npc_relationship_runtime.apply_updates(
+            working,
+            updates,
+            cards=cards,
+            resolve_character_id=session_runtime._resolve_character_id,
+            turn_number=turn_number,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": str(exc), "message": "Invalid NPC-to-NPC relationship update."},
+        ) from exc
+
+    patch["npc_relationships"] = deepcopy(working.get("npc_relationships", {}))
+    extracted["state_patch"] = patch
+    result["extracted"] = extracted
+    return result
+
+
 def _prepare_profile_persistence(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     root = storage.SESSIONS_DIR / session_id
     result = deepcopy(payload)
@@ -895,6 +961,7 @@ def _prepare_profile_persistence(session_id: str, payload: Dict[str, Any]) -> Di
     extracted.setdefault("dialogue_memory_add", [])
     extracted.setdefault("knowledge_journal_add", [])
     extracted.setdefault("npc_intent_updates", [])
+    extracted.setdefault("npc_relationship_updates", [])
     extracted.setdefault("story_thread_updates", [])
     extracted.setdefault("relationship_updates", [])
     extracted.setdefault("character_upserts", [])
@@ -957,6 +1024,7 @@ def commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         root=storage.SESSIONS_DIR / session_id,
     )
     prepared = _apply_story_and_intent_updates(session_id, prepared)
+    prepared = _apply_npc_relationship_updates(session_id, prepared)
     prepared = _apply_relationship_changes(session_id, prepared)
     prepared = cast_registry_runtime._with_registry_patch(session_id, prepared)
     raw_chronology = deepcopy(

@@ -610,6 +610,44 @@ components:
           type: string
       additionalProperties: false
 
+    NPCRelationshipUpdate:
+      type: object
+      required: [owner_character_id, target_character_id]
+      properties:
+        owner_character_id:
+          type: string
+        target_character_id:
+          type: string
+        relationship_type:
+          type: string
+        relationship_context:
+          type: string
+        current_dynamic:
+          type: string
+        behavioral_pattern:
+          type: string
+        beliefs_about_target:
+          type: array
+          items:
+            type: string
+        unresolved_between_them:
+          type: array
+          items:
+            type: string
+        dynamic_constraints:
+          type: array
+          items:
+            type: string
+        interaction_hooks:
+          type: array
+          items:
+            type: string
+        status:
+          type: string
+        change_reason:
+          type: string
+      additionalProperties: false
+
     NPCIntentUpdate:
       type: object
       required: [character_id, intent_id]
@@ -737,6 +775,10 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/NPCIntentUpdate'
+        npc_relationship_updates:
+          type: array
+          items:
+            $ref: '#/components/schemas/NPCRelationshipUpdate'
         story_thread_updates:
           type: array
           items:
