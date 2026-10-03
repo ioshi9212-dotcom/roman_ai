@@ -153,17 +153,16 @@ def prepare_turn_request(
             packet["scene_archive_capable"] = bool(scene_archive_capable)
             packet["opening_scene"] = bool(opening_scene)
             packet["writer_review_required"] = True
-            # Compatibility boundary: only newly prepared packets get the new hard review gate.
-            # Pending packets created by older deployments keep working unchanged.
-            packet["relationship_review_required"] = True
-            # These v2 gates are added only to packets prepared after this deployment.
-            # Existing pending turns from older code remain committable unchanged.
-            packet["relationship_review_details_required"] = True
-            packet["relationship_footer_scope_required"] = True
-            # v3 closes the remaining loopholes without retroactively gating pending turns:
-            # review rows need reasons, changed=true must describe a real canonical effect,
-            # and the visible footer becomes display-only for persistence.
-            packet["relationship_review_v3_required"] = True
+            # relationships.json is the sole relationship canon. Relationship review
+            # is now implicit: send relationship_updates only when the finished scene
+            # actually changed an NPC→POV relationship.
+            for key in (
+                "relationship_review_required",
+                "relationship_review_details_required",
+                "relationship_footer_scope_required",
+                "relationship_review_v3_required",
+            ):
+                packet.pop(key, None)
             storage._write_json(root / "turn_packet.json", packet)
 
         if scene_archive_capable:
