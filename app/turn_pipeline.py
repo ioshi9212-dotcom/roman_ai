@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import secrets
 from copy import deepcopy
 from typing import Any, Dict, List
 
@@ -421,9 +422,19 @@ def _move_runtime_documents_last(context: Dict[str, Any]) -> Dict[str, Any]:
     return result
 
 
-def _prepare_context(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
+def _prepare_context(
+    session_id: str,
+    base: Dict[str, Any],
+    *,
+    packet_override: Dict[str, Any] | None = None,
+    context_override: Dict[str, Any] | None = None,
+) -> Dict[str, Any]:
     root = storage.SESSIONS_DIR / session_id
-    packet, context = _read_packet_context(root)
+    if packet_override is None or context_override is None:
+        packet, context = _read_packet_context(root)
+    else:
+        packet = deepcopy(packet_override)
+        context = deepcopy(context_override)
     if not context:
         return base
 
@@ -632,8 +643,32 @@ def prepare_turn_packet(session_id: str, user_input: str) -> Dict[str, Any]:
         refreshed = storage._read_json(root / "turn_packet.json", {})
         return _packet_manifest(refreshed, reused=True)
 
-    base = dict(_BASE_PREPARE(session_id, user_input))
-    return _prepare_context(session_id, base)
+    # Build once in memory, then serialize only the final writer packet.
+    # This avoids storage -> packet -> read -> rewrite -> packet round-trips.
+    context = session_runtime.build_turn_context(session_id, user_input)
+    packet = {
+        "packet_id": secrets.token_urlsafe(12),
+        "prepared_for_turn": expected_turn,
+        "user_input": user_input,
+        "relevant_character_ids": [
+            str(value) for value in context.get("relevant_character_ids", []) if value
+        ],
+        "chunk_count": 0,
+        "read_chunks": [],
+        "chunks": [],
+    }
+    base = {
+        "packet_id": packet["packet_id"],
+        "prepared_for_turn": expected_turn,
+        "chunk_count": 0,
+        "relevant_character_ids": packet["relevant_character_ids"],
+    }
+    return _prepare_context(
+        session_id,
+        base,
+        packet_override=packet,
+        context_override=context,
+    )
 
 
 def _validate_technical_state_patch(payload: Dict[str, Any]) -> None:
