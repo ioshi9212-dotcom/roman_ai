@@ -7,7 +7,7 @@ from typing import Any, Dict, List
 
 from fastapi import HTTPException
 
-from . import character_chunk_read, npc_relationship_runtime, session_runtime, storage, writer_first_runtime
+from . import character_chunk_read, npc_relationship_runtime, relationship_runtime, session_runtime, storage, writer_first_runtime
 from .profile_templates import (
     normalize_character_profile,
     render_character_profile,
@@ -674,6 +674,12 @@ def _participation_bundle(session_id: str, character_id: str) -> Dict[str, Any]:
         "profile": render_character_profile(card),
         "current_state": deepcopy(current_state),
         "relationship_to_pov": deepcopy(relationship),
+        "relationship_footer_snapshot": relationship_runtime.relationship_footer_snapshot_for_character(
+            state,
+            cards=cards,
+            character_id=character_id,
+            resolve_character_id=session_runtime._resolve_character_id,
+        ),
         "npc_relationships_director_only": npc_relationship_runtime.outgoing_relations_for_character(
             network,
             character_id,
@@ -700,7 +706,8 @@ def _participation_bundle(session_id: str, character_id: str) -> Dict[str, Any]:
         },
         "instruction": (
             "Этот bundle полностью готов для участия offscreen-персонажа: own profile + own complete knowledge "
-            "+ relationship + current state. npc_relationships_director_only влияет на режиссуру поведения, но не является "
+            "+ relationship + current state. relationship_footer_snapshot сохраняет точные старые NPC→POV labels/values для footer, "
+            "если персонаж войдёт физически в текущем ходу; не выбрасывай неизменившиеся оси. npc_relationships_director_only влияет на режиссуру поведения, но не является "
             "личным factual knowledge и не сообщает персонажу неизвестные факты о другом NPC. Используй только явно известные "
             "детали; не дополняй частичный факт скрытыми или вероятными подробностями. Отдельный knowledge-read не нужен."
         ),
