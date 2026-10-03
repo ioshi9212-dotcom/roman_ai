@@ -492,11 +492,7 @@ def _prepare_context(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
         for cid in scene_ids
         if cid in card_map
     ]
-    context["character_profiles"] = {
-        cid: profile_templates.render_character_profile(card_map[cid])
-        for cid in scene_ids
-        if cid in card_map
-    }
+    context.pop("character_profiles", None)
 
     memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
     memory_buckets = memory.get("characters", {}) if isinstance(memory.get("characters"), dict) else {}
