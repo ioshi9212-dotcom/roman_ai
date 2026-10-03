@@ -14,7 +14,7 @@ from .transactional_storage import session_transaction
 
 _ORIGINAL_PREPARE = None
 _ORIGINAL_COMMIT = None
-_VERSION = 4
+_VERSION = 5
 
 # New labels come from one small shared vocabulary. Existing labels in old sessions remain valid.
 RELATIONSHIP_DIMENSIONS: Dict[str, str] = {
@@ -318,9 +318,88 @@ def _relationship_strength(metrics: Any) -> float:
 def _enrich_cast_pressure(context: Dict[str, Any], state: Dict[str, Any]) -> None:
     guards = context.get("narrative_guardrails") if isinstance(context.get("narrative_guardrails"), dict) else {}
     rows = guards.get("cast_pressure") if isinstance(guards.get("cast_pressure"), list) else []
-    existing = {str(row.get("character_id")) for row in rows if isinstance(row, dict)}
-    relationships = state.get("relationships") if isinstance(state.get("relationships"), dict) else {}
     cast = context.get("cast_index") if isinstance(context.get("cast_index"), list) else []
+    by_id = {
+        str(member.get("character_id")): member
+        for member in cast
+        if isinstance(member, dict) and member.get("character_id")
+    }
+    present = {
+        cid for cid, member in by_id.items()
+        if member.get("present") is True or member.get("is_pov") is True
+    }
+
+    # Characters tied to the POV's current place, or explicitly saved in the same
+    # parent location, are more causally relevant than a merely long-absent cast member.
+    # Surface them first, but do not assert that they are physically present.
+    local_rows: List[Dict[str, Any]] = []
+    local_seen: set[str] = set()
+    location = context.get("location_context") if isinstance(context.get("location_context"), dict) else {}
+    linked = location.get("linked_characters") if isinstance(location.get("linked_characters"), list) else []
+    for raw in linked:
+        cid = str(raw.get("character_id") or "") if isinstance(raw, dict) else str(raw or "")
+        if not cid or cid in present or cid in local_seen:
+            continue
+        member = by_id.get(cid, {})
+        local_rows.append({
+            "character_id": cid,
+            "name": member.get("name") or member.get("full_name") or (raw.get("name") if isinstance(raw, dict) else None),
+            "location_linked": True,
+            "must_reconsider": True,
+            "guidance": (
+                "POV сейчас в месте, с которым этот персонаж постоянно связан. Проверь его роль, расписание, runtime-state и время суток. "
+                "Если ему естественно быть здесь или пересечься сейчас, введи его без запроса POV. Не оставляй его за кадром только ради сохранения текущей сцены."
+            ),
+        })
+        local_seen.add(cid)
+
+    current = state.get("current") if isinstance(state.get("current"), dict) else {}
+    current_locations = {
+        str(value).casefold().strip()
+        for value in (
+            current.get("location_id"), current.get("location"),
+            location.get("location_id"), location.get("name"),
+        )
+        if str(value or "").strip()
+    }
+    characters = state.get("characters") if isinstance(state.get("characters"), dict) else {}
+    for cid, info in characters.items():
+        cid = str(cid)
+        if cid in present or cid in local_seen or not isinstance(info, dict):
+            continue
+        npc_locations = {
+            str(value).casefold().strip()
+            for value in (info.get("location_id"), info.get("location"))
+            if str(value or "").strip()
+        }
+        if not current_locations.intersection(npc_locations):
+            continue
+        member = by_id.get(cid, {})
+        local_rows.append({
+            "character_id": cid,
+            "name": member.get("name") or member.get("full_name"),
+            "same_parent_location": True,
+            "must_reconsider": True,
+            "guidance": (
+                "Runtime-state помещает этого NPC в ту же родительскую локацию, что и POV. Он не обязан войти немедленно, "
+                "но его нельзя игнорировать ради камерной сцены: проверь, не настал ли естественный момент пересечения, голоса, прихода или совместного действия."
+            ),
+        })
+        local_seen.add(cid)
+
+    existing = {str(row.get("character_id")) for row in local_rows if isinstance(row, dict)}
+    merged_rows = list(local_rows)
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        cid = str(row.get("character_id") or "")
+        if cid and cid in existing:
+            continue
+        merged_rows.append(row)
+        if cid:
+            existing.add(cid)
+
+    relationships = state.get("relationships") if isinstance(state.get("relationships"), dict) else {}
     for member in cast:
         if not isinstance(member, dict) or member.get("present") or member.get("is_pov"):
             continue
@@ -328,14 +407,17 @@ def _enrich_cast_pressure(context: Dict[str, Any], state: Dict[str, Any]) -> Non
         strength = _relationship_strength(relationships.get(cid))
         if not cid or cid in existing or strength < 0.6:
             continue
-        rows.append({
+        merged_rows.append({
             "character_id": cid,
             "name": member.get("name") or member.get("full_name"),
             "relationship_salience": round(strength, 2),
-            "guidance": "Можно вернуть без запроса POV, если уместно по канону.",
+            "guidance": (
+                "Сильная связь сама создаёт поводы для контакта. Проверь ближайший причинный способ проявить NPC; "
+                "не оставляй его pending только потому, что POV занят текущей сценой."
+            ),
         })
         existing.add(cid)
-    guards["cast_pressure"] = rows[:8]
+    guards["cast_pressure"] = merged_rows[:8]
     context["narrative_guardrails"] = guards
 
 
