@@ -119,6 +119,7 @@ class RelationshipUpdate(BaseModel):
 class NPCRelationshipUpdate(BaseModel):
     owner_character_id: str
     target_character_id: str
+    description: Optional[str] = None
     relationship_type: Optional[str] = None
     relationship_context: Optional[str] = None
     current_dynamic: Optional[str] = None
