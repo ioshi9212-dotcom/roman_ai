@@ -719,6 +719,8 @@ def create_continuation_session(session_id: str) -> Dict[str, Any]:
     source["characters"] = deepcopy(p["cards"])
 
     state = deepcopy(p["state"])
+    for key in ("relationships", "relationship_documents", "relationship_schemas", "npc_relationships"):
+        state.pop(key, None)
     state["current"] = deepcopy(package["current"])
     state["threads"] = deepcopy(package["threads"])
     state.setdefault("world", {})
