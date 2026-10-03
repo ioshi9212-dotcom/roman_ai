@@ -185,6 +185,7 @@ def test_custom_gpt_instruction_matches_rules_driven_transport():
     assert "Intent из bundle знает только его владелец" in text
     assert "не жди упоминания или вызова от POV" in text
     assert "показывай `session_id`" in text
+    assert "STORY_PROGRESS_REQUIRED" in text
     assert "`packet_id`, `read_id`, chunk-статусы и сверки не показывай" in text
     assert "первый видимый текст = сама сцена" in text
     assert "не выводи планы/анализ/пояснения" in text
