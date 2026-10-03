@@ -443,9 +443,87 @@ def _validate_relationship_footer_scope(session_id: str, payload: Dict[str, Any]
         cards=cards,
         resolve_character_id=session_runtime._resolve_character_id,
     )
+
     extra = {str(cid) for cid in footer if str(cid) not in final_present and str(cid) != pov_id}
     if extra:
         raise RuntimeError("RELATIONSHIP_FOOTER_ABSENT_NPC")
+
+    # The visible footer is a complete end-of-scene snapshot, not a change log.
+    # Every physically present persistent NPC must have a row, including an NPC
+    # who entered during this turn.
+    missing_rows = {str(cid) for cid in final_present if str(cid) not in footer}
+    if missing_rows:
+        raise RuntimeError("RELATIONSHIP_FOOTER_REQUIRED")
+
+    repaired = relationship_runtime.repair_relationship_state(
+        state,
+        source=source,
+        turns=storage._read_turns(root),
+        cards=cards,
+        resolve_character_id=session_runtime._resolve_character_id,
+    )
+    docs = relationship_runtime._canonical_docs(
+        repaired,
+        cards=cards,
+        resolve_character_id=session_runtime._resolve_character_id,
+    )
+
+    expected: Dict[str, Dict[str, float]] = {}
+    for owner_id in final_present:
+        relation = relationship_runtime._pov_relation(docs.get(str(owner_id), {}), pov_id)
+        dimensions = (
+            relationship_runtime._normalise_dimensions(relation.get("dimensions"))
+            if isinstance(relation, dict)
+            else []
+        )
+        expected[str(owner_id)] = {
+            relationship_runtime._norm(item.get("label") or item.get("key")): float(item.get("value"))
+            for item in dimensions
+            if isinstance(item.get("value"), (int, float)) and not isinstance(item.get("value"), bool)
+        }
+
+    # Fold this turn's canonical updates into the expected final snapshot.
+    updates = extracted.get("relationship_updates") if isinstance(extracted.get("relationship_updates"), list) else []
+    for raw in updates:
+        if not isinstance(raw, dict):
+            continue
+        owner = session_runtime._resolve_character_id(cards, raw.get("character_id"))
+        if not owner or str(owner) not in final_present:
+            continue
+        owner = str(owner)
+        owner_expected = expected.setdefault(owner, {})
+        for item in raw.get("dimensions", []) if isinstance(raw.get("dimensions"), list) else []:
+            if not isinstance(item, dict):
+                continue
+            label = str(item.get("label") or item.get("key") or "").strip()
+            if not label:
+                continue
+            norm = relationship_runtime._norm(label)
+            value = item.get("value")
+            delta = item.get("delta")
+            value_num = isinstance(value, (int, float)) and not isinstance(value, bool)
+            delta_num = isinstance(delta, (int, float)) and not isinstance(delta, bool)
+            if norm in owner_expected and delta_num:
+                owner_expected[norm] = owner_expected[norm] + float(delta)
+            elif norm not in owner_expected and value_num:
+                owner_expected[norm] = float(value)
+
+    for owner_id in final_present:
+        incoming = footer.get(str(owner_id), [])
+        incoming_by_label = {
+            relationship_runtime._norm(item.get("label") or item.get("key")): item
+            for item in incoming
+            if isinstance(item, dict)
+        }
+        owner_expected = expected.get(str(owner_id), {})
+        if not set(owner_expected).issubset(set(incoming_by_label)):
+            raise RuntimeError("RELATIONSHIP_FOOTER_INCOMPLETE")
+        for label, expected_value in owner_expected.items():
+            shown = incoming_by_label[label].get("value")
+            if not isinstance(shown, (int, float)) or isinstance(shown, bool):
+                raise RuntimeError("RELATIONSHIP_FOOTER_VALUE_MISMATCH")
+            if abs(float(shown) - float(expected_value)) > 1e-9:
+                raise RuntimeError("RELATIONSHIP_FOOTER_VALUE_MISMATCH")
 
 
 def commit_turn_request(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
