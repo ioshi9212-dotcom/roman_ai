@@ -324,6 +324,25 @@ def _clean_relationship_lens(context: Dict[str, Any]) -> None:
 
 def _clean_director_layers(context: Dict[str, Any]) -> Dict[str, Any]:
     result = deepcopy(context)
+
+    # relationships.json is the sole relationship canon. Base compatibility
+    # builders may still have copied legacy relationship stores into the packet
+    # before migration runs, especially on the first turn of an old session.
+    legacy_relationship_keys = (
+        "relationships",
+        "relationship_documents",
+        "relationship_schemas",
+        "npc_relationships",
+    )
+    for key in legacy_relationship_keys:
+        result.pop(key, None)
+    scene_state = result.get("scene_state")
+    if isinstance(scene_state, dict):
+        scene_state = deepcopy(scene_state)
+        for key in legacy_relationship_keys:
+            scene_state.pop(key, None)
+        result["scene_state"] = scene_state
+
     for key in (
         "runtime_contract",
         "knowledge_guard",
@@ -375,7 +394,7 @@ def _clean_director_layers(context: Dict[str, Any]) -> Dict[str, Any]:
     author = result.get("author_context")
     if isinstance(author, dict):
         author = deepcopy(author)
-        for key in ("instruction", "knowledge_quarantine", "chronology_context_rule"):
+        for key in ("instruction", "knowledge_quarantine", "chronology_context_rule", *legacy_relationship_keys):
             author.pop(key, None)
         result["author_context"] = author
     _clean_relationship_lens(result)
@@ -939,6 +958,8 @@ def commit_audit(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
 def continue_session(session_id: str) -> Dict[str, Any]:
     stability_runtime._recover_session(session_id)
     result = dict(_BASE_CONTINUE(session_id))
+    for key in ("relationships", "relationship_documents", "relationship_schemas", "npc_relationships"):
+        result.pop(key, None)
     status = session_recovery.current_recovery_status(session_id)
     result["current_recovery_required"] = bool(status.get("required"))
     if status.get("required"):
