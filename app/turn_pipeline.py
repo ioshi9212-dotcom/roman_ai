@@ -372,21 +372,6 @@ def _clean_director_layers(context: Dict[str, Any]) -> Dict[str, Any]:
     ):
         result.pop(key, None)
 
-    contract = result.get("working_context_contract")
-    contract = deepcopy(contract) if isinstance(contract, dict) else {}
-    contract.pop("dormant_character_retrieval", None)
-    contract.pop("simple_name_mention_does_not_load_offscreen_card", None)
-    contract.update({
-        "turn_pipeline_version": PIPELINE_VERSION,
-        "director_rules_source": "runtime_rules",
-        "scene_rendering_source": "scene_builder",
-        "hidden_director_guard_layers": False,
-        "backend_semantic_scene_gates": False,
-        "precommit_review_gates": ["scene_builder", "persistence", "knowledge"],
-        "offscreen_character_retrieval": "chunked_when_relevant",
-        "active_character_knowledge_rebuilt_from_persistent_memory": True,
-    })
-    result["working_context_contract"] = contract
     for key in ("novel_rules", "novel", "author_context", "novel_profile"):
         if key in result:
             result[key] = profile_templates._strip_legacy_pov_silence_rule(result[key])
