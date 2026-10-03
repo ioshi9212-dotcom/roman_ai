@@ -17,7 +17,7 @@ def test_scene_endings_leave_a_concrete_playable_hook():
     text = (ROOT / "runtime" / "scene_builder.md").read_text(encoding="utf-8")
     assert "конкретный активный крючок" in text
     assert "можно просто побыть" in text
-    assert "Не придумывай случайное событие" in text
+    assert "Не придумывай новый активный элемент" in text
     assert "не обязан быть клиффхэнгером в драматическом смысле" in text
 
 
