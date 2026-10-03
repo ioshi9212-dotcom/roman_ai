@@ -8,8 +8,8 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 AUTHOR_BLOB_SHA = {
-    "rules.md": "6f229fd34d5c954551a82c608041c11b2abc8bde",
-    "scene_builder.md": "758d20ecea4f66b31a504f486cb9efde7d9aded7",
+    "rules.md": "5ef3092fd54d46f48cc9fbd9ffa5d0e810d7b603",
+    "scene_builder.md": "9069eab23efae83a01f8eece2fa15fdf1a32299a",
 }
 
 
@@ -24,12 +24,11 @@ def test_author_runtime_sources_are_byte_locked():
         assert _git_blob_sha(ROOT / "runtime" / name) == expected
 
 
-def test_active_runtime_contract_is_separate_from_author_rules():
+def test_active_runtime_is_exactly_the_two_author_documents():
     author = author_runtime_sources()
     active = runtime_documents()
 
-    assert author["rules"] == (ROOT / "runtime" / "rules.md").read_text(encoding="utf-8")
-    assert author["scene_builder"] == (ROOT / "runtime" / "scene_builder.md").read_text(encoding="utf-8")
-    assert active["rules"] == (ROOT / "runtime" / "runtime_contract.md").read_text(encoding="utf-8")
-    assert active["scene_builder"] == author["scene_builder"]
-    assert active["rules"] != author["rules"]
+    assert set(active) == {"rules", "scene_builder"}
+    assert active == author
+    assert active["rules"] == (ROOT / "runtime" / "rules.md").read_text(encoding="utf-8")
+    assert active["scene_builder"] == (ROOT / "runtime" / "scene_builder.md").read_text(encoding="utf-8")
