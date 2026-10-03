@@ -116,6 +116,21 @@ class RelationshipUpdate(BaseModel):
     relationship_context: Optional[str] = None
 
 
+class NPCRelationshipUpdate(BaseModel):
+    owner_character_id: str
+    target_character_id: str
+    relationship_type: Optional[str] = None
+    relationship_context: Optional[str] = None
+    current_dynamic: Optional[str] = None
+    behavioral_pattern: Optional[str] = None
+    beliefs_about_target: Optional[List[Any]] = None
+    unresolved_between_them: Optional[List[Any]] = None
+    dynamic_constraints: Optional[List[Any]] = None
+    interaction_hooks: Optional[List[Any]] = None
+    status: Optional[str] = None
+    change_reason: Optional[str] = None
+
+
 class StoryThreadUpdate(BaseModel):
     model_config = ConfigDict(extra="allow")
 
@@ -164,6 +179,7 @@ class TurnExtracted(BaseModel):
     experiences_add: List[Dict[str, Any]] = Field(default_factory=list)
     dialogue_memory_add: List[Dict[str, Any]] = Field(default_factory=list)
     npc_intent_updates: List[Dict[str, Any]] = Field(default_factory=list)
+    npc_relationship_updates: List[NPCRelationshipUpdate] = Field(default_factory=list)
     story_thread_updates: List[StoryThreadUpdate] = Field(default_factory=list)
     scene_progressed: Optional[bool] = None
     presence_updates: Optional[List[Dict[str, Any]]] = Field(default_factory=list)
@@ -176,6 +192,7 @@ class TurnExtracted(BaseModel):
         "relationship_updates",
         "character_upserts",
         "knowledge_journal_add",
+        "npc_relationship_updates",
         mode="before",
     )
     @classmethod
