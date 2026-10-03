@@ -104,7 +104,6 @@ Offscreen упоминание само по себе не требует bundle
 - future_guidance;
 - active_threads;
 - story direction;
-- `character_registry`;
 - `cast_index`;
 - `offscreen_intent_candidates`;
 - полный scene_state;
@@ -444,9 +443,9 @@ POV не обязан искать, звать или вспоминать NPC, 
 
 Нормально, если в конкретном ходе никто новый не появляется.
 
-`character_registry`, `cast_registry` и `cast_index` - director-only данные.
+`cast_registry` - director-only данные.
 
-Они не являются знаниями POV/NPC.
+Он не является знанием POV/NPC.
 
 ## NPC ↔ NPC
 
