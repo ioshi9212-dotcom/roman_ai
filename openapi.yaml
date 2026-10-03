@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Roman AI
-  version: 2.0.6
+  version: 2.0.7
   description: Rules-driven interactive novel sessions with character-scoped knowledge, dynamic relationships, cast continuity, recovery, rollback, continuation compaction and lossless setup intake.
 servers:
   - url: https://ai-roman-yumikofv.mia0.amvera.tech
@@ -561,10 +561,10 @@ components:
           type: string
         value:
           type: number
-          description: Required only when creating a new relationship dimension; optional for an established metric changed by delta.
+          description: Initial signed value for a new NPC→POV dimension. Zero is not stored.
         delta:
           type: number
-          description: For an established metric this is the causal change from the saved value and is authoritative when supplied. New metrics are initialized from value.
+          description: Signed change for an established dimension. Ordinary changes are limited to -3..+3. A final value of zero deletes the dimension.
       additionalProperties: false
 
     RelationshipReview:
@@ -582,7 +582,7 @@ components:
 
     RelationshipUpdate:
       type: object
-      required: [character_id]
+      required: [character_id, reason]
       properties:
         character_id:
           type: string
@@ -592,100 +592,28 @@ components:
             $ref: '#/components/schemas/RelationshipDimensionUpdate'
         reason:
           type: string
-        opinion:
+          description: Short concrete current-scene reason.
+        change_scale:
           type: string
-        current_dynamic:
-          type: string
-        beliefs_about_target:
-          type: array
-          items:
-            type: string
-        unresolved_between_them:
-          type: array
-          items:
-            type: string
-        relationship_type:
-          type: string
-        relationship_context:
-          type: string
+          enum: [ordinary, critical_event]
+          default: ordinary
+          description: Use critical_event only for a genuinely major relationship event; ordinary is limited to +/-3 per changed dimension.
       additionalProperties: false
-
     NPCRelationshipUpdate:
       type: object
-      required: [owner_character_id, target_character_id]
+      required: [owner_character_id, target_character_id, description]
       properties:
         owner_character_id:
           type: string
         target_character_id:
           type: string
-        relationship_type:
+        description:
           type: string
-        relationship_context:
-          type: string
-        current_dynamic:
-          type: string
-        behavioral_pattern:
-          type: string
-        beliefs_about_target:
-          type: array
-          items:
-            type: string
-        unresolved_between_them:
-          type: array
-          items:
-            type: string
-        dynamic_constraints:
-          type: array
-          items:
-            type: string
-        interaction_hooks:
-          type: array
-          items:
-            type: string
-        status:
-          type: string
+          description: Short qualitative directed relationship/dynamic. No numeric scores.
         change_reason:
           type: string
+          description: Optional short reason for the durable change.
       additionalProperties: false
-
-    NPCIntentUpdate:
-      type: object
-      required: [character_id, intent_id]
-      properties:
-        character_id:
-          type: string
-        intent_id:
-          type: string
-        operation:
-          type: string
-          enum: [upsert, resolve, abandon]
-        kind:
-          type: string
-        summary:
-          type: string
-        status:
-          type: string
-        trigger:
-          type: string
-        why_it_matters:
-          type: string
-        planned_action:
-          type: string
-        target_character_id:
-          type: string
-        source_fact_ids:
-          type: array
-          items:
-            type: string
-        next_eligible_game_day:
-          type: integer
-          minimum: 0
-        pursued_now:
-          type: boolean
-        resolution:
-          type: string
-      additionalProperties: false
-
     StoryThreadUpdate:
       type: object
       required: [thread_id]
@@ -754,15 +682,6 @@ components:
         knowledge_reviewed:
           type: boolean
           default: false
-        relationship_reviewed:
-          type: boolean
-          default: false
-          description: True only after reviewing every participating NPC->POV relationship after the complete scene and persisting each real causal change through relationship_updates.
-        relationship_review:
-          type: array
-          description: One explicit review row for every physical or remote NPC who participated in this turn.
-          items:
-            $ref: '#/components/schemas/RelationshipReview'
         knowledge_journal_add:
           type: array
           items:
