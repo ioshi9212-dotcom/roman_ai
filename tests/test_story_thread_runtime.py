@@ -307,6 +307,6 @@ def test_actions_schema_keeps_story_thread_persistence_without_hidden_story_driv
 
 def test_scene_builder_keeps_hard_format_with_variable_scene_length():
     text = (ROOT / "runtime" / "scene_builder.md").read_text(encoding="utf-8")
-    assert text.startswith("Формат Scene Builder обязателен")
-    assert "1500–3000 непробельных символов" in text
-    assert "2200–3000" in text
+    assert text.startswith("Формат scene_builder обязателен")
+    assert "2000–2400 непробельных символов" in text
+    assert "2500–3000 непробельных символов" in text
