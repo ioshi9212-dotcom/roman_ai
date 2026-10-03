@@ -182,7 +182,7 @@ def test_packet_has_no_hidden_director_guard_stack_and_rules_are_last():
         contract = context["working_context_contract"]
         assert contract["hidden_director_guard_layers"] is False
         assert contract["backend_semantic_scene_gates"] is False
-        assert contract["precommit_review_gates"] == ["scene_builder", "persistence", "knowledge", "relationships"]
+        assert contract["precommit_review_gates"] == ["scene_builder", "persistence", "knowledge"]
         assert contract["offscreen_character_retrieval"] == "chunked_when_relevant"
         assert "simple_name_mention_does_not_load_offscreen_card" not in contract
         assert "dormant_character_retrieval" not in contract
@@ -255,12 +255,12 @@ def test_dynamic_relationship_label_can_appear_without_whitelist():
             {
                 "packet_id": manifest["packet_id"],
                 "user_input": "Остаться рядом.",
-                "scene_output": "Сцена\nОтношения:\nNPC - любовь 12/+2",
+                "scene_output": "Сцена\nОтношения:\nNPC - любовь 2/+2",
                 "extracted": {
                     "relationship_updates": [
                         {
                             "character_id": "npc",
-                            "dimensions": [{"label": "любовь", "value": 12, "delta": 2}],
+                            "dimensions": [{"label": "любовь", "value": 2}],
                             "reason": "осознал чувство",
                         }
                     ]
@@ -268,8 +268,8 @@ def test_dynamic_relationship_label_can_appear_without_whitelist():
             },
         )
         assert result["turn_number"] == 1
-        state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
-        assert state["relationships"]["npc"]["любовь"] == 12
+        store = storage._read_json(storage.SESSIONS_DIR / sid / "relationships.json", {})
+        assert store["npc_to_pov"]["npc"]["dimensions"]["любовь"]["value"] == 2
 
 
 def test_relationship_lens_separates_physical_footer_from_remote_without_hidden_director_prose():
@@ -290,7 +290,7 @@ def test_relationship_lens_separates_physical_footer_from_remote_without_hidden_
         assert "rule" not in lens
         assert "footer_rule" not in lens
         assert "stagnation_rule" not in lens
-        assert "Отношения — живое состояние" in context["runtime_rules"]
+        assert "Единственный канон отношений - `relationships.json`." in context["runtime_rules"]
 
 
 def test_saturated_old_metric_does_not_block_new_dynamic_dimension():
@@ -307,21 +307,21 @@ def test_saturated_old_metric_does_not_block_new_dynamic_dimension():
             {
                 "packet_id": manifest["packet_id"],
                 "user_input": "Сблизиться.",
-                "scene_output": "Сцена\nОтношения:\nNPC - интерес 100; влечение 7",
+                "scene_output": "Сцена\nОтношения:\nNPC - интерес 100/0; влечение 2/+2",
                 "extracted": {
                     "relationship_updates": [
                         {
                             "character_id": "npc",
-                            "dimensions": [{"label": "влечение", "value": 7}],
+                            "dimensions": [{"label": "влечение", "value": 2}],
                             "reason": "В сцене возникло качественно новое влечение.",
                         }
                     ]
                 },
             },
         )
-        state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
-        assert state["relationships"]["npc"]["интерес"] == 100
-        assert state["relationships"]["npc"]["влечение"] == 7
+        store = storage._read_json(storage.SESSIONS_DIR / sid / "relationships.json", {})
+        assert store["npc_to_pov"]["npc"]["dimensions"]["интерес"]["value"] == 100
+        assert store["npc_to_pov"]["npc"]["dimensions"]["влечение"]["value"] == 2
 
 
 def test_new_public_packet_requires_scene_and_persistence_review_before_commit():
@@ -348,16 +348,6 @@ def test_new_public_packet_requires_scene_and_persistence_review_before_commit()
             commit_turn_request(sid, payload)
 
         payload["extracted"]["knowledge_reviewed"] = True
-        with pytest.raises(RuntimeError, match="RELATIONSHIP_REVIEW_REQUIRED"):
-            commit_turn_request(sid, payload)
-
-        payload["extracted"]["relationship_reviewed"] = True
-        with pytest.raises(RuntimeError, match="RELATIONSHIP_REVIEW_DETAIL_REQUIRED"):
-            commit_turn_request(sid, payload)
-
-        payload["extracted"]["relationship_review"] = [
-            {"character_id": "npc", "changed": False, "reason": "Текущая сцена не изменила отношение."}
-        ]
         result = commit_turn_request(sid, payload)
         assert result["turn_number"] == 1
 
@@ -381,7 +371,7 @@ def test_relationship_delta_uses_saved_baseline_and_is_not_double_applied():
                     "relationship_updates": [
                         {
                             "character_id": "npc",
-                            "dimensions": [{"label": "доверие", "value": 10, "delta": 2}],
+                            "dimensions": [{"label": "доверие", "delta": 2}],
                             "reason": "NPC увидел поступок POV и стал доверять больше",
                         }
                     ]
@@ -389,7 +379,9 @@ def test_relationship_delta_uses_saved_baseline_and_is_not_double_applied():
             },
         )
         state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
-        assert state["relationships"]["npc"]["доверие"] == 12
+        assert "relationships" not in state
+        store = storage._read_json(storage.SESSIONS_DIR / sid / "relationships.json", {})
+        assert store["npc_to_pov"]["npc"]["dimensions"]["доверие"]["value"] == 12
 
 
 def test_legacy_pending_packet_without_relationship_marker_still_commits():
@@ -400,12 +392,7 @@ def test_legacy_pending_packet_without_relationship_marker_still_commits():
         read_all(manifest, sid)
         root = storage.SESSIONS_DIR / sid
         packet = storage._read_json(root / "turn_packet.json", {})
-        assert packet["relationship_review_required"] is True
-        packet.pop("relationship_review_required", None)
-        packet.pop("relationship_review_details_required", None)
-        packet.pop("relationship_footer_scope_required", None)
-        packet.pop("relationship_review_v3_required", None)
-        storage._write_json(root / "turn_packet.json", packet)
+        assert "relationship_review_required" not in packet
 
         result = commit_turn_request(
             sid,
@@ -417,7 +404,6 @@ def test_legacy_pending_packet_without_relationship_marker_still_commits():
                     "scene_builder_reviewed": True,
                     "persistence_reviewed": True,
                     "knowledge_reviewed": True,
-                    "relationship_reviewed": False,
                 },
             },
         )
@@ -1363,7 +1349,13 @@ def test_cast_registry_exposes_causal_character_data_without_recency_pressure():
         novel = base_novel()
         novel["characters"][1]["work"] = "инструктор"
         novel["characters"][1]["residence"] = "база"
-        novel["characters"][1]["relationships"] = ["давно знаком с Away"]
+        novel["characters"][1]["relationships"] = [
+            {
+                "target_character_id": "away",
+                "relationship_type": "давно знакомы",
+                "relationship_context": "знакомы до начала истории",
+            }
+        ]
         sid = storage.create_session(novel)["session_id"]
 
         first = session_runtime.prepare_turn_packet(sid, "Остаться рядом.")
@@ -1373,12 +1365,12 @@ def test_cast_registry_exposes_causal_character_data_without_recency_pressure():
             {
                 "packet_id": first["packet_id"],
                 "user_input": "Остаться рядом.",
-                "scene_output": "Сцена один.\nОтношения:\nNPC - близость 8/+1",
+                "scene_output": "Сцена один.\nОтношения:\nNPC - близость 1/+1",
                 "extracted": {
                     "relationship_updates": [
                         {
                             "character_id": "npc",
-                            "dimensions": [{"label": "близость", "value": 8, "delta": 1}],
+                            "dimensions": [{"label": "близость", "value": 1}],
                             "reason": "впервые сознательно остался рядом с POV",
                         }
                     ],
