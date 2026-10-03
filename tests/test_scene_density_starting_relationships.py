@@ -5,8 +5,9 @@ from pathlib import Path
 
 import pytest
 
-from app import relationship_file_runtime, session_runtime, simple_setup_runtime, storage
+from app import continuation_runtime, relationship_file_runtime, session_runtime, simple_setup_runtime, storage
 from app.operation_service import commit_turn_request, prepare_turn_request
+from app.turn_rollback import rollback_last_turn
 
 
 def setup_temp_storage(tmp: str):
@@ -477,4 +478,101 @@ def test_ten_dimension_cap_checks_final_state_not_array_order():
     assert len(final_dims) == 10
     assert "временная" not in final_dims
     assert final_dims["новая реакция"]["value"] == 1
+
+def test_rollback_restores_relationship_values_and_removes_dimension_created_by_rolled_back_turn():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(relationship_novel())["session_id"]
+        root = storage.SESSIONS_DIR / sid
+        before = deepcopy(read_relationships(sid))
+
+        manifest = prepare_turn_request(sid, "Останься.", request_id="relationship-rollback")
+        read_all_pending_chunks(sid, manifest)
+        commit_turn_request(
+            sid,
+            {
+                "packet_id": manifest["packet_id"],
+                "user_input": "Останься.",
+                "scene_output": "Эдриан остаётся.\n\nСостояние: напряжение\nОтношения:\nЭдриан - близость 74/+2; привязанность 81/0; влечение 68/0; ревность 36/0; надежда 2/+2\n\nХод 1 · цикл 1/15",
+                "extracted": {
+                    "scene_builder_reviewed": True,
+                    "persistence_reviewed": True,
+                    "knowledge_reviewed": True,
+                    "relationship_updates": [{
+                        "character_id": "adrian",
+                        "reason": "POV попросила его остаться, и он согласился.",
+                        "dimensions": [
+                            {"label": "близость", "delta": 2},
+                            {"label": "надежда", "value": 2},
+                        ],
+                    }],
+                    "state_patch": {},
+                },
+            },
+        )
+
+        changed = read_relationships(sid)
+        assert changed["npc_to_pov"]["adrian"]["dimensions"]["близость"]["value"] == 74
+        assert changed["npc_to_pov"]["adrian"]["dimensions"]["надежда"]["value"] == 2
+
+        rolled = rollback_last_turn(sid, 1, True)
+        assert rolled["turn_number"] == 0
+        assert read_relationships(sid) == before
+        assert "надежда" not in read_relationships(sid)["npc_to_pov"]["adrian"]["dimensions"]
+
+
+def test_continuation_copies_relationship_file_exactly_without_reapplying_deltas():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(relationship_novel())["session_id"]
+        root = storage.SESSIONS_DIR / sid
+
+        manifest = prepare_turn_request(sid, "Ты всё-таки ревнуешь.", request_id="relationship-continuation")
+        read_all_pending_chunks(sid, manifest)
+        commit_turn_request(
+            sid,
+            {
+                "packet_id": manifest["packet_id"],
+                "user_input": "Ты всё-таки ревнуешь.",
+                "scene_output": "Эдриан раздражённо признаёт это.\n\nСостояние: напряжение\nОтношения:\nЭдриан - близость 72/0; привязанность 81/0; влечение 68/0; ревность 38/+2\n\nХод 1 · цикл 1/15",
+                "extracted": {
+                    "scene_builder_reviewed": True,
+                    "persistence_reviewed": True,
+                    "knowledge_reviewed": True,
+                    "relationship_updates": [{
+                        "character_id": "adrian",
+                        "reason": "Прямо признал ревность в разговоре с POV.",
+                        "dimensions": [{"label": "ревность", "delta": 2}],
+                    }],
+                    "state_patch": {},
+                },
+            },
+        )
+
+        source_relationships = deepcopy(read_relationships(sid))
+        state = storage._read_json(root / "state.json", {})
+        memory = storage._read_json(root / "memory.json", {})
+        chronology = storage._read_json(root / "chronology.json", [])
+        continuation_runtime._save_migration(
+            sid,
+            {
+                "version": continuation_runtime.MIGRATION_VERSION,
+                "migration_id": "relationship-copy-test",
+                "source_session_id": sid,
+                "source_turn": 1,
+                "final_package": {
+                    "current": deepcopy(state.get("current", {})),
+                    "threads": deepcopy(state.get("threads", {})),
+                    "memory_normalized": deepcopy(memory),
+                    "chronology_normalized": deepcopy(chronology),
+                },
+                "active_read": None,
+            },
+        )
+
+        created = continuation_runtime.create_continuation_session(sid)
+        copied = read_relationships(created["session_id"])
+
+        assert copied == source_relationships
+        assert copied["npc_to_pov"]["adrian"]["dimensions"]["ревность"]["value"] == 38
 
