@@ -9,6 +9,7 @@ from typing import Any, Dict
 from . import location_runtime, session_recovery, session_runtime, storage
 from .game_day import sync_game_day
 from .relationship_runtime import overwrite_relationship_snapshots
+from .relationship_file_runtime import FILE_NAME as RELATIONSHIPS_FILE
 from .operation_receipts import RECEIPTS_FILE, ledger_with_receipt, make_receipt
 from .rollback_snapshot_runtime import PREVIOUS2_SNAPSHOT_FILE, PREVIOUS_SNAPSHOT_FILE, SNAPSHOT_FILE, build_pre_turn_snapshot
 from .scene_compaction_runtime import SCENE_MEMORY_FILE, apply_audit_compactions
@@ -304,6 +305,9 @@ def _atomic_commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, A
             "meta.json": json_text(meta),
             SNAPSHOT_FILE: json_text(pre_turn_snapshot),
         }
+        relationships_after = payload.get("_relationships_after")
+        if isinstance(relationships_after, dict):
+            values[RELATIONSHIPS_FILE] = json_text(relationships_after)
         prior_snapshot_valid = (
             isinstance(prior_snapshot, dict)
             and int(prior_snapshot.get("committed_turn", 0) or 0) == turn_number - 1
