@@ -200,5 +200,7 @@ def test_old_anchor_remains_in_packet_after_hundreds_of_events():
         assert "first_meeting" in ids
         assert "event_301" in ids
         assert len(packet["chronology_recent"]) < 50
-        assert "persistence_contract" in packet
-        assert "chronology_policy" in packet
+        assert "persistence_contract" not in packet
+        assert "chronology_policy" not in packet
+        assert "## CHRONOLOGY" in packet["runtime_rules"]
+        assert "## PERSISTENCE" in packet["runtime_rules"]
