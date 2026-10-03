@@ -91,14 +91,15 @@ def test_active_runtime_is_author_rules_plus_scene_builder():
 
     # Scene builder keeps format, variable length and a usable ending,
     # but no ROUTINE/STANDARD/CINEMATIC state machine or meaningful-choice lock.
-    assert builder.startswith("Формат Scene Builder обязателен")
-    assert "1500–3000 непробельных символов" in builder
-    assert "2200–3000" in builder
-    assert "Не выбирай минимальную длину по умолчанию" in builder
+    assert builder.startswith("Формат scene_builder обязателен")
+    assert "2000–2400 непробельных символов" in builder
+    assert "вплоть до ~1500" in builder
+    assert "2500–3000 непробельных символов" in builder
+    assert "Не выбирай 1500 как обычную цель" in builder
     assert "конкретный активный крючок" in builder
     assert "ВАРИАНТЫ" in builder
     assert "НЕ ОПИСЫВАЙ НЕСЛУЧИВШЕЕСЯ" in builder
-    assert "важную сцену нельзя заканчивать" in builder
+    assert "важность сцены не требует удерживать её несколько ходов" in builder
 
     for removed in (
         "ROUTINE",
