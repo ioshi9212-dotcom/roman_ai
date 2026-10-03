@@ -1,3 +1,4 @@
+import json
 import tempfile
 from pathlib import Path
 
@@ -8,6 +9,7 @@ from app import session_runtime, storage
 from app.main import turn_packet_prepare
 from app.models import TurnPrepare
 from app.operation_service import prepare_turn_request
+from app.runtime_access import runtime_documents
 
 
 def setup_temp_storage(tmp: str):
@@ -35,6 +37,40 @@ def make_session() -> str:
     }
     return storage.create_session(novel)["session_id"]
 
+
+
+def test_new_turn_serializes_one_final_packet_without_duplicate_writer_context(monkeypatch):
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = make_session()
+        writes = []
+        original_write = storage._write_json
+
+        def traced_write(path, data):
+            if path.name == "turn_packet.json":
+                writes.append(path)
+            return original_write(path, data)
+
+        monkeypatch.setattr(storage, "_write_json", traced_write)
+        manifest = session_runtime.prepare_turn_packet(sid, "Проверка одного прохода.")
+
+        assert len(writes) == 1
+        root = storage.SESSIONS_DIR / sid
+        packet = storage._read_json(root / "turn_packet.json", {})
+        context = json.loads("".join(packet["chunks"]))
+        documents = runtime_documents()
+
+        # Author runtime files remain complete and unchanged.
+        assert context["runtime_rules"] == documents["rules"]
+        assert context["scene_builder"] == documents["scene_builder"]
+
+        # One canonical representation per concept.
+        assert "character_profiles" not in context
+        assert "character_registry" not in context
+        assert "scene_characters" not in context
+        assert context["character_cards"][0]["name"] == "POV"
+        assert context["cast_registry"]["registry_index_path"] == "cast_registry.characters"
+        assert manifest["chunk_chars_max"] == 16000
 
 def test_same_pending_prepare_reuses_packet_and_keeps_read_progress():
     with tempfile.TemporaryDirectory() as tmp:
