@@ -147,6 +147,49 @@ def test_legacy_session_migrates_once_to_relationships_file_and_drops_duplicate_
         assert "relationship_documents" not in cleaned
 
 
+def test_first_legacy_prepare_exposes_only_relationships_file_canon():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(relationship_novel())["session_id"]
+        root = storage.SESSIONS_DIR / sid
+        (root / "relationships.json").unlink()
+
+        state = storage._read_json(root / "state.json", {})
+        state["relationships"] = {"adrian": {"доверие": 17, "раздражение": -4}}
+        state["relationship_documents"] = {
+            "adrian": {
+                "owner_character_id": "adrian",
+                "relations": [{"target_character_id": "rina", "relationship_type": "напряжённая дружба"}],
+            }
+        }
+        storage._write_json(root / "state.json", state)
+
+        context = read_context(sid)
+        row = next(
+            item for item in context["relationship_lens"]["relations_in_current_scene"]
+            if item["owner_character_id"] == "adrian"
+        )
+        values = {item["label"]: item["value"] for item in row["dimensions"]}
+        assert values["доверие"] == 17
+        assert values["раздражение"] == -4
+
+        legacy_keys = {
+            "relationships",
+            "relationship_documents",
+            "relationship_schemas",
+            "npc_relationships",
+        }
+        assert legacy_keys.isdisjoint(context)
+        assert legacy_keys.isdisjoint(context.get("scene_state", {}))
+        assert legacy_keys.isdisjoint(context.get("author_context", {}))
+        for lens in context.get("scene_characters", {}).values():
+            assert "relationship_to_pov" not in lens
+
+        cleaned = storage._read_json(root / "state.json", {})
+        assert legacy_keys.isdisjoint(cleaned)
+        assert read_relationships(sid)["npc_to_pov"]["adrian"]["dimensions"]["доверие"]["value"] == 17
+
+
 def test_scene_builder_keeps_pov_visible_without_forcing_speech():
     builder = Path("runtime/scene_builder.md").read_text(encoding="utf-8")
     instructions = Path("gpt/custom_gpt_instructions.md").read_text(encoding="utf-8")
