@@ -453,7 +453,7 @@ def create_session(
             meta.update(deepcopy(meta_patch))
 
         cards = _normalise_cards(novel.get("characters", []))
-        state = _template("state.json", {"current": {}, "pov": {}, "characters": {}, "relationships": {}, "threads": {}, "world": {}})
+        state = _template("state.json", {"current": {}, "pov": {}, "characters": {}, "threads": {}, "world": {}})
         starting_state = novel.get("starting_state") if isinstance(novel.get("starting_state"), dict) else {}
         state = _deep_merge(state, starting_state)
         pov_id = _find_pov_id(novel, cards)
@@ -464,20 +464,6 @@ def create_session(
         if isinstance(novel.get("world"), dict):
             state["world"] = _deep_merge(novel.get("world", {}), state.get("world", {}) if isinstance(state.get("world"), dict) else {})
 
-        # Profile-v5 sessions seed explicit pre-story NPC→POV relationships
-        # before turn 1. Legacy v1-v4 library templates keep their old startup behavior.
-        try:
-            source_version = int(novel.get("version", 1) or 1)
-        except (TypeError, ValueError):
-            source_version = 1
-        if source_version >= 5:
-            from . import relationship_runtime
-            state = relationship_runtime.seed_relationship_state_from_profiles(
-                state,
-                cards,
-                str(pov_id or ""),
-            )
-
         memory = _template("memory.json", {"characters": {}})
         memory = _normalise_memory(memory)
         for card in cards:
@@ -487,6 +473,15 @@ def create_session(
         audits = _template("audits.json", [])
         state = _refresh_runtime_presence(state, cards, 0)
 
+        from . import relationship_file_runtime
+        relationships = relationship_file_runtime.build_initial_store(
+            cards,
+            state,
+            str(pov_id or ""),
+        )
+        for key in ("relationships", "relationship_documents", "relationship_schemas", "npc_relationships"):
+            state.pop(key, None)
+
         write_batch(
             root,
             {
@@ -494,6 +489,7 @@ def create_session(
                 "source.json": json_text(novel),
                 "characters.json": json_text(cards),
                 "state.json": json_text(state),
+                relationship_file_runtime.FILE_NAME: json_text(relationships),
                 "memory.json": json_text(memory),
                 "chronology.json": json_text(chronology),
                 "audits.json": json_text(audits),
@@ -516,6 +512,7 @@ def load_session(session_id: str, recent_limit: int = 6) -> Dict[str, Any]:
         "source": source,
         "characters": _load_cards(root, source),
         "state": _read_json(root / "state.json", {}),
+        "relationships": _read_json(root / "relationships.json", {}),
         "memory": _normalise_memory(_read_json(root / "memory.json", {})),
         "chronology": _read_json(root / "chronology.json", []),
         "scene_history": _read_json(root / "scene_memory.json", {"version": 1, "scenes": []}),

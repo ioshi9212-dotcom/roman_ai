@@ -168,7 +168,8 @@ def test_create_session_from_draft_normalises_flexible_starting_state():
         state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
         assert state["pov"]["character_id"] == "elena"
         assert isinstance(state["characters"], dict)
-        assert isinstance(state["relationships"], dict)
+        assert "relationships" not in state
+        assert isinstance(storage._read_json(storage.SESSIONS_DIR / sid / "relationships.json", {}), dict)
         assert isinstance(state["threads"], dict)
         assert state["current"]["present_characters"] == ["elena", "aiden"]
         preview = get_session_preview(sid)

@@ -54,6 +54,7 @@ def read_all(manifest, session_id: str):
         storage.get_turn_packet_chunk(session_id, manifest["packet_id"], index)
 
 
+
 def test_active_runtime_is_author_rules_plus_scene_builder():
     docs = runtime_access.runtime_documents()
     sources = runtime_access.author_runtime_sources()
@@ -63,53 +64,34 @@ def test_active_runtime_is_author_rules_plus_scene_builder():
     rules = docs["rules"]
     builder = docs["scene_builder"]
 
-    # Proven behavior that must stay.
-    assert "Запрещено автоматически применять психологию" in rules
-    assert "здоровую коммуникацию" in rules
-    assert "Явная провокация, флирт, поддразнивание" in rules
-    assert "Не сохраняй автоматическую галантность" in rules
-    assert "Не являются декорацией или фоном" in rules
-    assert "основной акцент держи на персонажах, созданных игроком" in rules
-    assert "Отношения — живое состояние" in rules
-    assert "Не усредняй противоречивые черты персонажа" in rules
+    # Rules is technical transport/persistence; character behavior lives in Skin Builder.
+    assert "Rules выполняет только техническую работу" in rules
+    assert "Не задавай через Rules поведение персонажей" in rules
+    assert "Skin Builder определяет поведение POV, NPC, мира" in rules
+    assert builder.startswith("Формат scene_builder обязателен")
+    assert "NPC - самостоятельный персонаж, а не функция для POV." in builder
+    assert "Не выбирай поведение по принципу «как правильно»" in builder
+    assert "Не усредняй противоречивые черты персонажа" in builder
 
-    # Knowledge and continuity protections remain.
-    assert "Частичный факт не даёт недостающие детали" in rules
-    assert "Источник знания должен существовать ДО" in rules
+    # Knowledge, continuity and causal cast selection stay explicit.
+    assert "Частичный факт остаётся частичным." in rules
+    assert "Источник знания должен существовать до использования знания." in rules
     assert "npc_active_intents[ID]" in rules
-    assert "если он не знает где/во сколько" in rules
-    assert "Молчание не удаляет NPC" in rules
+    assert "Смена темы intent не закрывает." in rules
     assert "present_characters" in rules
     assert "state.characters[ID]" in rules
-
-    # Living world without a turn-count pacing leash.
-    assert "Мир не ждёт POV" in rules
-    assert "нет обязательной частоты событий" in rules
-    assert "Не регулируй темп счётчиком ходов" in rules
-    assert "конкретный активный крючок" in builder
-    assert "можно просто побыть" in builder
-
-    # Scene builder keeps format, variable length and a usable ending,
-    # but no ROUTINE/STANDARD/CINEMATIC state machine or meaningful-choice lock.
-    assert builder.startswith("Формат scene_builder обязателен")
-    assert "2000–2400 непробельных символов" in builder
-    assert "вплоть до ~1500" in builder
-    assert "2500–3000 непробельных символов" in builder
-    assert "Не выбирай 1500 как обычную цель" in builder
-    assert "конкретный активный крючок" in builder
-    assert "ВАРИАНТЫ" in builder
-    assert "НЕ ОПИСЫВАЙ НЕСЛУЧИВШЕЕСЯ" in builder
-    assert "важность сцены не требует удерживать её несколько ходов" in builder
+    assert "Молчание не удаляет NPC" in builder
+    assert "Это не очередь и не ротация." in rules
+    assert "сколько ходов NPC отсутствовал" in rules
+    assert "Мир не ждёт POV" in builder
 
     for removed in (
         "ROUTINE",
         "STANDARD",
         "CINEMATIC",
         "ТОЧКА ОСТАНОВКИ СЦЕНЫ",
-        "Если такой точки ещё нет — сцена ещё не закончена.",
         "world_movement_context",
         "structural_movement_due",
-        "Важные романтические, конфликтные, эмоциональные, интимные и экшн-сцены не торопи",
     ):
         assert removed not in rules + "\n" + builder
 
@@ -119,37 +101,23 @@ def test_character_perception_and_scene_quality_stay_causal_without_pacing_modes
     rules = docs["rules"]
     builder = docs["scene_builder"]
 
-    assert "## ВОСПРИЯТИЕ POV И ДРУГИХ ЛЮДЕЙ" in rules
-    assert "POV не нейтральный силуэт" in rules
-    assert "Заметный признак не исчезает" in rules
-    assert "Каждый NPC пропускает увиденное и услышанное через собственный характер" in rules
-    assert "Отсутствие прямого комментария не означает отсутствие восприятия" in rules
-    assert "То же правило действует на восприятие NPC друг другом" in rules
-
-    assert "чистую стенограмму" in builder
-    assert "Ощущения не заменяют визуал" in builder
-    assert "дай короткий мост" in builder
-    assert "Заметное действие POV, направленное на NPC, получает наблюдаемую реакцию" in builder
-    assert "В экшне сохраняй географию сцены" in builder
-    assert "Восприятие должно проявляться через сцену и индивидуальную реакцию персонажа" in builder
-    assert "Если новелла 18+, не замыливай происходящее цензурными обобщениями" in builder
-    assert "Название или итог события не заменяет само событие" in builder
-    assert "покажи само взаимодействие, а не его итоговый пересказ" in builder
-    assert "не переноси служебный вывод о динамике прямо в прозу" in builder
-    assert "Если такая динамика уже установлена действиями" in builder
-    assert "Служебные выводы из отношений, инициативы и persistence" in builder
+    assert "POV - живой участник сцены, не камера и не мебель." in builder
+    assert "POV не нейтральный силуэт" in builder
+    assert "NPC - самостоятельный персонаж, а не функция для POV." in builder
+    assert "Не выбирай поведение по принципу «как правильно»" in builder
+    assert "Заметное действие POV в сторону NPC получает естественную реакцию NPC" in builder
+    assert "Ощущения POV не заменяют то, что физически происходит." in builder
     assert "На каждом значимом физическом переходе читатель должен понимать" in builder
-    assert "не объясняй и не доказывай этот выбор авторским текстом" in rules
-    assert "не ожидая нового user_input на каждый следующий физический шаг" in rules
-    assert "POV может в любой момент изменить реакцию" in rules
-    assert "Не удерживай сцену на одном уже состоявшемся физическом beat" in builder
-    assert "не растягивай повторяющиеся поцелуи" in builder
+    assert "Если новелла 18+, допустимы взрослые темы, включая секс." in builder
+    assert "Служебные выводы из отношений, инициативы и persistence" in builder
+    assert "Не растягивай один и тот же beat на несколько ходов без развития." in builder
+    assert "не повторять один поцелуй пять ходов" in builder
+    assert "Не давай психологический, моральный или авторский анализ." in builder
 
     assert "ROUTINE" not in builder
     assert "STANDARD" not in builder
     assert "CINEMATIC" not in builder
     assert "ТОЧКА ОСТАНОВКИ СЦЕНЫ" not in builder
-
 
 def test_packet_has_no_hidden_director_guard_stack_and_rules_are_last():
     with tempfile.TemporaryDirectory() as tmp:
@@ -182,13 +150,14 @@ def test_packet_has_no_hidden_director_guard_stack_and_rules_are_last():
         contract = context["working_context_contract"]
         assert contract["hidden_director_guard_layers"] is False
         assert contract["backend_semantic_scene_gates"] is False
-        assert contract["precommit_review_gates"] == ["scene_builder", "persistence", "knowledge", "relationships"]
+        assert contract["precommit_review_gates"] == ["scene_builder", "persistence", "knowledge"]
         assert contract["offscreen_character_retrieval"] == "chunked_when_relevant"
         assert "simple_name_mention_does_not_load_offscreen_card" not in contract
         assert "dormant_character_retrieval" not in contract
         persistence = context["persistence_contract"]
         assert "POV clothing/inventory -> state_patch.pov" in persistence["state_patch"]
         assert "NPC clothing/inventory/location/activity -> state_patch.characters[ID]" in persistence["state_patch"]
+
 
 
 def test_legacy_story_rule_is_absent_from_actual_turn_packet():
@@ -205,7 +174,8 @@ def test_legacy_story_rule_is_absent_from_actual_turn_packet():
         blob = json.dumps(context, ensure_ascii=False).casefold()
         assert "если игрок не дал реплику" not in blob
         assert "не придумывать её" not in blob
-        assert "npc действуют сами" in blob
+        assert "npc действуют самостоятельно" in blob
+        assert "npc - самостоятельный персонаж" in context["scene_builder"].casefold()
 
         source_blob = json.dumps(
             storage._read_json(storage.SESSIONS_DIR / sid / "source.json", {}),
@@ -213,7 +183,6 @@ def test_legacy_story_rule_is_absent_from_actual_turn_packet():
         ).casefold()
         assert "если игрок не дал реплику" not in source_blob
         assert "npc действуют самостоятельно" in source_blob
-
 
 def test_active_character_receives_complete_knowledge_journal_in_packet():
     with tempfile.TemporaryDirectory() as tmp:
@@ -240,7 +209,8 @@ def test_active_character_receives_complete_knowledge_journal_in_packet():
 
         # Knowledge directing lives in runtime_rules, not another packet rule.
         assert "character_knowledge_rule" not in context
-        assert "Частичный факт не даёт недостающие детали" in context["runtime_rules"]
+        assert "Частичный факт остаётся частичным." in context["runtime_rules"]
+
 
 
 def test_dynamic_relationship_label_can_appear_without_whitelist():
@@ -255,22 +225,24 @@ def test_dynamic_relationship_label_can_appear_without_whitelist():
             {
                 "packet_id": manifest["packet_id"],
                 "user_input": "Остаться рядом.",
-                "scene_output": "Сцена\nОтношения:\nNPC - любовь 12/+2",
+                "scene_output": "Сцена\nОтношения:\nNPC - любовь 2/+2",
                 "extracted": {
                     "relationship_updates": [
                         {
                             "character_id": "npc",
-                            "dimensions": [{"label": "любовь", "value": 12, "delta": 2}],
-                            "reason": "осознал чувство",
+                            "dimensions": [{"label": "любовь", "value": 2}],
+                            "reason": "осознал новое чувство",
                         }
                     ]
                 },
             },
         )
         assert result["turn_number"] == 1
-        state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
-        assert state["relationships"]["npc"]["любовь"] == 12
-
+        root = storage.SESSIONS_DIR / sid
+        state = storage._read_json(root / "state.json", {})
+        assert "relationships" not in state
+        relationships = storage._read_json(root / "relationships.json", {})
+        assert relationships["npc_to_pov"]["npc"]["dimensions"]["любовь"]["value"] == 2
 
 def test_relationship_lens_separates_physical_footer_from_remote_without_hidden_director_prose():
     with tempfile.TemporaryDirectory() as tmp:
@@ -290,7 +262,8 @@ def test_relationship_lens_separates_physical_footer_from_remote_without_hidden_
         assert "rule" not in lens
         assert "footer_rule" not in lens
         assert "stagnation_rule" not in lens
-        assert "Отношения — живое состояние" in context["runtime_rules"]
+        assert "Единственный канон отношений - `relationships.json`." in context["runtime_rules"]
+
 
 
 def test_saturated_old_metric_does_not_block_new_dynamic_dimension():
@@ -307,21 +280,23 @@ def test_saturated_old_metric_does_not_block_new_dynamic_dimension():
             {
                 "packet_id": manifest["packet_id"],
                 "user_input": "Сблизиться.",
-                "scene_output": "Сцена\nОтношения:\nNPC - интерес 100; влечение 7",
+                "scene_output": "Сцена\nОтношения:\nNPC - интерес 100/0; влечение 3/+3",
                 "extracted": {
                     "relationship_updates": [
                         {
                             "character_id": "npc",
-                            "dimensions": [{"label": "влечение", "value": 7}],
+                            "dimensions": [{"label": "влечение", "value": 3}],
                             "reason": "В сцене возникло качественно новое влечение.",
                         }
                     ]
                 },
             },
         )
-        state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
-        assert state["relationships"]["npc"]["интерес"] == 100
-        assert state["relationships"]["npc"]["влечение"] == 7
+        root = storage.SESSIONS_DIR / sid
+        relationships = storage._read_json(root / "relationships.json", {})
+        dims = relationships["npc_to_pov"]["npc"]["dimensions"]
+        assert dims["интерес"]["value"] == 100
+        assert dims["влечение"]["value"] == 3
 
 
 def test_new_public_packet_requires_scene_and_persistence_review_before_commit():
@@ -348,16 +323,6 @@ def test_new_public_packet_requires_scene_and_persistence_review_before_commit()
             commit_turn_request(sid, payload)
 
         payload["extracted"]["knowledge_reviewed"] = True
-        with pytest.raises(RuntimeError, match="RELATIONSHIP_REVIEW_REQUIRED"):
-            commit_turn_request(sid, payload)
-
-        payload["extracted"]["relationship_reviewed"] = True
-        with pytest.raises(RuntimeError, match="RELATIONSHIP_REVIEW_DETAIL_REQUIRED"):
-            commit_turn_request(sid, payload)
-
-        payload["extracted"]["relationship_review"] = [
-            {"character_id": "npc", "changed": False, "reason": "Текущая сцена не изменила отношение."}
-        ]
         result = commit_turn_request(sid, payload)
         assert result["turn_number"] == 1
 
@@ -381,31 +346,35 @@ def test_relationship_delta_uses_saved_baseline_and_is_not_double_applied():
                     "relationship_updates": [
                         {
                             "character_id": "npc",
-                            "dimensions": [{"label": "доверие", "value": 10, "delta": 2}],
+                            "dimensions": [{"label": "доверие", "delta": 2}],
                             "reason": "NPC увидел поступок POV и стал доверять больше",
                         }
                     ]
                 },
             },
         )
-        state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
-        assert state["relationships"]["npc"]["доверие"] == 12
+        root = storage.SESSIONS_DIR / sid
+        state = storage._read_json(root / "state.json", {})
+        assert "relationships" not in state
+        relationships = storage._read_json(root / "relationships.json", {})
+        assert relationships["npc_to_pov"]["npc"]["dimensions"]["доверие"]["value"] == 12
 
 
-def test_legacy_pending_packet_without_relationship_marker_still_commits():
+def test_pending_packet_has_no_legacy_relationship_review_markers_and_commits():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         sid = storage.create_session(base_novel())["session_id"]
-        manifest = prepare_turn_request(sid, "(посмотреть на NPC)", request_id="legacy-pending")
+        manifest = prepare_turn_request(sid, "(посмотреть на NPC)", request_id="no-rel-review")
         read_all(manifest, sid)
         root = storage.SESSIONS_DIR / sid
         packet = storage._read_json(root / "turn_packet.json", {})
-        assert packet["relationship_review_required"] is True
-        packet.pop("relationship_review_required", None)
-        packet.pop("relationship_review_details_required", None)
-        packet.pop("relationship_footer_scope_required", None)
-        packet.pop("relationship_review_v3_required", None)
-        storage._write_json(root / "turn_packet.json", packet)
+        for key in (
+            "relationship_review_required",
+            "relationship_review_details_required",
+            "relationship_footer_scope_required",
+            "relationship_review_v3_required",
+        ):
+            assert key not in packet
 
         result = commit_turn_request(
             sid,
@@ -417,12 +386,10 @@ def test_legacy_pending_packet_without_relationship_marker_still_commits():
                     "scene_builder_reviewed": True,
                     "persistence_reviewed": True,
                     "knowledge_reviewed": True,
-                    "relationship_reviewed": False,
                 },
             },
         )
         assert result["turn_number"] == 1
-
 
 def test_explicit_chronology_participants_are_mirrored_into_personal_knowledge():
     with tempfile.TemporaryDirectory() as tmp:
@@ -1357,13 +1324,19 @@ def test_opening_scene_uses_empty_gameplay_input_not_service_command():
         assert retry["reused_pending_packet"] is True
 
 
+
 def test_cast_registry_exposes_causal_character_data_without_recency_pressure():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         novel = base_novel()
         novel["characters"][1]["work"] = "инструктор"
         novel["characters"][1]["residence"] = "база"
-        novel["characters"][1]["relationships"] = ["давно знаком с Away"]
+        novel["characters"][1]["relationships"] = [
+            {
+                "target_character_id": "away",
+                "relationship_type": "давно знакомы",
+            }
+        ]
         sid = storage.create_session(novel)["session_id"]
 
         first = session_runtime.prepare_turn_packet(sid, "Остаться рядом.")
@@ -1373,12 +1346,12 @@ def test_cast_registry_exposes_causal_character_data_without_recency_pressure():
             {
                 "packet_id": first["packet_id"],
                 "user_input": "Остаться рядом.",
-                "scene_output": "Сцена один.\nОтношения:\nNPC - близость 8/+1",
+                "scene_output": "Сцена один.\nОтношения:\nNPC - близость 1/+1",
                 "extracted": {
                     "relationship_updates": [
                         {
                             "character_id": "npc",
-                            "dimensions": [{"label": "близость", "value": 8, "delta": 1}],
+                            "dimensions": [{"label": "близость", "value": 1}],
                             "reason": "впервые сознательно остался рядом с POV",
                         }
                     ],
@@ -1433,14 +1406,10 @@ def test_cast_registry_exposes_causal_character_data_without_recency_pressure():
             "last_physical_game_day",
             "turns_since_physical",
             "game_days_since_physical",
-            "last_contact_turn",
-            "turns_since_contact",
-            "last_meaningful_turn",
-            "turns_since_meaningful",
-            "appearance_count",
+            "overdue",
+            "last_seen",
         ):
             assert forbidden not in row
-
 
 def test_legacy_pending_packet_is_refreshed_into_current_knowledge_context():
     with tempfile.TemporaryDirectory() as tmp:
@@ -1482,17 +1451,21 @@ def test_legacy_pending_packet_is_refreshed_into_current_knowledge_context():
         assert rebuilt["working_context_contract"]["active_character_knowledge_rebuilt_from_persistent_memory"] is True
 
 
+
 def test_rules_keep_director_truth_separate_from_character_truth():
     docs = runtime_access.runtime_documents()
     rules = docs["rules"]
+    builder = docs["scene_builder"]
+
     for phrase in (
         "chronology",
         "hidden_lore",
         "future_guidance",
-        "авторский план",
-        "Источник знания должен существовать ДО",
+        "director-only",
     ):
         assert phrase in rules
+    assert "авторский план" in builder
+    assert "Источник знания должен существовать до использования знания." in rules
 
     for removed_belief_rule in (
         "NPC не обязан автоматически верить POV",
@@ -1503,7 +1476,6 @@ def test_rules_keep_director_truth_separate_from_character_truth():
         "не все должны верить в доброту",
     ):
         assert removed_belief_rule not in rules
-
 
 def test_continuation_keeps_character_knowledge_separate_in_v5():
     source = {"version": 5, "profile_schema": {"version": 1}}

@@ -16,8 +16,7 @@ Backend = канон. Actions молча. В игровом ходе до сце
 
 **Character profile:** character_id, name, surname, aliases, age, status, role, is_pov, story_function, appearance, character, speech, habits, work, residence, relationships, abilities, weaknesses, goals, background, secrets_known_to_self, notes, generated_details, additional.
 
-В `relationships` сохраняй связи направленно и структурно, одной записью на target. Явная ДО старта связь NPC→POV обязана иметь `target_character_id=<POV>`, тип/динамику и 1–4 `dimensions:{label,value}` 0–100. Значение отражает уже существующую силу: давняя любовь/дружба/влечение не стартуют около нуля. Чувства POV не назначай. NPC↔NPC тоже структурно; направления могут различаться.
-Если setup отклонил структуру relationship, исправь `characters` по RAW; связь не удаляй.
+В character `relationships` сохраняй только заданные RAW связи, направленно, одной записью на target. Если NPC уже знает POV, придумай до 10 уместных ему `dimensions:{label,value}`; +/-, 0 не записывай. Не знает POV - строки нет. Одностороннее знакомство допустимо. Чувства POV не назначай. NPC↔NPC только словами, без dimensions. Ошибку setup исправляй по RAW, связь не удаляй.
 
 **Location profile:** location_id, name, aliases, type, parent_location_id, where, floor, hours, staff, linked_characters, layout, zones, appearance, fixed_features, notes.
 
@@ -45,7 +44,7 @@ Packet уже содержит режиссёрский context, recent/continui
 
 Перед `commitTurn` проверь `scene_builder`: сцена не оборвана сразу после user_input, POV не исчез из наблюдаемой сцены до нового значимого выбора, а длинный диалог не превращён в «радио». Молчание POV допустимо, если естественно и его присутствие всё равно видно. Исправь нарушения → `scene_builder_reviewed=true`.
 
-Проверь отношение каждого участвовавшего NPC→POV: `relationship_review changed=true/false` + причина. `changed=false` не выбирай по умолчанию: ревность, поддержка, отказ, уязвимость, конфликт, доверие, предательство, близость, признание или новая граница могут дать малый устойчивый сдвиг ±1; рутина без сдвига не даёт update. При сдвиге → один `relationship_updates`: старая ось через ненулевой `delta`, новая через `value`. 100 не закрывает связь. Footer только отображает. Затем `persistence_reviewed=true`, `relationship_reviewed=true`.
+После сцены проверь отношения участвовавших NPC→POV по `relationships.json`. Если реального сдвига нет - ничего не отправляй. Если есть - `relationship_updates` с короткой причиной: существующая ось через `delta`, новая через `value`; за обычную сцену каждая ось только -3..+3, несколько осей могут меняться одновременно и в разные стороны. Для действительно крупного события используй `change_scale=critical_event`. Итог 0 удаляет ось. Footer показывает все активные оси только физически присутствующих NPC; неизменённые /0. Затем `persistence_reviewed=true`.
 
 Проверь знания каждого физического/удалённого участника. Новое знание → `knowledge_journal_add` только тому, кто реально его получил; чужое без источника не копируй. Затем `knowledge_reviewed=true`.
 
@@ -69,8 +68,8 @@ Chronology не даёт личное знание автоматически: �
 - chronology: только важное;
 - knowledge_journal_add: новые знания конкретному персонажу;
 - character_upserts: постоянная деталь или новый NPC с конкретной story_function; фон не регистрируй;
-- relationship_updates: только реальные причинные NPC→POV изменения; существующий показатель через delta, новый через value;
-- npc_relationship_updates: только устойчивые изменения NPC→NPC; направление owner→target не зеркаль автоматически;
+- relationship_updates: только реальные NPC→POV изменения из relationships.json; existing через delta, new через value, обычная ось максимум ±3, итог 0 удаляется;
+- npc_relationship_updates: только устойчивое качественное NPC→NPC изменение, без чисел; owner→target не зеркаль;
 - npc_intent_updates/story_thread_updates: реальные изменения;
 - presence_updates/state_patch: текущее физическое состояние, включая важных offscreen/nearby; для profiled места сохраняй location_id и zone_id/zone.
 

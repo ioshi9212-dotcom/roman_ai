@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from copy import deepcopy
-from typing import Any, Dict, Iterable, List
+from typing import Any, Dict, List
 
 from fastapi import HTTPException
 
@@ -22,11 +22,9 @@ from . import (
     npc_relationship_runtime,
     private_knowledge_runtime,
     profile_templates,
-    relationship_metadata,
-    relationship_runtime,
+    relationship_file_runtime,
     resume_compact_runtime,
     runtime_fixes,
-    runtime_fixes_compat,
     scene_presence_runtime,
     session_recovery,
     session_runtime,
@@ -48,7 +46,7 @@ _BASE_PARTICIPATION_BUNDLE = character_chunk_read._participation_bundle
 _BASE_CREATE_SESSION = storage.create_session
 _BASE_RECOVER_CURRENT = session_recovery.recover_session_current
 
-PIPELINE_VERSION = 14
+PIPELINE_VERSION = 15
 
 def _packet_manifest(packet: Dict[str, Any], *, reused: bool) -> Dict[str, Any]:
     chunks = packet.get("chunks", []) if isinstance(packet.get("chunks"), list) else []
@@ -70,10 +68,6 @@ def _packet_manifest(packet: Dict[str, Any], *, reused: bool) -> Dict[str, Any]:
         "next_chunk_index": unread[0] if unread else None,
         "all_chunks_read": not unread,
         "turn_pipeline_version": PIPELINE_VERSION,
-        "relationship_review_required": bool(packet.get("relationship_review_required")),
-        "relationship_review_details_required": bool(packet.get("relationship_review_details_required")),
-        "relationship_footer_scope_required": bool(packet.get("relationship_footer_scope_required")),
-        "relationship_review_v3_required": bool(packet.get("relationship_review_v3_required")),
         "instruction": (
             "Pending packet reused. Read only unread chunks, silently re-check the final scene against Scene Builder, and commit once."
             if reused
@@ -179,7 +173,6 @@ def _cast_registry_rows(
         if storage._card_id(card)
     }
     runtime = state.get("characters") if isinstance(state.get("characters"), dict) else {}
-    relationships = state.get("relationships") if isinstance(state.get("relationships"), dict) else {}
     pov = state.get("pov") if isinstance(state.get("pov"), dict) else {}
     pov_id = str(pov.get("character_id") or "")
     present = {str(value) for value in storage._present_character_ids(state) if value}
@@ -263,8 +256,6 @@ def _cast_registry_rows(
             or card.get("story_function")
             or (goals.get("story_function") if isinstance(goals, dict) else None)
         )
-        relationship_to_pov = relationships.get(cid) if isinstance(relationships.get(cid), dict) else None
-
         row = {
             "character_id": cid,
             "name": raw.get("name") or storage._card_name(card) or cid,
@@ -280,7 +271,6 @@ def _cast_registry_rows(
             "current_location": compact(info.get("location") or info.get("location_id"), 220),
             "current_zone": compact(info.get("zone") or info.get("zone_id"), 180),
             "current_activity": compact(info.get("activity"), 320),
-            "relationship_to_pov": relationship_to_pov,
             "npc_relation_refs": npc_relationship_runtime.relation_refs_for_character(npc_network, cid),
             "full_card_retrieval": (
                 {
@@ -374,7 +364,7 @@ def _clean_director_layers(context: Dict[str, Any]) -> Dict[str, Any]:
         "scene_rendering_source": "scene_builder",
         "hidden_director_guard_layers": False,
         "backend_semantic_scene_gates": False,
-        "precommit_review_gates": ["scene_builder", "persistence", "knowledge", "relationships"],
+        "precommit_review_gates": ["scene_builder", "persistence", "knowledge"],
         "offscreen_character_retrieval": "chunked_when_relevant",
         "active_character_knowledge_rebuilt_from_persistent_memory": True,
     })
@@ -491,11 +481,14 @@ def _prepare_context(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
         cid: turn_context._working_memory_bucket(memory_buckets.get(cid, {}), current_turn)
         for cid in scene_ids
     }
-    npc_network = npc_relationship_runtime.build_network(
-        cards,
-        state,
-        resolve_character_id=session_runtime._resolve_character_id,
+    pov = state.get("pov") if isinstance(state.get("pov"), dict) else {}
+    relationship_store = relationship_file_runtime.load(
+        root,
+        cards=cards,
+        state=state,
+        pov_id=str(pov.get("character_id") or ""),
     )
+    npc_network = relationship_file_runtime.npc_network(relationship_store)
     context["cast_registry"] = {
         "persistent": True,
         "registry_index_path": "cast_registry.characters",
@@ -505,7 +498,7 @@ def _prepare_context(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
             "Перед сценой просмотри ВЕСЬ постоянный NPC-каст и npc_relationship_network. Это не очередь и не ротация. "
             "Давность, число появлений и то, что персонажа давно не было, сами по себе никогда не являются причиной вывести его в сцену. "
             "Для каждого NPC оцени role/story_function, goals, current_location/current_activity, "
-            "relationship_to_pov, npc_relation_refs, active_intents, active_threads и реальные последствия; "
+            "npc_relation_refs, active_intents, active_threads и реальные последствия; "
             "полный текст NPC↔NPC связей читай один раз из npc_relationship_network. "
             "Если собственная линия NPC или его связь с другим NPC создаёт причинный путь к текущей/ближайшей сцене, мир сам подводит пересечение. "
             "POV не обязан искать, звать или вспоминать персонажа. Если причины нет, не вставляй NPC ради камео."
@@ -536,32 +529,14 @@ def _prepare_context(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
         remote_set = set(remote_ids)
         lens["footer_character_ids"] = physical_ids
         lens["remote_participant_ids"] = remote_ids
-        relations = lens.get("relations_in_current_scene")
-        if isinstance(relations, list):
-            for row in relations:
-                if not isinstance(row, dict):
-                    continue
-                owner_id = str(row.get("owner_character_id") or "")
-                if owner_id in physical_set:
-                    row["participation_mode"] = "physical"
-                elif owner_id in remote_set:
-                    row["participation_mode"] = "remote"
-                last_changed = int(row.get("last_changed_turn", 0) or 0)
-                row["turns_since_change"] = max(0, current_turn - last_changed) if last_changed else max(0, current_turn)
-                saturated = [
-                    str(item.get("label") or item.get("key"))
-                    for item in row.get("dimensions", []) if isinstance(item, dict)
-                    and isinstance(item.get("value"), (int, float)) and not isinstance(item.get("value"), bool)
-                    and float(item.get("value")) >= 100.0
-                ]
-                if saturated:
-                    row["saturated_dimensions"] = saturated
-        candidates = lens.get("present_npc_candidates")
-        if isinstance(candidates, list):
-            lens["present_npc_candidates"] = [
-                row for row in candidates
-                if isinstance(row, dict) and str(row.get("character_id") or "") in physical_set
-            ]
+        for row in lens.get("relations_in_current_scene", []) if isinstance(lens.get("relations_in_current_scene"), list) else []:
+            if not isinstance(row, dict):
+                continue
+            owner_id = str(row.get("owner_character_id") or "")
+            if owner_id in physical_set:
+                row["participation_mode"] = "physical"
+            elif owner_id in remote_set:
+                row["participation_mode"] = "remote"
         context["relationship_lens"] = lens
 
     persistence = context.get("persistence_contract")
@@ -577,16 +552,13 @@ def _prepare_context(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
             "A communicated claim may be stored source-qualified (for example, 'Elena said she is not a raider') without declaring it objective author truth."
         ),
         "relationships": (
-            "After the complete scene, review every participating NPC->POV relationship and record one relationship_review row per NPC. "
-            "If the scene causally changed it, set changed=true and write relationship_updates with a concrete reason. "
-            "For an existing metric send delta from the saved value; value may echo the final/snapshot value but delta is authoritative. "
-            "A qualitatively new state may become a new dynamic metric with value; old labels are not a whitelist. "
-            "If nothing changed, set changed=false and send no update."
+            "relationships.json is the only numeric NPC→POV canon. If the scene changes a relationship, send relationship_updates with a short reason. "
+            "Existing dimension: delta. New dimension: value. Ordinary absolute change is at most 3; use change_scale=critical_event only for a genuinely major event. "
+            "A result of exactly 0 deletes that dimension. Up to 10 active dimensions per NPC. If nothing changed, send no relationship update."
         ),
         "npc_relationships": (
-            "NPC↔NPC is separate from NPC→POV. If an interaction between two persistent NPCs creates a durable change, "
-            "write npc_relationship_updates with owner_character_id, target_character_id and only the qualitative fields that actually changed. "
-            "Direction matters; never mirror A→B into B→A automatically."
+            "NPC↔NPC is qualitative only and lives in the same relationships.json. "
+            "Use npc_relationship_updates only for a durable directed change; no numeric scores."
         ),
         "character_upserts": "new durable self-detail, or a new persistent NPC only with a concrete recurring story_function; never register a background extra",
         "state_patch": "save changed physical state. POV clothing/inventory -> state_patch.pov; NPC clothing/inventory/location/activity -> state_patch.characters[ID]. For a known location preserve location_id and zone_id/zone with the visible location name.",
@@ -672,204 +644,46 @@ def _validate_technical_state_patch(payload: Dict[str, Any]) -> None:
         )
 
 
-def _dynamic_merge_dimensions(existing: Any, incoming: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    result: List[Dict[str, Any]] = []
-    by_norm: Dict[str, int] = {}
-
-    for raw in existing if isinstance(existing, list) else []:
-        if not isinstance(raw, dict):
-            continue
-        label = str(raw.get("label") or raw.get("key") or "").strip()
-        value = raw.get("value")
-        if not label or not isinstance(value, (int, float)) or isinstance(value, bool):
-            continue
-        key = str(raw.get("key") or relationship_runtime._dimension_key(label))
-        norm = relationship_runtime._norm(label)
-        if norm in by_norm:
-            continue
-        by_norm[norm] = len(result)
-        result.append({"key": key, "label": label, "value": value})
-
-    for raw in incoming:
-        if not isinstance(raw, dict):
-            continue
-        label = str(raw.get("label") or raw.get("key") or "").strip()
-        if not label:
-            continue
-        norm = relationship_runtime._norm(label)
-        old_value = result[by_norm[norm]]["value"] if norm in by_norm else None
-        value = raw.get("value")
-        delta = raw.get("delta")
-        value_is_number = isinstance(value, (int, float)) and not isinstance(value, bool)
-        delta_is_number = isinstance(delta, (int, float)) and not isinstance(delta, bool)
-
-        # Compatibility rule:
-        # - established metrics use delta when it is supplied, so a stale snapshot value cannot cancel change;
-        # - legacy absolute writes without delta still work;
-        # - a new metric needs an absolute value because it has no saved baseline.
-        if old_value is not None:
-            if delta_is_number:
-                final = old_value + delta
-            elif value_is_number:
-                final = value
-            else:
-                continue
-        elif value_is_number:
-            final = value
-        else:
-            continue
-
-        if norm in by_norm:
-            result[by_norm[norm]]["value"] = final
-        else:
-            by_norm[norm] = len(result)
-            result.append({
-                "key": str(raw.get("key") or relationship_runtime._dimension_key(label)),
-                "label": label,
-                "value": final,
-            })
-    return result
-
-
 def _apply_relationship_changes(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     result = deepcopy(payload)
     extracted = result.get("extracted") if isinstance(result.get("extracted"), dict) else {}
-    extracted = deepcopy(extracted)
+    updates = extracted.get("relationship_updates") if isinstance(extracted.get("relationship_updates"), list) else []
+    if not updates:
+        return result
 
     root = storage.SESSIONS_DIR / session_id
     source = storage._read_json(root / "source.json", {})
     cards = storage._apply_character_upserts(storage._load_cards(root, source), extracted)
-    turns = storage._read_turns(root)
-    state_before = storage._read_json(root / "state.json", {})
-    state_before = relationship_runtime.repair_relationship_state(
-        state_before,
-        source=source,
-        turns=turns,
-        cards=cards,
-        resolve_character_id=session_runtime._resolve_character_id,
-    )
-    state_patch = deepcopy(extracted.get("state_patch")) if isinstance(extracted.get("state_patch"), dict) else {}
-    state_after = storage._deep_merge(state_before, state_patch)
-
-    docs = relationship_runtime._canonical_docs(
-        state_before,
-        cards=cards,
-        resolve_character_id=session_runtime._resolve_character_id,
-    )
+    state = storage._read_json(root / "state.json", {})
+    patch = extracted.get("state_patch") if isinstance(extracted.get("state_patch"), dict) else {}
+    state_after = storage._deep_merge(state, patch)
     pov = state_after.get("pov") if isinstance(state_after.get("pov"), dict) else {}
     pov_id = str(pov.get("character_id") or "")
-    present = set(storage._present_character_ids(state_after))
-
-    packet = storage._read_json(root / "turn_packet.json", {})
-    footer_is_display_only = bool(packet.get("relationship_review_v3_required"))
-    footer = {} if footer_is_display_only else runtime_fixes_compat._parse_footer_compat(
-        str(result.get("scene_output") or ""),
-        cards=cards,
-        resolve_character_id=session_runtime._resolve_character_id,
-    )
-    relationship_updates = (
-        extracted.get("relationship_updates")
-        if isinstance(extracted.get("relationship_updates"), list)
-        else []
-    )
-    if not footer and not relationship_updates:
-        return result
-
-    # The visible footer is a compatibility fallback. If the same owner/metric has an explicit
-    # relationship_update, do not apply the footer copy first or a delta would be counted twice.
-    explicit_labels: Dict[str, set[str]] = {}
-    for raw in relationship_updates:
-        if not isinstance(raw, dict):
-            continue
-        owner_id = session_runtime._resolve_character_id(cards, raw.get("character_id"))
-        if not owner_id:
-            continue
-        owner_key = str(owner_id)
-        for item in raw.get("dimensions", []) if isinstance(raw.get("dimensions"), list) else []:
-            if not isinstance(item, dict):
-                continue
-            label = str(item.get("label") or item.get("key") or "").strip()
-            if label:
-                explicit_labels.setdefault(owner_key, set()).add(relationship_runtime._norm(label))
-
-    for owner_id, dimensions in footer.items():
-        owner_id = str(owner_id)
-        if not owner_id or owner_id == pov_id or owner_id not in present:
-            continue
-        doc = docs.setdefault(owner_id, {"owner_character_id": owner_id, "relations": []})
-        relation = relationship_runtime._pov_relation(doc, pov_id)
-        if relation is None:
-            relation = relationship_runtime._empty_relation(pov_id, [])
-            doc["relations"].append(relation)
-        blocked = explicit_labels.get(owner_id, set())
-        fallback_dimensions = [
-            item for item in dimensions
-            if isinstance(item, dict)
-            and relationship_runtime._norm(item.get("label") or item.get("key")) not in blocked
-        ]
-        relation["dimensions"] = _dynamic_merge_dimensions(relation.get("dimensions"), fallback_dimensions)
-
+    participants = storage._scene_participant_ids(state_after)
     meta = storage._read_json(root / "meta.json", {})
     turn_number = int(meta.get("turn_number", 0) or 0) + 1
-    metadata_rows: List[Dict[str, Any]] = []
-    for raw in relationship_updates:
-        if not isinstance(raw, dict):
-            continue
-        owner_id = session_runtime._resolve_character_id(cards, raw.get("character_id"))
-        if not owner_id or str(owner_id) == pov_id:
-            continue
-        owner_id = str(owner_id)
-        doc = docs.setdefault(owner_id, {"owner_character_id": owner_id, "relations": []})
-        relation = relationship_runtime._pov_relation(doc, pov_id)
-        if relation is None:
-            relation = relationship_runtime._empty_relation(pov_id, [])
-            doc["relations"].append(relation)
 
-        before = {
-            relationship_runtime._norm(item.get("label")): item.get("value")
-            for item in relation.get("dimensions", [])
-            if isinstance(item, dict)
-        }
-        incoming = raw.get("dimensions") if isinstance(raw.get("dimensions"), list) else []
-        relation["dimensions"] = _dynamic_merge_dimensions(relation.get("dimensions"), incoming)
-        numeric_changes = []
-        for item in relation.get("dimensions", []):
-            norm = relationship_runtime._norm(item.get("label"))
-            if norm in before and before[norm] != item.get("value"):
-                numeric_changes.append({
-                    "label": item.get("label"),
-                    "from": before[norm],
-                    "to": item.get("value"),
-                })
-            elif norm not in before:
-                numeric_changes.append({
-                    "label": item.get("label"),
-                    "from": None,
-                    "to": item.get("value"),
-                })
-        meta_row = deepcopy(raw)
-        meta_row["character_id"] = owner_id
-        meta_row["_numeric_changes"] = numeric_changes
-        metadata_rows.append(meta_row)
-        if numeric_changes:
-            relation["last_changed_turn"] = turn_number
+    store = result.get("_relationships_after")
+    if not isinstance(store, dict):
+        store = relationship_file_runtime.load(root, cards=cards, state=state, pov_id=pov_id)
 
-    synced = relationship_runtime._sync_state(state_after, docs)
-    synced, _ = relationship_metadata.apply_relationship_metadata(
-        synced,
-        metadata_rows,
-        turn_number=turn_number,
-    )
+    try:
+        store = relationship_file_runtime.apply_updates(
+            store,
+            updates,
+            cards=cards,
+            pov_id=pov_id,
+            turn_number=turn_number,
+            participant_ids=participants,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": str(exc), "message": "Invalid NPC-to-POV relationship update."},
+        ) from exc
 
-    if synced.get("relationships", {}) != state_after.get("relationships", {}):
-        state_patch["relationships"] = deepcopy(synced.get("relationships", {}))
-    if synced.get("relationship_documents", {}) != state_after.get("relationship_documents", {}):
-        state_patch["relationship_documents"] = deepcopy(synced.get("relationship_documents", {}))
-    state_patch.pop("relationship_schemas", None)
-    extracted["state_patch"] = state_patch
-    result["extracted"] = extracted
+    result["_relationships_after"] = store
     return result
-
 
 def _apply_story_and_intent_updates(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     result = deepcopy(payload)
@@ -903,27 +717,27 @@ def _apply_story_and_intent_updates(session_id: str, payload: Dict[str, Any]) ->
 def _apply_npc_relationship_updates(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     result = deepcopy(payload)
     extracted = result.get("extracted") if isinstance(result.get("extracted"), dict) else {}
-    extracted = deepcopy(extracted)
-    updates = extracted.get("npc_relationship_updates")
-    if not isinstance(updates, list) or not updates:
+    updates = extracted.get("npc_relationship_updates") if isinstance(extracted.get("npc_relationship_updates"), list) else []
+    if not updates:
         return result
 
     root = storage.SESSIONS_DIR / session_id
     source = storage._read_json(root / "source.json", {})
     cards = storage._apply_character_upserts(storage._load_cards(root, source), extracted)
     state = storage._read_json(root / "state.json", {})
-    patch = deepcopy(extracted.get("state_patch")) if isinstance(extracted.get("state_patch"), dict) else {}
-    working = storage._deep_merge(state, patch)
-    meta = storage._read_json(root / "meta.json", {})
-    turn_number = int(meta.get("turn_number", 0) or 0) + 1
+    pov = state.get("pov") if isinstance(state.get("pov"), dict) else {}
+    pov_id = str(pov.get("character_id") or "")
+
+    store = result.get("_relationships_after")
+    if not isinstance(store, dict):
+        store = relationship_file_runtime.load(root, cards=cards, state=state, pov_id=pov_id)
 
     try:
-        working = npc_relationship_runtime.apply_updates(
-            working,
+        store = relationship_file_runtime.apply_npc_updates(
+            store,
             updates,
             cards=cards,
-            resolve_character_id=session_runtime._resolve_character_id,
-            turn_number=turn_number,
+            pov_id=pov_id,
         )
     except ValueError as exc:
         raise HTTPException(
@@ -931,11 +745,8 @@ def _apply_npc_relationship_updates(session_id: str, payload: Dict[str, Any]) ->
             detail={"code": str(exc), "message": "Invalid NPC-to-NPC relationship update."},
         ) from exc
 
-    patch["npc_relationships"] = deepcopy(working.get("npc_relationships", {}))
-    extracted["state_patch"] = patch
-    result["extracted"] = extracted
+    result["_relationships_after"] = store
     return result
-
 
 def _prepare_profile_persistence(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     root = storage.SESSIONS_DIR / session_id
@@ -957,6 +768,10 @@ def _prepare_profile_persistence(session_id: str, payload: Dict[str, Any]) -> Di
     extracted.setdefault("character_upserts", [])
     extracted.setdefault("presence_updates", [])
     extracted.setdefault("state_patch", {})
+    state_patch = deepcopy(extracted.get("state_patch")) if isinstance(extracted.get("state_patch"), dict) else {}
+    for key in ("relationships", "relationship_documents", "relationship_schemas", "npc_relationships"):
+        state_patch.pop(key, None)
+    extracted["state_patch"] = state_patch
 
     if simple_profile_runtime._simple_session(root):
         simple_profile_runtime._prepare_journal_entries(root, extracted)
@@ -1108,10 +923,6 @@ def _participation_bundle(session_id: str, character_id: str) -> Dict[str, Any]:
 
 
 def install() -> None:
-    # Formatting compatibility only. This parser does not impose relationship semantics.
-    relationship_runtime._parse_footer = runtime_fixes_compat._parse_footer_compat
-    relationship_runtime._merge_footer_dimensions = _dynamic_merge_dimensions
-
     # Durable chronology selection is data retrieval, not directing.
     chronology_integrity_runtime._ORIGINAL_SELECT = session_runtime._select_chronology_context
     session_runtime._select_chronology_context = chronology_integrity_runtime._select_chronology_context

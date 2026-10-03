@@ -9,7 +9,7 @@ from . import storage
 SNAPSHOT_FILE = "last_turn_snapshot.json"
 PREVIOUS_SNAPSHOT_FILE = "previous_turn_snapshot.json"
 PREVIOUS2_SNAPSHOT_FILE = "previous_turn_snapshot_2.json"
-SNAPSHOT_VERSION = 2
+SNAPSHOT_VERSION = 3
 
 
 def build_pre_turn_snapshot(root, committed_turn: int) -> Dict[str, Any]:
@@ -20,6 +20,7 @@ def build_pre_turn_snapshot(root, committed_turn: int) -> Dict[str, Any]:
         "meta": deepcopy(storage._read_json(root / "meta.json", {})),
         "characters": deepcopy(storage._read_json(root / "characters.json", [])),
         "state": deepcopy(storage._read_json(root / "state.json", {})),
+        "relationships": deepcopy(storage._read_json(root / "relationships.json", {})),
         "memory": deepcopy(storage._read_json(root / "memory.json", {})),
         "chronology": deepcopy(storage._read_json(root / "chronology.json", [])),
         "audits": deepcopy(storage._read_json(root / "audits.json", [])),

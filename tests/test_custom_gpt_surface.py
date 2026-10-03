@@ -70,12 +70,11 @@ def test_static_custom_gpt_schema_has_exact_current_30_actions():
     assert "scene_builder_reviewed" in extracted["properties"]
     assert "persistence_reviewed" in extracted["properties"]
     assert "knowledge_reviewed" in extracted["properties"]
-    assert "relationship_reviewed" in extracted["properties"]
-    assert "relationship_review" in extracted["properties"]
-    assert extracted["properties"]["relationship_review"]["items"]["$ref"].endswith("/RelationshipReview")
+    assert "relationship_reviewed" not in extracted["properties"]
+    assert "relationship_review" not in extracted["properties"]
 
     relationship = schema["components"]["schemas"]["RelationshipUpdate"]
-    assert "change_scale" not in relationship["properties"]
+    assert relationship["properties"]["change_scale"]["enum"] == ["ordinary", "critical_event"]
     assert "elapsed_game_days" not in relationship["properties"]
 
     knowledge_text = schema["components"]["schemas"]["KnowledgeJournalAdd"]["properties"]["text"]["description"]
@@ -157,8 +156,8 @@ def test_custom_gpt_instruction_matches_rules_driven_transport():
         'user_input=""',
         "packet_id",
         "knowledge_reviewed=true",
-        "relationship_reviewed=true",
-        "relationship_review",
+        "relationships.json",
+        "change_scale=critical_event",
     ):
         assert required in text
 
@@ -166,6 +165,8 @@ def test_custom_gpt_instruction_matches_rules_driven_transport():
         "knowledge_review_capable",
         "complete_knowledge_read_capable",
         "relationship_review_capable",
+        "relationship_reviewed=true",
+        "relationship_review",
         "runtime_contract_capable",
         "strict_knowledge_capable",
         "getSceneKnowledgeReadStatus",
@@ -196,13 +197,15 @@ def test_custom_gpt_instruction_matches_rules_driven_transport():
     assert "`location_context` только текущего физического места" in text
 
 
-def test_runtime_contract_matches_current_knowledge_transport():
-    text = (ROOT / "runtime" / "runtime_contract.md").read_text(encoding="utf-8")
-    assert "prepareCharacterBundleRead" in text
-    assert "getCharacterBundleChunk" in text
-    assert "prepareCharacterKnowledgeRead" not in text
-    assert "getCharacterKnowledgeChunk" not in text
-    assert "getSceneKnowledgeReadStatus" not in text
+def test_runtime_contract_file_stays_removed_and_transport_lives_in_active_docs():
+    assert not (ROOT / "runtime" / "runtime_contract.md").exists()
+    instructions = (ROOT / "gpt" / "custom_gpt_instructions.md").read_text(encoding="utf-8")
+    rules = (ROOT / "runtime" / "rules.md").read_text(encoding="utf-8")
+    assert "prepareCharacterBundleRead" in instructions
+    assert "getCharacterBundleChunk" in instructions
+    assert "prepareCharacterKnowledgeRead" not in instructions + rules
+    assert "getCharacterKnowledgeChunk" not in instructions + rules
+    assert "getSceneKnowledgeReadStatus" not in instructions + rules
 
 
 def test_static_schema_avoids_actions_parser_traps():

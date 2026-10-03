@@ -466,8 +466,8 @@ def _relationship_dimensions(raw: Any) -> List[Dict[str, Any]]:
         if not label or not isinstance(value, (int, float)) or isinstance(value, bool):
             raise ValueError("DRAFT_CHARACTER_RELATIONSHIP_DIMENSIONS_INVALID")
         numeric = float(value)
-        if numeric < 0 or numeric > 100:
-            raise ValueError("DRAFT_CHARACTER_RELATIONSHIP_DIMENSIONS_RANGE")
+        if numeric == 0:
+            continue
         key = _relationship_identity(label)
         if key in seen and seen[key] != numeric:
             raise ValueError("DRAFT_CHARACTER_RELATIONSHIP_DIMENSION_CONFLICT")
@@ -478,7 +478,7 @@ def _relationship_dimensions(raw: Any) -> List[Dict[str, Any]]:
             "label": label,
             "value": int(numeric) if numeric.is_integer() else numeric,
         })
-    if len(result) > 4:
+    if len(result) > 10:
         raise ValueError("DRAFT_CHARACTER_RELATIONSHIP_DIMENSIONS_LIMIT")
     return result
 
@@ -562,6 +562,8 @@ def _canonicalize_character_relationships(
             dims = _relationship_dimensions(raw_row.get("dimensions"))
             if owner_id != pov_id and target_id == pov_id and not dims:
                 raise ValueError("DRAFT_NPC_POV_RELATIONSHIP_DIMENSIONS_REQUIRED")
+            if owner_id != pov_id and target_id != pov_id and dims:
+                raise ValueError("DRAFT_NPC_NPC_RELATIONSHIP_MUST_BE_QUALITATIVE")
 
             row = grouped.setdefault(target_id, {
                 "target_character_id": target_id,
@@ -581,7 +583,7 @@ def _canonicalize_character_relationships(
                 if not existing:
                     row["dimensions"].append(deepcopy(dim))
                     existing_dims[dim_key] = row["dimensions"][-1]
-            if len(row["dimensions"]) > 4:
+            if len(row["dimensions"]) > 10:
                 raise ValueError("DRAFT_CHARACTER_RELATIONSHIP_DIMENSIONS_LIMIT")
 
             for field in ("relationship_type", "relationship_context", "current_dynamic", "behavioral_pattern"):

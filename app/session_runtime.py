@@ -99,13 +99,6 @@ def _finalize_persisted_state(
     turn_number: int,
 ) -> Dict[str, Any]:
     canonical = _canonicalize_state_character_refs(cards, state)
-    canonical = repair_relationship_state(
-        canonical,
-        source=source,
-        turns=turns,
-        cards=cards,
-        resolve_character_id=_resolve_character_id,
-    )
     return refresh_pov_familiarity(
         cards,
         canonical,
@@ -127,13 +120,6 @@ def _refresh_session_familiarity(session_id: str) -> Dict[str, Any]:
     memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
     chronology = storage._read_json(root / "chronology.json", [])
     turns = storage._read_turns(root)
-    state = repair_relationship_state(
-        state,
-        source=source,
-        turns=turns,
-        cards=cards,
-        resolve_character_id=_resolve_character_id,
-    )
     meta = storage._read_json(root / "meta.json", {})
     refreshed = refresh_pov_familiarity(
         cards,

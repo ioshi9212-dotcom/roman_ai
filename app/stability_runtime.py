@@ -9,6 +9,7 @@ from typing import Any, Dict
 from . import location_runtime, session_recovery, session_runtime, storage
 from .game_day import sync_game_day
 from .relationship_runtime import overwrite_relationship_snapshots
+from .relationship_file_runtime import FILE_NAME as RELATIONSHIPS_FILE
 from .operation_receipts import RECEIPTS_FILE, ledger_with_receipt, make_receipt
 from .rollback_snapshot_runtime import PREVIOUS2_SNAPSHOT_FILE, PREVIOUS_SNAPSHOT_FILE, SNAPSHOT_FILE, build_pre_turn_snapshot
 from .scene_compaction_runtime import SCENE_MEMORY_FILE, apply_audit_compactions
@@ -304,6 +305,9 @@ def _atomic_commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, A
             "meta.json": json_text(meta),
             SNAPSHOT_FILE: json_text(pre_turn_snapshot),
         }
+        relationships_after = payload.get("_relationships_after")
+        if isinstance(relationships_after, dict):
+            values[RELATIONSHIPS_FILE] = json_text(relationships_after)
         prior_snapshot_valid = (
             isinstance(prior_snapshot, dict)
             and int(prior_snapshot.get("committed_turn", 0) or 0) == turn_number - 1
@@ -348,11 +352,15 @@ def _atomic_commit_audit(session_id: str, payload: Dict[str, Any]) -> Dict[str, 
         if int(payload.get("end_turn", 0)) != expected_end:
             raise ValueError("AUDIT_RANGE_MISMATCH")
 
-        repairs = payload.get("repairs", {}) if isinstance(payload.get("repairs"), dict) else {}
+        repairs = deepcopy(payload.get("repairs", {})) if isinstance(payload.get("repairs"), dict) else {}
+        audit_state_patch = deepcopy(repairs.get("state_patch")) if isinstance(repairs.get("state_patch"), dict) else {}
+        for key in ("relationships", "relationship_documents", "relationship_schemas", "npc_relationships"):
+            audit_state_patch.pop(key, None)
+        repairs["state_patch"] = audit_state_patch
         source = storage._read_json(root / "source.json", {})
         state = storage._read_json(root / "state.json", {})
         previous_state = deepcopy(state)
-        state = _merge_state_patch_exact_relationships(state, repairs.get("state_patch"))
+        state = _merge_state_patch_exact_relationships(state, audit_state_patch)
         state = _clean_scene_pointer(state, repairs)
         state = location_runtime.sync_current_location(source, state, previous_state=previous_state)
         state = sync_game_day(state, source)
