@@ -34,6 +34,30 @@ def _static_turn(number: int):
     }
 
 
+def _soft_same_scene_turn(number: int):
+    return {
+        "turn_number": number,
+        "user_input": "(продолжить разговор)",
+        "scene_output": "ещё один содержательный, но камерный бытовой обмен",
+        "extracted": {
+            "scene_progressed": True,
+            "chronology": [],
+            "relationship_updates": [{
+                "character_id": "silas",
+                "dimensions": [{"label": "близость", "delta": 1}],
+            }],
+            "npc_intent_updates": [{
+                "character_id": "silas",
+                "intent_id": f"pending_{number}",
+                "summary": "Продолжить разговор позже",
+            }],
+            "story_thread_updates": [],
+            "presence_updates": [],
+            "state_patch": {},
+        },
+    }
+
+
 def test_story_thread_lifecycle_preserves_anchor_facts_and_progress_turn():
     state = {"threads": {}}
     state = story_thread.apply_updates(
@@ -150,6 +174,81 @@ def test_player_action_or_continuous_important_scene_can_mark_progress_without_f
         prepared = runtime._with_story_patch("sid", payload, audit=False)
         assert prepared["extracted"]["scene_progressed"] is True
         assert prepared["extracted"]["chronology"] == []
+
+
+def test_long_same_scene_soft_progress_does_not_hide_world_stagnation(monkeypatch):
+    with tempfile.TemporaryDirectory() as tmp:
+        sessions = Path(tmp) / "sessions"
+        root = sessions / "sid"
+        root.mkdir(parents=True)
+        monkeypatch.setattr(storage, "SESSIONS_DIR", sessions)
+        _write_json(root / "state.json", {"threads": {}})
+        _write_json(root / "meta.json", {"turn_number": runtime._WORLD_STAGNATION_LIMIT})
+        (root / "turns.jsonl").write_text(
+            "\n".join(
+                json.dumps(_soft_same_scene_turn(i), ensure_ascii=False)
+                for i in range(1, runtime._WORLD_STAGNATION_LIMIT + 1)
+            ) + "\n",
+            encoding="utf-8",
+        )
+
+        assert runtime.trailing_stagnant_turns(root) == 0
+        assert runtime.trailing_world_stagnant_turns(root) == runtime._WORLD_STAGNATION_LIMIT
+
+        payload = {
+            "scene_output": "ещё один камерный обмен",
+            "extracted": {
+                "scene_progressed": True,
+                "chronology": [],
+                "relationship_updates": [{
+                    "character_id": "silas",
+                    "dimensions": [{"label": "близость", "delta": 1}],
+                }],
+                "npc_intent_updates": [{
+                    "character_id": "silas",
+                    "intent_id": "another_pending",
+                    "summary": "Продолжить позже",
+                }],
+                "story_thread_updates": [],
+                "presence_updates": [],
+                "state_patch": {},
+            },
+        }
+        with pytest.raises(HTTPException) as exc:
+            runtime._with_story_patch("sid", payload, audit=False)
+        assert exc.value.detail["code"] == "STORY_PROGRESS_REQUIRED"
+        assert exc.value.detail["world_stagnant_turns_before_this_commit"] == runtime._WORLD_STAGNATION_LIMIT
+
+
+def test_real_arrival_breaks_long_world_stagnation(monkeypatch):
+    with tempfile.TemporaryDirectory() as tmp:
+        sessions = Path(tmp) / "sessions"
+        root = sessions / "sid"
+        root.mkdir(parents=True)
+        monkeypatch.setattr(storage, "SESSIONS_DIR", sessions)
+        _write_json(root / "state.json", {"threads": {}})
+        _write_json(root / "meta.json", {"turn_number": runtime._WORLD_STAGNATION_LIMIT})
+        (root / "turns.jsonl").write_text(
+            "\n".join(
+                json.dumps(_soft_same_scene_turn(i), ensure_ascii=False)
+                for i in range(1, runtime._WORLD_STAGNATION_LIMIT + 1)
+            ) + "\n",
+            encoding="utf-8",
+        )
+
+        payload = {
+            "scene_output": "Раяна естественно входит в кухню утром.",
+            "extracted": {
+                "scene_progressed": True,
+                "chronology": [],
+                "npc_intent_updates": [],
+                "story_thread_updates": [],
+                "presence_updates": [{"character_id": "rayna", "action": "enter"}],
+                "state_patch": {},
+            },
+        }
+        prepared = runtime._with_story_patch("sid", payload, audit=False)
+        assert prepared["extracted"]["presence_updates"][0]["action"] == "enter"
 
 
 def test_story_pressure_starts_early_and_becomes_mandatory_at_six_turns():
