@@ -391,6 +391,40 @@ def apply_updates(
     return result
 
 
+def rebuild_from_turns(
+    source: Dict[str, Any],
+    cards: List[Dict[str, Any]],
+    turns: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    starting_state = source.get("starting_state") if isinstance(source.get("starting_state"), dict) else {}
+    pov_id = str((starting_state.get("pov") or {}).get("character_id") or "")
+    if not pov_id:
+        pov_id = str(storage._find_pov_id(source, cards) or "")
+    store = build_initial_store(cards, starting_state, pov_id)
+    all_ids = [storage._card_id(card) for card in cards if storage._card_id(card)]
+
+    for turn in turns:
+        if not isinstance(turn, dict):
+            continue
+        turn_number = int(turn.get("turn_number", 0) or 0)
+        extracted = turn.get("extracted") if isinstance(turn.get("extracted"), dict) else {}
+        store = apply_npc_updates(
+            store,
+            extracted.get("npc_relationship_updates"),
+            cards=cards,
+            pov_id=pov_id,
+        )
+        store = apply_updates(
+            store,
+            extracted.get("relationship_updates"),
+            cards=cards,
+            pov_id=pov_id,
+            turn_number=turn_number,
+            participant_ids=all_ids,
+        )
+    return store
+
+
 def footer_rows(store: Dict[str, Any], physical_ids: Iterable[str]) -> Dict[str, Dict[str, int | float]]:
     result: Dict[str, Dict[str, int | float]] = {}
     for character_id in physical_ids:
