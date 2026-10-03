@@ -47,7 +47,7 @@ _BASE_PARTICIPATION_BUNDLE = character_chunk_read._participation_bundle
 _BASE_CREATE_SESSION = storage.create_session
 _BASE_RECOVER_CURRENT = session_recovery.recover_session_current
 
-PIPELINE_VERSION = 11
+PIPELINE_VERSION = 12
 
 def _packet_manifest(packet: Dict[str, Any], *, reused: bool) -> Dict[str, Any]:
     chunks = packet.get("chunks", []) if isinstance(packet.get("chunks"), list) else []
@@ -170,49 +170,138 @@ def _cast_registry_rows(
         source_character_ids=source_ids,
         source=source,
     )
-    current_day = cast_registry_runtime._current_game_day(state)
+
+    card_map = {
+        storage._card_id(card): card
+        for card in cards
+        if storage._card_id(card)
+    }
+    runtime = state.get("characters") if isinstance(state.get("characters"), dict) else {}
+    relationships = state.get("relationships") if isinstance(state.get("relationships"), dict) else {}
+    pov = state.get("pov") if isinstance(state.get("pov"), dict) else {}
+    pov_id = str(pov.get("character_id") or "")
+    present = {str(value) for value in storage._present_character_ids(state) if value}
+    remote = {str(value) for value in storage._remote_character_ids(state) if value}
+
+    def compact(value: Any, limit: int = 520) -> str | None:
+        if value in (None, "", [], {}):
+            return None
+        if isinstance(value, str):
+            text = " ".join(value.split())
+        else:
+            text = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+        return text[:limit] if text else None
+
+    def active_intents(character_id: str) -> List[str]:
+        store = state.get("npc_intents")
+        rows: Any = []
+        if isinstance(store, dict):
+            rows = store.get(character_id, [])
+        elif isinstance(store, list):
+            rows = [
+                row for row in store
+                if isinstance(row, dict)
+                and str(row.get("character_id") or row.get("owner_character_id") or "") == character_id
+            ]
+        if isinstance(rows, dict):
+            rows = list(rows.values())
+        result: List[str] = []
+        for row in rows if isinstance(rows, list) else []:
+            if not isinstance(row, dict):
+                continue
+            status = str(row.get("status") or "active").casefold()
+            if status in {"resolved", "closed", "done", "abandoned", "cancelled", "canceled"}:
+                continue
+            text = (
+                row.get("summary")
+                or row.get("intent")
+                or row.get("goal")
+                or row.get("planned_action")
+                or row.get("reason")
+            )
+            if text:
+                result.append(" ".join(str(text).split())[:260])
+        return result[:4]
+
+    def active_threads(character_id: str) -> List[str]:
+        raw = state.get("threads")
+        rows = list(raw.values()) if isinstance(raw, dict) else raw if isinstance(raw, list) else []
+        result: List[str] = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            status = str(row.get("status") or "active").casefold()
+            if status in {"resolved", "closed", "done", "abandoned", "cancelled", "canceled"}:
+                continue
+            participants = row.get("participants") or row.get("character_ids") or []
+            if isinstance(participants, str):
+                participants = [participants]
+            involved = character_id in {str(value) for value in participants if value}
+            if not involved:
+                involved = any(
+                    str(row.get(key) or "") == character_id
+                    for key in ("character_id", "owner_character_id", "target_character_id")
+                )
+            if not involved:
+                continue
+            text = row.get("summary") or row.get("title") or row.get("name") or row.get("progress_summary")
+            if text:
+                result.append(" ".join(str(text).split())[:260])
+        return result[:4]
+
     rows: List[Dict[str, Any]] = []
-
-    def age(turn_value: Any) -> int | None:
-        try:
-            value = int(turn_value or 0)
-        except (TypeError, ValueError):
-            return None
-        return max(0, current_turn - value) if value else None
-
-    def day_age(day_value: Any) -> int | None:
-        if not current_day:
-            return None
-        try:
-            value = int(day_value or 0)
-        except (TypeError, ValueError):
-            return None
-        return max(0, current_day - value) if value else None
-
     for cid, raw in registry.items():
         if not isinstance(raw, dict):
             continue
+        card = card_map.get(cid, {})
+        info = runtime.get(cid) if isinstance(runtime.get(cid), dict) else {}
+
+        identity = card.get("identity") if isinstance(card.get("identity"), dict) else {}
+        goals = card.get("goals")
+        story_function = (
+            raw.get("story_function")
+            or card.get("story_function")
+            or (goals.get("story_function") if isinstance(goals, dict) else None)
+        )
+        work = card.get("work") or card.get("occupation") or identity.get("occupation")
+        residence = card.get("residence") or card.get("home") or card.get("lives_at")
+        relationship_to_pov = relationships.get(cid) if isinstance(relationships.get(cid), dict) else None
+
         row = {
             "character_id": cid,
-            "name": raw.get("name") or cid,
-            "story_function": raw.get("story_function"),
+            "name": raw.get("name") or storage._card_name(card) or cid,
+            "role": raw.get("role") or storage._card_role(card),
+            "story_function": compact(story_function, 420),
             "status": raw.get("status") or "active",
-            "last_physical_turn": raw.get("last_appearance_turn"),
-            "last_physical_game_day": raw.get("last_appearance_game_day"),
-            "turns_since_physical": age(raw.get("last_appearance_turn")),
-            "game_days_since_physical": day_age(raw.get("last_appearance_game_day")),
-            "last_contact_turn": raw.get("last_contact_turn"),
-            "last_contact_game_day": raw.get("last_contact_game_day"),
-            "last_contact_mode": raw.get("last_contact_mode"),
-            "turns_since_contact": age(raw.get("last_contact_turn")),
-            "game_days_since_contact": day_age(raw.get("last_contact_game_day")),
-            "last_meaningful_turn": raw.get("last_meaningful_turn"),
-            "last_meaningful_game_day": raw.get("last_meaningful_game_day"),
+            "origin": raw.get("origin"),
+            "importance": raw.get("importance"),
+            "is_pov": cid == pov_id,
+            "present": cid in present,
+            "remote": cid in remote,
+            "goals": compact(goals),
+            "work": compact(work, 320),
+            "residence": compact(residence, 320),
+            "current_location": compact(info.get("location") or info.get("location_id"), 220),
+            "current_zone": compact(info.get("zone") or info.get("zone_id"), 180),
+            "current_activity": compact(info.get("activity"), 320),
+            "relationship_to_pov": relationship_to_pov,
+            "known_relationships": compact(card.get("relationships"), 520),
+            "active_intents": active_intents(cid),
+            "active_threads": active_threads(cid),
             "last_meaningful_event": raw.get("last_meaningful_event"),
-            "turns_since_meaningful": age(raw.get("last_meaningful_turn")),
-            "game_days_since_meaningful": day_age(raw.get("last_meaningful_game_day")),
         }
-        rows.append({key: value for key, value in row.items() if value not in (None, "", [], {})})
+        rows.append({
+            key: value
+            for key, value in row.items()
+            if value not in (None, "", [], {}, False)
+        })
+
+    rows.sort(key=lambda row: (
+        0 if row.get("is_pov") else 1,
+        0 if row.get("origin") == "player_created" else 1,
+        {"core": 0, "recurring": 1, "support": 2}.get(str(row.get("importance") or ""), 9),
+        str(row.get("name") or row.get("character_id") or "").casefold(),
+    ))
     return rows
 
 
@@ -397,6 +486,17 @@ def _prepare_context(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
     context["cast_registry"] = {
         "persistent": True,
         "registry_index_path": "cast_registry.characters",
+        "mandatory_causal_review": True,
+        "recency_rotation_disabled": True,
+        "instruction": (
+            "Перед сценой просмотри ВЕСЬ постоянный NPC-каст. Это не очередь и не ротация. "
+            "Давность, число появлений и то, что персонажа давно не было, сами по себе никогда не являются причиной вывести его в сцену. "
+            "Для каждого NPC оцени вместе role/story_function, goals, work/residence, current_location/current_activity, "
+            "relationship_to_pov, known_relationships, active_intents, active_threads и реальные последствия. "
+            "Если собственная линия NPC создаёт причинный путь к текущей или ближайшей сцене, мир должен сам подвести это пересечение "
+            "через работу, место, другого NPC, сообщение, звонок, обязательство, конфликт, событие или последствие; POV не обязан его искать или вспоминать. "
+            "Если причинного пути нет, не вставляй NPC ради камео. Нормально, если в этом ходе никто новый не появляется."
+        ),
         "characters": _cast_registry_rows(state, cards, source, current_turn),
     }
 
