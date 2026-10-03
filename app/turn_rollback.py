@@ -4,7 +4,7 @@ from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Tuple
 
-from . import location_runtime, storage
+from . import location_runtime, relationship_file_runtime, storage
 from .character_registry import refresh_pov_familiarity
 from .game_day import sync_game_day
 from .relationship_runtime import repair_relationship_state
@@ -369,12 +369,17 @@ def _snapshot_for_current_turn(
     replay = _replay_through(source, turns, audits, previous_turn)
     pre_meta = _restored_meta(meta_seed, previous_turn, replay["audits"])
     return {
-        "version": 1,
+        "version": 2,
         "committed_turn": committed_turn,
         "previous_turn": previous_turn,
         "meta": pre_meta,
         "characters": deepcopy(replay["characters"]),
         "state": deepcopy(replay["state"]),
+        "relationships": relationship_file_runtime.rebuild_from_turns(
+            source,
+            deepcopy(replay["characters"]),
+            deepcopy(replay["turns"]),
+        ),
         "memory": deepcopy(replay["memory"]),
         "chronology": deepcopy(replay["chronology"]),
         "audits": deepcopy(replay["audits"]),
@@ -388,6 +393,7 @@ def _write_restored_state(
     turns: List[Dict[str, Any]],
     characters: Any,
     state: Any,
+    relationships: Any,
     memory: Any,
     chronology: Any,
     audits: List[Dict[str, Any]],
@@ -400,6 +406,7 @@ def _write_restored_state(
         "turns.jsonl": _turns_text(turns),
         "characters.json": json_text(characters),
         "state.json": json_text(state),
+        relationship_file_runtime.FILE_NAME: json_text(relationships),
         "memory.json": json_text(memory),
         "chronology.json": json_text(chronology),
         "audits.json": json_text(audits),
@@ -513,6 +520,15 @@ def rollback_last_turn(
                 turns=remaining_turns,
                 characters=deepcopy(snapshot.get("characters", [])),
                 state=deepcopy(snapshot.get("state", {})),
+                relationships=deepcopy(
+                    snapshot.get("relationships")
+                    if isinstance(snapshot.get("relationships"), dict)
+                    else relationship_file_runtime.rebuild_from_turns(
+                        storage._read_json(root / "source.json", {}),
+                        deepcopy(snapshot.get("characters", [])),
+                        remaining_turns,
+                    )
+                ),
                 memory=deepcopy(snapshot.get("memory", {})),
                 chronology=deepcopy(snapshot.get("chronology", [])),
                 audits=snapshot_audits,
@@ -601,6 +617,11 @@ def rollback_last_turn(
             turns=replay_previous["turns"],
             characters=replay_previous["characters"],
             state=replay_previous["state"],
+            relationships=relationship_file_runtime.rebuild_from_turns(
+                source,
+                replay_previous["characters"],
+                replay_previous["turns"],
+            ),
             memory=replay_previous["memory"],
             chronology=replay_previous["chronology"],
             audits=target_audits,
