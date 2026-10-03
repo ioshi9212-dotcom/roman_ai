@@ -8,8 +8,8 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 AUTHOR_BLOB_SHA = {
-    "rules.md": "8a1de47b146e546889079533a55f546a99dee7ed",
-    "scene_builder.md": "dd47cd775784ad4d40f26e1b8ac3289b7bd8b94c",
+    "rules.md": "ef07b0e0449d4eea99735a2f7334403e1d000165",
+    "scene_builder.md": "e212eb41db0e8fc2deacf9c3e142304528858538",
 }
 
 
