@@ -289,6 +289,12 @@ def _clean_director_layers(context: Dict[str, Any]) -> Dict[str, Any]:
     for key in ("novel_rules", "novel", "author_context", "novel_profile"):
         if key in result:
             result[key] = profile_templates._strip_legacy_pov_silence_rule(result[key])
+    author = result.get("author_context")
+    if isinstance(author, dict):
+        author = deepcopy(author)
+        for key in ("instruction", "knowledge_quarantine", "chronology_context_rule"):
+            author.pop(key, None)
+        result["author_context"] = author
     _clean_relationship_lens(result)
     return result
 
