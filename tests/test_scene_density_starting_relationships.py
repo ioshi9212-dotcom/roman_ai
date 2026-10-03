@@ -22,6 +22,7 @@ def relationship_novel():
         "title": "Starting Relationship",
         "version": 5,
         "novel": {"pov_character": "rina"},
+        "lore": {},
         "characters": [
             {"character_id": "rina", "name": "Рината", "is_pov": True},
             {
