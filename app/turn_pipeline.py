@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from copy import deepcopy
-from typing import Any, Dict, Iterable, List
+from typing import Any, Dict, List
 
 from fastapi import HTTPException
 
@@ -648,65 +648,6 @@ def _validate_technical_state_patch(payload: Dict[str, Any]) -> None:
         )
 
 
-def _dynamic_merge_dimensions(existing: Any, incoming: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    result: List[Dict[str, Any]] = []
-    by_norm: Dict[str, int] = {}
-
-    for raw in existing if isinstance(existing, list) else []:
-        if not isinstance(raw, dict):
-            continue
-        label = str(raw.get("label") or raw.get("key") or "").strip()
-        value = raw.get("value")
-        if not label or not isinstance(value, (int, float)) or isinstance(value, bool):
-            continue
-        key = str(raw.get("key") or relationship_runtime._dimension_key(label))
-        norm = relationship_runtime._norm(label)
-        if norm in by_norm:
-            continue
-        by_norm[norm] = len(result)
-        result.append({"key": key, "label": label, "value": value})
-
-    for raw in incoming:
-        if not isinstance(raw, dict):
-            continue
-        label = str(raw.get("label") or raw.get("key") or "").strip()
-        if not label:
-            continue
-        norm = relationship_runtime._norm(label)
-        old_value = result[by_norm[norm]]["value"] if norm in by_norm else None
-        value = raw.get("value")
-        delta = raw.get("delta")
-        value_is_number = isinstance(value, (int, float)) and not isinstance(value, bool)
-        delta_is_number = isinstance(delta, (int, float)) and not isinstance(delta, bool)
-
-        # Compatibility rule:
-        # - established metrics use delta when it is supplied, so a stale snapshot value cannot cancel change;
-        # - legacy absolute writes without delta still work;
-        # - a new metric needs an absolute value because it has no saved baseline.
-        if old_value is not None:
-            if delta_is_number:
-                final = old_value + delta
-            elif value_is_number:
-                final = value
-            else:
-                continue
-        elif value_is_number:
-            final = value
-        else:
-            continue
-
-        if norm in by_norm:
-            result[by_norm[norm]]["value"] = final
-        else:
-            by_norm[norm] = len(result)
-            result.append({
-                "key": str(raw.get("key") or relationship_runtime._dimension_key(label)),
-                "label": label,
-                "value": final,
-            })
-    return result
-
-
 def _apply_relationship_changes(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     result = deepcopy(payload)
     extracted = result.get("extracted") if isinstance(result.get("extracted"), dict) else {}
@@ -986,10 +927,6 @@ def _participation_bundle(session_id: str, character_id: str) -> Dict[str, Any]:
 
 
 def install() -> None:
-    # Formatting compatibility only. This parser does not impose relationship semantics.
-    relationship_runtime._parse_footer = runtime_fixes_compat._parse_footer_compat
-    relationship_runtime._merge_footer_dimensions = _dynamic_merge_dimensions
-
     # Durable chronology selection is data retrieval, not directing.
     chronology_integrity_runtime._ORIGINAL_SELECT = session_runtime._select_chronology_context
     session_runtime._select_chronology_context = chronology_integrity_runtime._select_chronology_context
