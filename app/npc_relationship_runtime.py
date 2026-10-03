@@ -81,10 +81,18 @@ def _guess_target_from_text(
     text: str,
     cards: Iterable[Dict[str, Any]],
 ) -> str | None:
+    """Legacy free-text fallback only.
+
+    Prefer explicit target_character_id. For old prose relationships, return a
+    character only when the text points to one unique candidate. Ambiguous
+    prefixes never guess between characters.
+    """
     hay = _norm(text)
     if not hay:
         return None
-    matches: List[tuple[int, str]] = []
+
+    direct: set[str] = set()
+    prefix: set[str] = set()
     for card in cards:
         cid = _card_id(card)
         if not cid or cid == owner_id:
@@ -93,16 +101,20 @@ def _guess_target_from_text(
             needle = _norm(alias)
             if len(needle) < 3:
                 continue
-            # Russian names are often inflected in free-form setup. A 4-char prefix
-            # is enough for the compact director index and avoids requiring a full NLP parser.
-            found = needle in hay or (len(needle) >= 4 and needle[:4] in hay)
-            if found:
-                matches.append((len(needle), cid))
+            if needle in hay:
+                direct.add(cid)
                 break
-    if not matches:
+            if len(needle) >= 4 and needle[:4] in hay:
+                prefix.add(cid)
+                break
+
+    if len(direct) == 1:
+        return next(iter(direct))
+    if direct:
         return None
-    matches.sort(reverse=True)
-    return matches[0][1]
+    if len(prefix) == 1:
+        return next(iter(prefix))
+    return None
 
 
 def _profile_relation_entries(
@@ -286,7 +298,61 @@ def build_network(
     }
 
 
+def outgoing_relations_for_character(network: Dict[str, Any], character_id: str) -> List[Dict[str, Any]]:
+    """Director-only relationships owned by this character.
+
+    Incoming rows are deliberately excluded from character bundles so another
+    NPC's beliefs/knowledge about this character cannot be mistaken for this
+    character's own knowledge.
+    """
+    rows = network.get("relations") if isinstance(network.get("relations"), list) else []
+    result: List[Dict[str, Any]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        if str(row.get("owner_character_id") or "") != character_id:
+            continue
+        item = deepcopy(row)
+        item["knowledge_scope"] = "director_only_not_personal_knowledge"
+        result.append(item)
+    return result[:12]
+
+
+def relation_refs_for_character(network: Dict[str, Any], character_id: str) -> List[Dict[str, Any]]:
+    """Small graph pointers for the always-read cast registry.
+
+    Full relationship prose lives once in npc_relationship_network.
+    """
+    rows = network.get("relations") if isinstance(network.get("relations"), list) else []
+    result: List[Dict[str, Any]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        owner_id = str(row.get("owner_character_id") or "")
+        target_id = str(row.get("target_character_id") or "")
+        if owner_id == character_id:
+            result.append({
+                "direction": "outgoing",
+                "other_character_id": target_id,
+            })
+        elif target_id == character_id:
+            result.append({
+                "direction": "incoming",
+                "other_character_id": owner_id,
+            })
+    unique: List[Dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for row in result:
+        key = (str(row["direction"]), str(row["other_character_id"]))
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(row)
+    return unique[:12]
+
+
 def relations_for_character(network: Dict[str, Any], character_id: str) -> List[Dict[str, Any]]:
+    """Backward-compatible director view. Prefer outgoing_relations_for_character for bundles."""
     rows = network.get("relations") if isinstance(network.get("relations"), list) else []
     result: List[Dict[str, Any]] = []
     for row in rows:
