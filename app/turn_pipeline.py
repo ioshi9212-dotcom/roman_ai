@@ -271,15 +271,8 @@ def _cast_registry_rows(
             "current_location": compact(info.get("location") or info.get("location_id"), 220),
             "current_zone": compact(info.get("zone") or info.get("zone_id"), 180),
             "current_activity": compact(info.get("activity"), 320),
+            "pov_familiarity": deepcopy(info.get("pov_familiarity")) if isinstance(info.get("pov_familiarity"), dict) else None,
             "npc_relation_refs": npc_relationship_runtime.relation_refs_for_character(npc_network, cid),
-            "full_card_retrieval": (
-                {
-                    "action": "prepareCharacterBundleRead",
-                    "character_id": cid,
-                    "then": "read all getCharacterBundleChunk chunks before participation",
-                }
-                if cid != pov_id else None
-            ),
             "active_intents": active_intents(cid),
             "active_threads": active_threads(cid),
             "last_meaningful_event": raw.get("last_meaningful_event"),
@@ -370,6 +363,8 @@ def _clean_director_layers(context: Dict[str, Any]) -> Dict[str, Any]:
         "speaker_context",
         "director_only",
         "character_registry_instruction",
+        "character_registry",
+        "scene_characters",
     ):
         result.pop(key, None)
 
@@ -488,11 +483,8 @@ def _prepare_context(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
         for cid in scene_ids
         if cid in card_map
     ]
-    context["character_profiles"] = {
-        cid: profile_templates.render_character_profile(card_map[cid])
-        for cid in scene_ids
-        if cid in card_map
-    }
+    # character_cards is the single lossless active-card representation.
+    # Do not render the same cards a second time into character_profiles.
 
     memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
     memory_buckets = memory.get("characters", {}) if isinstance(memory.get("characters"), dict) else {}
@@ -513,6 +505,11 @@ def _prepare_context(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
         "registry_index_path": "cast_registry.characters",
         "mandatory_causal_review": True,
         "recency_rotation_disabled": True,
+        "offscreen_bundle_read": {
+            "action": "prepareCharacterBundleRead",
+            "then": "read all getCharacterBundleChunk chunks before material participation",
+            "rule": "Apply this once to any registered offscreen character who becomes causally selected to participate.",
+        },
         "instruction": (
             "Перед сценой просмотри ВЕСЬ постоянный NPC-каст и npc_relationship_network. Это не очередь и не ротация. "
             "Давность, число появлений и то, что персонажа давно не было, сами по себе никогда не являются причиной вывести его в сцену. "
