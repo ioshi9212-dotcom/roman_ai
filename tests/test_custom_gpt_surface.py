@@ -154,7 +154,7 @@ def test_custom_gpt_instruction_matches_rules_driven_transport():
         "knowledge_journal_add",
         "request_id",
         "opening_scene=true",
-        "user_input=\"\"",
+        'user_input=""',
         "packet_id",
         "knowledge_reviewed=true",
         "relationship_reviewed=true",
@@ -172,20 +172,17 @@ def test_custom_gpt_instruction_matches_rules_driven_transport():
         "prepareCharacterKnowledgeRead",
         "getCharacterKnowledgeChunk",
         "commitAudit",
+        "STORY_PROGRESS_REQUIRED",
+        "narrative_guardrails",
+        "story_drive",
     ):
         assert removed not in text
 
     assert "стартовые знания" in text
     assert "turn=0" in text
-    assert "Offscreen не значит «неважен»" in text
-    assert "Фоновому NPC карточку не создавай" in text
-    assert "Приоритет у созданного игроком каста" in text
-    assert "конкретной повторяющейся story_function" in text
-    assert "offscreen_intent_candidates" in text
-    assert "Intent из bundle знает только его владелец" in text
-    assert "не жди упоминания или вызова от POV" in text
+    assert "Решение о появлении, инициативе и поведении offscreen-персонажей определяется только `runtime_rules`" in text
+    assert "Intent из bundle принадлежит только его владельцу" in text
     assert "показывай `session_id`" in text
-    assert "STORY_PROGRESS_REQUIRED" in text
     assert "`packet_id`, `read_id`, chunk-статусы и сверки не показывай" in text
     assert "первый видимый текст = сама сцена" in text
     assert "не выводи планы/анализ/пояснения" in text
