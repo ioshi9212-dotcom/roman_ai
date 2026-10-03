@@ -244,6 +244,42 @@ def test_dynamic_relationship_label_can_appear_without_whitelist():
         relationships = storage._read_json(root / "relationships.json", {})
         assert relationships["npc_to_pov"]["npc"]["dimensions"]["любовь"]["value"] == 2
 
+def test_relationship_change_survives_npc_leaving_at_end_of_same_turn():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(base_novel())["session_id"]
+        manifest = session_runtime.prepare_turn_packet(sid, "Поссориться и разойтись.")
+        read_all(manifest, sid)
+
+        result = session_runtime.commit_turn(
+            sid,
+            {
+                "packet_id": manifest["packet_id"],
+                "user_input": "Поссориться и разойтись.",
+                "scene_output": "NPC резко отвечает и уходит.",
+                "extracted": {
+                    "presence_updates": [
+                        {"character_id": "npc", "action": "leave"},
+                    ],
+                    "relationship_updates": [
+                        {
+                            "character_id": "npc",
+                            "reason": "Ссора перед уходом.",
+                            "dimensions": [{"label": "обида", "value": -2}],
+                        }
+                    ],
+                },
+            },
+        )
+
+        assert result["turn_number"] == 1
+        root = storage.SESSIONS_DIR / sid
+        state = storage._read_json(root / "state.json", {})
+        assert "npc" not in storage._present_character_ids(state)
+        relationships = storage._read_json(root / "relationships.json", {})
+        assert relationships["npc_to_pov"]["npc"]["dimensions"]["обида"]["value"] == -2
+
+
 def test_relationship_lens_separates_physical_footer_from_remote_without_hidden_director_prose():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
