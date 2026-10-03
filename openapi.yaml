@@ -584,7 +584,7 @@ components:
           type: string
           enum: [ordinary, critical_event]
           default: ordinary
-          description: Use critical_event only for a genuinely major relationship event; ordinary is limited to +/-3 per changed dimension.
+          description: Use critical_event only for a genuinely major relationship event; ordinary is limited to +/-3 per changed dimension. For one NPC, the same dimension label may appear only once per turn across relationship_updates.
       additionalProperties: false
     NPCRelationshipUpdate:
       type: object
