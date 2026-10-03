@@ -6,6 +6,7 @@ from copy import deepcopy
 from typing import Any, Dict, List
 
 from .character_access import get_character_bundle
+from . import npc_relationship_runtime, storage, session_runtime
 from .scene_compaction_runtime import active_memory_records, complete_knowledge_records
 
 
@@ -159,6 +160,15 @@ def _working_memory(bundle: Dict[str, Any]) -> Dict[str, Any]:
 
 def _participation_bundle(session_id: str, character_id: str) -> Dict[str, Any]:
     full = get_character_bundle(session_id, character_id)
+    root = storage.SESSIONS_DIR / session_id
+    source = storage._read_json(root / "source.json", {})
+    cards = storage._load_cards(root, source)
+    state = storage._read_json(root / "state.json", {})
+    network = npc_relationship_runtime.build_network(
+        cards,
+        state,
+        resolve_character_id=session_runtime._resolve_character_id,
+    )
     return {
         "knowledge_scope": _bundle_knowledge_scope(character_id),
         "character_id": character_id,
@@ -167,6 +177,7 @@ def _participation_bundle(session_id: str, character_id: str) -> Dict[str, Any]:
         "pov_familiarity": deepcopy(full.get("pov_familiarity")),
         "personal_memory": _working_memory(full),
         "relationship_to_pov": deepcopy(full.get("relationship_to_pov")),
+        "npc_relationships": npc_relationship_runtime.relations_for_character(network, character_id),
         "active_intents": deepcopy(full.get("active_intents", [])),
         "working_bundle": True,
         "persistent_lifetime_memory_complete": True,
