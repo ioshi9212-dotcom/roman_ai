@@ -25,6 +25,14 @@ def _is_number(value: Any) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
+def _change(turn: int, delta: Any, reason: str) -> Dict[str, Any]:
+    return {
+        "turn": int(turn),
+        "delta": _number(delta) if _is_number(delta) else 0,
+        "reason": " ".join(str(reason or "").split())[:360],
+    }
+
+
 def _resolve_character_id(cards: Iterable[Dict[str, Any]], raw: Any) -> str | None:
     needle = _norm(raw)
     if not needle:
@@ -124,18 +132,14 @@ def _profile_store(cards: List[Dict[str, Any]], pov_id: str) -> Dict[str, Any]:
                     if existing_label is not None:
                         dimensions[existing_label] = {
                             "value": _number(value),
-                            "last_delta": 0,
-                            "last_turn": 0,
-                            "reason": _reason_from_relation(row),
+                            "last_change": _change(0, 0, _reason_from_relation(row)),
                         }
                         continue
                     if len(dimensions) >= MAX_DIMENSIONS_PER_NPC:
                         break
                     dimensions[label] = {
                         "value": _number(value),
-                        "last_delta": 0,
-                        "last_turn": 0,
-                        "reason": _reason_from_relation(row),
+                        "last_change": _change(0, 0, _reason_from_relation(row)),
                     }
                 if not dimensions:
                     npc_to_pov.pop(owner_id, None)
@@ -180,9 +184,7 @@ def _migrate_legacy_state(store: Dict[str, Any], state: Dict[str, Any]) -> Dict[
                 continue
             dimensions[str(label)] = {
                 "value": _number(value),
-                "last_delta": 0,
-                "last_turn": 0,
-                "reason": _legacy_reason(state, str(owner_id), str(label)),
+                "last_change": _change(0, 0, _legacy_reason(state, str(owner_id), str(label))),
             }
             if len(dimensions) >= MAX_DIMENSIONS_PER_NPC:
                 break
@@ -213,16 +215,27 @@ def normalize_store(value: Any, pov_id: str = "") -> Dict[str, Any]:
         dimensions = raw.get("dimensions") if isinstance(raw.get("dimensions"), dict) else {}
         clean: Dict[str, Dict[str, Any]] = {}
         for label, item in dimensions.items():
-            if len(clean) >= MAX_DIMENSIONS_PER_NPC or not isinstance(item, dict):
+            if len(clean) >= MAX_DIMENSIONS_PER_NPC:
                 break
+            if not isinstance(item, dict):
+                continue
             value = item.get("value")
             if not _is_number(value) or float(value) == 0.0:
                 continue
+            last_change = item.get("last_change") if isinstance(item.get("last_change"), dict) else {}
+            if not last_change:
+                last_change = {
+                    "turn": int(item.get("last_turn", 0) or 0),
+                    "delta": item.get("last_delta", 0),
+                    "reason": item.get("reason", ""),
+                }
             clean[str(label)] = {
                 "value": _number(value),
-                "last_delta": _number(item.get("last_delta")) if _is_number(item.get("last_delta")) else 0,
-                "last_turn": int(item.get("last_turn", 0) or 0),
-                "reason": " ".join(str(item.get("reason") or "").split())[:360],
+                "last_change": _change(
+                    int(last_change.get("turn", 0) or 0),
+                    last_change.get("delta", 0),
+                    str(last_change.get("reason") or ""),
+                ),
             }
         if clean:
             result["npc_to_pov"][str(owner_id)] = {"dimensions": clean}
@@ -249,8 +262,18 @@ def load(root: Path, *, cards: List[Dict[str, Any]], state: Dict[str, Any], pov_
     path = root / FILE_NAME
     if path.exists():
         return normalize_store(storage._read_json(path, {}), pov_id)
+
     store = build_initial_store(cards, state, pov_id)
     storage._write_json(path, store)
+
+    cleaned_state = deepcopy(state)
+    changed = False
+    for key in ("relationships", "relationship_documents", "relationship_schemas", "npc_relationships"):
+        if key in cleaned_state:
+            cleaned_state.pop(key, None)
+            changed = True
+    if changed:
+        storage._write_json(root / "state.json", cleaned_state)
     return store
 
 
@@ -399,9 +422,7 @@ def apply_updates(
                     continue
                 dimensions[existing_label] = {
                     "value": _number(new_value),
-                    "last_delta": _number(delta),
-                    "last_turn": int(turn_number),
-                    "reason": reason,
+                    "last_change": _change(turn_number, delta, reason),
                 }
                 changed_any = True
                 continue
@@ -415,9 +436,7 @@ def apply_updates(
                 raise ValueError("RELATIONSHIP_DIMENSION_LIMIT")
             dimensions[label] = {
                 "value": _number(value),
-                "last_delta": _number(value),
-                "last_turn": int(turn_number),
-                "reason": reason,
+                "last_change": _change(turn_number, value, reason),
             }
             changed_any = True
 
