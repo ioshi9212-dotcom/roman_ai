@@ -453,7 +453,7 @@ def create_session(
             meta.update(deepcopy(meta_patch))
 
         cards = _normalise_cards(novel.get("characters", []))
-        state = _template("state.json", {"current": {}, "pov": {}, "characters": {}, "relationships": {}, "threads": {}, "world": {}})
+        state = _template("state.json", {"current": {}, "pov": {}, "characters": {}, "threads": {}, "world": {}})
         starting_state = novel.get("starting_state") if isinstance(novel.get("starting_state"), dict) else {}
         state = _deep_merge(state, starting_state)
         pov_id = _find_pov_id(novel, cards)
@@ -479,6 +479,8 @@ def create_session(
             state,
             str(pov_id or ""),
         )
+        for key in ("relationships", "relationship_documents", "relationship_schemas", "npc_relationships"):
+            state.pop(key, None)
 
         write_batch(
             root,
