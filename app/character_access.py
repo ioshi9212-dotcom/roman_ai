@@ -1,6 +1,6 @@
 from typing import Any, Dict
 
-from . import npc_relationship_runtime, storage
+from . import npc_relationship_runtime, relationship_runtime, storage
 from .npc_intent import active_intents_for
 
 
@@ -52,6 +52,12 @@ def get_character_bundle(session_id: str, character_id: str) -> Dict[str, Any]:
         "pov_familiarity": character_state.get("pov_familiarity") if isinstance(character_state, dict) else None,
         "personal_memory": storage._memory_bucket(memory, character_id),
         "relationship_to_pov": storage._relationship_hint(state, character_id),
+        "relationship_footer_snapshot": relationship_runtime.relationship_footer_snapshot_for_character(
+            state,
+            cards=cards,
+            character_id=character_id,
+            resolve_character_id=resolve_character_id,
+        ),
         "npc_relationships_director_only": npc_relationship_runtime.outgoing_relations_for_character(
             npc_network,
             character_id,
@@ -62,7 +68,7 @@ def get_character_bundle(session_id: str, character_id: str) -> Dict[str, Any]:
             "ACTIVE_INTENTS are unresolved character-owned follow-ups, suspicions, promises, investigations, plans and blocked goals. When an active intent reaches a causal next step, it drives the NPC's initiative without waiting for POV to mention or summon them; use a logical contact or appearance channel supported by state and character logic. "
             "POV_FAMILIARITY is persistent identity continuity: known/acquainted means POV already knows this person and a first-time introduction is forbidden; encountered means prior co-presence without guaranteed identity knowledge. "
             "When this registered character enters from offscreen, use this same card/ID and describe a recognizable entrance consistent with the card instead of silently turning an anonymous newcomer into this person later. "
-            "RELATIONSHIP_TO_POV is this NPC's persistent directed attitude toward POV and must materially affect characterization: wording, tone, initiative, willingness to approach or avoid, trust, suspicion, jealousy, warmth, hostility, physical distance, risk-taking, help, conflict and attention. "
+            "RELATIONSHIP_TO_POV is this NPC's persistent directed attitude toward POV and must materially affect characterization: wording, tone, initiative, willingness to approach or avoid, trust, suspicion, jealousy, warmth, hostility, physical distance, risk-taking, help, conflict and attention. RELATIONSHIP_FOOTER_SNAPSHOT preserves the exact saved NPC→POV metric labels/values for footer continuity if this offscreen character enters physically during the turn. "
             "NPC_RELATIONSHIPS_DIRECTOR_ONLY contains only relationships owned by this character and is directing context, not personal factual knowledge. Use it for behavior only when consistent with the character's actual knowledge; incoming ties live only in the global director network. "
             "Do not invent POV->NPC feelings and do not use chronology, source canon, another character's memory or hidden card facts as this character's knowledge. In the current scene the character may learn only what they personally see, hear, receive or are explicitly told while present."
         ),
