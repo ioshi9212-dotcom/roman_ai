@@ -70,12 +70,11 @@ def test_static_custom_gpt_schema_has_exact_current_30_actions():
     assert "scene_builder_reviewed" in extracted["properties"]
     assert "persistence_reviewed" in extracted["properties"]
     assert "knowledge_reviewed" in extracted["properties"]
-    assert "relationship_reviewed" in extracted["properties"]
-    assert "relationship_review" in extracted["properties"]
-    assert extracted["properties"]["relationship_review"]["items"]["$ref"].endswith("/RelationshipReview")
+    assert "relationship_reviewed" not in extracted["properties"]
+    assert "relationship_review" not in extracted["properties"]
 
     relationship = schema["components"]["schemas"]["RelationshipUpdate"]
-    assert "change_scale" not in relationship["properties"]
+    assert relationship["properties"]["change_scale"]["enum"] == ["ordinary", "critical_event"]
     assert "elapsed_game_days" not in relationship["properties"]
 
     knowledge_text = schema["components"]["schemas"]["KnowledgeJournalAdd"]["properties"]["text"]["description"]
@@ -157,8 +156,8 @@ def test_custom_gpt_instruction_matches_rules_driven_transport():
         'user_input=""',
         "packet_id",
         "knowledge_reviewed=true",
-        "relationship_reviewed=true",
-        "relationship_review",
+        "relationships.json",
+        "change_scale=critical_event",
     ):
         assert required in text
 
