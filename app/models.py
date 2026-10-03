@@ -96,39 +96,17 @@ class RelationshipDimensionUpdate(BaseModel):
     delta: Optional[float] = None
 
 
-class RelationshipReview(BaseModel):
-    character_id: str
-    changed: bool
-    reason: Optional[str] = None
-
-
 class RelationshipUpdate(BaseModel):
     character_id: str
     dimensions: Optional[List[RelationshipDimensionUpdate]] = None
     reason: Optional[str] = None
     change_scale: Optional[str] = None
-    elapsed_game_days: Optional[float] = Field(default=None, gt=0)
-    opinion: Optional[str] = None
-    current_dynamic: Optional[str] = None
-    beliefs_about_target: Optional[List[Any]] = None
-    unresolved_between_them: Optional[List[Any]] = None
-    relationship_type: Optional[str] = None
-    relationship_context: Optional[str] = None
 
 
 class NPCRelationshipUpdate(BaseModel):
     owner_character_id: str
     target_character_id: str
     description: Optional[str] = None
-    relationship_type: Optional[str] = None
-    relationship_context: Optional[str] = None
-    current_dynamic: Optional[str] = None
-    behavioral_pattern: Optional[str] = None
-    beliefs_about_target: Optional[List[Any]] = None
-    unresolved_between_them: Optional[List[Any]] = None
-    dynamic_constraints: Optional[List[Any]] = None
-    interaction_hooks: Optional[List[Any]] = None
-    status: Optional[str] = None
     change_reason: Optional[str] = None
 
 
@@ -172,8 +150,6 @@ class TurnExtracted(BaseModel):
     scene_builder_reviewed: bool = False
     persistence_reviewed: bool = False
     knowledge_reviewed: bool = False
-    relationship_reviewed: bool = False
-    relationship_review: List[RelationshipReview] = Field(default_factory=list)
     knowledge_journal_add: List[Dict[str, Any]] = Field(default_factory=list)
     chronology: List[Dict[str, Any]] = Field(default_factory=list)
     knowledge_add: List[Dict[str, Any]] = Field(default_factory=list)
