@@ -47,7 +47,7 @@ _BASE_PARTICIPATION_BUNDLE = character_chunk_read._participation_bundle
 _BASE_CREATE_SESSION = storage.create_session
 _BASE_RECOVER_CURRENT = session_recovery.recover_session_current
 
-PIPELINE_VERSION = 10
+PIPELINE_VERSION = 11
 
 def _packet_manifest(packet: Dict[str, Any], *, reused: bool) -> Dict[str, Any]:
     chunks = packet.get("chunks", []) if isinstance(packet.get("chunks"), list) else []
@@ -152,179 +152,6 @@ def _scene_ids(state: Dict[str, Any], cards: List[Dict[str, Any]]) -> List[str]:
     return [cid for cid in dict.fromkeys(values) if cid in valid]
 
 
-WORLD_STAGNATION_LIMIT = 10
-
-
-def _world_thread_progress(values: Any) -> bool:
-    if not isinstance(values, list):
-        return False
-    for raw in values:
-        if not isinstance(raw, dict):
-            continue
-        operation = str(raw.get("operation") or "upsert").casefold().strip()
-        if operation in {"resolve", "abandon"} or raw.get("progressed_now") is True:
-            return True
-    return False
-
-
-def _world_intent_progress(values: Any) -> bool:
-    if not isinstance(values, list):
-        return False
-    for raw in values:
-        if not isinstance(raw, dict):
-            continue
-        operation = str(raw.get("operation") or raw.get("action") or "upsert").casefold().strip()
-        if operation in {"resolve", "resolved", "abandon", "abandoned", "close", "closed"} or raw.get("pursued_now") is True:
-            return True
-    return False
-
-
-def _world_presence_progress(values: Any) -> bool:
-    if not isinstance(values, list):
-        return False
-    return any(
-        isinstance(raw, dict)
-        and str(raw.get("action") or "").casefold().strip() in {"enter", "leave"}
-        for raw in values
-    )
-
-
-def _historical_structural_progress(extracted: Any) -> bool:
-    if not isinstance(extracted, dict):
-        return False
-    if isinstance(extracted.get("chronology"), list) and extracted["chronology"]:
-        return True
-    if _world_thread_progress(extracted.get("story_thread_updates")):
-        return True
-    if _world_intent_progress(extracted.get("npc_intent_updates")):
-        return True
-    if _world_presence_progress(extracted.get("presence_updates")):
-        return True
-
-    patch = extracted.get("state_patch") if isinstance(extracted.get("state_patch"), dict) else {}
-    current = patch.get("current") if isinstance(patch.get("current"), dict) else {}
-    if any(key in current for key in ("date", "location", "location_id", "scene", "period", "day_period")):
-        return True
-    world = patch.get("world") if isinstance(patch.get("world"), dict) else {}
-    if any(key != "cast_registry" for key in world):
-        return True
-    return False
-
-
-def _trailing_world_stagnant_turns(root, *, limit: int = 24) -> int:
-    count = 0
-    turns = storage._read_turns(root)
-    for turn in reversed(turns[-limit:]):
-        extracted = turn.get("extracted") if isinstance(turn, dict) else None
-        if not isinstance(turn, dict) or _historical_structural_progress(extracted):
-            break
-        count += 1
-    return count
-
-
-def _time_minutes(value: Any) -> int | None:
-    text = str(value or "").strip()
-    if ":" not in text:
-        return None
-    try:
-        hours, minutes = text.split(":", 1)
-        return int(hours) * 60 + int(minutes[:2])
-    except (TypeError, ValueError):
-        return None
-
-
-def _current_structural_progress(root, extracted: Any) -> bool:
-    if _historical_structural_progress(extracted):
-        return True
-    if not isinstance(extracted, dict):
-        return False
-    patch = extracted.get("state_patch") if isinstance(extracted.get("state_patch"), dict) else {}
-    current_patch = patch.get("current") if isinstance(patch.get("current"), dict) else {}
-    if "time" not in current_patch:
-        return False
-    state = storage._read_json(root / "state.json", {})
-    current = state.get("current") if isinstance(state.get("current"), dict) else {}
-    before = _time_minutes(current.get("time"))
-    after = _time_minutes(current_patch.get("time"))
-    if before is None or after is None:
-        return False
-    diff = (after - before) % (24 * 60)
-    return diff >= 120
-
-
-def _world_movement_context(
-    root,
-    state: Dict[str, Any],
-    location_context: Dict[str, Any] | None,
-) -> Dict[str, Any]:
-    present = {str(value) for value in storage._present_character_ids(state) if value}
-    pov = state.get("pov") if isinstance(state.get("pov"), dict) else {}
-    pov_id = str(pov.get("character_id") or "")
-    if pov_id:
-        present.add(pov_id)
-
-    linked_ids: List[str] = []
-    location = location_context if isinstance(location_context, dict) else {}
-    linked = location.get("linked_characters") if isinstance(location.get("linked_characters"), list) else []
-    for raw in linked:
-        cid = str(raw.get("character_id") or "") if isinstance(raw, dict) else str(raw or "")
-        if cid and cid not in present and cid not in linked_ids:
-            linked_ids.append(cid)
-
-    current = state.get("current") if isinstance(state.get("current"), dict) else {}
-    current_places = {
-        str(value).casefold().strip()
-        for value in (current.get("location_id"), current.get("location"), location.get("location_id"), location.get("name"))
-        if str(value or "").strip()
-    }
-    same_parent_ids: List[str] = []
-    characters = state.get("characters") if isinstance(state.get("characters"), dict) else {}
-    for cid, info in characters.items():
-        cid = str(cid)
-        if cid in present or not isinstance(info, dict):
-            continue
-        npc_places = {
-            str(value).casefold().strip()
-            for value in (info.get("location_id"), info.get("location"))
-            if str(value or "").strip()
-        }
-        if current_places.intersection(npc_places) and cid not in same_parent_ids:
-            same_parent_ids.append(cid)
-
-    stagnant = _trailing_world_stagnant_turns(root)
-    return {
-        "world_static_turns": stagnant,
-        "structural_movement_due": stagnant >= WORLD_STAGNATION_LIMIT,
-        "location_linked_character_ids": linked_ids[:12],
-        "same_parent_location_character_ids": same_parent_ids[:12],
-        "director_only": True,
-    }
-
-
-def _validate_world_movement(session_id: str, payload: Dict[str, Any]) -> None:
-    root = storage.SESSIONS_DIR / session_id
-    stagnant = _trailing_world_stagnant_turns(root)
-    if stagnant < WORLD_STAGNATION_LIMIT:
-        return
-    extracted = payload.get("extracted") if isinstance(payload.get("extracted"), dict) else {}
-    if _current_structural_progress(root, extracted):
-        return
-    raise HTTPException(
-        status_code=409,
-        detail={
-            "code": "STORY_PROGRESS_REQUIRED",
-            "message": (
-                "The current scene has continued too long without structural world/story movement. "
-                "Rewrite the same turn without inventing a random event: naturally end/transition the scene or let an already causal "
-                "NPC action, arrival/departure, message, schedule, location-linked character, open thread or other existing line change the situation. "
-                "scene_progressed, relationship changes and newly created pending intents alone do not reset this long-horizon gate."
-            ),
-            "world_static_turns_before_this_commit": stagnant,
-            "world_static_turn_limit": WORLD_STAGNATION_LIMIT,
-        },
-    )
-
-
 def _cast_registry_rows(
     state: Dict[str, Any],
     cards: List[Dict[str, Any]],
@@ -394,29 +221,23 @@ def _clean_relationship_lens(context: Dict[str, Any]) -> None:
     if not isinstance(lens, dict):
         return
     lens = deepcopy(lens)
-    lens["initialization_required"] = False
-    lens.pop("initialization_instruction", None)
+    for key in (
+        "instruction",
+        "rule",
+        "initialization_instruction",
+        "initialization_rule",
+        "stagnation_rule",
+    ):
+        lens.pop(key, None)
     candidates = lens.get("present_npc_candidates")
     if isinstance(candidates, list):
         for row in candidates:
-            if not isinstance(row, dict):
-                continue
-            if not row.get("saved_dimensions"):
-                row["initialization_rule"] = (
-                    "No saved dimensions yet: once this NPC meaningfully forms an attitude toward POV in the scene, "
-                    "create 1-3 natural dimensions. Do not create them without a real basis."
-                )
-            else:
+            if isinstance(row, dict):
                 row.pop("initialization_rule", None)
-    lens["qualitative_review_required"] = True
-    lens["rule"] = (
-        "Current saved NPC->POV relationship state. Existing dimensions persist but are not a whitelist. "
-        "After the complete scene, if the relationship changed qualitatively, append a new natural dimension instead of "
-        "forcing every development into an old label. A value of 100 in one dimension is not relationship completion and "
-        "does not block new dimensions. Do not invent a new dimension merely because a number is high. No fixed vocabulary."
-    )
+                row.pop("instruction", None)
+                row.pop("rule", None)
+    lens["initialization_required"] = False
     context["relationship_lens"] = lens
-
 
 def _clean_director_layers(context: Dict[str, Any]) -> Dict[str, Any]:
     result = deepcopy(context)
@@ -446,6 +267,7 @@ def _clean_director_layers(context: Dict[str, Any]) -> Dict[str, Any]:
         "simple_knowledge_rules",
         "speaker_context",
         "director_only",
+        "character_registry_instruction",
     ):
         result.pop(key, None)
 
@@ -458,8 +280,8 @@ def _clean_director_layers(context: Dict[str, Any]) -> Dict[str, Any]:
         "director_rules_source": "runtime_rules",
         "scene_rendering_source": "scene_builder",
         "hidden_director_guard_layers": False,
-        "backend_semantic_scene_gates": ["prolonged_world_stagnation_only"],
-        "precommit_review_gates": ["scene_builder", "persistence", "knowledge", "relationships", "world_movement_when_due"],
+        "backend_semantic_scene_gates": False,
+        "precommit_review_gates": ["scene_builder", "persistence", "knowledge", "relationships"],
         "offscreen_character_retrieval": "chunked_when_relevant",
         "active_character_knowledge_rebuilt_from_persistent_memory": True,
     })
@@ -467,6 +289,12 @@ def _clean_director_layers(context: Dict[str, Any]) -> Dict[str, Any]:
     for key in ("novel_rules", "novel", "author_context", "novel_profile"):
         if key in result:
             result[key] = profile_templates._strip_legacy_pov_silence_rule(result[key])
+    author = result.get("author_context")
+    if isinstance(author, dict):
+        author = deepcopy(author)
+        for key in ("instruction", "knowledge_quarantine", "chronology_context_rule"):
+            author.pop(key, None)
+        result["author_context"] = author
     _clean_relationship_lens(result)
     return result
 
@@ -508,13 +336,7 @@ def _prepare_context(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
     current_turn = int(meta.get("turn_number", 0) or 0)
     opening_scene = current_turn == 0 and str(packet.get("user_input") or "") == ""
     if opening_scene:
-        context["opening_scene"] = {
-            "active": True,
-            "rule": (
-                "This is the opening scene. There is no player speech/action to execute. "
-                "Open naturally from novel.start and the saved current state."
-            ),
-        }
+        context["opening_scene"] = {"active": True}
 
     # session_runtime/turn_context already gives full cards and complete factual knowledge
     # only for POV + physical/remote scene participants. A name mention alone is excluded.
@@ -572,48 +394,15 @@ def _prepare_context(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
         cid: turn_context._working_memory_bucket(memory_buckets.get(cid, {}), current_turn)
         for cid in scene_ids
     }
-    context["character_knowledge_rule"] = (
-        "For each POV/NPC use only that character's self-known card facts, own character_memory, current perception "
-        "and real communication. Knowledge is granular: a partial fact authorizes only the details actually known or strictly entailed. "
-        "Never fill an unknown time/place/person/reason/plan detail with a likely or convenient value and state it as fact; ask, leave it unknown, "
-        "or mark a plausible inference as a guess until confirmed. npc_active_intents[ID] are private planning state of ID only; active_threads, "
-        "future_guidance, canon_notes_context, character_registry/cast_index and offscreen_intent_candidates are director-only and never become another character's knowledge. "
-        "scene_state is objective continuity, not personal knowledge except for the slice the character can actually perceive. Director-only truth is also "
-        "not a cause for NPC behavior: hidden identity, deception, future reveal or planned event cannot by itself trigger probing, checking or suspicion; "
-        "there must be a cause available inside that NPC's own knowledge, observations, duties, goals or current situation. "
-        "Own-card branches marked unknown_to_self/hidden_from_self/not_known_to_self/"
-        "known_to_self=false/author_only are not self-known. Other cards, other memory, chronology, location_context, canon_notes_context and director lore "
-        "are not personal knowledge."
-    )
     context["cast_registry"] = {
         "persistent": True,
         "registry_index_path": "cast_registry.characters",
-        "rule": (
-            "Registry tracks permanent characters; it is not an appearance quota. Prioritize player-created cast for returns and development. "
-            "Create no card for background extras; a new persistent NPC needs a concrete recurring story_function after checking existing cast. "
-            "Use personal goals, work, story function, unresolved business, relationships, game days and turns to determine the next causal return. "
-            "Relationships change contact form and frequency; they do not decide whether a character is allowed to act. "
-            "When a return is due by character logic, create a logical contact path instead of waiting for POV to mention the NPC."
-        ),
         "characters": _cast_registry_rows(state, cards, source, current_turn),
     }
-
-    context["world_movement_context"] = _world_movement_context(
-        root,
-        state,
-        location_context,
-    )
 
     scene_presence = {
         "present_character_ids": [str(value) for value in storage._present_character_ids(state) if value],
         "remote_character_ids": [str(value) for value in storage._remote_character_ids(state) if value],
-        "rule": (
-            "Present remains present until a real leave. The first instant of this turn continues the prior scene's "
-            "physical state: do not infer an unseen departure or time jump before executing user_input. If user_input "
-            "replies to a present NPC's last line, deliver that reply while the NPC is still present unless a departure "
-            "or transition was already shown. Remote contact participates without a physical position. "
-            "Mention alone does not prove participation, but offscreen state, active intents, agreements and threads may make participation natural."
-        ),
     }
     context["scene_presence"] = scene_presence
 
@@ -633,10 +422,6 @@ def _prepare_context(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
         remote_set = set(remote_ids)
         lens["footer_character_ids"] = physical_ids
         lens["remote_participant_ids"] = remote_ids
-        lens["footer_rule"] = (
-            "Visible Relationships footer contains only NPCs physically present at scene end. "
-            "Remote or departed NPC relationship changes persist through relationship_updates but are not printed."
-        )
         relations = lens.get("relations_in_current_scene")
         if isinstance(relations, list):
             for row in relations:
@@ -663,11 +448,6 @@ def _prepare_context(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
                 row for row in candidates
                 if isinstance(row, dict) and str(row.get("character_id") or "") in physical_set
             ]
-        lens["stagnation_rule"] = (
-            "turns_since_change and saturated_dimensions are diagnostics, not automatic score triggers. "
-            "Judge the completed scene qualitatively: if a new relationship state arose that old labels do not represent, append a new dimension. "
-            "A saturated old metric is never a reason by itself to report changed=false."
-        )
         context["relationship_lens"] = lens
 
     persistence = context.get("persistence_contract")
@@ -1085,7 +865,6 @@ def commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         else []
     )
     prepared = _normalise_chronology_for_save(session_id, prepared)
-    _validate_world_movement(session_id, prepared)
     prepared = knowledge_persistence_runtime.attach_explicit_chronology_participants(
         session_id,
         prepared,

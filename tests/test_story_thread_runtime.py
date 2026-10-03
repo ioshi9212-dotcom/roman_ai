@@ -289,7 +289,7 @@ def test_story_drive_forces_movement_but_keeps_meaningful_pov_choice_with_player
         assert "перемещение, ожидание и течение времени сами по себе не прогресс" in drive["scene_progress_flag"]
 
 
-def test_actions_schema_and_gpt_instruction_include_story_thread_contract():
+def test_actions_schema_keeps_story_thread_persistence_without_hidden_story_drive():
     schema = yaml.safe_load((ROOT / "openapi.yaml").read_text(encoding="utf-8"))
     assert schema["info"]["version"] == "1.17.0"
     extracted = schema["components"]["schemas"]["TurnCommit"]["properties"]["extracted"]
@@ -298,16 +298,15 @@ def test_actions_schema_and_gpt_instruction_include_story_thread_contract():
     assert extracted["properties"]["scene_progressed"]["type"] == "boolean"
 
     instructions = (ROOT / "gpt" / "custom_gpt_instructions.md").read_text(encoding="utf-8")
-    assert "narrative_guardrails" in instructions
-    assert "story_drive" in instructions
-    assert "STORY_PROGRESS_REQUIRED" in instructions
     assert "story_thread_updates" in instructions
-    assert "scene_progressed=true" in instructions
-    assert "следующего значимого выбора" in instructions
-    assert "Быстро проверить" not in instructions
+    assert "narrative_guardrails" not in instructions
+    assert "story_drive" not in instructions
+    assert "STORY_PROGRESS_REQUIRED" not in instructions
+    assert "следующего значимого выбора" not in instructions
 
 
-def test_scene_builder_keeps_hard_format_and_original_scene_length_guidance():
+def test_scene_builder_keeps_hard_format_with_variable_scene_length():
     text = (ROOT / "runtime" / "scene_builder.md").read_text(encoding="utf-8")
     assert text.startswith("Формат scene_builder обязателен")
-    assert "2000–3000 непробельных символов" in text
+    assert "2000–2400 непробельных символов" in text
+    assert "2500–3000 непробельных символов" in text

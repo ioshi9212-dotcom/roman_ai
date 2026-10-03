@@ -331,7 +331,8 @@ def test_rotation_pressure_balances_turns_and_game_days_and_marks_forgotten_core
     assert row["turns_since_activity"] == 10
     assert row["game_days_since_activity"] == 8
     assert row["forgotten_core"] is True
-    assert "естественную" in row["return_rule"]
+    assert "без напоминания от POV" in row["return_rule"]
+    assert "не телепортируй" in row["return_rule"]
 
 
 def test_many_turns_can_create_pressure_even_when_same_game_day():
