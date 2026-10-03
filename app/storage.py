@@ -464,15 +464,19 @@ def create_session(
         if isinstance(novel.get("world"), dict):
             state["world"] = _deep_merge(novel.get("world", {}), state.get("world", {}) if isinstance(state.get("world"), dict) else {})
 
-        # Explicit pre-story NPC→POV relationships from character profiles are
-        # canon before turn 1. Existing starting_state/current relationship data
-        # stays authoritative and is never replaced by profile seeds.
-        from . import relationship_runtime
-        state = relationship_runtime.seed_relationship_state_from_profiles(
-            state,
-            cards,
-            str(pov_id or ""),
-        )
+        # Profile-v5 sessions seed explicit pre-story NPC→POV relationships
+        # before turn 1. Legacy v1-v4 library templates keep their old startup behavior.
+        try:
+            source_version = int(novel.get("version", 1) or 1)
+        except (TypeError, ValueError):
+            source_version = 1
+        if source_version >= 5:
+            from . import relationship_runtime
+            state = relationship_runtime.seed_relationship_state_from_profiles(
+                state,
+                cards,
+                str(pov_id or ""),
+            )
 
         memory = _template("memory.json", {"characters": {}})
         memory = _normalise_memory(memory)
