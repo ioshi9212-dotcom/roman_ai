@@ -601,6 +601,44 @@ components:
           type: string
           description: Optional short reason for the durable change.
       additionalProperties: false
+    NPCIntentUpdate:
+      type: object
+      required: [character_id, intent_id]
+      properties:
+        character_id:
+          type: string
+        intent_id:
+          type: string
+        operation:
+          type: string
+          enum: [upsert, resolve, abandon]
+        kind:
+          type: string
+        summary:
+          type: string
+        status:
+          type: string
+        trigger:
+          type: string
+        why_it_matters:
+          type: string
+        planned_action:
+          type: string
+        target_character_id:
+          type: string
+        source_fact_ids:
+          type: array
+          items:
+            type: string
+        next_eligible_game_day:
+          type: integer
+          minimum: 0
+        pursued_now:
+          type: boolean
+        resolution:
+          type: string
+      additionalProperties: false
+
     StoryThreadUpdate:
       type: object
       required: [thread_id]
