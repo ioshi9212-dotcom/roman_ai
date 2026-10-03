@@ -132,8 +132,10 @@ def test_character_perception_and_scene_quality_stay_causal_without_pacing_modes
     assert "Заметное действие POV, направленное на NPC, получает наблюдаемую реакцию" in builder
     assert "В экшне сохраняй географию сцены" in builder
     assert "Восприятие должно проявляться через сцену и индивидуальную реакцию персонажа" in builder
-    assert "Степень открытости и детализации соответствует категории" in builder
-    assert "уменьши графичность, но сохрани понятную непрерывность действия" in builder
+    assert "Если новелла 18+, не замыливай происходящее цензурными обобщениями" in builder
+    assert "Название или итог события не заменяет само событие" in builder
+    assert "покажи само взаимодействие, а не его итоговый пересказ" in builder
+    assert "не объясняй и не доказывай этот выбор авторским текстом" in rules
 
     assert "ROUTINE" not in builder
     assert "STANDARD" not in builder
@@ -176,6 +178,9 @@ def test_packet_has_no_hidden_director_guard_stack_and_rules_are_last():
         assert contract["offscreen_character_retrieval"] == "chunked_when_relevant"
         assert "simple_name_mention_does_not_load_offscreen_card" not in contract
         assert "dormant_character_retrieval" not in contract
+        persistence = context["persistence_contract"]
+        assert "POV clothing/inventory -> state_patch.pov" in persistence["state_patch"]
+        assert "NPC clothing/inventory/location/activity -> state_patch.characters[ID]" in persistence["state_patch"]
 
 
 def test_legacy_story_rule_is_absent_from_actual_turn_packet():
