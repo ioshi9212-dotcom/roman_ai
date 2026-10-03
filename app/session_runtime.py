@@ -421,7 +421,12 @@ def _prepare_extracted_for_commit(
     return result
 
 
-def _augment_packet(session_id: str, manifest: Dict[str, Any]) -> Dict[str, Any]:
+def _augment_packet(
+    session_id: str,
+    manifest: Dict[str, Any],
+    *,
+    snapshot: Dict[str, Any] | None = None,
+) -> Dict[str, Any]:
     root = storage.SESSIONS_DIR / session_id
     packet = storage._read_json(root / "turn_packet.json", {})
     raw = "".join(packet.get("chunks", []))
@@ -429,7 +434,8 @@ def _augment_packet(session_id: str, manifest: Dict[str, Any]) -> Dict[str, Any]
         return manifest
     context = json.loads(raw)
 
-    snapshot = _refresh_session_familiarity(session_id)
+    if snapshot is None:
+        snapshot = _refresh_session_familiarity(session_id)
     registry = build_character_registry(snapshot["cards"], snapshot["state"])
     by_id = {row["character_id"]: row for row in registry if row.get("character_id")}
 
@@ -561,9 +567,9 @@ def prepare_turn_packet(session_id: str, user_input: str) -> Dict[str, Any]:
         raise FileNotFoundError(session_id)
     meta = storage._read_json(root / "meta.json", {})
     _clear_legacy_handoff(root, meta)
-    _refresh_session_familiarity(session_id)
+    snapshot = _refresh_session_familiarity(session_id)
     manifest = storage.prepare_turn_packet(session_id, user_input)
-    return _augment_packet(session_id, manifest)
+    return _augment_packet(session_id, manifest, snapshot=snapshot)
 
 
 def commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:

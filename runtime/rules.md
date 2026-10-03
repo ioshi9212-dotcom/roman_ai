@@ -104,8 +104,7 @@ Offscreen упоминание само по себе не требует bundle
 - future_guidance;
 - active_threads;
 - story direction;
-- `character_registry`;
-- `cast_index`;
+- `cast_registry`;
 - `offscreen_intent_candidates`;
 - полный scene_state;
 - чужие npc_active_intents;
@@ -162,6 +161,8 @@ Chronology - объективная история для режиссуры, а
 `knowledge_journal_add` сохраняет минимальную реально полученную информацию без обогащения.
 
 Источник знания должен существовать до использования знания.
+
+До знакомства POV с NPC не называй NPC по имени в тексте от POV; имя допустимо только после того, как POV его узнал.
 
 Не придумывай источник задним числом.
 
@@ -444,9 +445,9 @@ POV не обязан искать, звать или вспоминать NPC, 
 
 Нормально, если в конкретном ходе никто новый не появляется.
 
-`character_registry`, `cast_registry` и `cast_index` - director-only данные.
+`cast_registry` - director-only данные.
 
-Они не являются знаниями POV/NPC.
+Он не является знанием POV/NPC.
 
 ## NPC ↔ NPC
 

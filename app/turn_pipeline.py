@@ -267,19 +267,12 @@ def _cast_registry_rows(
             "is_pov": cid == pov_id,
             "present": cid in present,
             "remote": cid in remote,
+            "pov_familiarity": deepcopy(info.get("pov_familiarity")) if isinstance(info.get("pov_familiarity"), dict) else info.get("pov_familiarity"),
             "goals": compact(goals),
             "current_location": compact(info.get("location") or info.get("location_id"), 220),
             "current_zone": compact(info.get("zone") or info.get("zone_id"), 180),
             "current_activity": compact(info.get("activity"), 320),
             "npc_relation_refs": npc_relationship_runtime.relation_refs_for_character(npc_network, cid),
-            "full_card_retrieval": (
-                {
-                    "action": "prepareCharacterBundleRead",
-                    "character_id": cid,
-                    "then": "read all getCharacterBundleChunk chunks before participation",
-                }
-                if cid != pov_id else None
-            ),
             "active_intents": active_intents(cid),
             "active_threads": active_threads(cid),
             "last_meaningful_event": raw.get("last_meaningful_event"),
@@ -370,6 +363,8 @@ def _clean_director_layers(context: Dict[str, Any]) -> Dict[str, Any]:
         "speaker_context",
         "director_only",
         "character_registry_instruction",
+        "character_registry",
+        "scene_characters",
     ):
         result.pop(key, None)
 
@@ -451,8 +446,9 @@ def _prepare_context(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
     context = writer_first_runtime._rewrite_context(session_id, context)
     context = private_knowledge_runtime.redact_private_history(context, root=root, cards=cards)
     context = _clean_director_layers(context)
-    # cast_registry below is the single always-read cast index. Remove the older
-    # writer-facing cast_index so recency metadata cannot compete with causal selection.
+    # cast_registry below is the single always-read cast index. Older cast_index,
+    # character_registry and scene_characters were compatibility mirrors of data that
+    # already lives in scene_state, character_cards, character_memory and cast_registry.
     context.pop("cast_index", None)
 
     scene_ids = _scene_ids(state, cards)
@@ -488,11 +484,7 @@ def _prepare_context(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
         for cid in scene_ids
         if cid in card_map
     ]
-    context["character_profiles"] = {
-        cid: profile_templates.render_character_profile(card_map[cid])
-        for cid in scene_ids
-        if cid in card_map
-    }
+    context.pop("character_profiles", None)
 
     memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
     memory_buckets = memory.get("characters", {}) if isinstance(memory.get("characters"), dict) else {}
@@ -513,6 +505,10 @@ def _prepare_context(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
         "registry_index_path": "cast_registry.characters",
         "mandatory_causal_review": True,
         "recency_rotation_disabled": True,
+        "bundle_retrieval": {
+            "action": "prepareCharacterBundleRead",
+            "then": "read all getCharacterBundleChunk chunks before material offscreen participation",
+        },
         "instruction": (
             "Перед сценой просмотри ВЕСЬ постоянный NPC-каст и npc_relationship_network. Это не очередь и не ротация. "
             "Давность, число появлений и то, что персонажа давно не было, сами по себе никогда не являются причиной вывести его в сцену. "
