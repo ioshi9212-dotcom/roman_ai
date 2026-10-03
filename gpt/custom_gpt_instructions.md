@@ -38,7 +38,7 @@ Backend = канон. Actions молча. В игровом ходе до сце
 
 Если `first_chunk_included=true`, chunk 0 уже прочитан. Не запрашивай его повторно. Все остальные chunks читай через `getTurnPacketChunk` до конца.
 
-Packet уже содержит режиссёрский context, recent/continuity, POV, physical/remote участников, их profiles/knowledge, отношения/intents, полный cast registry, `npc_relationship_network`, `location_context` текущего физического места, `runtime_rules` и `scene_builder`. Cast registry и NPC↔NPC network просматривай каждый ход до выбора новых участников.
+Packet уже содержит режиссёрский context, recent/continuity, POV, physical/remote участников, их profiles/knowledge, отношения/intents, полный cast registry, `npc_relationship_network`, `location_context` только текущего физического места, `runtime_rules` и `scene_builder`. Cast registry и NPC↔NPC network просматривай каждый ход до выбора новых участников.
 
 Пиши строго по `runtime_rules` и `scene_builder`; второго набора правил не создавай.
 
