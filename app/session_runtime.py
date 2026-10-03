@@ -421,6 +421,196 @@ def _prepare_extracted_for_commit(
     return result
 
 
+
+def build_turn_context(session_id: str, user_input: str) -> Dict[str, Any]:
+    """Build the complete pre-writer turn context in memory without packet round-trips."""
+    root = storage.SESSIONS_DIR / session_id
+    if not root.exists():
+        raise FileNotFoundError(session_id)
+
+    meta = storage._read_json(root / "meta.json", {})
+    meta = _clear_legacy_handoff(root, meta)
+    if meta.get("audit_required"):
+        raise RuntimeError("AUDIT_REQUIRED")
+    if meta.get("handoff_required"):
+        raise RuntimeError("HANDOFF_REQUIRED")
+
+    # One canonical snapshot for this preparation pass.
+    snapshot = _refresh_session_familiarity(session_id)
+    source = snapshot["source"]
+    cards = snapshot["cards"]
+    state = snapshot["state"]
+    memory = snapshot["memory"]
+    chronology = snapshot["chronology"]
+    turns = snapshot["turns"]
+    meta = snapshot["meta"]
+
+    relevant_ids = storage._relevant_character_ids(cards, state, user_input)
+    present_ids = storage._present_character_ids(state)
+    registry = build_character_registry(cards, state)
+    by_id = {row["character_id"]: row for row in registry if row.get("character_id")}
+
+    context: Dict[str, Any] = {
+        "packet_version": 3,
+        "session": meta,
+        "expected_turn": int(meta.get("turn_number", 0)) + 1,
+        "user_input": user_input,
+        "scene_state": state,
+        "cast_index": storage._cast_index(cards, state, int(meta.get("turn_number", 0))),
+        "relevant_character_ids": relevant_ids,
+        "present_character_ids_at_turn_start": present_ids,
+        "scene_characters": storage._character_knowledge_lenses(cards, state, memory, relevant_ids),
+        "knowledge_boundary": {
+            "rule": "World history is not character knowledge.",
+            "instruction": (
+                "Before writing ANY line, question, assumption, recognition, reaction or deliberate action for a scene character, "
+                "check that character's scene_characters[character_id].personal_memory. A past fact is usable by that character only "
+                "if it is stored there or the current scene itself gives the fact to that character through direct sight, hearing, "
+                "a message, physical receipt or explicit speech while the character is present. Do this independently for every "
+                "character in the scene, including POV. Never infer that a character knows something merely because it exists in "
+                "author_context.chronology_recent, author_context.recent_turns, cards, lore, relationships or source canon. "
+                "When the current scene teaches a durable fact, commit knowledge_add/experiences_add/dialogue_memory_add only for "
+                "the characters who actually perceived or received it. Characters absent from that exchange do not learn it. "
+                "If someone arrives later, they do not retroactively hear what happened before arrival."
+            ),
+        },
+        "active_threads": state.get("threads", {}),
+        "author_context": {
+            "instruction": (
+                "AUTHOR/ENGINE ONLY. These fields preserve objective continuity and control NPC/world truth. They are NOT a source "
+                "of personal knowledge for any character. Use them to keep the world consistent, never to give a character facts "
+                "that are missing from that character's personal_memory."
+            ),
+            "novel": source.get("novel", {}),
+            "novel_rules": source.get("rules", {}),
+            "novel_lore": source.get("lore", {}),
+            "hidden_lore": source.get("hidden_lore", {}),
+            "story_direction": source.get("story_direction", {}),
+            "world_canon": source.get("world", {}),
+            "character_cards": [
+                {"character_id": storage._card_id(card), "card": card}
+                for card in cards
+                if storage._card_id(card) in set(relevant_ids)
+            ],
+            "relationships": state.get("relationships", {}),
+            "chronology_recent": chronology[-30:] if isinstance(chronology, list) else chronology,
+            "recent_turns": turns[-6:],
+        },
+    }
+
+    # Apply the old augmentation in memory instead of serializing and reading it back.
+    context["character_registry"] = registry
+    context["character_registry_instruction"] = registry_instruction()
+
+    cast_index = context.get("cast_index", [])
+    if isinstance(cast_index, list):
+        for row in cast_index:
+            if not isinstance(row, dict):
+                continue
+            registry_row = by_id.get(str(row.get("character_id") or ""))
+            if registry_row:
+                row["role"] = registry_row.get("role") or row.get("role")
+                row["pov_familiarity"] = registry_row.get("pov_familiarity")
+
+    scene_characters = context.get("scene_characters", {})
+    if isinstance(scene_characters, dict):
+        for cid, bundle in scene_characters.items():
+            if not isinstance(bundle, dict):
+                continue
+            registry_row = by_id.get(str(cid))
+            if registry_row:
+                bundle["pov_familiarity"] = registry_row.get("pov_familiarity")
+                bundle["continuity_rule"] = (
+                    "Check pov_familiarity before recognition or introduction. known/acquainted forbids a first-time introduction; "
+                    "encountered means prior co-presence but identity may still be unknown."
+                )
+
+    context.setdefault("knowledge_boundary", {})["identity_continuity"] = (
+        "Who knows a person's identity is separate from objective card truth. Use character_registry.pov_familiarity plus POV personal_memory. "
+        "Do not re-introduce known/acquainted characters. Do not name an encountered-but-unknown person through POV until identity is learned."
+    )
+
+    current_location = _current_value(state, "location", "place", "area")
+    chronology_context = _select_chronology_context(
+        chronology,
+        relevant_character_ids=[str(value) for value in relevant_ids if value],
+        location=current_location,
+    )
+
+    author_context = context.get("author_context") if isinstance(context.get("author_context"), dict) else {}
+    author_context["registered_character_names"] = [
+        {"character_id": row.get("character_id"), "name": row.get("name"), "role": row.get("role")}
+        for row in registry
+    ]
+    author_context["chronology_recent"] = chronology_context
+    author_context["chronology_context_rule"] = (
+        "This is a selected long-range chronology slice, not merely the last turns: recent significant events plus anchors and events relevant to current characters/location. "
+        "Use it for objective continuity only. Personal speech facts come from personal_memory, self-known facts in that character's own card, current perception, or a valid canon_fill for an undefined self detail."
+    )
+    context["author_context"] = author_context
+    context = inject_required_turn_context(context, cards, state)
+
+    context["chronology_policy"] = {
+        "goal": "Detailed enough for durable canon, compact enough to remain useful after hundreds of turns.",
+        "save": (
+            "Save only durable objective story facts: introductions and identity reveals, important information exchanged, promises/refusals/deals, conflicts, discoveries, injuries, "
+            "relationship-changing actions, arrivals/departures that matter causally, major decisions, plot changes, consequences and facts needed to understand later scenes."
+        ),
+        "omit": (
+            "Do not save ordinary showering, eating, smoking, sitting alone, routine travel, dressing, generic waiting, repeated work/training actions or internal thoughts unless they create a lasting fact, consequence, clue or knowledge change."
+        ),
+        "granularity": (
+            "Usually 0-2 chronology events per turn. Combine several related beats from the same scene into one compact event instead of timestamping every action. "
+            "Event text should normally be 1-3 dense sentences and never retell the whole scene."
+        ),
+        "time": (
+            "Store the date and broad period (утро/день/вечер/ночь) when available. Exact clock time is allowed only when causally important: deadline, alibi, appointment, travel timing, attack window, medication timing or another fact whose exact time matters later. "
+            "Set time_critical=true only in those cases."
+        ),
+        "importance": (
+            "Use importance=anchor for durable milestones that must remain discoverable far later: first meetings, identity/name acquisition, major revelations, promises/deals, major conflicts, relationship turning points, serious injuries, key decisions and central plot discoveries. "
+            "Use major for important but less foundational events; otherwise normal."
+        ),
+    }
+    context["relationship_policy"] = {
+        "required_review_every_turn": True,
+        "direction": "NPC -> POV only",
+        "relationship_lens_is_authoritative": True,
+        "footer_required_for_every_present_npc": True,
+        "instruction": (
+            "Use relationship_lens as the relationship source. Every present NPC must have a visible Relationships footer row. "
+            "If saved dimensions already exist, carry the same labels and current values forward, changing only dimensions actually affected by this scene. "
+            "If a present NPC has an empty new relation, initialize 1-3 natural dimensions from that NPC's character, goals, knowledge and current interaction; the first baseline may omit /delta. "
+            "New dimensions may be added later only when they genuinely emerge, but established dimensions never disappear or get silently renamed. "
+            "Ordinary meaningful change is usually 0-3 points, negative deltas are allowed, and no strict arithmetic/schema-lock system exists beyond preserving established labels and visible persistence."
+        ),
+    }
+    context["persistence_contract"] = {
+        "required": True,
+        "instruction": (
+            "Before commitTurn review persistence explicitly. extracted MUST contain persistence_reviewed=true and four arrays even when empty: chronology, knowledge_add, experiences_add, dialogue_memory_add. "
+            "Do not send extracted={}. If a scene is pure routine and creates no durable fact, chronology may be []. Knowledge/memory arrays may also be empty, but only after checking every present character separately. "
+            "Do not author relationship_documents/relationships in state_patch: the server persists NPC->POV relationships from the mandatory visible Relationships footer. If the physical cast changes, keep current.present_characters accurate in state_patch."
+        ),
+    }
+
+    for key in (
+        "novel",
+        "novel_rules",
+        "novel_lore",
+        "hidden_lore",
+        "story_direction",
+        "world_canon",
+        "character_cards",
+        "relationships",
+        "chronology_recent",
+        "recent_turns",
+    ):
+        if key in context.get("author_context", {}):
+            context[key] = context["author_context"][key]
+
+    return context
+
 def _augment_packet(session_id: str, manifest: Dict[str, Any]) -> Dict[str, Any]:
     root = storage.SESSIONS_DIR / session_id
     packet = storage._read_json(root / "turn_packet.json", {})
