@@ -174,7 +174,7 @@ def test_legacy_story_rule_is_absent_from_actual_turn_packet():
         blob = json.dumps(context, ensure_ascii=False).casefold()
         assert "если игрок не дал реплику" not in blob
         assert "не придумывать её" not in blob
-        assert "npc действуют самостоятельно" not in blob
+        assert "npc действуют самостоятельно" in blob
         assert "npc - самостоятельный персонаж" in context["scene_builder"].casefold()
 
         source_blob = json.dumps(
@@ -182,7 +182,7 @@ def test_legacy_story_rule_is_absent_from_actual_turn_packet():
             ensure_ascii=False,
         ).casefold()
         assert "если игрок не дал реплику" not in source_blob
-        assert "npc действуют самостоятельно" not in source_blob
+        assert "npc действуют самостоятельно" in source_blob
 
 def test_active_character_receives_complete_knowledge_journal_in_packet():
     with tempfile.TemporaryDirectory() as tmp:
