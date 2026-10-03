@@ -114,6 +114,31 @@ def test_active_runtime_is_author_rules_plus_scene_builder():
         assert removed not in rules + "\n" + builder
 
 
+def test_character_perception_and_scene_quality_stay_causal_without_pacing_modes():
+    docs = runtime_access.runtime_documents()
+    rules = docs["rules"]
+    builder = docs["scene_builder"]
+
+    assert "## ВОСПРИЯТИЕ POV И ДРУГИХ ЛЮДЕЙ" in rules
+    assert "POV не нейтральный силуэт" in rules
+    assert "Заметный признак не исчезает" in rules
+    assert "Каждый NPC пропускает увиденное и услышанное через собственный характер" in rules
+    assert "Отсутствие прямого комментария не означает отсутствие восприятия" in rules
+    assert "То же правило действует на восприятие NPC друг другом" in rules
+
+    assert "чистую стенограмму" in builder
+    assert "Ощущения не заменяют визуал" in builder
+    assert "дай короткий мост" in builder
+    assert "Заметное действие POV, направленное на NPC, получает наблюдаемую реакцию" in builder
+    assert "В экшне сохраняй географию сцены" in builder
+    assert "Восприятие должно проявляться через сцену и индивидуальную реакцию персонажа" in builder
+
+    assert "ROUTINE" not in builder
+    assert "STANDARD" not in builder
+    assert "CINEMATIC" not in builder
+    assert "ТОЧКА ОСТАНОВКИ СЦЕНЫ" not in builder
+
+
 def test_packet_has_no_hidden_director_guard_stack_and_rules_are_last():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
