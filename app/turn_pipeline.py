@@ -644,6 +644,58 @@ def _validate_technical_state_patch(payload: Dict[str, Any]) -> None:
         )
 
 
+def _relationship_scene_participants(
+    state_before: Dict[str, Any],
+    state_after: Dict[str, Any],
+    extracted: Dict[str, Any],
+    *,
+    cards: List[Dict[str, Any]],
+    user_input: str,
+) -> List[str]:
+    """Return every NPC who actually participated at any point in this turn."""
+    result: List[str] = []
+
+    def add(value: Any) -> None:
+        if isinstance(value, dict):
+            value = value.get("character_id") or value.get("id") or value.get("name")
+        resolved = session_runtime._resolve_character_id(cards, value)
+        cid = str(resolved or value or "").strip()
+        if cid and cid not in result:
+            result.append(cid)
+
+    for value in storage._scene_participant_ids(state_before):
+        add(value)
+    for value in storage._scene_participant_ids(state_after):
+        add(value)
+
+    # Physical NPCs may enter and leave inside one turn, so neither the opening
+    # nor the final roster alone is enough evidence of scene participation.
+    for row in extracted.get("presence_updates", []) if isinstance(extracted.get("presence_updates"), list) else []:
+        if isinstance(row, dict):
+            add(row.get("character_id"))
+
+    # A remote exchange can also begin and end inside one turn. The remote
+    # communication memory is created before relationship persistence.
+    for row in extracted.get("dialogue_memory_add", []) if isinstance(extracted.get("dialogue_memory_add"), list) else []:
+        if not isinstance(row, dict) or str(row.get("mode") or "").casefold() != "remote":
+            continue
+        participants = row.get("participants") or row.get("participant_ids") or []
+        if isinstance(participants, str):
+            participants = [participants]
+        for value in participants if isinstance(participants, list) else []:
+            add(value)
+
+    # Direct user-input messages are persisted as private communication even when
+    # no remote state remains open at the end of the scene.
+    for row in private_knowledge_runtime.extract_private_communications(str(user_input or ""), cards):
+        if isinstance(row, dict):
+            add(row.get("recipient_id"))
+
+    pov = state_after.get("pov") if isinstance(state_after.get("pov"), dict) else {}
+    pov_id = str(pov.get("character_id") or "")
+    return [cid for cid in result if cid and cid != pov_id]
+
+
 def _apply_relationship_changes(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     result = deepcopy(payload)
     extracted = result.get("extracted") if isinstance(result.get("extracted"), dict) else {}
@@ -659,7 +711,13 @@ def _apply_relationship_changes(session_id: str, payload: Dict[str, Any]) -> Dic
     state_after = storage._deep_merge(state, patch)
     pov = state_after.get("pov") if isinstance(state_after.get("pov"), dict) else {}
     pov_id = str(pov.get("character_id") or "")
-    participants = storage._scene_participant_ids(state_after)
+    participants = _relationship_scene_participants(
+        state,
+        state_after,
+        extracted,
+        cards=cards,
+        user_input=str(result.get("user_input") or ""),
+    )
     meta = storage._read_json(root / "meta.json", {})
     turn_number = int(meta.get("turn_number", 0) or 0) + 1
 
