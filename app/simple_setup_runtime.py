@@ -416,12 +416,210 @@ def _canonicalize_location_character_links(
     return result
 
 
+def _relationship_identity(value: Any) -> str:
+    return " ".join(str(value or "").casefold().replace("ё", "е").replace("-", " ").replace("_", " ").split())
+
+
+def _character_alias_index(characters: List[Dict[str, Any]]) -> Dict[str, set[str]]:
+    index: Dict[str, set[str]] = {}
+    for card in characters:
+        if not isinstance(card, dict):
+            continue
+        cid = str(card.get("character_id") or "").strip()
+        if not cid:
+            continue
+        full = " ".join(
+            part for part in (
+                str(card.get("name") or "").strip(),
+                str(card.get("surname") or "").strip(),
+            )
+            if part
+        )
+        values = [
+            cid,
+            card.get("name"),
+            full,
+            *(card.get("aliases") if isinstance(card.get("aliases"), list) else []),
+        ]
+        for value in values:
+            key = _relationship_identity(value)
+            if key:
+                index.setdefault(key, set()).add(cid)
+    return index
+
+
+def _relationship_dimensions(raw: Any) -> List[Dict[str, Any]]:
+    if raw in (None, "", [], {}):
+        return []
+    if isinstance(raw, dict):
+        raw = [{"label": key, "value": value} for key, value in raw.items()]
+    if not isinstance(raw, list):
+        raise ValueError("DRAFT_CHARACTER_RELATIONSHIP_DIMENSIONS_INVALID")
+
+    result: List[Dict[str, Any]] = []
+    seen: Dict[str, float] = {}
+    for item in raw:
+        if not isinstance(item, dict):
+            raise ValueError("DRAFT_CHARACTER_RELATIONSHIP_DIMENSIONS_INVALID")
+        label = str(item.get("label") or item.get("key") or "").strip()
+        value = item.get("value")
+        if not label or not isinstance(value, (int, float)) or isinstance(value, bool):
+            raise ValueError("DRAFT_CHARACTER_RELATIONSHIP_DIMENSIONS_INVALID")
+        numeric = float(value)
+        if numeric < 0 or numeric > 100:
+            raise ValueError("DRAFT_CHARACTER_RELATIONSHIP_DIMENSIONS_RANGE")
+        key = _relationship_identity(label)
+        if key in seen and seen[key] != numeric:
+            raise ValueError("DRAFT_CHARACTER_RELATIONSHIP_DIMENSION_CONFLICT")
+        if key in seen:
+            continue
+        seen[key] = numeric
+        result.append({
+            "label": label,
+            "value": int(numeric) if numeric.is_integer() else numeric,
+        })
+    if len(result) > 4:
+        raise ValueError("DRAFT_CHARACTER_RELATIONSHIP_DIMENSIONS_LIMIT")
+    return result
+
+
+def _merge_relationship_text(current: Any, incoming: Any) -> str | None:
+    parts: List[str] = []
+    for value in (current, incoming):
+        text = " ".join(str(value or "").split())
+        if text and text not in parts:
+            parts.append(text)
+    return " | ".join(parts) if parts else None
+
+
+def _merge_relationship_list(current: Any, incoming: Any) -> List[str]:
+    result: List[str] = []
+    for source in (current, incoming):
+        rows = source if isinstance(source, list) else []
+        for value in rows:
+            text = " ".join(str(value or "").split())
+            if text and text not in result:
+                result.append(text)
+    return result
+
+
+def _canonicalize_character_relationships(
+    characters: List[Dict[str, Any]],
+    pov_id: str,
+) -> List[Dict[str, Any]]:
+    result = deepcopy(characters)
+    aliases = _character_alias_index(result)
+
+    for card in result:
+        if not isinstance(card, dict):
+            continue
+        owner_id = str(card.get("character_id") or "").strip()
+        raw = card.get("relationships")
+        if raw in (None, "", [], {}):
+            card["relationships"] = None
+            continue
+
+        if isinstance(raw, str):
+            raise ValueError("DRAFT_CHARACTER_RELATIONSHIP_STRUCTURE_REQUIRED")
+        if isinstance(raw, dict):
+            if any(key in raw for key in ("target_character_id", "target_id", "target", "with", "character_id")):
+                source_rows = [raw]
+            else:
+                source_rows = []
+                for key, value in raw.items():
+                    if isinstance(value, dict):
+                        row = deepcopy(value)
+                        row.setdefault("target_character_id", key)
+                    else:
+                        raise ValueError("DRAFT_CHARACTER_RELATIONSHIP_STRUCTURE_REQUIRED")
+                    source_rows.append(row)
+        elif isinstance(raw, list):
+            source_rows = raw
+        else:
+            raise ValueError("DRAFT_CHARACTER_RELATIONSHIP_STRUCTURE_REQUIRED")
+
+        grouped: Dict[str, Dict[str, Any]] = {}
+        for raw_row in source_rows:
+            if not isinstance(raw_row, dict):
+                raise ValueError("DRAFT_CHARACTER_RELATIONSHIP_STRUCTURE_REQUIRED")
+            target_raw = (
+                raw_row.get("target_character_id")
+                or raw_row.get("target_id")
+                or raw_row.get("target")
+                or raw_row.get("with")
+                or raw_row.get("character_id")
+            )
+            key = _relationship_identity(target_raw)
+            matches = aliases.get(key, set()) if key else set()
+            if not matches:
+                raise ValueError("DRAFT_CHARACTER_RELATIONSHIP_TARGET_UNKNOWN")
+            if len(matches) != 1:
+                raise ValueError("DRAFT_CHARACTER_RELATIONSHIP_TARGET_AMBIGUOUS")
+            target_id = next(iter(matches))
+            if target_id == owner_id:
+                raise ValueError("DRAFT_CHARACTER_RELATIONSHIP_SELF_TARGET")
+
+            dims = _relationship_dimensions(raw_row.get("dimensions"))
+            if owner_id != pov_id and target_id == pov_id and not dims:
+                raise ValueError("DRAFT_NPC_POV_RELATIONSHIP_DIMENSIONS_REQUIRED")
+
+            row = grouped.setdefault(target_id, {
+                "target_character_id": target_id,
+                "dimensions": [],
+            })
+
+            existing_dims = {
+                _relationship_identity(item.get("label")): item
+                for item in row.get("dimensions", [])
+                if isinstance(item, dict)
+            }
+            for dim in dims:
+                dim_key = _relationship_identity(dim.get("label"))
+                existing = existing_dims.get(dim_key)
+                if existing and existing.get("value") != dim.get("value"):
+                    raise ValueError("DRAFT_CHARACTER_RELATIONSHIP_DIMENSION_CONFLICT")
+                if not existing:
+                    row["dimensions"].append(deepcopy(dim))
+                    existing_dims[dim_key] = row["dimensions"][-1]
+            if len(row["dimensions"]) > 4:
+                raise ValueError("DRAFT_CHARACTER_RELATIONSHIP_DIMENSIONS_LIMIT")
+
+            for field in ("relationship_type", "relationship_context", "current_dynamic", "behavioral_pattern"):
+                merged = _merge_relationship_text(row.get(field), raw_row.get(field))
+                if merged:
+                    row[field] = merged
+
+            for field in (
+                "beliefs_about_target",
+                "unresolved_between_them",
+                "dynamic_constraints",
+                "interaction_hooks",
+            ):
+                merged_list = _merge_relationship_list(row.get(field), raw_row.get(field))
+                if merged_list:
+                    row[field] = merged_list
+
+            if raw_row.get("status") not in (None, ""):
+                row["status"] = str(raw_row.get("status")).strip()
+
+        card["relationships"] = list(grouped.values()) or None
+
+    return result
+
+
 def _validate_simple_content(template: Dict[str, Any]) -> tuple[Dict[str, Any], Dict[str, Any]]:
     normalized = deepcopy(template)
     normalized["characters"] = normalize_character_profiles(normalized.get("characters", []))
     normalized["novel"] = _ensure_core_cast(
         normalize_novel_profile(normalized.get("novel", {}), title=str(normalized.get("title") or "")),
         normalized["characters"],
+    )
+    pov_id = _resolve_pov(normalized)
+    if not pov_id:
+        raise ValueError("DRAFT_POV_REQUIRED")
+    normalized["characters"] = _canonicalize_character_relationships(
+        normalized["characters"],
+        pov_id,
     )
     normalized["hidden_lore"] = normalize_hidden_lore(normalized.get("hidden_lore", {}))
     normalized_locations = normalize_location_profiles(normalized.get("locations", []))
@@ -436,8 +634,6 @@ def _validate_simple_content(template: Dict[str, Any]) -> tuple[Dict[str, Any], 
 
     if not normalized["characters"]:
         raise ValueError("DRAFT_CHARACTERS_REQUIRED")
-    if not _resolve_pov(normalized):
-        raise ValueError("DRAFT_POV_REQUIRED")
 
     verification = novel_drafts.verify_template(normalized)
     if not verification.get("ok"):

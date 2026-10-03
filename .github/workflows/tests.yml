@@ -46,6 +46,7 @@ jobs:
           tests/test_hidden_direct_character_actions.py
           tests/test_remote_scene_state.py
           tests/test_npc_relationship_network.py
+          tests/test_scene_density_starting_relationships.py
           --junitxml=pytest-current-report.xml
       - name: upload current report
         if: always()

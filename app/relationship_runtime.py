@@ -303,6 +303,205 @@ def _sync_state(state: Dict[str, Any], docs: Dict[str, Dict[str, Any]]) -> Dict[
     return result
 
 
+
+def _resolve_profile_character_ref(cards: Iterable[Dict[str, Any]], raw: Any) -> str | None:
+    needle = _norm(raw)
+    if not needle:
+        return None
+    for card in cards:
+        cid = str(card.get("character_id") or card.get("id") or "").strip()
+        if cid and _norm(cid) == needle:
+            return cid
+        identity = card.get("identity") if isinstance(card.get("identity"), dict) else {}
+        values = [
+            card.get("name"),
+            card.get("full_name"),
+            identity.get("name"),
+            *(card.get("aliases") if isinstance(card.get("aliases"), list) else []),
+        ]
+        for value in values:
+            if value not in (None, "") and _norm(value) == needle:
+                return cid or str(value)
+    return None
+
+
+def _profile_relationship_rows(card: Dict[str, Any]) -> List[Dict[str, Any]]:
+    raw = card.get("relationships")
+    if raw in (None, "", [], {}):
+        return []
+    if isinstance(raw, list):
+        source = raw
+    elif isinstance(raw, dict):
+        if any(key in raw for key in ("target_character_id", "target_id", "target", "with", "character_id")):
+            source = [raw]
+        else:
+            source = []
+            for key, value in raw.items():
+                if isinstance(value, dict):
+                    row = deepcopy(value)
+                    row.setdefault("target_character_id", key)
+                else:
+                    row = {
+                        "target_character_id": key,
+                        "relationship_context": value,
+                    }
+                source.append(row)
+    else:
+        # Free-form legacy text remains profile context only. Numeric startup
+        # baselines are never guessed from prose.
+        return []
+    return [deepcopy(row) for row in source if isinstance(row, dict)]
+
+
+def _profile_dimensions(value: Any) -> List[Dict[str, Any]]:
+    rows: List[Dict[str, Any]] = []
+    if isinstance(value, dict):
+        value = [{"label": key, "value": item} for key, item in value.items()]
+    if not isinstance(value, list):
+        return rows
+    seen: set[str] = set()
+    for raw in value:
+        if not isinstance(raw, dict):
+            continue
+        label = str(raw.get("label") or raw.get("key") or "").strip()
+        metric = raw.get("value")
+        if not label or not _is_number(metric):
+            continue
+        norm = _norm(label)
+        if not norm or norm in seen:
+            continue
+        rows.append({
+            "key": str(raw.get("key") or _dimension_key(label)),
+            "label": label,
+            "value": max(0.0, min(100.0, float(metric))),
+        })
+        seen.add(norm)
+        if len(rows) >= MAX_DIMENSIONS:
+            break
+    for row in rows:
+        if float(row["value"]).is_integer():
+            row["value"] = int(row["value"])
+    return rows
+
+
+def seed_relationship_state_from_profiles(
+    state: Dict[str, Any],
+    cards: Iterable[Dict[str, Any]],
+    pov_id: str,
+) -> Dict[str, Any]:
+    """Seed explicit pre-story NPC→POV relationships before turn 1.
+
+    Only structured character-profile relations that explicitly target POV are
+    eligible. Existing runtime state is authoritative and is never replaced.
+    """
+    cards = list(cards)
+    result = deepcopy(state if isinstance(state, dict) else {})
+    pov_id = str(pov_id or "")
+    if not pov_id:
+        return result
+
+    docs = _canonical_docs(
+        result,
+        cards=cards,
+        resolve_character_id=_resolve_profile_character_ref,
+    )
+    flat = _canonical_flat(
+        result.get("relationships", {}),
+        cards=cards,
+        resolve_character_id=_resolve_profile_character_ref,
+    )
+
+    # Preserve explicit starting_state numeric relationships even if no
+    # relationship_documents were supplied.
+    for owner_id, metrics in flat.items():
+        if owner_id == pov_id:
+            continue
+        doc = docs.setdefault(owner_id, {"owner_character_id": owner_id, "relations": []})
+        relation = _pov_relation(doc, pov_id)
+        if relation is None:
+            relation = _empty_relation(pov_id, [])
+            doc["relations"].append(relation)
+        if not _normalise_dimensions(relation.get("dimensions")):
+            relation["dimensions"] = _dimensions_from_flat(metrics)
+
+    for card in cards:
+        owner_id = str(card.get("character_id") or card.get("id") or "").strip()
+        if not owner_id or owner_id == pov_id:
+            continue
+        matching: List[Dict[str, Any]] = []
+        for row in _profile_relationship_rows(card):
+            target = (
+                row.get("target_character_id")
+                or row.get("target_id")
+                or row.get("target")
+                or row.get("with")
+                or row.get("character_id")
+            )
+            target_id = _resolve_profile_character_ref(cards, target)
+            if target_id == pov_id:
+                matching.append(row)
+        if not matching:
+            continue
+
+        doc = docs.setdefault(owner_id, {"owner_character_id": owner_id, "relations": []})
+        relation = _pov_relation(doc, pov_id)
+        if relation is None:
+            relation = _empty_relation(pov_id, [])
+            doc["relations"].append(relation)
+
+        # Continuation/current runtime state wins over initial profile seeds.
+        if int(relation.get("last_changed_turn", 0) or 0) > 0:
+            continue
+
+        explicit_numeric_baseline = owner_id in flat and bool(flat.get(owner_id))
+        profile_dims: List[Dict[str, Any]] = []
+        by_label: Dict[str, Dict[str, Any]] = {}
+        for row in matching:
+            for dim in _profile_dimensions(row.get("dimensions")):
+                key = _norm(dim.get("label"))
+                existing = by_label.get(key)
+                if existing and existing.get("value") != dim.get("value"):
+                    raise ValueError("PROFILE_RELATIONSHIP_DIMENSION_CONFLICT")
+                if not existing:
+                    by_label[key] = deepcopy(dim)
+                    profile_dims.append(by_label[key])
+
+            for key in ("relationship_type", "relationship_context", "current_dynamic"):
+                incoming = row.get(key)
+                current = relation.get(key)
+                if incoming in (None, "", [], {}):
+                    continue
+                if current in (None, "", "не установлено", "установленная связь"):
+                    relation[key] = deepcopy(incoming)
+                elif str(incoming) not in str(current).split(" | "):
+                    relation[key] = f"{current} | {incoming}"
+
+            for key in ("beliefs_about_target", "unresolved_between_them", "dynamic_constraints"):
+                incoming = row.get(key)
+                if not isinstance(incoming, list):
+                    continue
+                current = relation.get(key) if isinstance(relation.get(key), list) else []
+                merged = list(current)
+                for item in incoming:
+                    if item not in merged:
+                        merged.append(deepcopy(item))
+                relation[key] = merged
+
+        if not explicit_numeric_baseline:
+            current_dims = _normalise_dimensions(relation.get("dimensions"))
+            current_by_label = {_norm(item.get("label")): item for item in current_dims}
+            for dim in profile_dims:
+                key = _norm(dim.get("label"))
+                if key not in current_by_label:
+                    current_dims.append(deepcopy(dim))
+                    current_by_label[key] = current_dims[-1]
+            relation["dimensions"] = current_dims[:MAX_DIMENSIONS]
+
+        relation.setdefault("last_changed_turn", 0)
+        relation["starting_source"] = "character_profile"
+
+    return _sync_state(result, docs)
+
 def repair_relationship_state(
     state: Dict[str, Any],
     *,
