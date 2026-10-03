@@ -762,11 +762,12 @@ def _apply_relationship_changes(session_id: str, payload: Dict[str, Any]) -> Dic
 
     packet = storage._read_json(root / "turn_packet.json", {})
     footer_is_display_only = bool(packet.get("relationship_review_v3_required"))
-    footer = {} if footer_is_display_only else runtime_fixes_compat._parse_footer_compat(
+    visible_footer = runtime_fixes_compat._parse_footer_compat(
         str(result.get("scene_output") or ""),
         cards=cards,
         resolve_character_id=session_runtime._resolve_character_id,
     )
+    footer = visible_footer
     relationship_updates = (
         extracted.get("relationship_updates")
         if isinstance(extracted.get("relationship_updates"), list)
@@ -801,13 +802,22 @@ def _apply_relationship_changes(session_id: str, payload: Dict[str, Any]) -> Dic
         if relation is None:
             relation = relationship_runtime._empty_relation(pov_id, [])
             doc["relations"].append(relation)
+
+        saved_dimensions = relationship_runtime._normalise_dimensions(relation.get("dimensions"))
+        # In v3 the footer is display-only for established relationships. The one
+        # exception is first-baseline initialization: if a physical participant
+        # has no saved NPC→POV dimensions yet, the complete visible footer may
+        # establish that baseline without pretending the scene itself caused a change.
+        if footer_is_display_only and saved_dimensions:
+            continue
+
         blocked = explicit_labels.get(owner_id, set())
         fallback_dimensions = [
             item for item in dimensions
             if isinstance(item, dict)
             and relationship_runtime._norm(item.get("label") or item.get("key")) not in blocked
         ]
-        relation["dimensions"] = _dynamic_merge_dimensions(relation.get("dimensions"), fallback_dimensions)
+        relation["dimensions"] = _dynamic_merge_dimensions(saved_dimensions, fallback_dimensions)
 
     meta = storage._read_json(root / "meta.json", {})
     turn_number = int(meta.get("turn_number", 0) or 0) + 1
