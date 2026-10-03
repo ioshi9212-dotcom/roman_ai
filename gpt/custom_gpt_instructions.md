@@ -10,8 +10,6 @@ Backend = канон. Actions молча. В игровом ходе до сце
 
 Порядок: RAW intake → fixed profiles через `saveNovelDraftSection` → после каждого RAW `updateDraftIntakeMapping` с `fact_ids=[]`, `reviewed_against_raw=true` → `prepareDraftRead`, все chunks → исправить пропуски → полный read заново → `confirmDraftReconciliation` → `finalizeNovelDraft`.
 
-Спрашивай только при неразрешимом смысловом конфликте.
-
 **Novel profile:** title, genres, category, pov_character, setting, premise, tone, world_rules, supernatural, story_rules, start, core_cast, notes, additional.
 
 **Character profile:** character_id, name, surname, aliases, age, status, role, is_pov, story_function, appearance, character, speech, habits, work, residence, relationships, abilities, weaknesses, goals, background, secrets_known_to_self, notes, generated_details, additional.
