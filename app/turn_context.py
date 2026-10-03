@@ -5,9 +5,8 @@ import re
 from copy import deepcopy
 from typing import Any, Dict, List
 
-from . import storage
+from . import relationship_file_runtime, storage
 from .profile_templates import render_knowledge_journal
-from .relationship_runtime import build_relationship_lens
 from .runtime_access import runtime_documents
 from .scene_compaction_runtime import active_memory_records, complete_knowledge_records
 
@@ -325,17 +324,47 @@ def inject_required_turn_context(context: Dict[str, Any], cards: List[Dict[str, 
     context["pov_participation_instruction"] = "POV участвует сам в мелочах и обычной речи; значимые решения оставляй игроку."
     context["npc_agency_instruction"] = "NPC решает из себя: кто он, чего хочет, что чувствует, что знает и во что верит, затем действует. Не прогоняй действие заранее через универсальную правильность, психологию, границы или последствия, если сам NPC об этом не думает."
 
-    relationship_lens = build_relationship_lens(
-        state,
+    session_id = str(session.get("session_id") or "")
+    relationship_store = relationship_file_runtime.load(
+        storage.SESSIONS_DIR / session_id,
         cards=cards,
-        present_character_ids=storage._scene_participant_ids,
-        resolve_character_id=_resolve_character_id,
+        state=state,
+        pov_id=str((state.get("pov") or {}).get("character_id") or ""),
+    ) if session_id else relationship_file_runtime.build_initial_store(
+        cards,
+        state,
+        str((state.get("pov") or {}).get("character_id") or ""),
     )
-    relationship_lens["present_npc_candidates"] = _present_npc_candidates(cards, state, relationship_lens)
-    relationship_lens["initialization_required"] = True
-    relationship_lens["initialization_instruction"] = "Сохраняй старые dimensions; новые 1–3 создавай только когда отношение реально возникло."
-    context["relationship_lens"] = relationship_lens
-    context["relationship_lens_instruction"] = "relationship_lens — канон NPC->POV; старые dimensions сохраняются между сценами."
+    scene_relationships = relationship_file_runtime.scene_snapshot(
+        relationship_store,
+        storage._scene_participant_ids(state),
+    )
+    context["relationship_lens"] = {
+        "source": relationship_file_runtime.FILE_NAME,
+        "direction": "NPC -> POV only",
+        "relations_in_current_scene": [
+            {
+                "owner_character_id": character_id,
+                "dimensions": [
+                    {
+                        "label": label,
+                        "value": item.get("value"),
+                        "last_delta": item.get("last_delta", 0),
+                        "reason": item.get("reason", ""),
+                    }
+                    for label, item in row.get("dimensions", {}).items()
+                    if isinstance(item, dict)
+                ],
+            }
+            for character_id, row in scene_relationships.items()
+            if isinstance(row, dict)
+        ],
+        "rule": (
+            "Единственный канон числовых NPC→POV отношений — relationships.json. "
+            "Показатели свободные, максимум 10 на NPC; нулевых показателей в файле нет."
+        ),
+    }
+    context["relationship_lens_instruction"] = "relationship_lens — только scene-view из relationships.json, не отдельное хранилище."
 
     context["character_cards"] = scene_cards
     context["character_memory"] = scene_memory
