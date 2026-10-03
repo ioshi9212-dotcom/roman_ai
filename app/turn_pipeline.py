@@ -366,6 +366,9 @@ def _clean_director_layers(context: Dict[str, Any]) -> Dict[str, Any]:
         "character_registry_instruction",
         "character_registry",
         "scene_characters",
+        "working_context_contract",
+        "chronology_policy",
+        "transport_context_paths",
     ):
         result.pop(key, None)
 
@@ -566,31 +569,9 @@ def _prepare_context(
                 row["participation_mode"] = "remote"
         context["relationship_lens"] = lens
 
-    persistence = context.get("persistence_contract")
-    persistence = deepcopy(persistence) if isinstance(persistence, dict) else {}
-    persistence.clear()
-    persistence.update({
-        "rule": "After the scene save only what actually changed. Empty lists are allowed.",
-        "chronology": "important durable events only; knowledge_participants is the only chronology field that grants personal knowledge",
-        "character_knowledge": (
-            "knowledge_journal is personal memory, separate from chronology. Save durable learned facts only to each "
-            "character who actually received or learned them; chronology never grants knowledge by itself. Preserve exact granularity: "
-            "store the minimum received proposition and never enrich it with an unstated time, place, person, reason, plan or other detail. "
-            "A communicated claim may be stored source-qualified (for example, 'Elena said she is not a raider') without declaring it objective author truth."
-        ),
-        "relationships": (
-            "relationships.json is the only numeric NPC→POV canon. If the scene changes a relationship, send relationship_updates with a short reason. "
-            "Existing dimension: delta. New dimension: value. Ordinary absolute change is at most 3; use change_scale=critical_event only for a genuinely major event. "
-            "A result of exactly 0 deletes that dimension. Up to 10 active dimensions per NPC. If nothing changed, send no relationship update."
-        ),
-        "npc_relationships": (
-            "NPC↔NPC is qualitative only and lives in the same relationships.json. "
-            "Use npc_relationship_updates only for a durable directed change; no numeric scores."
-        ),
-        "character_upserts": "new durable self-detail, or a new persistent NPC only with a concrete recurring story_function; never register a background extra",
-        "state_patch": "save changed physical state. POV clothing/inventory -> state_patch.pov; NPC clothing/inventory/location/activity -> state_patch.characters[ID]. For a known location preserve location_id and zone_id/zone with the visible location name.",
-    })
-    context["persistence_contract"] = persistence
+    # Persistence/chronology instructions live once in runtime_rules.
+    # Do not mirror the same directing prose into a second packet contract.
+    context.pop("persistence_contract", None)
 
     context = _move_runtime_documents_last(context)
     packet = _write_packet_context(root, packet, context)
