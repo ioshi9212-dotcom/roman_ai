@@ -524,7 +524,7 @@ def _prepare_context(
         "instruction": (
             "Перед сценой просмотри ВЕСЬ постоянный NPC-каст и npc_relationship_network. Это не очередь и не ротация. "
             "Давность, число появлений и то, что персонажа давно не было, сами по себе никогда не являются причиной вывести его в сцену. "
-            "Для каждого NPC оцени role/story_function, goals, current_location/current_activity, "
+            "Для каждого NPC оцени role/story_function, goals, current_location/current_activity, pov_familiarity, "
             "npc_relation_refs, active_intents, active_threads и реальные последствия; "
             "полный текст NPC↔NPC связей читай один раз из npc_relationship_network. "
             "Если собственная линия NPC или его связь с другим NPC создаёт причинный путь к текущей/ближайшей сцене, мир сам подводит пересечение. "
