@@ -177,11 +177,11 @@ def _participation_bundle(session_id: str, character_id: str) -> Dict[str, Any]:
         "pov_familiarity": deepcopy(full.get("pov_familiarity")),
         "personal_memory": _working_memory(full),
         "relationship_to_pov": deepcopy(full.get("relationship_to_pov")),
-        "npc_relationships": npc_relationship_runtime.relations_for_character(network, character_id),
+        "npc_relationships_director_only": npc_relationship_runtime.outgoing_relations_for_character(network, character_id),
         "active_intents": deepcopy(full.get("active_intents", [])),
         "working_bundle": True,
         "persistent_lifetime_memory_complete": True,
-        "instruction": "Собственная card — self-known биография кроме явно hidden/unknown-to-self веток. personal_memory.knowledge/knowledge_journal — выученные факты. Частичный факт остаётся частичным: неизвестные время/место/человек/причина не достраиваются вероятными значениями; нужную деталь уточняют или оставляют догадкой до подтверждения. experiences/dialogue могут быть bounded.",
+        "instruction": "Собственная card — self-known биография кроме явно hidden/unknown-to-self веток. personal_memory.knowledge/knowledge_journal — выученные факты. npc_relationships_director_only задаёт режиссёрскую динамику владельца связи, но НЕ является личным factual knowledge и не даёт неизвестных фактов о target. Частичный факт остаётся частичным: неизвестные время/место/человек/причина не достраиваются вероятными значениями; нужную деталь уточняют или оставляют догадкой до подтверждения. experiences/dialogue могут быть bounded.",
     }
 
 

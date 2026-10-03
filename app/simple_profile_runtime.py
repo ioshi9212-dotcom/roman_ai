@@ -7,7 +7,7 @@ from typing import Any, Dict, List
 
 from fastapi import HTTPException
 
-from . import character_chunk_read, session_runtime, storage, writer_first_runtime
+from . import character_chunk_read, npc_relationship_runtime, session_runtime, storage, writer_first_runtime
 from .profile_templates import (
     normalize_character_profile,
     render_character_profile,
@@ -647,6 +647,11 @@ def _participation_bundle(session_id: str, character_id: str) -> Dict[str, Any]:
         raise KeyError(character_id)
 
     state = storage._read_json(root / "state.json", {})
+    network = npc_relationship_runtime.build_network(
+        cards,
+        state,
+        resolve_character_id=session_runtime._resolve_character_id,
+    )
     runtime = state.get("characters", {}) if isinstance(state.get("characters"), dict) else {}
     current_state = runtime.get(character_id, {}) if isinstance(runtime.get(character_id), dict) else {}
     relationship = storage._relationship_hint(state, character_id)
@@ -669,6 +674,10 @@ def _participation_bundle(session_id: str, character_id: str) -> Dict[str, Any]:
         "profile": render_character_profile(card),
         "current_state": deepcopy(current_state),
         "relationship_to_pov": deepcopy(relationship),
+        "npc_relationships_director_only": npc_relationship_runtime.outgoing_relations_for_character(
+            network,
+            character_id,
+        ),
         "knowledge_journal": journal,
         "legacy_knowledge": legacy_knowledge,
         "knowledge_complete": True,
@@ -691,8 +700,9 @@ def _participation_bundle(session_id: str, character_id: str) -> Dict[str, Any]:
         },
         "instruction": (
             "Этот bundle полностью готов для участия offscreen-персонажа: own profile + own complete knowledge "
-            "+ relationship + current state. Используй только явно известные детали; не дополняй частичный факт скрытыми "
-            "или вероятными подробностями. Отдельный knowledge-read не нужен."
+            "+ relationship + current state. npc_relationships_director_only влияет на режиссуру поведения, но не является "
+            "личным factual knowledge и не сообщает персонажу неизвестные факты о другом NPC. Используй только явно известные "
+            "детали; не дополняй частичный факт скрытыми или вероятными подробностями. Отдельный knowledge-read не нужен."
         ),
     }
 

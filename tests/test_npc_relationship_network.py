@@ -132,12 +132,19 @@ def test_every_turn_has_one_full_causal_cast_registry_and_directed_npc_network()
         assert {"adrian", "dante", "yuna", "lem"}.issubset(rows)
         assert rows["dante"]["story_function"] == "friend and provocateur"
         assert rows["dante"]["goals"]
-        assert rows["dante"]["work"] == "школа"
         assert rows["dante"]["full_card_retrieval"] == {
             "action": "prepareCharacterBundleRead",
             "character_id": "dante",
             "then": "read all getCharacterBundleChunk chunks before participation",
         }
+        assert "known_relationships" not in rows["dante"]
+        assert "npc_relationships" not in rows["dante"]
+        assert "work" not in rows["dante"]
+        assert "residence" not in rows["dante"]
+        assert {
+            (item["direction"], item["other_character_id"])
+            for item in rows["dante"]["npc_relation_refs"]
+        } >= {("outgoing", "adrian"), ("incoming", "adrian")}
 
         forbidden = {
             "turns_since_physical",
@@ -171,7 +178,7 @@ def test_selected_offscreen_bundle_contains_npc_relationships():
         bundle = read_bundle(sid, "dante")
 
         assert bundle["character_id"] == "dante"
-        relations = bundle["npc_relationships"]
+        relations = bundle["npc_relationships_director_only"]
         outgoing = next(
             row for row in relations
             if row["owner_character_id"] == "dante"
@@ -179,6 +186,16 @@ def test_selected_offscreen_bundle_contains_npc_relationships():
         )
         assert "провоцировать" in outgoing["current_dynamic"]
         assert "ревность Эдриана" in outgoing["interaction_hooks"]
+        assert outgoing["knowledge_scope"] == "director_only_not_personal_knowledge"
+
+        adrian_bundle = read_bundle(sid, "adrian")
+        adrian_relations = adrian_bundle["npc_relationships_director_only"]
+        assert all(row["owner_character_id"] == "adrian" for row in adrian_relations)
+        assert not any(
+            row.get("owner_character_id") == "dante"
+            and "Эдриан ревнует" in " ".join(row.get("beliefs_about_target", []))
+            for row in adrian_relations
+        )
 
 
 def test_runtime_npc_relationship_change_overrides_profile_without_mirroring_reverse():
@@ -228,16 +245,50 @@ def test_runtime_npc_relationship_change_overrides_profile_without_mirroring_rev
     assert pairs[("dante", "adrian")].get("last_changed_turn") is None
 
 
-def test_rules_allow_npc_to_npc_scene_without_forcing_pov_intervention():
+def test_npc_relationship_behavior_lives_in_scene_builder_and_rules_stay_technical():
     rules = Path("runtime/rules.md").read_text(encoding="utf-8")
+    builder = Path("runtime/scene_builder.md").read_text(encoding="utf-8")
     instructions = Path("gpt/custom_gpt_instructions.md").read_text(encoding="utf-8")
     schema = Path("openapi.yaml").read_text(encoding="utf-8")
 
-    assert "NPC могут взаимодействовать друг с другом независимо от POV" in rules
-    assert "Не превращай взаимодействие NPC↔NPC автоматически в вопрос или выбор для POV" in rules
-    assert "Второстепенные NPC могут иметь собственные дружеские, романтические и конфликтные линии" in rules
+    assert "Не делай POV обязательным центром такого взаимодействия" in builder
+    assert "Не превращай естественное взаимодействие NPC↔NPC автоматически в вопрос к POV" in builder
+    assert "второстепенная пара" in builder
+    assert "npc_relationships_director_only" in rules
+    assert "Запись отношения сама по себе знанием не является" in rules
+    assert "NPC могут взаимодействовать друг с другом независимо от POV" not in rules
     assert "npc_relationship_updates" in rules
     assert "npc_relationship_updates" in instructions
     assert len(instructions) < 8000
     assert "NPCRelationshipUpdate:" in schema
     assert "npc_relationship_updates:" in schema
+
+
+def test_legacy_free_text_relation_does_not_guess_between_ambiguous_names():
+    cards = [
+        {"character_id": "pov", "name": "POV", "is_pov": True},
+        {"character_id": "alexey", "name": "Алексей"},
+        {"character_id": "alexander", "name": "Александр"},
+        {
+            "character_id": "owner",
+            "name": "Owner",
+            "relationships": ["Алекс злится после старого спора"],
+        },
+    ]
+    state = {"pov": {"character_id": "pov"}}
+
+    def resolve(values, raw):
+        needle = str(raw or "").casefold()
+        for card in values:
+            if str(card.get("character_id") or "").casefold() == needle:
+                return str(card["character_id"])
+            if str(card.get("name") or "").casefold() == needle:
+                return str(card["character_id"])
+        return None
+
+    network = npc_relationship_runtime.build_network(
+        cards,
+        state,
+        resolve_character_id=resolve,
+    )
+    assert not any(row["owner_character_id"] == "owner" for row in network["relations"])
