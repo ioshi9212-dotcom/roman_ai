@@ -3,6 +3,7 @@ import tempfile
 from pathlib import Path
 
 from app import session_runtime, storage
+from app import living_world_runtime
 from app.living_world_runtime import RELATIONSHIP_DIMENSIONS
 
 
@@ -108,6 +109,45 @@ def test_strong_relationship_can_surface_absent_npc_in_cast_pressure():
         adrian = next(row for row in pressure if row.get("character_id") == "adrian")
         assert adrian["relationship_salience"] >= 0.6
         assert "без запроса POV" in adrian["guidance"]
+
+
+def test_location_linked_cast_is_prioritized_without_asserting_presence():
+    context = {
+        "narrative_guardrails": {
+            "cast_pressure": [{
+                "character_id": "far",
+                "name": "Далёкий NPC",
+                "turns_since_seen": 80,
+                "must_reconsider": True,
+            }]
+        },
+        "cast_index": [
+            {"character_id": "rina", "name": "Рината", "is_pov": True, "present": True},
+            {"character_id": "rayna", "name": "Раяна", "present": False},
+            {"character_id": "far", "name": "Далёкий NPC", "present": False},
+        ],
+        "location_context": {
+            "location_id": "silas_house",
+            "name": "дом Сайласа",
+            "linked_characters": [
+                {"character_id": "rayna", "relation": "связана с домом"},
+            ],
+        },
+    }
+    state = {
+        "current": {"location": "дом Сайласа", "location_id": "silas_house"},
+        "characters": {},
+        "relationships": {},
+    }
+
+    living_world_runtime._enrich_cast_pressure(context, state)
+
+    pressure = context["narrative_guardrails"]["cast_pressure"]
+    assert pressure[0]["character_id"] == "rayna"
+    assert pressure[0]["location_linked"] is True
+    assert pressure[0]["must_reconsider"] is True
+    assert "не оставляй его за кадром только ради сохранения текущей сцены" in pressure[0]["guidance"]
+    assert "present" not in pressure[0]
 
 
 def test_present_npc_opinion_can_change_without_fake_numeric_relationship_update():
