@@ -147,16 +147,12 @@ def test_packet_has_no_hidden_director_guard_stack_and_rules_are_last():
         active = {row["character_id"] for row in context["character_cards"]}
         assert active == {"pov", "npc"}
         assert "away" not in active
-        contract = context["working_context_contract"]
-        assert contract["hidden_director_guard_layers"] is False
-        assert contract["backend_semantic_scene_gates"] is False
-        assert contract["precommit_review_gates"] == ["scene_builder", "persistence", "knowledge"]
-        assert contract["offscreen_character_retrieval"] == "chunked_when_relevant"
-        assert "simple_name_mention_does_not_load_offscreen_card" not in contract
-        assert "dormant_character_retrieval" not in contract
-        persistence = context["persistence_contract"]
-        assert "POV clothing/inventory -> state_patch.pov" in persistence["state_patch"]
-        assert "NPC clothing/inventory/location/activity -> state_patch.characters[ID]" in persistence["state_patch"]
+        assert "working_context_contract" not in context
+        assert "persistence_contract" not in context
+        assert "chronology_policy" not in context
+        assert "## PERSISTENCE" in context["runtime_rules"]
+        assert "POV clothing/inventory" in context["runtime_rules"]
+        assert "NPC physical/runtime" in context["runtime_rules"]
 
 
 
@@ -1484,7 +1480,7 @@ def test_legacy_pending_packet_is_refreshed_into_current_knowledge_context():
         assert "simple_knowledge_rules" not in rebuilt
         assert rebuilt["character_memory"]["npc"]["knowledge_journal"] == "NPC уже знает этот факт."
         assert rebuilt["character_memory"]["npc"]["knowledge_journal_entry_count"] == 1
-        assert rebuilt["working_context_contract"]["active_character_knowledge_rebuilt_from_persistent_memory"] is True
+        assert "working_context_contract" not in rebuilt
 
 
 

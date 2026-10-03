@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import secrets
 from copy import deepcopy
 from typing import Any, Dict, List
 
@@ -271,15 +272,8 @@ def _cast_registry_rows(
             "current_location": compact(info.get("location") or info.get("location_id"), 220),
             "current_zone": compact(info.get("zone") or info.get("zone_id"), 180),
             "current_activity": compact(info.get("activity"), 320),
+            "pov_familiarity": deepcopy(info.get("pov_familiarity")) if isinstance(info.get("pov_familiarity"), dict) else None,
             "npc_relation_refs": npc_relationship_runtime.relation_refs_for_character(npc_network, cid),
-            "full_card_retrieval": (
-                {
-                    "action": "prepareCharacterBundleRead",
-                    "character_id": cid,
-                    "then": "read all getCharacterBundleChunk chunks before participation",
-                }
-                if cid != pov_id else None
-            ),
             "active_intents": active_intents(cid),
             "active_threads": active_threads(cid),
             "last_meaningful_event": raw.get("last_meaningful_event"),
@@ -370,24 +364,14 @@ def _clean_director_layers(context: Dict[str, Any]) -> Dict[str, Any]:
         "speaker_context",
         "director_only",
         "character_registry_instruction",
+        "character_registry",
+        "scene_characters",
+        "working_context_contract",
+        "chronology_policy",
+        "transport_context_paths",
     ):
         result.pop(key, None)
 
-    contract = result.get("working_context_contract")
-    contract = deepcopy(contract) if isinstance(contract, dict) else {}
-    contract.pop("dormant_character_retrieval", None)
-    contract.pop("simple_name_mention_does_not_load_offscreen_card", None)
-    contract.update({
-        "turn_pipeline_version": PIPELINE_VERSION,
-        "director_rules_source": "runtime_rules",
-        "scene_rendering_source": "scene_builder",
-        "hidden_director_guard_layers": False,
-        "backend_semantic_scene_gates": False,
-        "precommit_review_gates": ["scene_builder", "persistence", "knowledge"],
-        "offscreen_character_retrieval": "chunked_when_relevant",
-        "active_character_knowledge_rebuilt_from_persistent_memory": True,
-    })
-    result["working_context_contract"] = contract
     for key in ("novel_rules", "novel", "author_context", "novel_profile"):
         if key in result:
             result[key] = profile_templates._strip_legacy_pov_silence_rule(result[key])
@@ -426,9 +410,19 @@ def _move_runtime_documents_last(context: Dict[str, Any]) -> Dict[str, Any]:
     return result
 
 
-def _prepare_context(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
+def _prepare_context(
+    session_id: str,
+    base: Dict[str, Any],
+    *,
+    packet_override: Dict[str, Any] | None = None,
+    context_override: Dict[str, Any] | None = None,
+) -> Dict[str, Any]:
     root = storage.SESSIONS_DIR / session_id
-    packet, context = _read_packet_context(root)
+    if packet_override is None or context_override is None:
+        packet, context = _read_packet_context(root)
+    else:
+        packet = deepcopy(packet_override)
+        context = deepcopy(context_override)
     if not context:
         return base
 
@@ -488,11 +482,8 @@ def _prepare_context(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
         for cid in scene_ids
         if cid in card_map
     ]
-    context["character_profiles"] = {
-        cid: profile_templates.render_character_profile(card_map[cid])
-        for cid in scene_ids
-        if cid in card_map
-    }
+    # character_cards is the single lossless active-card representation.
+    # Do not render the same cards a second time into character_profiles.
 
     memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
     memory_buckets = memory.get("characters", {}) if isinstance(memory.get("characters"), dict) else {}
@@ -513,10 +504,15 @@ def _prepare_context(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
         "registry_index_path": "cast_registry.characters",
         "mandatory_causal_review": True,
         "recency_rotation_disabled": True,
+        "offscreen_bundle_read": {
+            "action": "prepareCharacterBundleRead",
+            "then": "read all getCharacterBundleChunk chunks before material participation",
+            "rule": "Apply this once to any registered offscreen character who becomes causally selected to participate.",
+        },
         "instruction": (
             "Перед сценой просмотри ВЕСЬ постоянный NPC-каст и npc_relationship_network. Это не очередь и не ротация. "
             "Давность, число появлений и то, что персонажа давно не было, сами по себе никогда не являются причиной вывести его в сцену. "
-            "Для каждого NPC оцени role/story_function, goals, current_location/current_activity, "
+            "Для каждого NPC оцени role/story_function, goals, current_location/current_activity, pov_familiarity, "
             "npc_relation_refs, active_intents, active_threads и реальные последствия; "
             "полный текст NPC↔NPC связей читай один раз из npc_relationship_network. "
             "Если собственная линия NPC или его связь с другим NPC создаёт причинный путь к текущей/ближайшей сцене, мир сам подводит пересечение. "
@@ -558,31 +554,9 @@ def _prepare_context(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
                 row["participation_mode"] = "remote"
         context["relationship_lens"] = lens
 
-    persistence = context.get("persistence_contract")
-    persistence = deepcopy(persistence) if isinstance(persistence, dict) else {}
-    persistence.clear()
-    persistence.update({
-        "rule": "After the scene save only what actually changed. Empty lists are allowed.",
-        "chronology": "important durable events only; knowledge_participants is the only chronology field that grants personal knowledge",
-        "character_knowledge": (
-            "knowledge_journal is personal memory, separate from chronology. Save durable learned facts only to each "
-            "character who actually received or learned them; chronology never grants knowledge by itself. Preserve exact granularity: "
-            "store the minimum received proposition and never enrich it with an unstated time, place, person, reason, plan or other detail. "
-            "A communicated claim may be stored source-qualified (for example, 'Elena said she is not a raider') without declaring it objective author truth."
-        ),
-        "relationships": (
-            "relationships.json is the only numeric NPC→POV canon. If the scene changes a relationship, send relationship_updates with a short reason. "
-            "Existing dimension: delta. New dimension: value. Ordinary absolute change is at most 3; use change_scale=critical_event only for a genuinely major event. "
-            "A result of exactly 0 deletes that dimension. Up to 10 active dimensions per NPC. If nothing changed, send no relationship update."
-        ),
-        "npc_relationships": (
-            "NPC↔NPC is qualitative only and lives in the same relationships.json. "
-            "Use npc_relationship_updates only for a durable directed change; no numeric scores."
-        ),
-        "character_upserts": "new durable self-detail, or a new persistent NPC only with a concrete recurring story_function; never register a background extra",
-        "state_patch": "save changed physical state. POV clothing/inventory -> state_patch.pov; NPC clothing/inventory/location/activity -> state_patch.characters[ID]. For a known location preserve location_id and zone_id/zone with the visible location name.",
-    })
-    context["persistence_contract"] = persistence
+    # Persistence/chronology instructions live once in runtime_rules.
+    # Do not mirror the same directing prose into a second packet contract.
+    context.pop("persistence_contract", None)
 
     context = _move_runtime_documents_last(context)
     packet = _write_packet_context(root, packet, context)
@@ -635,8 +609,32 @@ def prepare_turn_packet(session_id: str, user_input: str) -> Dict[str, Any]:
         refreshed = storage._read_json(root / "turn_packet.json", {})
         return _packet_manifest(refreshed, reused=True)
 
-    base = dict(_BASE_PREPARE(session_id, user_input))
-    return _prepare_context(session_id, base)
+    # Build once in memory, then serialize only the final writer packet.
+    # This avoids storage -> packet -> read -> rewrite -> packet round-trips.
+    context = session_runtime.build_turn_context(session_id, user_input)
+    packet = {
+        "packet_id": secrets.token_urlsafe(12),
+        "prepared_for_turn": expected_turn,
+        "user_input": user_input,
+        "relevant_character_ids": [
+            str(value) for value in context.get("relevant_character_ids", []) if value
+        ],
+        "chunk_count": 0,
+        "read_chunks": [],
+        "chunks": [],
+    }
+    base = {
+        "packet_id": packet["packet_id"],
+        "prepared_for_turn": expected_turn,
+        "chunk_count": 0,
+        "relevant_character_ids": packet["relevant_character_ids"],
+    }
+    return _prepare_context(
+        session_id,
+        base,
+        packet_override=packet,
+        context_override=context,
+    )
 
 
 def _validate_technical_state_patch(payload: Dict[str, Any]) -> None:

@@ -104,7 +104,6 @@ Offscreen упоминание само по себе не требует bundle
 - future_guidance;
 - active_threads;
 - story direction;
-- `character_registry`;
 - `cast_index`;
 - `offscreen_intent_candidates`;
 - полный scene_state;
@@ -424,6 +423,8 @@ NPC inventory/state → `state.characters[ID]`.
 
 `cast_registry.characters` - полный director-only список постоянного каста на текущий ход.
 
+`pov_familiarity` в строке `cast_registry` хранит непрерывность знакомства POV с этим персонажем: `known/acquainted` запрещает повторное первое знакомство; `encountered` означает прошлое присутствие без гарантии, что имя уже известно.
+
 Перед сценой просмотри весь список постоянных NPC.
 
 Это не очередь и не ротация.
@@ -444,9 +445,9 @@ POV не обязан искать, звать или вспоминать NPC, 
 
 Нормально, если в конкретном ходе никто новый не появляется.
 
-`character_registry`, `cast_registry` и `cast_index` - director-only данные.
+`cast_registry` - director-only данные.
 
-Они не являются знаниями POV/NPC.
+Он не является знанием POV/NPC.
 
 ## NPC ↔ NPC
 

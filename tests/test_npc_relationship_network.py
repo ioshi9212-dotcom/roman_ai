@@ -119,7 +119,8 @@ def test_every_turn_has_causal_cast_and_qualitative_directed_npc_network_from_sa
         assert registry["recency_rotation_disabled"] is True
         rows = {row["character_id"]: row for row in registry["characters"]}
         assert {"adrian", "dante", "yuna", "lem"}.issubset(rows)
-        assert rows["dante"]["full_card_retrieval"]["action"] == "prepareCharacterBundleRead"
+        assert registry["offscreen_bundle_read"]["action"] == "prepareCharacterBundleRead"
+        assert "full_card_retrieval" not in rows["dante"]
 
         network = context["npc_relationship_network"]
         assert network["directional"] is True
