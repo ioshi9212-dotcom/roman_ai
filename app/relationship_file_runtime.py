@@ -90,6 +90,19 @@ def _qualitative_relation(row: Dict[str, Any]) -> str:
         value = " ".join(str(row.get(key) or "").split())
         if value and value not in parts:
             parts.append(value)
+
+    status = " ".join(str(row.get("status") or "").split())
+    if status and _norm(status) not in {"active", "активно", "активный"} and status not in parts:
+        parts.append(status)
+
+    for key in ("beliefs_about_target", "unresolved_between_them", "dynamic_constraints", "interaction_hooks"):
+        raw = row.get(key)
+        values = raw if isinstance(raw, list) else [raw] if raw not in (None, "", [], {}) else []
+        for item in values:
+            value = " ".join(str(item or "").split())
+            if value and value not in parts:
+                parts.append(value)
+
     return " | ".join(parts)[:700]
 
 
