@@ -1357,10 +1357,14 @@ def test_opening_scene_uses_empty_gameplay_input_not_service_command():
         assert retry["reused_pending_packet"] is True
 
 
-def test_cast_registry_exposes_physical_contact_and_meaningful_recency_separately():
+def test_cast_registry_exposes_causal_character_data_without_recency_pressure():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
-        sid = storage.create_session(base_novel())["session_id"]
+        novel = base_novel()
+        novel["characters"][1]["work"] = "инструктор"
+        novel["characters"][1]["residence"] = "база"
+        novel["characters"][1]["relationships"] = ["давно знаком с Away"]
+        sid = storage.create_session(novel)["session_id"]
 
         first = session_runtime.prepare_turn_packet(sid, "Остаться рядом.")
         read_all(first, sid)
@@ -1377,7 +1381,15 @@ def test_cast_registry_exposes_physical_contact_and_meaningful_recency_separatel
                             "dimensions": [{"label": "близость", "value": 8, "delta": 1}],
                             "reason": "впервые сознательно остался рядом с POV",
                         }
-                    ]
+                    ],
+                    "npc_intent_updates": [
+                        {
+                            "character_id": "npc",
+                            "intent_id": "ask_again",
+                            "status": "active",
+                            "summary": "вернуться к незакрытому вопросу",
+                        }
+                    ],
                 },
             },
         )
@@ -1397,12 +1409,32 @@ def test_cast_registry_exposes_physical_contact_and_meaningful_recency_separatel
         )
 
         _, context = read_context(sid, "(остаться одной)")
-        row = next(x for x in context["cast_registry"]["characters"] if x["character_id"] == "npc")
-        assert row["last_physical_turn"] == 1
-        assert row["last_meaningful_turn"] == 1
-        assert row["turns_since_physical"] == 1
-        assert row["turns_since_meaningful"] == 1
+        registry = context["cast_registry"]
+        row = next(x for x in registry["characters"] if x["character_id"] == "npc")
+
+        assert registry["mandatory_causal_review"] is True
+        assert registry["recency_rotation_disabled"] is True
+        assert "не очередь и не ротация" in registry["instruction"]
+        assert row["story_function"] == "possible romance"
+        assert "добиться ответа" in row["goals"]
+        assert row["work"] == "инструктор"
+        assert row["residence"] == "база"
+        assert "давно знаком с Away" in row["known_relationships"]
+        assert "вернуться к незакрытому вопросу" in row["active_intents"]
         assert "остался рядом" in row["last_meaningful_event"]
+
+        for forbidden in (
+            "last_physical_turn",
+            "last_physical_game_day",
+            "turns_since_physical",
+            "game_days_since_physical",
+            "last_contact_turn",
+            "turns_since_contact",
+            "last_meaningful_turn",
+            "turns_since_meaningful",
+            "appearance_count",
+        ):
+            assert forbidden not in row
 
 
 def test_legacy_pending_packet_is_refreshed_into_current_knowledge_context():
