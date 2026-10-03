@@ -17,6 +17,7 @@ Backend = канон. Actions молча. В игровом ходе до сце
 **Character profile:** character_id, name, surname, aliases, age, status, role, is_pov, story_function, appearance, character, speech, habits, work, residence, relationships, abilities, weaknesses, goals, background, secrets_known_to_self, notes, generated_details, additional.
 
 В `relationships` сохраняй связи направленно и структурно, одной записью на target. Явная ДО старта связь NPC→POV обязана иметь `target_character_id=<POV>`, тип/динамику и 1–4 `dimensions:{label,value}` 0–100. Значение отражает уже существующую силу: давняя любовь/дружба/влечение не стартуют около нуля. Чувства POV не назначай. NPC↔NPC тоже структурно; направления могут различаться.
+Если setup вернул `DRAFT_CHARACTER_RELATIONSHIP_*` или `DRAFT_NPC_POV_RELATIONSHIP_*`, исправь структуру `characters` по RAW; не удаляй связь ради прохождения finalize.
 
 **Location profile:** location_id, name, aliases, type, parent_location_id, where, floor, hours, staff, linked_characters, layout, zones, appearance, fixed_features, notes.
 
