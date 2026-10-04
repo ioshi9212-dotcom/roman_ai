@@ -412,3 +412,260 @@ def test_critical_event_may_change_more_than_three_and_ten_dimension_cap_is_real
             turn_number=7,
             participant_ids=["adrian"],
         )
+
+def test_untracked_participant_is_visible_in_relationship_lens_before_first_numeric_relation():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        novel = deepcopy(relationship_novel())
+        novel["characters"].append({"character_id": "tessa", "name": "Тэсса"})
+        novel["starting_state"]["current"]["present_characters"].append("tessa")
+        sid = storage.create_session(novel)["session_id"]
+
+        manifest = session_runtime.prepare_turn_packet(sid, "(посмотреть на Тэссу)")
+        parts = [manifest["content"]]
+        for index in range(1, manifest["chunk_count"]):
+            parts.append(storage.get_turn_packet_chunk(sid, manifest["packet_id"], index)["content"])
+        context = json.loads("".join(parts))
+
+        row = next(
+            item for item in context["relationship_lens"]["relations_in_current_scene"]
+            if item["owner_character_id"] == "tessa"
+        )
+        assert row["tracked"] is False
+        assert row["dimensions"] == []
+        assert row["pending_evidence"] == []
+
+
+def test_first_fractional_evidence_creates_shell_without_fake_visible_dimension():
+    cards = deepcopy(relationship_novel()["characters"])
+    cards.append({"character_id": "tessa", "name": "Тэсса"})
+    store = relationship_file_runtime.build_initial_store(
+        cards,
+        relationship_novel()["starting_state"],
+        "rina",
+    )
+    assert "tessa" not in store["npc_to_pov"]
+
+    changed = relationship_file_runtime.apply_evidence(
+        store,
+        [{
+            "character_id": "tessa",
+            "reason": "Тэсса увидела, что POV спокойно держит ситуацию под контролем.",
+            "dimensions": [{"label": "доверие к компетентности", "signal": 0.4}],
+        }],
+        cards=cards,
+        pov_id="rina",
+        turn_number=1,
+        participant_ids=["tessa"],
+    )
+
+    relation = changed["npc_to_pov"]["tessa"]
+    assert relation["tracking_started_turn"] == 1
+    assert relation["dimensions"] == {}
+    assert relation["evidence"]["доверие к компетентности"]["score"] == 0.4
+    assert relationship_file_runtime.footer_rows(changed, ["tessa"]) == {}
+
+
+def test_fractional_evidence_accumulates_across_turns_and_promotes_one_visible_point():
+    cards = deepcopy(relationship_novel()["characters"])
+    cards.append({"character_id": "tessa", "name": "Тэсса"})
+    store = relationship_file_runtime.build_initial_store(
+        cards,
+        relationship_novel()["starting_state"],
+        "rina",
+    )
+
+    signals = [
+        (1, 0.4, "Тэсса увидела спокойную реакцию POV."),
+        (2, 0.35, "POV снова выполнил обещанное."),
+        (3, 0.3, "POV предсказуемо защитил группу."),
+    ]
+    for turn, signal, reason in signals:
+        store = relationship_file_runtime.apply_evidence(
+            store,
+            [{
+                "character_id": "tessa",
+                "reason": reason,
+                "dimensions": [{"label": "доверие к компетентности", "signal": signal}],
+            }],
+            cards=cards,
+            pov_id="rina",
+            turn_number=turn,
+            participant_ids=["tessa"],
+        )
+
+    relation = store["npc_to_pov"]["tessa"]
+    assert relation["dimensions"]["доверие к компетентности"]["value"] == 1
+    assert relation["dimensions"]["доверие к компетентности"]["last_change"]["delta"] == 1
+    assert relation["evidence"]["доверие к компетентности"]["score"] == 0.05
+    assert relationship_file_runtime.footer_rows(store, ["tessa"]) == {
+        "tessa": {"доверие к компетентности": 1}
+    }
+
+
+def test_opposite_evidence_cancels_without_deleting_relationship_shell():
+    cards = deepcopy(relationship_novel()["characters"])
+    cards.append({"character_id": "tessa", "name": "Тэсса"})
+    store = relationship_file_runtime.build_initial_store(
+        cards,
+        relationship_novel()["starting_state"],
+        "rina",
+    )
+
+    for turn, signal in ((1, 0.6), (2, -0.4), (3, -0.2)):
+        store = relationship_file_runtime.apply_evidence(
+            store,
+            [{
+                "character_id": "tessa",
+                "reason": f"Сигнал сцены {turn}.",
+                "dimensions": [{"label": "настороженность", "signal": signal}],
+            }],
+            cards=cards,
+            pov_id="rina",
+            turn_number=turn,
+            participant_ids=["tessa"],
+        )
+
+    relation = store["npc_to_pov"]["tessa"]
+    assert relation["tracking_started_turn"] == 1
+    assert relation["dimensions"] == {}
+    assert relation["evidence"] == {}
+
+
+def test_existing_dimension_uses_same_accumulator_and_keeps_fractional_remainder():
+    cards = relationship_novel()["characters"]
+    store = relationship_file_runtime.build_initial_store(
+        cards,
+        relationship_novel()["starting_state"],
+        "rina",
+    )
+
+    for turn, signal in ((1, 0.6), (2, 0.55)):
+        store = relationship_file_runtime.apply_evidence(
+            store,
+            [{
+                "character_id": "adrian",
+                "reason": "Последовательное подтверждение доверия.",
+                "dimensions": [{"label": "ревность", "signal": signal}],
+            }],
+            cards=cards,
+            pov_id="rina",
+            turn_number=turn,
+            participant_ids=["adrian"],
+        )
+
+    relation = store["npc_to_pov"]["adrian"]
+    assert relation["dimensions"]["ревность"]["value"] == 37
+    assert relation["evidence"]["ревность"]["score"] == 0.15
+
+
+def test_same_axis_cannot_be_direct_update_and_evidence_in_one_turn():
+    cards = relationship_novel()["characters"]
+    store = relationship_file_runtime.build_initial_store(
+        cards,
+        relationship_novel()["starting_state"],
+        "rina",
+    )
+    direct = [{
+        "character_id": "adrian",
+        "reason": "Сильный прямой сдвиг.",
+        "dimensions": [{"label": "ревность", "delta": 1}],
+    }]
+    changed = relationship_file_runtime.apply_updates(
+        store,
+        direct,
+        cards=cards,
+        pov_id="rina",
+        turn_number=1,
+        participant_ids=["adrian"],
+    )
+
+    with pytest.raises(ValueError, match="RELATIONSHIP_EVIDENCE_DIRECT_CONFLICT"):
+        relationship_file_runtime.apply_evidence(
+            changed,
+            [{
+                "character_id": "adrian",
+                "reason": "Тот же сигнал не должен учитываться дважды.",
+                "dimensions": [{"label": "ревность", "signal": 0.4}],
+            }],
+            cards=cards,
+            pov_id="rina",
+            turn_number=1,
+            participant_ids=["adrian"],
+            direct_updates=direct,
+        )
+
+
+def test_rebuild_from_turns_replays_relationship_evidence_accumulator():
+    source = relationship_novel()
+    cards = source["characters"]
+    turns = [
+        {
+            "turn_number": 1,
+            "extracted": {
+                "relationship_evidence": [{
+                    "character_id": "adrian",
+                    "reason": "Первый слабый сигнал.",
+                    "dimensions": [{"label": "доверие", "signal": 0.6}],
+                }]
+            },
+        },
+        {
+            "turn_number": 2,
+            "extracted": {
+                "relationship_evidence": [{
+                    "character_id": "adrian",
+                    "reason": "Второй слабый сигнал.",
+                    "dimensions": [{"label": "доверие", "signal": 0.6}],
+                }]
+            },
+        },
+    ]
+
+    rebuilt = relationship_file_runtime.rebuild_from_turns(source, cards, turns)
+    assert rebuilt["npc_to_pov"]["adrian"]["dimensions"]["доверие"]["value"] == 1
+    assert rebuilt["npc_to_pov"]["adrian"]["evidence"]["доверие"]["score"] == 0.2
+
+
+def test_commit_persists_fractional_evidence_and_next_turn_exposes_pending_score():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        novel = deepcopy(relationship_novel())
+        novel["characters"].append({"character_id": "tessa", "name": "Тэсса"})
+        novel["starting_state"]["current"]["present_characters"].append("tessa")
+        sid = storage.create_session(novel)["session_id"]
+
+        manifest = session_runtime.prepare_turn_packet(sid, "Поговорить с Тэссой.")
+        read_all_pending_chunks(sid, manifest)
+        session_runtime.commit_turn(
+            sid,
+            {
+                "packet_id": manifest["packet_id"],
+                "user_input": "Поговорить с Тэссой.",
+                "scene_output": "Тэсса наблюдает за POV и чуть меньше сомневается в его компетентности.",
+                "extracted": {
+                    "relationship_evidence": [{
+                        "character_id": "tessa",
+                        "reason": "POV последовательно выполнил обещание по безопасности.",
+                        "dimensions": [{"label": "настороженность", "signal": -0.45}],
+                    }]
+                },
+            },
+        )
+
+        store = read_relationships(sid)
+        assert store["npc_to_pov"]["tessa"]["dimensions"] == {}
+        assert store["npc_to_pov"]["tessa"]["evidence"]["настороженность"]["score"] == -0.45
+
+        context = read_context(sid)
+        row = next(
+            item for item in context["relationship_lens"]["relations_in_current_scene"]
+            if item["owner_character_id"] == "tessa"
+        )
+        assert row["tracked"] is True
+        assert row["pending_evidence"] == [{
+            "label": "настороженность",
+            "score": -0.45,
+            "last_turn": 1,
+        }]
+
