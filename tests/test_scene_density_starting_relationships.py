@@ -4,6 +4,7 @@ from copy import deepcopy
 from pathlib import Path
 
 import pytest
+from fastapi import HTTPException
 
 from app import relationship_file_runtime, session_runtime, simple_setup_runtime, storage
 from app.operation_service import commit_turn_request, prepare_turn_request
@@ -259,6 +260,118 @@ def test_relationship_rules_do_not_require_major_or_durable_event_for_plus_one()
     assert "не обнуляй маленький реальный сдвиг" in rules
     assert "Не жди крупного события" in instructions
     assert "±1 = небольшой реальный сдвиг" in instructions
+
+
+
+def test_api_turn_requires_explicit_relationship_review_for_participating_npc():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(relationship_novel())["session_id"]
+        manifest = prepare_turn_request(sid, "(посмотреть на Эдриана)", request_id="antifreeze-missing-review")
+        read_all_pending_chunks(sid, manifest)
+
+        with pytest.raises(HTTPException) as exc:
+            commit_turn_request(
+                sid,
+                {
+                    "packet_id": manifest["packet_id"],
+                    "user_input": "(посмотреть на Эдриана)",
+                    "scene_output": "Сцена продолжается.",
+                    "extracted": {
+                        "scene_builder_reviewed": True,
+                        "persistence_reviewed": True,
+                        "knowledge_reviewed": True,
+                        "relationship_updates": [],
+                    },
+                },
+            )
+        assert exc.value.detail["code"] == "RELATIONSHIP_REVIEW_REQUIRED"
+
+
+def test_changed_false_is_not_compatible_with_relationship_update():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(relationship_novel())["session_id"]
+        manifest = prepare_turn_request(sid, "Спасибо.", request_id="antifreeze-contradiction")
+        read_all_pending_chunks(sid, manifest)
+
+        with pytest.raises(HTTPException) as exc:
+            commit_turn_request(
+                sid,
+                {
+                    "packet_id": manifest["packet_id"],
+                    "user_input": "Спасибо.",
+                    "scene_output": "Эдриан чуть смягчился.",
+                    "extracted": {
+                        "scene_builder_reviewed": True,
+                        "persistence_reviewed": True,
+                        "knowledge_reviewed": True,
+                        "relationship_review": [
+                            {"character_id": "adrian", "changed": False, "reason": "Проверено: отношение не изменилось."}
+                        ],
+                        "relationship_updates": [
+                            {
+                                "character_id": "adrian",
+                                "reason": "Благодарность немного усилила близость.",
+                                "dimensions": [{"label": "близость", "delta": 1}],
+                            }
+                        ],
+                    },
+                },
+            )
+        assert exc.value.detail["code"] == "RELATIONSHIP_REVIEW_UNCHANGED_WITH_UPDATE"
+
+
+def test_dynamic_only_relationship_shift_persists_without_forcing_number_change():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(relationship_novel())["session_id"]
+        manifest = prepare_turn_request(
+            sid,
+            "Я всё-таки пришла, как обещала.",
+            request_id="antifreeze-dynamic-only",
+        )
+        read_all_pending_chunks(sid, manifest)
+
+        result = commit_turn_request(
+            sid,
+            {
+                "packet_id": manifest["packet_id"],
+                "user_input": "Я всё-таки пришла, как обещала.",
+                "scene_output": "Эдриан замечает, что обещание выполнено, и перестаёт ждать подвоха в этом разговоре.",
+                "extracted": {
+                    "scene_builder_reviewed": True,
+                    "persistence_reviewed": True,
+                    "knowledge_reviewed": True,
+                    "relationship_review": [
+                        {
+                            "character_id": "adrian",
+                            "changed": True,
+                            "reason": "Выполненное обещание изменило текущую динамику: он меньше ждёт подвоха.",
+                        }
+                    ],
+                    "relationship_updates": [
+                        {
+                            "character_id": "adrian",
+                            "reason": "Выполненное обещание изменило текущую динамику.",
+                            "dynamic": "После выполненного обещания меньше ждёт от Ринаты подвоха.",
+                        }
+                    ],
+                },
+            },
+        )
+        assert result["already_committed"] is False
+        store = read_relationships(sid)
+        assert store["npc_to_pov"]["adrian"]["dynamic"] == "После выполненного обещания меньше ждёт от Ринаты подвоха."
+        assert store["npc_to_pov"]["adrian"]["dimensions"]["близость"]["value"] == 72
+
+        next_context = read_context(sid)
+        row = next(
+            item for item in next_context["relationship_lens"]["relations_in_current_scene"]
+            if item["owner_character_id"] == "adrian"
+        )
+        assert "меньше ждёт" in row["dynamic"]
+
 
 def test_v5_setup_requires_structured_pre_story_npc_to_pov_relationship():
     template = relationship_novel()
