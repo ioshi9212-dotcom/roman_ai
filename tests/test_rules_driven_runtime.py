@@ -1,5 +1,6 @@
 import json
 import tempfile
+from copy import deepcopy
 
 import pytest
 from pathlib import Path
