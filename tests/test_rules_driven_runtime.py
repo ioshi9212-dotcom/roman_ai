@@ -113,10 +113,10 @@ def test_character_perception_and_scene_quality_stay_causal_without_pacing_modes
     assert "Не растягивай один и тот же beat на несколько ходов без развития." in builder
     assert "не повторять один поцелуй пять ходов" in builder
     assert "Не давай психологический, моральный или авторский анализ." in builder
-    assert "У сцены нет целевого объёма." in builder
+    assert "Объём основной сцены: 1800–3000 непробельных символов." in builder
     assert "иногда достаточно одного выразительного визуального beat на 1–3 предложения" in builder
     assert "сам по себе не считается полноценной визуализацией" in builder
-    assert "1800–3000" not in builder
+    assert "1800–3000" in builder
 
     assert "ROUTINE" not in builder
     assert "STANDARD" not in builder
