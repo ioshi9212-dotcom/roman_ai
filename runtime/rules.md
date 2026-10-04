@@ -486,7 +486,7 @@ A→B и B→A - разные записи и не зеркалятся авто
 - для каждой оси укажи `label`, signed `signal` от -3 до +3 и короткую конкретную `reason`;
 - дроби допустимы: +0.25, -0.4, +0.7 и т.п.;
 - противоположные сигналы естественно гасят друг друга;
-- первый evidence для NPC автоматически создаёт persistent relationship shell, даже если visible dimensions пока пусты;
+- после первого committed turn с этим NPC backend сам создаёт persistent relationship shell, даже если visible dimensions и evidence пока пусты;
 - backend складывает evidence; при переходе целого порога сам создаёт/двигает visible dimension на целую часть, а дробный остаток сохраняет;
 - если сцена вообще не дала relational signal, evidence не придумывай.
 
