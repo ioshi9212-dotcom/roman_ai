@@ -95,7 +95,7 @@ def _qualitative_relation(row: Dict[str, Any]) -> str:
 
 def _empty_store(pov_id: str) -> Dict[str, Any]:
     return {
-        "version": 1,
+        "version": 2,
         "pov_character_id": str(pov_id or ""),
         "npc_to_pov": {},
         "npc_to_npc": {},
@@ -117,6 +117,9 @@ def _profile_store(cards: List[Dict[str, Any]], pov_id: str) -> Dict[str, Any]:
                 continue
             if target_id == pov_id:
                 owner = npc_to_pov.setdefault(owner_id, {"dimensions": {}})
+                dynamic = " ".join(str(row.get("current_dynamic") or "").split())[:700]
+                if dynamic:
+                    owner["dynamic"] = dynamic
                 dimensions = owner.setdefault("dimensions", {})
                 if not isinstance(dimensions, dict):
                     dimensions = {}
@@ -141,7 +144,7 @@ def _profile_store(cards: List[Dict[str, Any]], pov_id: str) -> Dict[str, Any]:
                         "value": _number(value),
                         "last_change": _change(0, 0, _reason_from_relation(row)),
                     }
-                if not dimensions:
+                if not dimensions and not owner.get("dynamic"):
                     npc_to_pov.pop(owner_id, None)
             else:
                 text = _qualitative_relation(row)
@@ -170,6 +173,21 @@ def _legacy_reason(state: Dict[str, Any], owner_id: str, label: str) -> str:
     return "перенесено из существующей сессии"
 
 
+def _legacy_dynamic(state: Dict[str, Any], owner_id: str, pov_id: str) -> str:
+    docs = state.get("relationship_documents") if isinstance(state.get("relationship_documents"), dict) else {}
+    doc = docs.get(owner_id) if isinstance(docs.get(owner_id), dict) else {}
+    for relation in doc.get("relations", []) if isinstance(doc.get("relations"), list) else []:
+        if not isinstance(relation, dict):
+            continue
+        target = str(relation.get("target_character_id") or relation.get("target_id") or relation.get("target") or "")
+        if target and _norm(target) != _norm(pov_id):
+            continue
+        text = " ".join(str(relation.get("current_dynamic") or "").split())[:700]
+        if text:
+            return text
+    return ""
+
+
 def _migrate_legacy_state(store: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
     result = deepcopy(store)
     flat = state.get("relationships") if isinstance(state.get("relationships"), dict) else {}
@@ -188,8 +206,11 @@ def _migrate_legacy_state(store: Dict[str, Any], state: Dict[str, Any]) -> Dict[
             }
             if len(dimensions) >= MAX_DIMENSIONS_PER_NPC:
                 break
-        if dimensions:
+        dynamic = _legacy_dynamic(state, str(owner_id), str(result.get("pov_character_id") or ""))
+        if dimensions or dynamic:
             npc_to_pov[str(owner_id)] = {"dimensions": dimensions}
+            if dynamic:
+                npc_to_pov[str(owner_id)]["dynamic"] = dynamic
 
     legacy_npc = state.get("npc_relationships") if isinstance(state.get("npc_relationships"), dict) else {}
     npc_to_npc = result.setdefault("npc_to_npc", {})
@@ -237,8 +258,11 @@ def normalize_store(value: Any, pov_id: str = "") -> Dict[str, Any]:
                     str(last_change.get("reason") or ""),
                 ),
             }
-        if clean:
+        dynamic = " ".join(str(raw.get("dynamic") or "").split())[:700]
+        if clean or dynamic:
             result["npc_to_pov"][str(owner_id)] = {"dimensions": clean}
+            if dynamic:
+                result["npc_to_pov"][str(owner_id)]["dynamic"] = dynamic
 
     npc_to_npc = source.get("npc_to_npc") if isinstance(source.get("npc_to_npc"), dict) else {}
     for owner_id, targets in npc_to_npc.items():
@@ -390,7 +414,8 @@ def apply_updates(
             raise ValueError("RELATIONSHIP_CHANGE_SCALE_INVALID")
 
         incoming_dimensions = raw.get("dimensions") if isinstance(raw.get("dimensions"), list) else []
-        if not incoming_dimensions:
+        incoming_dynamic = " ".join(str(raw.get("dynamic") or "").split())[:700]
+        if not incoming_dimensions and not incoming_dynamic:
             raise ValueError("RELATIONSHIP_UPDATE_EMPTY")
 
         owner = npc_to_pov.setdefault(owner_id, {"dimensions": {}})
@@ -400,6 +425,10 @@ def apply_updates(
             owner["dimensions"] = dimensions
 
         changed_any = False
+        if incoming_dynamic and incoming_dynamic != str(owner.get("dynamic") or ""):
+            owner["dynamic"] = incoming_dynamic
+            changed_any = True
+
         seen: set[str] = set()
         for item in incoming_dimensions:
             if not isinstance(item, dict):
@@ -444,7 +473,7 @@ def apply_updates(
 
         if not changed_any:
             raise ValueError("RELATIONSHIP_UPDATE_EMPTY")
-        if not dimensions:
+        if not dimensions and not owner.get("dynamic"):
             npc_to_pov.pop(owner_id, None)
 
     return result
