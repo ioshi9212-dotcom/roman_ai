@@ -71,9 +71,10 @@ def test_static_custom_gpt_schema_has_exact_current_30_actions():
     assert "persistence_reviewed" in extracted["properties"]
     assert "knowledge_reviewed" in extracted["properties"]
     assert "relationship_reviewed" not in extracted["properties"]
-    assert "relationship_review" not in extracted["properties"]
+    assert "relationship_review" in extracted["properties"]
 
     relationship = schema["components"]["schemas"]["RelationshipUpdate"]
+    assert "dynamic" in relationship["properties"]
     assert relationship["properties"]["change_scale"]["enum"] == ["ordinary", "critical_event"]
     assert "elapsed_game_days" not in relationship["properties"]
 
@@ -157,6 +158,7 @@ def test_custom_gpt_instruction_matches_rules_driven_transport():
         "packet_id",
         "knowledge_reviewed=true",
         "relationships.json",
+        "relationship_review",
         "change_scale=critical_event",
     ):
         assert required in text
@@ -166,7 +168,6 @@ def test_custom_gpt_instruction_matches_rules_driven_transport():
         "complete_knowledge_read_capable",
         "relationship_review_capable",
         "relationship_reviewed=true",
-        "relationship_review",
         "runtime_contract_capable",
         "strict_knowledge_capable",
         "getSceneKnowledgeReadStatus",
