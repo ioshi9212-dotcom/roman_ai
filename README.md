@@ -72,3 +72,35 @@ The new chat calls `resumeSession` for that same id. The next `prepareTurn` relo
 ## Custom GPT
 
 Use `/openapi.json` as the Action schema and the current instructions in `gpt/custom_gpt_instructions.md`. Runtime contracts and final narrative guardrails are delivered inside the turn packets.
+
+## ChatGPT plugin / MCP
+
+The same service exposes Streamable HTTP MCP at `/mcp`, alongside the existing
+REST Actions. The 30 operations in `openapi.yaml` are the explicit tool allowlist;
+diagnostic and unbounded memory endpoints are not exported. Tools use the original
+operation IDs. Path/query arguments are named parameters; the JSON request body
+is passed as `body`. Both transports call the same typed handlers, validation,
+transactional storage and retry logic. No session migration is needed.
+
+After deploying this change to Amvera, connect the plugin using a root `mcp.json`:
+
+```json
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "roman-ai": {
+      "type": "streamable-http",
+      "url": "https://ai-roman-yumikofv.mia0.amvera.tech/mcp"
+    }
+  }
+}
+```
+
+This preserves the existing API's authentication model (no additional MCP login).
+The transport allows the Amvera hostname and local test hosts; add a new deployment
+hostname to the transport allowlist before moving it elsewhere. Existing startup
+migration hooks still run. MCP sessions are stateless; novel sessions stay durable
+in the existing data directory. Do not simulate failed calls or generate a scene
+when the required backend call has not succeeded.
+
+Transport tests: `python -m pytest tests/test_mcp_transport.py -q` (requires pytest).
