@@ -359,6 +359,9 @@ def test_new_public_packet_requires_scene_and_persistence_review_before_commit()
             commit_turn_request(sid, payload)
 
         payload["extracted"]["knowledge_reviewed"] = True
+        payload["extracted"]["relationship_review"] = [
+            {"character_id": "npc", "changed": False, "reason": "Проверено: сцена не изменила отношение."}
+        ]
         result = commit_turn_request(sid, payload)
         assert result["turn_number"] == 1
 
