@@ -197,7 +197,9 @@ def test_scene_builder_keeps_pov_visible_without_forcing_speech():
     assert "POV должен оставаться живым и наблюдаемым участником сцены" in builder
     assert "Это не означает обязательную речь" in builder
     assert "Диалог не должен превращаться в радиопьесу" in builder
-    assert "не закончена ли она раньше ближайшего реального выбора POV" in builder
+    assert "После user_input не обрывай естественное продолжение" in builder
+    assert "не придумывай лишний вопрос, новую тему или дополнительный обмен репликами" in builder
+    assert "1800–3000" not in builder
     assert "сцена не оборвана сразу после user_input" in instructions
     assert len(instructions) + 93 < 8000
 
