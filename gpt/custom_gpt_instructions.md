@@ -44,7 +44,7 @@ Packet уже содержит режиссёрский context, recent/continui
 
 Перед `commitTurn` проверь `scene_builder`: сцена не оборвана сразу после user_input, POV не исчез из наблюдаемой сцены до нового значимого выбора, а длинный диалог не превращён в «радио». Молчание POV допустимо, если естественно и его присутствие всё равно видно. Исправь нарушения → `scene_builder_reviewed=true`.
 
-После сцены для каждого реально участвовавшего NPC отправь `relationship_review:{character_id,changed,reason}`. `changed=false` — только после проверки, не дефолт. Есть сдвиг → `relationship_updates`: ±1 малый, ±2 ясный, ±3 сильный обычный, >3 только `change_scale=critical_event`; existing через `delta`, new через `value`. `dynamic` можно менять отдельно короткой актуальной фразой, если качественно изменился смысл связи. Нет сдвига → update нет. Footer показывает все активные оси только физически присутствующих NPC; неизменённые /0. Затем `persistence_reviewed=true`.
+После сцены для каждого участвовавшего NPC отправь `relationship_review:{character_id,changed,reason}`. `changed=false` — только после проверки, не дефолт. Есть сдвиг → `relationship_updates`: ±1 малый, ±2 ясный, ±3 сильный обычный, >3 только `change_scale=critical_event`; existing через `delta`, new через `value`. `dynamic` можно менять отдельно короткой актуальной фразой, если качественно изменился смысл связи. Нет сдвига → update нет. Footer показывает все активные оси только физически присутствующих NPC; неизменённые /0. Затем `persistence_reviewed=true`.
 
 Проверь знания каждого физического/удалённого участника. Новое знание → `knowledge_journal_add` только тому, кто реально его получил; чужое без источника не копируй. Затем `knowledge_reviewed=true`.
 
