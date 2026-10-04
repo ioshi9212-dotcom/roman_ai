@@ -375,8 +375,9 @@ def test_future_offscreen_intent_is_not_exposed_as_candidate_before_eligible_day
         storage._write_json(root / "state.json", state)
 
         _, context = read_packet(sid, "(налить чай)")
-        candidates = context["offscreen_intent_candidates"]["characters"]
-        assert not any(row["character_id"] == "ren" for row in candidates)
+        assert "offscreen_intent_candidates" not in context
+        row = next(item for item in context["cast_registry"]["characters"] if item["character_id"] == "ren")
+        assert row.get("active_intents") in (None, [])
 
         state = storage._read_json(root / "state.json", {})
         state["current"]["game_day"] = 5
@@ -384,5 +385,5 @@ def test_future_offscreen_intent_is_not_exposed_as_candidate_before_eligible_day
         (root / "turn_packet.json").unlink(missing_ok=True)
 
         _, context = read_packet(sid, "(налить чай)")
-        candidates = context["offscreen_intent_candidates"]["characters"]
-        assert any(row["character_id"] == "ren" for row in candidates)
+        row = next(item for item in context["cast_registry"]["characters"] if item["character_id"] == "ren")
+        assert "Вернуться к POV позже" in row["active_intents"]
