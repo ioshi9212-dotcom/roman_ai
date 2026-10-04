@@ -62,6 +62,7 @@ def _packet_manifest(packet: Dict[str, Any], *, reused: bool) -> Dict[str, Any]:
         "working_context": True,
         "writer_first": True,
         "writer_first_version": writer_first_runtime.WRITER_FIRST_VERSION,
+        "relationship_review_required": bool(packet.get("relationship_review_required")),
         "chunk_chars_max": writer_first_runtime.WRITER_PACKET_CHARS,
         "first_chunk_included": bool(chunks),
         "reused_pending_packet": reused,
@@ -637,6 +638,7 @@ def prepare_turn_packet(session_id: str, user_input: str) -> Dict[str, Any]:
         "chunk_count": 0,
         "read_chunks": [],
         "chunks": [],
+        "relationship_review_required": True,
     }
     base = {
         "packet_id": packet["packet_id"],
@@ -895,6 +897,93 @@ def _normalise_chronology_for_save(session_id: str, payload: Dict[str, Any]) -> 
     return result
 
 
+def _validate_relationship_review(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    root = storage.SESSIONS_DIR / session_id
+    packet = storage._read_json(root / "turn_packet.json", {})
+    result = deepcopy(payload)
+    extracted = result.get("extracted") if isinstance(result.get("extracted"), dict) else {}
+    extracted = deepcopy(extracted)
+
+    # Old pending packets created before this contract stay commit-compatible.
+    if not bool(packet.get("relationship_review_required")):
+        extracted.pop("relationship_review", None)
+        result["extracted"] = extracted
+        return result
+
+    source = storage._read_json(root / "source.json", {})
+    cards = storage._apply_character_upserts(storage._load_cards(root, source), extracted)
+    state = storage._read_json(root / "state.json", {})
+    patch = extracted.get("state_patch") if isinstance(extracted.get("state_patch"), dict) else {}
+    state_after = storage._deep_merge(state, patch)
+    participants = _relationship_scene_participants(
+        state,
+        state_after,
+        extracted,
+        cards=cards,
+        user_input=str(result.get("user_input") or ""),
+    )
+    participant_set = set(participants)
+
+    reviews = extracted.get("relationship_review") if isinstance(extracted.get("relationship_review"), list) else []
+    review_by_id: Dict[str, Dict[str, Any]] = {}
+    for raw in reviews:
+        if not isinstance(raw, dict):
+            continue
+        cid = session_runtime._resolve_character_id(cards, raw.get("character_id"))
+        cid = str(cid or "")
+        if not cid or cid not in participant_set or cid in review_by_id:
+            raise HTTPException(
+                status_code=409,
+                detail={"code": "RELATIONSHIP_REVIEW_INVALID", "message": "Review must contain each participating NPC exactly once."},
+            )
+        if not isinstance(raw.get("changed"), bool):
+            raise HTTPException(
+                status_code=409,
+                detail={"code": "RELATIONSHIP_REVIEW_INVALID", "message": "Relationship review changed must be boolean."},
+            )
+        reason = " ".join(str(raw.get("reason") or "").split())[:360]
+        if not reason:
+            raise HTTPException(
+                status_code=409,
+                detail={"code": "RELATIONSHIP_REVIEW_REASON_REQUIRED", "message": "Each relationship review needs a short current-scene reason."},
+            )
+        review_by_id[cid] = {"changed": bool(raw.get("changed")), "reason": reason}
+
+    missing = [cid for cid in participants if cid not in review_by_id]
+    if missing:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "RELATIONSHIP_REVIEW_REQUIRED", "character_ids": missing},
+        )
+
+    updates = extracted.get("relationship_updates") if isinstance(extracted.get("relationship_updates"), list) else []
+    update_ids = set()
+    for raw in updates:
+        if not isinstance(raw, dict):
+            continue
+        cid = session_runtime._resolve_character_id(cards, raw.get("character_id"))
+        if cid:
+            update_ids.add(str(cid))
+
+    for cid, review in review_by_id.items():
+        has_update = cid in update_ids
+        if review["changed"] and not has_update:
+            raise HTTPException(
+                status_code=409,
+                detail={"code": "RELATIONSHIP_REVIEW_CHANGED_WITHOUT_UPDATE", "character_id": cid},
+            )
+        if not review["changed"] and has_update:
+            raise HTTPException(
+                status_code=409,
+                detail={"code": "RELATIONSHIP_REVIEW_UNCHANGED_WITH_UPDATE", "character_id": cid},
+            )
+
+    # Review is a per-turn reasoning gate, not relationship canon.
+    extracted.pop("relationship_review", None)
+    result["extracted"] = extracted
+    return result
+
+
 def _disable_mandatory_audit_after_commit(session_id: str, result: Dict[str, Any]) -> Dict[str, Any]:
     root = storage.SESSIONS_DIR / session_id
     meta = storage._read_json(root / "meta.json", {})
@@ -918,6 +1007,7 @@ def commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         prepared,
         root=storage.SESSIONS_DIR / session_id,
     )
+    prepared = _validate_relationship_review(session_id, prepared)
     prepared = _apply_story_and_intent_updates(session_id, prepared)
     prepared = _apply_npc_relationship_updates(session_id, prepared)
     prepared = _apply_relationship_changes(session_id, prepared)
