@@ -285,11 +285,13 @@ def character_relation(store: Dict[str, Any], character_id: str) -> Dict[str, An
 def scene_snapshot(store: Dict[str, Any], participant_ids: Iterable[str]) -> Dict[str, Any]:
     result: Dict[str, Any] = {}
     npc_to_pov = store.get("npc_to_pov") if isinstance(store.get("npc_to_pov"), dict) else {}
+    pov_id = str(store.get("pov_character_id") or "")
     for character_id in participant_ids:
         cid = str(character_id)
+        if not cid or cid == pov_id:
+            continue
         row = npc_to_pov.get(cid)
-        if isinstance(row, dict):
-            result[cid] = deepcopy(row)
+        result[cid] = deepcopy(row) if isinstance(row, dict) else {"dimensions": {}}
     return result
 
 

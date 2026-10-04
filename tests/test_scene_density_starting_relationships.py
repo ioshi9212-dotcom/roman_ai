@@ -204,6 +204,62 @@ def test_scene_builder_keeps_pov_visible_without_forcing_speech():
     assert len(instructions) + 93 < 8000
 
 
+
+def test_new_scene_npc_without_starting_relationship_is_still_in_relationship_lens():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        template = relationship_novel()
+        template["characters"].append({
+            "character_id": "tessa",
+            "name": "Тэсса",
+        })
+        template["starting_state"]["current"]["present_characters"] = ["rina", "tessa"]
+        sid = storage.create_session(template)["session_id"]
+
+        context = read_context(sid)
+        row = next(
+            item for item in context["relationship_lens"]["relations_in_current_scene"]
+            if item["owner_character_id"] == "tessa"
+        )
+        assert row["dimensions"] == []
+        assert "крупное событие для первой оси не требуется" in context["relationship_lens"]["initialization_rule"]
+        assert "±1 = небольшой, но реальный сдвиг" in context["relationship_lens"]["small_shift_rule"]
+
+
+def test_small_everyday_shift_is_valid_without_critical_event():
+    cards = relationship_novel()["characters"]
+    store = relationship_file_runtime.build_initial_store(
+        cards,
+        relationship_novel()["starting_state"],
+        "rina",
+    )
+
+    changed = relationship_file_runtime.apply_updates(
+        store,
+        [{
+            "character_id": "adrian",
+            "reason": "Рината выполнила маленькое обещание, и Эдриан чуть меньше сомневается в ней.",
+            "dimensions": [{"label": "доверие", "value": 1}],
+        }],
+        cards=cards,
+        pov_id="rina",
+        turn_number=2,
+        participant_ids=["adrian"],
+    )
+
+    assert changed["npc_to_pov"]["adrian"]["dimensions"]["доверие"]["value"] == 1
+
+
+def test_relationship_rules_do_not_require_major_or_durable_event_for_plus_one():
+    rules = Path("runtime/rules.md").read_text(encoding="utf-8")
+    instructions = Path("gpt/custom_gpt_instructions.md").read_text(encoding="utf-8")
+
+    assert "±1 — небольшой, но заметный сдвиг" in rules
+    assert "Не требуй крупного, необратимого" in rules
+    assert "не обнуляй маленький реальный сдвиг" in rules
+    assert "Не жди крупного события" in instructions
+    assert "±1 = небольшой реальный сдвиг" in instructions
+
 def test_v5_setup_requires_structured_pre_story_npc_to_pov_relationship():
     template = relationship_novel()
     template["characters"][1]["relationships"] = "Эдриан давно влюблён в Ринату."
