@@ -135,22 +135,16 @@ def test_offscreen_active_intent_is_visible_before_character_is_pulled_into_scen
         _, context = read_packet(sid, "(налить чай)")
         assert "ren" not in context["relevant_character_ids"]
         assert "ren" not in context["npc_active_intents"]
-        candidates = context["offscreen_intent_candidates"]
-        assert candidates["director_only"] is True
-        candidate = next(
-            row for row in candidates["characters"]
-            if row["character_id"] == "ren"
-        )
-        assert candidate["has_active_intent"] is True
-        assert candidate["eligible_intent_count"] == 1
-        assert "summary" not in candidate
-        assert "planned_action" not in candidate
-        assert "come_back_to_talk" not in json.dumps(candidates, ensure_ascii=False)
+        assert "offscreen_intent_candidates" not in context
         assert context["scene_state"]["characters"]["ren"]["location"] == "home"
         assert context["scene_state"]["characters"]["ren"]["activity"] == "в соседней комнате"
         assert "working_context_contract" not in context
-        assert "offscreen_intent_candidates" in context["runtime_rules"]
-        assert any(row["character_id"] == "ren" for row in context["offscreen_intent_candidates"]["characters"])
+        registry_row = next(
+            row for row in context["cast_registry"]["characters"]
+            if row["character_id"] == "ren"
+        )
+        assert registry_row["active_intents"]
+        assert "Отсутствие active intent или thread НЕ означает" in context["runtime_rules"]
 
         # The owner still gets the full private intent once their dossier is loaded.
         bundle = get_character_bundle(sid, "ren")
