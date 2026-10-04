@@ -498,6 +498,157 @@ def test_small_delta_persists_only_in_relationships_file_and_is_visible_next_tur
         assert values["ревность"] == 37
 
 
+
+def _reviewed_turn_payload(manifest, user_input, review, updates=None):
+    return {
+        "packet_id": manifest["packet_id"],
+        "user_input": user_input,
+        "scene_output": "Сцена завершена.",
+        "extracted": {
+            "scene_builder_reviewed": True,
+            "persistence_reviewed": True,
+            "knowledge_reviewed": True,
+            "chronology": [],
+            "knowledge_journal_add": [],
+            "knowledge_add": [],
+            "experiences_add": [],
+            "dialogue_memory_add": [],
+            "npc_intent_updates": [],
+            "npc_relationship_updates": [],
+            "story_thread_updates": [],
+            "presence_updates": [],
+            "relationship_review": review,
+            "relationship_updates": updates or [],
+            "state_patch": {},
+            "character_upserts": [],
+        },
+    }
+
+
+def test_api_relationship_review_is_required_for_each_participating_npc():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(relationship_novel())["session_id"]
+        manifest = prepare_turn_request(sid, "(посмотреть на Эдриана)", request_id="antifreeze-review-required")
+        read_all_pending_chunks(sid, manifest)
+
+        with pytest.raises(HTTPException) as exc:
+            commit_turn_request(
+                sid,
+                _reviewed_turn_payload(manifest, "(посмотреть на Эдриана)", []),
+            )
+        assert exc.value.detail["code"] == "RELATIONSHIP_REVIEW_REQUIRED"
+        assert exc.value.detail["character_ids"] == ["adrian"]
+
+
+def test_relationship_review_changed_false_cannot_hide_a_real_update():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(relationship_novel())["session_id"]
+        manifest = prepare_turn_request(sid, "Спасибо, что приехал.", request_id="antifreeze-false-default")
+        read_all_pending_chunks(sid, manifest)
+
+        with pytest.raises(HTTPException) as exc:
+            commit_turn_request(
+                sid,
+                _reviewed_turn_payload(
+                    manifest,
+                    "Спасибо, что приехал.",
+                    [{
+                        "character_id": "adrian",
+                        "changed": False,
+                        "reason": "Отношение якобы не изменилось.",
+                    }],
+                    [{
+                        "character_id": "adrian",
+                        "reason": "Благодарность немного смягчила его.",
+                        "dimensions": [{"label": "близость", "delta": 1}],
+                    }],
+                ),
+            )
+        assert exc.value.detail["code"] == "RELATIONSHIP_REVIEW_UNCHANGED_WITH_UPDATE"
+
+
+def test_dynamic_only_shift_persists_and_is_visible_next_turn_without_numeric_jump():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(relationship_novel())["session_id"]
+        before = read_relationships(sid)
+        before_values = {
+            label: item["value"]
+            for label, item in before["npc_to_pov"]["adrian"]["dimensions"].items()
+        }
+
+        manifest = prepare_turn_request(sid, "Я всё-таки пришла.", request_id="antifreeze-dynamic-only")
+        read_all_pending_chunks(sid, manifest)
+        result = commit_turn_request(
+            sid,
+            _reviewed_turn_payload(
+                manifest,
+                "Я всё-таки пришла.",
+                [{
+                    "character_id": "adrian",
+                    "changed": True,
+                    "reason": "POV выполнила обещание, и Эдриан перестал ждать очередного отказа.",
+                }],
+                [{
+                    "character_id": "adrian",
+                    "dynamic": "Меньше ждёт отказа и осторожнее позволяет себе рассчитывать на POV.",
+                    "reason": "POV выполнила обещание прийти.",
+                }],
+            ),
+        )
+        assert result["already_committed"] is False
+
+        store = read_relationships(sid)
+        after_values = {
+            label: item["value"]
+            for label, item in store["npc_to_pov"]["adrian"]["dimensions"].items()
+        }
+        assert after_values == before_values
+        assert "Меньше ждёт отказа" in store["npc_to_pov"]["adrian"]["dynamic"]
+
+        next_context = read_context(sid)
+        row = next(
+            item for item in next_context["relationship_lens"]["relations_in_current_scene"]
+            if item["owner_character_id"] == "adrian"
+        )
+        assert "Меньше ждёт отказа" in row["dynamic"]
+
+        turns = storage._read_turns(storage.SESSIONS_DIR / sid)
+        assert "relationship_review" not in turns[-1]["extracted"]
+
+
+def test_dynamic_and_small_numeric_shift_can_commit_together():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(relationship_novel())["session_id"]
+        manifest = prepare_turn_request(sid, "Я тебе доверяю.", request_id="antifreeze-dynamic-numeric")
+        read_all_pending_chunks(sid, manifest)
+
+        commit_turn_request(
+            sid,
+            _reviewed_turn_payload(
+                manifest,
+                "Я тебе доверяю.",
+                [{
+                    "character_id": "adrian",
+                    "changed": True,
+                    "reason": "Прямое доверие POV слегка усилило близость.",
+                }],
+                [{
+                    "character_id": "adrian",
+                    "dynamic": "После прямого доверия POV чувствует себя с ней увереннее.",
+                    "reason": "POV прямо сказала, что доверяет ему.",
+                    "dimensions": [{"label": "близость", "delta": 1}],
+                }],
+            ),
+        )
+
+        store = read_relationships(sid)
+        assert store["npc_to_pov"]["adrian"]["dimensions"]["близость"]["value"] == 73
+        assert "увереннее" in store["npc_to_pov"]["adrian"]["dynamic"]
+
 def test_zero_removes_dimension_negative_values_work_and_ordinary_delta_is_bounded():
     cards = relationship_novel()["characters"]
     store = relationship_file_runtime.build_initial_store(
