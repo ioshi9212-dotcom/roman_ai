@@ -393,6 +393,28 @@ def apply_npc_updates(
     return result
 
 
+def ensure_shells(
+    store: Dict[str, Any],
+    participant_ids: Iterable[str],
+    *,
+    pov_id: str,
+    turn_number: int,
+) -> Dict[str, Any]:
+    """Start invisible tracking for NPCs who actually shared a committed turn with POV."""
+    result = deepcopy(store)
+    npc_to_pov = result.setdefault("npc_to_pov", {})
+    for raw_id in participant_ids:
+        character_id = str(raw_id or "").strip()
+        if not character_id or character_id == pov_id:
+            continue
+        npc_to_pov.setdefault(character_id, {
+            "dimensions": {},
+            "evidence": {},
+            "tracking_started_turn": int(turn_number),
+        })
+    return result
+
+
 def apply_updates(
     store: Dict[str, Any],
     updates: Any,
