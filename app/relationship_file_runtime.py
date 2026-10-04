@@ -206,7 +206,11 @@ def _migrate_legacy_state(store: Dict[str, Any], state: Dict[str, Any]) -> Dict[
             }
             if len(dimensions) >= MAX_DIMENSIONS_PER_NPC:
                 break
-        dynamic = _legacy_dynamic(state, str(owner_id), str(result.get("pov_character_id") or ""))
+        existing = npc_to_pov.get(str(owner_id)) if isinstance(npc_to_pov.get(str(owner_id)), dict) else {}
+        dynamic = (
+            _legacy_dynamic(state, str(owner_id), str(result.get("pov_character_id") or ""))
+            or " ".join(str(existing.get("dynamic") or "").split())[:700]
+        )
         if dimensions or dynamic:
             npc_to_pov[str(owner_id)] = {"dimensions": dimensions}
             if dynamic:
