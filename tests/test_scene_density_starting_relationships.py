@@ -258,8 +258,8 @@ def test_relationship_rules_do_not_require_major_or_durable_event_for_plus_one()
     assert "±1 — небольшой, но заметный сдвиг" in rules
     assert "Не требуй крупного, необратимого" in rules
     assert "не обнуляй маленький реальный сдвиг" in rules
-    assert "Не жди крупного события" in instructions
-    assert "±1 = небольшой реальный сдвиг" in instructions
+    assert "±1 малый" in instructions
+    assert "changed=false" in instructions
 
 
 
