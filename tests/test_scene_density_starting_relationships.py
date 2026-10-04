@@ -436,6 +436,44 @@ def test_untracked_participant_is_visible_in_relationship_lens_before_first_nume
         assert row["pending_evidence"] == []
 
 
+
+def test_first_committed_participation_creates_empty_relationship_shell_without_signal():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        novel = deepcopy(relationship_novel())
+        novel["characters"].append({"character_id": "tessa", "name": "Тэсса"})
+        novel["starting_state"]["current"]["present_characters"].append("tessa")
+        sid = storage.create_session(novel)["session_id"]
+
+        manifest = session_runtime.prepare_turn_packet(sid, "(молча остаться рядом)")
+        read_all_pending_chunks(sid, manifest)
+        session_runtime.commit_turn(
+            sid,
+            {
+                "packet_id": manifest["packet_id"],
+                "user_input": "(молча остаться рядом)",
+                "scene_output": "Тэсса остаётся рядом, но между ними пока ничего заметно не меняется.",
+                "extracted": {},
+            },
+        )
+
+        store = read_relationships(sid)
+        relation = store["npc_to_pov"]["tessa"]
+        assert relation["tracking_started_turn"] == 1
+        assert relation["dimensions"] == {}
+        assert relation["evidence"] == {}
+        assert relationship_file_runtime.footer_rows(store, ["tessa"]) == {}
+
+        context = read_context(sid)
+        row = next(
+            item for item in context["relationship_lens"]["relations_in_current_scene"]
+            if item["owner_character_id"] == "tessa"
+        )
+        assert row["tracked"] is True
+        assert row["dimensions"] == []
+        assert row["pending_evidence"] == []
+
+
 def test_first_fractional_evidence_creates_shell_without_fake_visible_dimension():
     cards = deepcopy(relationship_novel()["characters"])
     cards.append({"character_id": "tessa", "name": "Тэсса"})
