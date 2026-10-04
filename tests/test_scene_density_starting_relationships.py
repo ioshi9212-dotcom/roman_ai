@@ -461,6 +461,13 @@ def test_small_delta_persists_only_in_relationships_file_and_is_visible_next_tur
                     "npc_relationship_updates": [],
                     "story_thread_updates": [],
                     "presence_updates": [],
+                    "relationship_review": [
+                        {
+                            "character_id": "adrian",
+                            "changed": True,
+                            "reason": "Сцена немного усилила ревность.",
+                        }
+                    ],
                     "relationship_updates": [
                         {
                             "character_id": "adrian",
