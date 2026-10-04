@@ -56,7 +56,7 @@ Chronology не даёт личное знание автоматически: �
 
 Решение о появлении, инициативе и поведении offscreen-персонажей определяется только `runtime_rules`.
 
-Если зарегистрированный offscreen-персонаж выбран через cast registry / NPC↔NPC связи и реально начинает участвовать в сцене/звонке/переписке, до участия прочитай `prepareCharacterBundleRead` → остальные `getCharacterBundleChunk`. Готовый intent/thread не обязателен: обычная инициатива может естественно возникнуть из самого NPC. Intent из bundle принадлежит только его владельцу.
+Offscreen NPC можно выбрать через cast registry / NPC↔NPC связи без готового intent/thread: обычная инициатива может возникнуть из него самого. До реального участия прочитай `prepareCharacterBundleRead` → все `getCharacterBundleChunk`. Intent из bundle принадлежит только владельцу.
 
 ## POV-ввод
 
