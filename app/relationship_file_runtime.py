@@ -9,7 +9,10 @@ from . import storage
 
 FILE_NAME = "relationships.json"
 MAX_DIMENSIONS_PER_NPC = 10
+MAX_PENDING_EVIDENCE_PER_NPC = 10
 ORDINARY_DELTA_LIMIT = 3.0
+EVIDENCE_THRESHOLD = 1.0
+ORDINARY_EVIDENCE_LIMIT = 3.0
 
 
 def _norm(value: Any) -> str:
@@ -95,7 +98,7 @@ def _qualitative_relation(row: Dict[str, Any]) -> str:
 
 def _empty_store(pov_id: str) -> Dict[str, Any]:
     return {
-        "version": 1,
+        "version": 2,
         "pov_character_id": str(pov_id or ""),
         "npc_to_pov": {},
         "npc_to_npc": {},
@@ -116,7 +119,11 @@ def _profile_store(cards: List[Dict[str, Any]], pov_id: str) -> Dict[str, Any]:
             if not target_id or target_id == owner_id:
                 continue
             if target_id == pov_id:
-                owner = npc_to_pov.setdefault(owner_id, {"dimensions": {}})
+                owner = npc_to_pov.setdefault(owner_id, {
+                    "dimensions": {},
+                    "evidence": {},
+                    "tracking_started_turn": 0,
+                })
                 dimensions = owner.setdefault("dimensions", {})
                 if not isinstance(dimensions, dict):
                     dimensions = {}
@@ -141,8 +148,6 @@ def _profile_store(cards: List[Dict[str, Any]], pov_id: str) -> Dict[str, Any]:
                         "value": _number(value),
                         "last_change": _change(0, 0, _reason_from_relation(row)),
                     }
-                if not dimensions:
-                    npc_to_pov.pop(owner_id, None)
             else:
                 text = _qualitative_relation(row)
                 if text:
@@ -189,7 +194,11 @@ def _migrate_legacy_state(store: Dict[str, Any], state: Dict[str, Any]) -> Dict[
             if len(dimensions) >= MAX_DIMENSIONS_PER_NPC:
                 break
         if dimensions:
-            npc_to_pov[str(owner_id)] = {"dimensions": dimensions}
+            npc_to_pov[str(owner_id)] = {
+                "dimensions": dimensions,
+                "evidence": {},
+                "tracking_started_turn": 0,
+            }
 
     legacy_npc = state.get("npc_relationships") if isinstance(state.get("npc_relationships"), dict) else {}
     npc_to_npc = result.setdefault("npc_to_npc", {})
@@ -209,18 +218,20 @@ def normalize_store(value: Any, pov_id: str = "") -> Dict[str, Any]:
     source = value if isinstance(value, dict) else {}
     result = _empty_store(str(source.get("pov_character_id") or pov_id or ""))
     npc_to_pov = source.get("npc_to_pov") if isinstance(source.get("npc_to_pov"), dict) else {}
+
     for owner_id, raw in npc_to_pov.items():
         if not isinstance(raw, dict):
             continue
+
         dimensions = raw.get("dimensions") if isinstance(raw.get("dimensions"), dict) else {}
-        clean: Dict[str, Dict[str, Any]] = {}
+        clean_dimensions: Dict[str, Dict[str, Any]] = {}
         for label, item in dimensions.items():
-            if len(clean) >= MAX_DIMENSIONS_PER_NPC:
+            if len(clean_dimensions) >= MAX_DIMENSIONS_PER_NPC:
                 break
             if not isinstance(item, dict):
                 continue
-            value = item.get("value")
-            if not _is_number(value) or float(value) == 0.0:
+            value_num = item.get("value")
+            if not _is_number(value_num) or float(value_num) == 0.0:
                 continue
             last_change = item.get("last_change") if isinstance(item.get("last_change"), dict) else {}
             if not last_change:
@@ -229,24 +240,51 @@ def normalize_store(value: Any, pov_id: str = "") -> Dict[str, Any]:
                     "delta": item.get("last_delta", 0),
                     "reason": item.get("reason", ""),
                 }
-            clean[str(label)] = {
-                "value": _number(value),
+            clean_dimensions[str(label)] = {
+                "value": _number(value_num),
                 "last_change": _change(
                     int(last_change.get("turn", 0) or 0),
                     last_change.get("delta", 0),
                     str(last_change.get("reason") or ""),
                 ),
             }
-        if clean:
-            result["npc_to_pov"][str(owner_id)] = {"dimensions": clean}
+
+        raw_evidence = raw.get("evidence") if isinstance(raw.get("evidence"), dict) else {}
+        clean_evidence: Dict[str, Dict[str, Any]] = {}
+        for label, item in raw_evidence.items():
+            if len(clean_evidence) >= MAX_PENDING_EVIDENCE_PER_NPC:
+                break
+            if not isinstance(item, dict):
+                continue
+            score = item.get("score")
+            if not _is_number(score) or abs(float(score)) < 1e-9:
+                continue
+            canonical_label = next(
+                (name for name in clean_dimensions if _norm(name) == _norm(label)),
+                str(label),
+            )
+            clean_evidence[canonical_label] = {
+                "score": round(float(score), 6),
+                "last_turn": int(item.get("last_turn", 0) or 0),
+                "reason": " ".join(str(item.get("reason") or "").split())[:360],
+            }
+
+        shell_exists = "tracking_started_turn" in raw or bool(clean_dimensions) or bool(clean_evidence)
+        if not shell_exists:
+            continue
+        result["npc_to_pov"][str(owner_id)] = {
+            "dimensions": clean_dimensions,
+            "evidence": clean_evidence,
+            "tracking_started_turn": int(raw.get("tracking_started_turn", 0) or 0),
+        }
 
     npc_to_npc = source.get("npc_to_npc") if isinstance(source.get("npc_to_npc"), dict) else {}
     for owner_id, targets in npc_to_npc.items():
         if not isinstance(targets, dict):
             continue
         clean_targets: Dict[str, str] = {}
-        for target_id, text in targets.items():
-            value_text = " ".join(str(text or "").split())[:700]
+        for target_id, text_value in targets.items():
+            value_text = " ".join(str(text_value or "").split())[:700]
             if value_text:
                 clean_targets[str(target_id)] = value_text
         if clean_targets:
