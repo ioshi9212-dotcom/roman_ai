@@ -430,8 +430,9 @@ def test_pending_packet_uses_only_lightweight_relationship_review_marker_and_com
             },
         )
         assert result["turn_number"] == 1
-        turn = storage._read_json(storage.SESSIONS_DIR / sid / "turns" / "turn_0001.json", {})
-        assert "relationship_review" not in turn.get("extracted", {})
+        turns = storage._read_turns(storage.SESSIONS_DIR / sid)
+        assert len(turns) == 1
+        assert "relationship_review" not in turns[0].get("extracted", {})
 
 def test_explicit_chronology_participants_are_mirrored_into_personal_knowledge():
     with tempfile.TemporaryDirectory() as tmp:
