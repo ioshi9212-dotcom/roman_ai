@@ -638,7 +638,6 @@ def prepare_turn_packet(session_id: str, user_input: str) -> Dict[str, Any]:
         "chunk_count": 0,
         "read_chunks": [],
         "chunks": [],
-        "relationship_review_required": True,
     }
     base = {
         "packet_id": packet["packet_id"],
