@@ -265,14 +265,6 @@ def _cast_registry_rows(
             for label, item in relation_dims.items()
             if isinstance(item, dict) and item.get("value") not in (None, 0)
         }
-        initiative_cues = {
-            "work": compact(card.get("work") or card.get("occupation") or card.get("job"), 260),
-            "residence": compact(card.get("residence") or card.get("home"), 220),
-            "habits": compact(card.get("habits"), 320),
-            "routine": compact(card.get("routine") or card.get("daily_routine"), 320),
-        }
-        initiative_cues = {key: value for key, value in initiative_cues.items() if value not in (None, "", [], {})}
-
         row = {
             "character_id": cid,
             "name": raw.get("name") or storage._card_name(card) or cid,
@@ -285,7 +277,6 @@ def _cast_registry_rows(
             "present": cid in present,
             "remote": cid in remote,
             "goals": compact(goals),
-            "initiative_cues": initiative_cues or None,
             "pov_relationship": pov_relationship or None,
             "current_location": compact(info.get("location") or info.get("location_id"), 220),
             "current_zone": compact(info.get("zone") or info.get("zone_id"), 180),
@@ -533,7 +524,7 @@ def _prepare_context(
         "instruction": (
             "Перед сценой просмотри ВЕСЬ постоянный NPC-каст и npc_relationship_network. Это не очередь и не ротация. "
             "Отсутствие active_intent или active_thread НЕ запрещает инициативу зарегистрированного NPC. "
-            "Для каждого NPC оцени role/story_function, goals, initiative_cues, pov_relationship, current_location/current_activity, "
+            "Для каждого NPC оцени role/story_function, goals, pov_relationship, current_location/current_activity, "
             "pov_familiarity, npc_relation_refs, active_intents, active_threads, last_contact и реальные последствия. "
             "Обычная человеческая причина достаточна: написать, позвонить, зайти, пересечься по работе/месту, выполнить привычное действие, "
             "отреагировать на собственную связь, заботу, ревность, скуку, обязательство или план, если это естественно именно этому NPC. "
