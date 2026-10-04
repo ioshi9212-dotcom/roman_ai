@@ -850,6 +850,17 @@ def _prepare_draft_read(draft_id: str) -> Dict[str, Any]:
         result["working_draft"] = False
         result["intake_archived_in_draft_only"] = isinstance(draft.get("sections", {}).get("intake"), dict)
         return result
+    sections = deepcopy(draft.get("sections", {}))
+    # V5 reconciles verbatim RAW directly against fixed profiles. Legacy
+    # source_units are mechanically derived copies of that RAW and are not part
+    # of v5 mapping, so do not make GPT reread the same source text twice.
+    if int(draft.get("version", 1) or 1) >= 5:
+        intake = sections.get("intake") if isinstance(sections.get("intake"), dict) else None
+        if isinstance(intake, dict) and isinstance(intake.get("blocks"), list):
+            for block in intake["blocks"]:
+                if isinstance(block, dict):
+                    block.pop("source_units", None)
+                    block.pop("source_unit_count", None)
     snapshot = {
         "draft_id": draft.get("draft_id"),
         "novel_id": draft.get("novel_id"),
@@ -857,7 +868,7 @@ def _prepare_draft_read(draft_id: str) -> Dict[str, Any]:
         "version": draft.get("version", 1),
         "revision": int(draft.get("revision", 0) or 0),
         "finalized": False,
-        "sections": deepcopy(draft.get("sections", {})),
+        "sections": sections,
         "intake_coverage": _coverage(draft),
     }
     result = novel_drafts.prepare_template_read(
@@ -867,7 +878,7 @@ def _prepare_draft_read(draft_id: str) -> Dict[str, Any]:
         source_revision=int(draft.get("revision", 0) or 0),
     )
     result["working_draft"] = True
-    result["instruction"] = "Read every chunk in order. Finalization stays blocked until every chunk of the current draft revision is read. If this review finds any omission, save corrections and start a fresh full read of the new revision."
+    result["instruction"] = "Read every chunk in order from next_chunk_index. Finalization stays blocked until every chunk of the current draft revision is read. Reuse the same read_id while revision is unchanged. If review finds omissions, save all needed corrections, then start one fresh full read of the new revision."
     return result
 
 
