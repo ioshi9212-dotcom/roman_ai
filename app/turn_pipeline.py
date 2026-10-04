@@ -718,8 +718,6 @@ def _apply_relationship_changes(session_id: str, payload: Dict[str, Any]) -> Dic
     extracted = result.get("extracted") if isinstance(result.get("extracted"), dict) else {}
     updates = extracted.get("relationship_updates") if isinstance(extracted.get("relationship_updates"), list) else []
     evidence_rows = extracted.get("relationship_evidence") if isinstance(extracted.get("relationship_evidence"), list) else []
-    if not updates and not evidence_rows:
-        return result
 
     root = storage.SESSIONS_DIR / session_id
     source = storage._read_json(root / "source.json", {})
@@ -742,6 +740,12 @@ def _apply_relationship_changes(session_id: str, payload: Dict[str, Any]) -> Dic
     store = result.get("_relationships_after")
     if not isinstance(store, dict):
         store = relationship_file_runtime.load(root, cards=cards, state=state, pov_id=pov_id)
+    store = relationship_file_runtime.ensure_shells(
+        store,
+        participants,
+        pov_id=pov_id,
+        turn_number=turn_number,
+    )
 
     try:
         # Direct updates remain supported for immediate/critical changes.
