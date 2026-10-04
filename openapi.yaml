@@ -904,7 +904,7 @@ paths:
     post:
       operationId: prepareDraftRead
       summary: Prepare chunked reading of a working or finalized draft
-      description: Before finalize, reads the working draft with verbatim raw intake. For the same draft revision, repeated prepare calls resume the existing read_id and return next_chunk_index instead of restarting at chunk 0. A real correction creates a new revision and requires one fresh full read. After finalize, reads the normalized draft.
+      description: Before finalize, reads working draft + verbatim RAW. Same revision resumes the existing read_id at next_chunk_index instead of restarting. A real correction creates a new revision and requires one fresh full read. After finalize, reads the normalized draft.
       parameters:
         - {in: path, name: draft_id, required: true, schema: {type: string}}
       responses:
