@@ -270,6 +270,7 @@ def _cast_registry_rows(
             "remote": cid in remote,
             "goals": compact(goals),
             "pov_relationship": pov_relationship or None,
+            "pov_relationship_dynamic": compact(relation.get("dynamic"), 700) if isinstance(relation, dict) else None,
             "current_location": compact(info.get("location") or info.get("location_id"), 220),
             "current_zone": compact(info.get("zone") or info.get("zone_id"), 180),
             "current_activity": compact(info.get("activity"), 320),
@@ -522,7 +523,7 @@ def _prepare_context(
         "instruction": (
             "Перед сценой просмотри ВЕСЬ постоянный NPC-каст и npc_relationship_network. Это не очередь и не ротация. "
             "Отсутствие active_intent или active_thread НЕ запрещает инициативу зарегистрированного NPC. "
-            "Для каждого NPC оцени role/story_function, goals, pov_relationship, current_location/current_activity, "
+            "Для каждого NPC оцени role/story_function, goals, pov_relationship/pov_relationship_dynamic, current_location/current_activity, "
             "pov_familiarity, npc_relation_refs, active_intents, active_threads, last_contact и реальные последствия. "
             "Обычная человеческая причина достаточна: написать, позвонить, зайти, пересечься по работе/месту, выполнить привычное действие, "
             "отреагировать на собственную связь, заботу, ревность, скуку, обязательство или план, если это естественно именно этому NPC. "
