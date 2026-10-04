@@ -702,7 +702,7 @@ def _participation_bundle(session_id: str, character_id: str) -> Dict[str, Any]:
         },
         "instruction": (
             "Этот bundle полностью готов для участия offscreen-персонажа: own profile + own complete knowledge "
-            "+ relationship + current state. relationship берётся только из relationships.json. npc_relationships_director_only влияет на режиссуру поведения, но не является "
+            "+ relationship + current state. relationship берётся только из relationships.json: dimensions = установленное отношение; evidence = слабый накопительный сигнал, не готовая ось; пустой shell ничего не назначает. npc_relationships_director_only влияет на режиссуру поведения, но не является "
             "личным factual knowledge и не сообщает персонажу неизвестные факты о другом NPC. Используй только явно известные "
             "детали; не дополняй частичный факт скрытыми или вероятными подробностями. Отдельный knowledge-read не нужен."
         ),

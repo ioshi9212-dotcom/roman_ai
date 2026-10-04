@@ -21,6 +21,7 @@ def test_nullable_optional_commit_arrays_are_normalized_to_empty_lists():
             character_upserts=None,
             presence_updates=None,
             relationship_updates=None,
+            relationship_evidence=None,
         )
     )
 
@@ -28,6 +29,7 @@ def test_nullable_optional_commit_arrays_are_normalized_to_empty_lists():
     assert dumped["character_upserts"] == []
     assert dumped["presence_updates"] == []
     assert dumped["relationship_updates"] == []
+    assert dumped["relationship_evidence"] == []
 
 
 def test_omitted_optional_commit_arrays_are_also_empty_lists():

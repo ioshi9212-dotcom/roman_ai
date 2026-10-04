@@ -72,10 +72,16 @@ def test_static_custom_gpt_schema_has_exact_current_30_actions():
     assert "knowledge_reviewed" in extracted["properties"]
     assert "relationship_reviewed" not in extracted["properties"]
     assert "relationship_review" not in extracted["properties"]
+    assert "relationship_evidence" in extracted["properties"]
 
     relationship = schema["components"]["schemas"]["RelationshipUpdate"]
     assert relationship["properties"]["change_scale"]["enum"] == ["ordinary", "critical_event"]
     assert "elapsed_game_days" not in relationship["properties"]
+    evidence = schema["components"]["schemas"]["RelationshipEvidence"]
+    signal = schema["components"]["schemas"]["RelationshipEvidenceDimension"]["properties"]["signal"]
+    assert evidence["required"] == ["character_id", "dimensions", "reason"]
+    assert signal["minimum"] == -3
+    assert signal["maximum"] == 3
 
     knowledge_text = schema["components"]["schemas"]["KnowledgeJournalAdd"]["properties"]["text"]["description"]
     assert "minimum information actually received or learned" in knowledge_text
@@ -157,6 +163,8 @@ def test_custom_gpt_instruction_matches_rules_driven_transport():
         "packet_id",
         "knowledge_reviewed=true",
         "relationships.json",
+        "relationship_evidence",
+        "pending_evidence",
         "change_scale=critical_event",
     ):
         assert required in text

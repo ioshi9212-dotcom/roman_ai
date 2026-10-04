@@ -717,8 +717,7 @@ def _apply_relationship_changes(session_id: str, payload: Dict[str, Any]) -> Dic
     result = deepcopy(payload)
     extracted = result.get("extracted") if isinstance(result.get("extracted"), dict) else {}
     updates = extracted.get("relationship_updates") if isinstance(extracted.get("relationship_updates"), list) else []
-    if not updates:
-        return result
+    evidence_rows = extracted.get("relationship_evidence") if isinstance(extracted.get("relationship_evidence"), list) else []
 
     root = storage.SESSIONS_DIR / session_id
     source = storage._read_json(root / "source.json", {})
@@ -741,8 +740,16 @@ def _apply_relationship_changes(session_id: str, payload: Dict[str, Any]) -> Dic
     store = result.get("_relationships_after")
     if not isinstance(store, dict):
         store = relationship_file_runtime.load(root, cards=cards, state=state, pov_id=pov_id)
+    store = relationship_file_runtime.ensure_shells(
+        store,
+        participants,
+        pov_id=pov_id,
+        turn_number=turn_number,
+    )
 
     try:
+        # Direct updates remain supported for immediate/critical changes.
+        # Ordinary sub-point movement is accumulated separately below.
         store = relationship_file_runtime.apply_updates(
             store,
             updates,
@@ -751,10 +758,19 @@ def _apply_relationship_changes(session_id: str, payload: Dict[str, Any]) -> Dic
             turn_number=turn_number,
             participant_ids=participants,
         )
+        store = relationship_file_runtime.apply_evidence(
+            store,
+            evidence_rows,
+            cards=cards,
+            pov_id=pov_id,
+            turn_number=turn_number,
+            participant_ids=participants,
+            direct_updates=updates,
+        )
     except ValueError as exc:
         raise HTTPException(
             status_code=409,
-            detail={"code": str(exc), "message": "Invalid NPC-to-POV relationship update."},
+            detail={"code": str(exc), "message": "Invalid NPC-to-POV relationship persistence."},
         ) from exc
 
     result["_relationships_after"] = store
@@ -840,6 +856,7 @@ def _prepare_profile_persistence(session_id: str, payload: Dict[str, Any]) -> Di
     extracted.setdefault("npc_relationship_updates", [])
     extracted.setdefault("story_thread_updates", [])
     extracted.setdefault("relationship_updates", [])
+    extracted.setdefault("relationship_evidence", [])
     extracted.setdefault("character_upserts", [])
     extracted.setdefault("presence_updates", [])
     extracted.setdefault("state_patch", {})

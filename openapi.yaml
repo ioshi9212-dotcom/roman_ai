@@ -586,6 +586,34 @@ components:
           default: ordinary
           description: Use critical_event only for a genuinely major relationship event; ordinary is limited to +/-3 per changed dimension.
       additionalProperties: false
+
+    RelationshipEvidenceDimension:
+      type: object
+      required: [label, signal]
+      properties:
+        label:
+          type: string
+        signal:
+          type: number
+          minimum: -3
+          maximum: 3
+          description: Signed relational evidence from this scene. Fractional values accumulate; zero is invalid.
+      additionalProperties: false
+
+    RelationshipEvidence:
+      type: object
+      required: [character_id, dimensions, reason]
+      properties:
+        character_id:
+          type: string
+        dimensions:
+          type: array
+          items:
+            $ref: '#/components/schemas/RelationshipEvidenceDimension'
+        reason:
+          type: string
+          description: Short concrete current-scene reason for these signals.
+      additionalProperties: false
     NPCRelationshipUpdate:
       type: object
       required: [owner_character_id, target_character_id, description]
@@ -737,6 +765,11 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/RelationshipUpdate'
+        relationship_evidence:
+          type: array
+          description: Sub-point or ordinary NPC→POV signals. Backend accumulates fractional evidence and promotes whole points into visible dimensions.
+          items:
+            $ref: '#/components/schemas/RelationshipEvidence'
         state_patch:
           $ref: '#/components/schemas/StatePatch'
         character_upserts:
