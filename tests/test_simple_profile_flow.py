@@ -107,6 +107,62 @@ def _build_simple_draft() -> str:
     return draft_id
 
 
+
+def test_identical_v5_section_resave_does_not_invalidate_completed_full_read():
+    with tempfile.TemporaryDirectory() as tmp:
+        _setup(tmp)
+        draft_id = _build_simple_draft()
+
+        before = novel_drafts.draft_status(draft_id)
+        assert before["intake_coverage"]["full_read_current"] is True
+        assert before["reconciliation_current"] is True
+        revision = before["revision"]
+
+        raw = novel_drafts._read(draft_id)
+        characters = raw["sections"]["characters"]
+        result = novel_drafts.save_section(
+            draft_id,
+            "characters",
+            json.dumps(characters, ensure_ascii=False),
+            expected_revision=revision,
+        )
+
+        after = novel_drafts.draft_status(draft_id)
+        assert result["section_changed"] is False
+        assert result["idempotent_replay"] is True
+        assert result["draft_revision"] == revision
+        assert after["revision"] == revision
+        assert after["intake_coverage"]["full_read_current"] is True
+        assert after["reconciliation_current"] is True
+        assert after["ready_to_finalize"] is True
+
+
+def test_actual_v5_section_change_still_invalidates_full_read_and_reconciliation():
+    with tempfile.TemporaryDirectory() as tmp:
+        _setup(tmp)
+        draft_id = _build_simple_draft()
+
+        before = novel_drafts.draft_status(draft_id)
+        revision = before["revision"]
+        raw = novel_drafts._read(draft_id)
+        characters = raw["sections"]["characters"]
+        characters[1]["notes"] = "Новая реально добавленная деталь."
+
+        result = novel_drafts.save_section(
+            draft_id,
+            "characters",
+            json.dumps(characters, ensure_ascii=False),
+            expected_revision=revision,
+        )
+
+        after = novel_drafts.draft_status(draft_id)
+        assert result["section_changed"] is True
+        assert result["idempotent_replay"] is False
+        assert after["revision"] == revision + 1
+        assert after["intake_coverage"]["full_read_current"] is False
+        assert after["reconciliation_current"] is False
+        assert after["finalize_blocker"] == "INTAKE_FINAL_READ_REQUIRED"
+
 def test_v5_setup_uses_fixed_profiles_without_foundation_or_initial_knowledge():
     with tempfile.TemporaryDirectory() as tmp:
         _setup(tmp)

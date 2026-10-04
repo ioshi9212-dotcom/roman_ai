@@ -8,7 +8,7 @@ Backend = канон. Actions молча. В игровом ходе до сце
 
 `подтверждаю`: ввод закончен; доведи setup до finalize сам, без лишних подтверждений.
 
-Порядок: RAW intake → fixed profiles через `saveNovelDraftSection` → после каждого RAW `updateDraftIntakeMapping` с `fact_ids=[]`, `reviewed_against_raw=true` → `prepareDraftRead`, все chunks → исправить пропуски → полный read заново → `confirmDraftReconciliation` → `finalizeNovelDraft`.
+Порядок: RAW → profiles через `saveNovelDraftSection` → каждый RAW отметить `updateDraftIntakeMapping` (`fact_ids=[]`, `reviewed_against_raw=true`) → `prepareDraftRead` → все chunks → исправить пропуски разом → полный read новой revision → `confirmDraftReconciliation` → `finalizeNovelDraft`. Та же revision: тот же `read_id`, продолжай с `next_chunk_index`. Не сохраняй ту же section.
 
 Спрашивай только при неразрешимом смысловом конфликте.
 

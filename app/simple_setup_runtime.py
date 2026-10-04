@@ -233,12 +233,35 @@ def _save_section(
 
     raw = novel_drafts._parse_one_json(section_json)
     normalized = _normalise_simple_section(draft, section_name, raw)
-    return _ORIGINAL_SAVE_SECTION(
+
+    # Idempotent v5 writes must not create a new draft revision. During
+    # reconciliation GPT may resend an already-correct normalized section; that
+    # is not a content change and must not invalidate the completed full read.
+    sections = draft.get("sections") if isinstance(draft.get("sections"), dict) else {}
+    existing = sections.get(section_name.strip())
+    current_revision = int(draft.get("revision", 0) or 0)
+    if expected_revision is not None and int(expected_revision) != current_revision:
+        raise ValueError("DRAFT_SECTION_REVISION_MISMATCH")
+    if existing == normalized:
+        result = dict(_draft_status(draft_id))
+        result.update({
+            "section_name": section_name.strip(),
+            "section_changed": False,
+            "idempotent_replay": True,
+            "draft_revision": current_revision,
+        })
+        return result
+
+    result = dict(_ORIGINAL_SAVE_SECTION(
         draft_id,
         section_name,
         json.dumps(normalized, ensure_ascii=False),
         expected_revision=expected_revision,
-    )
+    ))
+    result["section_name"] = section_name.strip()
+    result["section_changed"] = True
+    result["idempotent_replay"] = False
+    return result
 
 
 def _ensure_core_cast(novel: Dict[str, Any], characters: List[Dict[str, Any]]) -> Dict[str, Any]:

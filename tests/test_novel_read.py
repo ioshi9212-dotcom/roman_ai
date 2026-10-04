@@ -2,7 +2,7 @@ import json
 import tempfile
 from pathlib import Path
 
-from app import storage
+from app import draft_intake_runtime, storage
 from app.novel_access import get_novel_read_chunk, prepare_novel_read, verify_novel
 from app.novel_drafts import create_draft, finalize_draft, prepare_draft_read, save_section
 
@@ -79,3 +79,60 @@ def test_finalize_keeps_large_draft_out_of_library_and_allows_chunked_verificati
             text += chunk["content"]
         reconstructed = json.loads(text)
         assert reconstructed["lore"]["big"] == "y" * 30000
+
+def test_working_draft_prepare_resumes_same_revision_from_first_unread_chunk():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        draft_id = create_draft("resume_read", "Resume read", version=5)["draft_id"]
+        raw = ("Большой RAW блок с деталями персонажа и мира. " * 500)
+        pieces = [raw[i:i + 5500] for i in range(0, len(raw), 5500)]
+        for index, piece in enumerate(pieces):
+            draft_intake_runtime.append_intake_chunk(
+                draft_id,
+                block_id="raw_setup",
+                stage="setup",
+                chunk_index=index,
+                raw_text=piece,
+                is_last=index == len(pieces) - 1,
+            )
+
+        first = prepare_draft_read(draft_id)
+        assert first["chunk_count"] > 2
+        assert first["next_chunk_index"] == 0
+        get_novel_read_chunk(first["read_id"], 0)
+        get_novel_read_chunk(first["read_id"], 1)
+
+        resumed = prepare_draft_read(draft_id)
+        assert resumed["read_id"] == first["read_id"]
+        assert resumed["resumed_read"] is True
+        assert resumed["read_chunk_count"] == 2
+        assert resumed["next_chunk_index"] == 2
+
+
+def test_v5_working_read_does_not_duplicate_raw_as_source_units():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        draft_id = create_draft("v5_raw_once", "V5 raw once", version=5)["draft_id"]
+        raw = "Рина работает в архиве. Она боится воды. У неё зелёные глаза."
+        draft_intake_runtime.append_intake_chunk(
+            draft_id,
+            block_id="raw_setup",
+            stage="setup",
+            chunk_index=0,
+            raw_text=raw,
+            is_last=True,
+        )
+
+        manifest = prepare_draft_read(draft_id)
+        parts = []
+        index = manifest["next_chunk_index"]
+        while index is not None:
+            row = get_novel_read_chunk(manifest["read_id"], index)
+            parts.append(row["content"])
+            index = row["next_chunk_index"]
+        payload = json.loads("".join(parts))
+        block = payload["sections"]["intake"]["blocks"][0]
+        assert block["raw_text"] == raw
+        assert "source_units" not in block
+        assert "source_unit_count" not in block
+
