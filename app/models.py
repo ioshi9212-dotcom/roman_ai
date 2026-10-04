@@ -103,6 +103,17 @@ class RelationshipUpdate(BaseModel):
     change_scale: Optional[str] = None
 
 
+class RelationshipEvidenceDimension(BaseModel):
+    label: str
+    signal: float = Field(ge=-3.0, le=3.0)
+
+
+class RelationshipEvidence(BaseModel):
+    character_id: str
+    dimensions: List[RelationshipEvidenceDimension] = Field(default_factory=list)
+    reason: str
+
+
 class NPCRelationshipUpdate(BaseModel):
     owner_character_id: str
     target_character_id: str
@@ -161,12 +172,14 @@ class TurnExtracted(BaseModel):
     scene_progressed: Optional[bool] = None
     presence_updates: Optional[List[Dict[str, Any]]] = Field(default_factory=list)
     relationship_updates: Optional[List[RelationshipUpdate]] = Field(default_factory=list)
+    relationship_evidence: Optional[List[RelationshipEvidence]] = Field(default_factory=list)
     state_patch: Dict[str, Any] = Field(default_factory=dict)
     character_upserts: Optional[List[Dict[str, Any]]] = Field(default_factory=list)
 
     @field_validator(
         "presence_updates",
         "relationship_updates",
+        "relationship_evidence",
         "character_upserts",
         "knowledge_journal_add",
         "npc_relationship_updates",
