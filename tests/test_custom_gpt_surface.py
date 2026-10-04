@@ -71,7 +71,7 @@ def test_static_custom_gpt_schema_has_exact_current_30_actions():
     assert "persistence_reviewed" in extracted["properties"]
     assert "knowledge_reviewed" in extracted["properties"]
     assert "relationship_reviewed" not in extracted["properties"]
-    assert "relationship_review" not in extracted["properties"]
+    assert "relationship_review" in extracted["properties"]
 
     relationship = schema["components"]["schemas"]["RelationshipUpdate"]
     assert relationship["properties"]["change_scale"]["enum"] == ["ordinary", "critical_event"]
