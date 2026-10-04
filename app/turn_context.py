@@ -338,28 +338,53 @@ def inject_required_turn_context(context: Dict[str, Any], cards: List[Dict[str, 
         state,
         str((state.get("pov") or {}).get("character_id") or ""),
     )
+    raw_scene_ids = storage._scene_participant_ids(state)
     scene_relationships = relationship_file_runtime.scene_snapshot(
         relationship_store,
-        storage._scene_participant_ids(state),
+        raw_scene_ids,
     )
+    pov_id = str((state.get("pov") or {}).get("character_id") or "")
+    relationship_ids: List[str] = []
+    for raw_id in raw_scene_ids:
+        cid = str(_resolve_character_id(cards, raw_id) or raw_id or "")
+        if cid and cid != pov_id and cid not in relationship_ids:
+            relationship_ids.append(cid)
+
     context["relationship_lens"] = {
         "source": relationship_file_runtime.FILE_NAME,
         "direction": "NPC -> POV only",
         "relations_in_current_scene": [
             {
                 "owner_character_id": character_id,
+                "tracked": character_id in scene_relationships,
                 "dimensions": [
                     {
                         "label": label,
                         "value": item.get("value"),
                         "last_change": deepcopy(item.get("last_change", {})),
                     }
-                    for label, item in row.get("dimensions", {}).items()
+                    for label, item in (
+                        scene_relationships.get(character_id, {}).get("dimensions", {})
+                        if isinstance(scene_relationships.get(character_id), dict)
+                        else {}
+                    ).items()
+                    if isinstance(item, dict)
+                ],
+                "pending_evidence": [
+                    {
+                        "label": label,
+                        "score": item.get("score"),
+                        "last_turn": item.get("last_turn"),
+                    }
+                    for label, item in (
+                        scene_relationships.get(character_id, {}).get("evidence", {})
+                        if isinstance(scene_relationships.get(character_id), dict)
+                        else {}
+                    ).items()
                     if isinstance(item, dict)
                 ],
             }
-            for character_id, row in scene_relationships.items()
-            if isinstance(row, dict)
+            for character_id in relationship_ids
         ],
         "rule": (
             "Единственный канон числовых NPC→POV отношений — relationships.json. "
