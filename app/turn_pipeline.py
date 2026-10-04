@@ -154,6 +154,7 @@ def _cast_registry_rows(
     source: Dict[str, Any],
     current_turn: int,
     npc_network: Dict[str, Any],
+    relationship_store: Dict[str, Any],
 ) -> List[Dict[str, Any]]:
     source_ids = {
         storage._card_id(card)
@@ -188,24 +189,15 @@ def _cast_registry_rows(
         return text[:limit] if text else None
 
     def active_intents(character_id: str) -> List[str]:
-        store = state.get("npc_intents")
-        rows: Any = []
-        if isinstance(store, dict):
-            rows = store.get(character_id, [])
-        elif isinstance(store, list):
-            rows = [
-                row for row in store
-                if isinstance(row, dict)
-                and str(row.get("character_id") or row.get("owner_character_id") or "") == character_id
-            ]
-        if isinstance(rows, dict):
-            rows = list(rows.values())
+        scoped = npc_intent.active_intents_for(
+            state,
+            [character_id],
+            current_turn=current_turn,
+        )
+        rows = scoped.get(character_id, []) if isinstance(scoped, dict) else []
         result: List[str] = []
         for row in rows if isinstance(rows, list) else []:
-            if not isinstance(row, dict):
-                continue
-            status = str(row.get("status") or "active").casefold()
-            if status in {"resolved", "closed", "done", "abandoned", "cancelled", "canceled"}:
+            if not isinstance(row, dict) or row.get("eligible_now") is not True:
                 continue
             text = (
                 row.get("summary")
@@ -257,6 +249,13 @@ def _cast_registry_rows(
             or card.get("story_function")
             or (goals.get("story_function") if isinstance(goals, dict) else None)
         )
+        relation = relationship_file_runtime.character_relation(relationship_store, cid)
+        relation_dims = relation.get("dimensions") if isinstance(relation, dict) and isinstance(relation.get("dimensions"), dict) else {}
+        pov_relationship = {
+            str(label): item.get("value")
+            for label, item in relation_dims.items()
+            if isinstance(item, dict) and item.get("value") not in (None, 0)
+        }
         row = {
             "character_id": cid,
             "name": raw.get("name") or storage._card_name(card) or cid,
@@ -269,6 +268,7 @@ def _cast_registry_rows(
             "present": cid in present,
             "remote": cid in remote,
             "goals": compact(goals),
+            "pov_relationship": pov_relationship or None,
             "current_location": compact(info.get("location") or info.get("location_id"), 220),
             "current_zone": compact(info.get("zone") or info.get("zone_id"), 180),
             "current_activity": compact(info.get("activity"), 320),
@@ -276,6 +276,9 @@ def _cast_registry_rows(
             "npc_relation_refs": npc_relationship_runtime.relation_refs_for_character(npc_network, cid),
             "active_intents": active_intents(cid),
             "active_threads": active_threads(cid),
+            "last_contact_turn": raw.get("last_contact_turn"),
+            "last_contact_game_day": raw.get("last_contact_game_day"),
+            "last_contact_mode": raw.get("last_contact_mode"),
             "last_meaningful_event": raw.get("last_meaningful_event"),
         }
         rows.append({
@@ -511,16 +514,22 @@ def _prepare_context(
         },
         "instruction": (
             "Перед сценой просмотри ВЕСЬ постоянный NPC-каст и npc_relationship_network. Это не очередь и не ротация. "
-            "Давность, число появлений и то, что персонажа давно не было, сами по себе никогда не являются причиной вывести его в сцену. "
-            "Для каждого NPC оцени role/story_function, goals, current_location/current_activity, pov_familiarity, "
-            "npc_relation_refs, active_intents, active_threads и реальные последствия; "
-            "полный текст NPC↔NPC связей читай один раз из npc_relationship_network. "
-            "Если собственная линия NPC или его связь с другим NPC создаёт причинный путь к текущей/ближайшей сцене, мир сам подводит пересечение. "
-            "POV не обязан искать, звать или вспоминать персонажа. Если причины нет, не вставляй NPC ради камео."
+            "Отсутствие active_intent или active_thread НЕ запрещает инициативу зарегистрированного NPC. "
+            "Для каждого NPC оцени role/story_function, goals, pov_relationship, current_location/current_activity, "
+            "pov_familiarity, npc_relation_refs, active_intents, active_threads, last_contact и реальные последствия. "
+            "Обычная человеческая причина достаточна: написать, позвонить, зайти, пересечься по работе/месту, выполнить привычное действие, "
+            "отреагировать на собственную связь, заботу, ревность, скуку, обязательство или план, если это естественно именно этому NPC. "
+            "Давность контакта сама по себе не причина и не таймер, но может усиливать правдоподобие инициативы, если связь/характер это поддерживают. "
+            "Перед реальным участием offscreen NPC обязательно загрузи его full bundle; после возникшей инициативы сохраняй npc_intent_update только если намерение продолжается дальше. "
+            "POV не обязан искать, звать или вспоминать персонажа. Не вставляй NPC только ради камео."
         ),
-        "characters": _cast_registry_rows(state, cards, source, current_turn, npc_network),
+        "characters": _cast_registry_rows(state, cards, source, current_turn, npc_network, relationship_store),
     }
     context["npc_relationship_network"] = npc_network
+    # Legacy intent-only candidate list falsely implied that offscreen NPCs
+    # without a pre-existing intent were ineligible to act. The complete
+    # cast_registry is now the single offscreen review surface.
+    context.pop("offscreen_intent_candidates", None)
 
     scene_presence = {
         "present_character_ids": [str(value) for value in storage._present_character_ids(state) if value],
