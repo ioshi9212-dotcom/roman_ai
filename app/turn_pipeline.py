@@ -189,24 +189,15 @@ def _cast_registry_rows(
         return text[:limit] if text else None
 
     def active_intents(character_id: str) -> List[str]:
-        store = state.get("npc_intents")
-        rows: Any = []
-        if isinstance(store, dict):
-            rows = store.get(character_id, [])
-        elif isinstance(store, list):
-            rows = [
-                row for row in store
-                if isinstance(row, dict)
-                and str(row.get("character_id") or row.get("owner_character_id") or "") == character_id
-            ]
-        if isinstance(rows, dict):
-            rows = list(rows.values())
+        scoped = npc_intent.active_intents_for(
+            state,
+            [character_id],
+            current_turn=current_turn,
+        )
+        rows = scoped.get(character_id, []) if isinstance(scoped, dict) else []
         result: List[str] = []
         for row in rows if isinstance(rows, list) else []:
-            if not isinstance(row, dict):
-                continue
-            status = str(row.get("status") or "active").casefold()
-            if status in {"resolved", "closed", "done", "abandoned", "cancelled", "canceled"}:
+            if not isinstance(row, dict) or row.get("eligible_now") is not True:
                 continue
             text = (
                 row.get("summary")
