@@ -172,7 +172,8 @@ def _strict_scene_parts(scene_output: str) -> Dict[str, Any]:
         raise RuntimeContractError("SCENE_BUILDER_OPTIONS_INVALID")
 
     main_scene = "\n".join(lines[divider + 1:action_i]).strip()
-    if not 2000 <= len(main_scene) <= 3000:
+    main_scene_length = len(re.sub(r"\s+", "", main_scene))
+    if not 1800 <= main_scene_length <= 3000:
         raise RuntimeContractError("SCENE_BUILDER_MAIN_LENGTH_INVALID")
 
     state_rows = [index for index, line in enumerate(lines) if line.strip().startswith("Состояние:")]
