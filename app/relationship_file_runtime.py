@@ -408,6 +408,7 @@ def apply_updates(
     result = deepcopy(store)
     npc_to_pov = result.setdefault("npc_to_pov", {})
     participants = {str(value) for value in participant_ids if value}
+    seen_by_owner: Dict[str, set[str]] = {}
 
     for raw in updates:
         if not isinstance(raw, dict):
@@ -429,22 +430,33 @@ def apply_updates(
         if not incoming_dimensions:
             raise ValueError("RELATIONSHIP_UPDATE_EMPTY")
 
-        owner = npc_to_pov.setdefault(owner_id, {"dimensions": {}})
+        owner = npc_to_pov.setdefault(owner_id, {
+            "dimensions": {},
+            "evidence": {},
+            "tracking_started_turn": turn_number,
+        })
+        owner.setdefault("tracking_started_turn", turn_number)
         dimensions = owner.setdefault("dimensions", {})
         if not isinstance(dimensions, dict):
             dimensions = {}
             owner["dimensions"] = dimensions
+        evidence = owner.setdefault("evidence", {})
+        if not isinstance(evidence, dict):
+            evidence = {}
+            owner["evidence"] = evidence
 
         changed_any = False
-        seen: set[str] = set()
+        owner_seen = seen_by_owner.setdefault(owner_id, set())
         for item in incoming_dimensions:
             if not isinstance(item, dict):
                 continue
             label = " ".join(str(item.get("label") or "").split())
             key = _norm(label)
-            if not label or not key or key in seen:
+            if not label or not key:
                 raise ValueError("RELATIONSHIP_DIMENSION_INVALID")
-            seen.add(key)
+            if key in owner_seen:
+                raise ValueError("RELATIONSHIP_DIMENSION_DUPLICATE")
+            owner_seen.add(key)
 
             existing_label = next((name for name in dimensions if _norm(name) == key), None)
             if existing_label is not None:
@@ -456,12 +468,11 @@ def apply_updates(
                 new_value = float(dimensions[existing_label]["value"]) + float(delta)
                 if new_value == 0.0:
                     dimensions.pop(existing_label, None)
-                    changed_any = True
-                    continue
-                dimensions[existing_label] = {
-                    "value": _number(new_value),
-                    "last_change": _change(turn_number, delta, reason),
-                }
+                else:
+                    dimensions[existing_label] = {
+                        "value": _number(new_value),
+                        "last_change": _change(turn_number, delta, reason),
+                    }
                 changed_any = True
                 continue
 
@@ -470,8 +481,6 @@ def apply_updates(
                 raise ValueError("RELATIONSHIP_NEW_DIMENSION_VALUE_REQUIRED")
             if scale == "ordinary" and abs(float(value)) > ORDINARY_DELTA_LIMIT:
                 raise ValueError("RELATIONSHIP_ORDINARY_DELTA_LIMIT")
-            if len(dimensions) >= MAX_DIMENSIONS_PER_NPC:
-                raise ValueError("RELATIONSHIP_DIMENSION_LIMIT")
             dimensions[label] = {
                 "value": _number(value),
                 "last_change": _change(turn_number, value, reason),
@@ -480,8 +489,145 @@ def apply_updates(
 
         if not changed_any:
             raise ValueError("RELATIONSHIP_UPDATE_EMPTY")
-        if not dimensions:
-            npc_to_pov.pop(owner_id, None)
+
+    # Check the final state, not intermediate item order.
+    for owner in npc_to_pov.values():
+        if not isinstance(owner, dict):
+            continue
+        dimensions = owner.get("dimensions") if isinstance(owner.get("dimensions"), dict) else {}
+        if len(dimensions) > MAX_DIMENSIONS_PER_NPC:
+            raise ValueError("RELATIONSHIP_DIMENSION_LIMIT")
+
+    return result
+
+
+def apply_evidence(
+    store: Dict[str, Any],
+    evidence_rows: Any,
+    *,
+    cards: List[Dict[str, Any]],
+    pov_id: str,
+    turn_number: int,
+    participant_ids: Iterable[str],
+    direct_updates: Any = None,
+) -> Dict[str, Any]:
+    """Accumulate sub-point NPC→POV relationship evidence and promote whole points."""
+    if not isinstance(evidence_rows, list) or not evidence_rows:
+        return deepcopy(store)
+
+    result = deepcopy(store)
+    npc_to_pov = result.setdefault("npc_to_pov", {})
+    participants = {str(value) for value in participant_ids if value}
+
+    direct_axes: Dict[str, set[str]] = {}
+    for raw in direct_updates if isinstance(direct_updates, list) else []:
+        if not isinstance(raw, dict):
+            continue
+        owner_id = str(_resolve_character_id(cards, raw.get("character_id")) or "")
+        if not owner_id:
+            continue
+        bucket = direct_axes.setdefault(owner_id, set())
+        for item in raw.get("dimensions", []) if isinstance(raw.get("dimensions"), list) else []:
+            if isinstance(item, dict):
+                key = _norm(item.get("label") or item.get("key"))
+                if key:
+                    bucket.add(key)
+
+    seen_by_owner: Dict[str, set[str]] = {}
+    for raw in evidence_rows:
+        if not isinstance(raw, dict):
+            continue
+        owner_id = str(_resolve_character_id(cards, raw.get("character_id")) or "")
+        if not owner_id or owner_id == pov_id or owner_id not in participants:
+            raise ValueError("RELATIONSHIP_EVIDENCE_FOR_UNSEEN_NPC")
+
+        reason = " ".join(str(raw.get("reason") or "").split())[:360]
+        if not reason:
+            raise ValueError("RELATIONSHIP_EVIDENCE_REASON_REQUIRED")
+
+        incoming = raw.get("dimensions") if isinstance(raw.get("dimensions"), list) else []
+        if not incoming:
+            raise ValueError("RELATIONSHIP_EVIDENCE_EMPTY")
+
+        owner = npc_to_pov.setdefault(owner_id, {
+            "dimensions": {},
+            "evidence": {},
+            "tracking_started_turn": turn_number,
+        })
+        owner.setdefault("tracking_started_turn", turn_number)
+        dimensions = owner.setdefault("dimensions", {})
+        if not isinstance(dimensions, dict):
+            dimensions = {}
+            owner["dimensions"] = dimensions
+        pending = owner.setdefault("evidence", {})
+        if not isinstance(pending, dict):
+            pending = {}
+            owner["evidence"] = pending
+
+        owner_seen = seen_by_owner.setdefault(owner_id, set())
+        for item in incoming:
+            if not isinstance(item, dict):
+                continue
+            label = " ".join(str(item.get("label") or "").split())
+            key = _norm(label)
+            signal = item.get("signal")
+            if not label or not key:
+                raise ValueError("RELATIONSHIP_EVIDENCE_DIMENSION_INVALID")
+            if key in owner_seen:
+                raise ValueError("RELATIONSHIP_EVIDENCE_DIMENSION_DUPLICATE")
+            owner_seen.add(key)
+            if key in direct_axes.get(owner_id, set()):
+                raise ValueError("RELATIONSHIP_EVIDENCE_DIRECT_CONFLICT")
+            if not _is_number(signal) or float(signal) == 0.0:
+                raise ValueError("RELATIONSHIP_EVIDENCE_SIGNAL_INVALID")
+            if abs(float(signal)) > ORDINARY_EVIDENCE_LIMIT:
+                raise ValueError("RELATIONSHIP_EVIDENCE_SIGNAL_LIMIT")
+
+            dimension_label = next((name for name in dimensions if _norm(name) == key), None)
+            evidence_label = next((name for name in pending if _norm(name) == key), None)
+            canonical_label = dimension_label or evidence_label or label
+
+            if evidence_label is None and len(pending) >= MAX_PENDING_EVIDENCE_PER_NPC:
+                raise ValueError("RELATIONSHIP_EVIDENCE_DIMENSION_LIMIT")
+
+            previous = 0.0
+            if evidence_label is not None and isinstance(pending.get(evidence_label), dict):
+                previous_value = pending[evidence_label].get("score")
+                if _is_number(previous_value):
+                    previous = float(previous_value)
+
+            total = round(previous + float(signal), 6)
+            whole_delta = int(total)
+            if whole_delta != 0:
+                visible_label = dimension_label
+                if visible_label is not None:
+                    new_value = float(dimensions[visible_label]["value"]) + whole_delta
+                    if new_value == 0.0:
+                        dimensions.pop(visible_label, None)
+                    else:
+                        dimensions[visible_label] = {
+                            "value": _number(new_value),
+                            "last_change": _change(turn_number, whole_delta, reason),
+                        }
+                else:
+                    if len(dimensions) >= MAX_DIMENSIONS_PER_NPC:
+                        raise ValueError("RELATIONSHIP_DIMENSION_LIMIT")
+                    dimensions[canonical_label] = {
+                        "value": _number(whole_delta),
+                        "last_change": _change(turn_number, whole_delta, reason),
+                    }
+                total = round(total - whole_delta, 6)
+
+            if evidence_label is not None and evidence_label != canonical_label:
+                pending.pop(evidence_label, None)
+            if abs(total) < 1e-9:
+                pending.pop(canonical_label, None)
+            else:
+                pending[canonical_label] = {
+                    "score": total,
+                    "last_turn": int(turn_number),
+                    "reason": reason,
+                }
 
     return result
 
@@ -509,13 +655,23 @@ def rebuild_from_turns(
             cards=cards,
             pov_id=pov_id,
         )
+        direct_updates = extracted.get("relationship_updates")
         store = apply_updates(
             store,
-            extracted.get("relationship_updates"),
+            direct_updates,
             cards=cards,
             pov_id=pov_id,
             turn_number=turn_number,
             participant_ids=all_ids,
+        )
+        store = apply_evidence(
+            store,
+            extracted.get("relationship_evidence"),
+            cards=cards,
+            pov_id=pov_id,
+            turn_number=turn_number,
+            participant_ids=all_ids,
+            direct_updates=direct_updates,
         )
     return store
 
