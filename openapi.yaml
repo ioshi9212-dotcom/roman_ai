@@ -904,11 +904,11 @@ paths:
     post:
       operationId: prepareDraftRead
       summary: Prepare chunked reading of a working or finalized draft
-      description: Before finalize, returns the working draft with raw intake. After finalize, returns the normalized draft. Saving a correction reopens the same draft; reread all chunks after every write.
+      description: Before finalize, reads the working draft with verbatim raw intake. For the same draft revision, repeated prepare calls resume the existing read_id and return next_chunk_index instead of restarting at chunk 0. A real correction creates a new revision and requires one fresh full read. After finalize, reads the normalized draft.
       parameters:
         - {in: path, name: draft_id, required: true, schema: {type: string}}
       responses:
-        '200': {description: "read_id, chunk_count and total_chars"}
+        '200': {description: "read_id, source_revision, chunk_count, total_chars, resumed_read and next_chunk_index"}
   /novel-drafts/{draft_id}/session:
     post:
       operationId: createSessionFromDraft
@@ -925,7 +925,7 @@ paths:
         - {in: path, name: read_id, required: true, schema: {type: string}}
         - {in: path, name: chunk_index, required: true, schema: {type: integer}}
       responses:
-        '200': {description: "One chunk"}
+        '200': {description: "One chunk plus all_chunks_read and next_chunk_index"}
   /sessions/{session_id}/resume:
     post:
       operationId: resumeSession
