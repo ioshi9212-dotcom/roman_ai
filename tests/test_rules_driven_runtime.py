@@ -1426,8 +1426,9 @@ def test_cast_registry_exposes_causal_character_data_without_recency_pressure():
         assert "не очередь и не ротация" in registry["instruction"]
         assert row["story_function"] == "possible romance"
         assert "добиться ответа" in row["goals"]
-        assert "work" not in row
-        assert "residence" not in row
+        assert row["initiative_cues"]["work"] == "инструктор"
+        assert row["initiative_cues"]["residence"] == "база"
+        assert row["pov_relationship"]["близость"] == 1
         assert "known_relationships" not in row
         assert "npc_relationships" not in row
         assert any(
@@ -1446,6 +1447,38 @@ def test_cast_registry_exposes_causal_character_data_without_recency_pressure():
             "last_seen",
         ):
             assert forbidden not in row
+
+def test_offscreen_npc_without_saved_intent_can_still_be_reviewed_for_ordinary_self_initiative():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        novel = base_novel()
+        novel["characters"][1]["work"] = "тренер"
+        novel["characters"][1]["habits"] = ["шлёт друзьям мемы", "пишет вечером после работы"]
+        novel["characters"][1]["relationships"] = [
+            {
+                "target_character_id": "pov",
+                "relationship_type": "близкий друг",
+                "dimensions": [{"label": "привязанность", "value": 65}],
+            }
+        ]
+        novel["starting_state"]["current"]["present_characters"] = ["pov"]
+        sid = storage.create_session(novel)["session_id"]
+
+        _, context = read_context(sid, "(заняться своими делами)")
+        assert "offscreen_intent_candidates" not in context
+        row = next(
+            item for item in context["cast_registry"]["characters"]
+            if item["character_id"] == "npc"
+        )
+        assert row.get("active_intents") in (None, [])
+        assert row.get("active_threads") in (None, [])
+        assert row["initiative_cues"]["work"] == "тренер"
+        assert "мемы" in row["initiative_cues"]["habits"]
+        assert row["pov_relationship"]["привязанность"] == 65
+        assert "Отсутствие active intent или thread НЕ означает" in context["runtime_rules"]
+        assert "Крупный сюжетный триггер не требуется." in context["runtime_rules"]
+        assert "full bundle" in context["cast_registry"]["instruction"]
+
 
 def test_legacy_pending_packet_is_refreshed_into_current_knowledge_context():
     with tempfile.TemporaryDirectory() as tmp:
