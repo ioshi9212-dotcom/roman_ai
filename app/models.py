@@ -99,8 +99,15 @@ class RelationshipDimensionUpdate(BaseModel):
 class RelationshipUpdate(BaseModel):
     character_id: str
     dimensions: Optional[List[RelationshipDimensionUpdate]] = None
+    dynamic: Optional[str] = None
     reason: Optional[str] = None
     change_scale: Optional[str] = None
+
+
+class RelationshipReviewItem(BaseModel):
+    character_id: str
+    changed: bool
+    reason: str
 
 
 class NPCRelationshipUpdate(BaseModel):
@@ -161,12 +168,14 @@ class TurnExtracted(BaseModel):
     scene_progressed: Optional[bool] = None
     presence_updates: Optional[List[Dict[str, Any]]] = Field(default_factory=list)
     relationship_updates: Optional[List[RelationshipUpdate]] = Field(default_factory=list)
+    relationship_review: Optional[List[RelationshipReviewItem]] = Field(default_factory=list)
     state_patch: Dict[str, Any] = Field(default_factory=dict)
     character_upserts: Optional[List[Dict[str, Any]]] = Field(default_factory=list)
 
     @field_validator(
         "presence_updates",
         "relationship_updates",
+        "relationship_review",
         "character_upserts",
         "knowledge_journal_add",
         "npc_relationship_updates",
