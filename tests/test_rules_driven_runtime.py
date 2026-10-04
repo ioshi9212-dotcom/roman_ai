@@ -1426,8 +1426,9 @@ def test_cast_registry_exposes_causal_character_data_without_recency_pressure():
         assert "не очередь и не ротация" in registry["instruction"]
         assert row["story_function"] == "possible romance"
         assert "добиться ответа" in row["goals"]
-        assert row["initiative_cues"]["work"] == "инструктор"
-        assert row["initiative_cues"]["residence"] == "база"
+        assert "initiative_cues" not in row
+        assert "work" not in row
+        assert "residence" not in row
         assert row["pov_relationship"]["близость"] == 1
         assert "known_relationships" not in row
         assert "npc_relationships" not in row
@@ -1472,8 +1473,9 @@ def test_offscreen_npc_without_saved_intent_can_still_be_reviewed_for_ordinary_s
         )
         assert row.get("active_intents") in (None, [])
         assert row.get("active_threads") in (None, [])
-        assert row["initiative_cues"]["work"] == "тренер"
-        assert "мемы" in row["initiative_cues"]["habits"]
+        assert "initiative_cues" not in row
+        assert "work" not in row
+        assert "habits" not in row
         assert row["pov_relationship"]["привязанность"] == 65
         assert "Отсутствие active intent или thread НЕ означает" in context["runtime_rules"]
         assert "Крупный сюжетный триггер не требуется." in context["runtime_rules"]
