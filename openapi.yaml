@@ -577,6 +577,9 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/RelationshipDimensionUpdate'
+        dynamic:
+          type: string
+          description: Short current qualitative dynamic for this NPC→POV relation. May change without a numeric dimension change.
         reason:
           type: string
           description: Short concrete current-scene reason.
@@ -586,6 +589,20 @@ components:
           default: ordinary
           description: Use critical_event only for a genuinely major relationship event; ordinary is limited to +/-3 per changed dimension.
       additionalProperties: false
+    RelationshipReviewItem:
+      type: object
+      required: [character_id, changed, reason]
+      properties:
+        character_id:
+          type: string
+        changed:
+          type: boolean
+          description: Result of reviewing this participating NPC after the finished scene; false is not a default.
+        reason:
+          type: string
+          description: Short concrete reason from the current scene for changed=true or changed=false.
+      additionalProperties: false
+
     NPCRelationshipUpdate:
       type: object
       required: [owner_character_id, target_character_id, description]
@@ -737,6 +754,11 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/RelationshipUpdate'
+        relationship_review:
+          type: array
+          description: One non-persistent review row for every NPC who actually participated in the turn.
+          items:
+            $ref: '#/components/schemas/RelationshipReviewItem'
         state_patch:
           $ref: '#/components/schemas/StatePatch'
         character_upserts:

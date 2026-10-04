@@ -348,6 +348,7 @@ def inject_required_turn_context(context: Dict[str, Any], cards: List[Dict[str, 
         "relations_in_current_scene": [
             {
                 "owner_character_id": character_id,
+                "dynamic": str(row.get("dynamic") or ""),
                 "dimensions": [
                     {
                         "label": label,

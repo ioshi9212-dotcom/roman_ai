@@ -197,5 +197,6 @@ def test_relationship_contract_keeps_npc_to_npc_qualitative_and_footer_scene_sco
     assert "Footer показывает все активные оси только физически присутствующих NPC" in instructions
     assert "все его активные NPC→POV показатели из relationships.json" in builder
     assert "description:" in schema
-    assert "relationship_review:" not in schema
+    assert "relationship_review:" in schema
+    assert "dynamic:" in schema
     assert len(instructions) + 93 < 8000
