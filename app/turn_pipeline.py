@@ -305,7 +305,6 @@ def _clean_relationship_lens(context: Dict[str, Any]) -> None:
         "instruction",
         "rule",
         "initialization_instruction",
-        "initialization_rule",
         "stagnation_rule",
     ):
         lens.pop(key, None)
@@ -313,10 +312,17 @@ def _clean_relationship_lens(context: Dict[str, Any]) -> None:
     if isinstance(candidates, list):
         for row in candidates:
             if isinstance(row, dict):
-                row.pop("initialization_rule", None)
                 row.pop("instruction", None)
                 row.pop("rule", None)
-    lens["initialization_required"] = False
+    lens.pop("initialization_required", None)
+    lens["initialization_rule"] = (
+        "Пустые dimensions не запрещают отношение. Если участвующий NPC уже реально сформировал отношение к POV, "
+        "создай 1–3 естественные оси через relationship_updates; крупное событие для первой оси не требуется."
+    )
+    lens["small_shift_rule"] = (
+        "Не жди крупного события ради обычного изменения: ±1 = небольшой, но реальный сдвиг; "
+        "±2 = ясный сдвиг; ±3 = сильный обычный сдвиг. >3 только critical_event."
+    )
     context["relationship_lens"] = lens
 
 def _clean_director_layers(context: Dict[str, Any]) -> Dict[str, Any]:
