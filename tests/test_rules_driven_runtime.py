@@ -1252,6 +1252,114 @@ def test_last_turn_rollback_still_works_without_mandatory_audit():
         assert storage._read_json(root / "state.json", {})["current"]["location"] == "room"
 
 
+
+def test_rollback_restores_fractional_relationship_evidence_exactly():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(base_novel())["session_id"]
+        root = storage.SESSIONS_DIR / sid
+
+        first = session_runtime.prepare_turn_packet(sid, "Первый спокойный эпизод.")
+        read_all(first, sid)
+        session_runtime.commit_turn(
+            sid,
+            {
+                "packet_id": first["packet_id"],
+                "user_input": "Первый спокойный эпизод.",
+                "scene_output": "NPC замечает последовательность POV.",
+                "extracted": {
+                    "relationship_evidence": [{
+                        "character_id": "npc",
+                        "reason": "Первый небольшой плюс к доверию.",
+                        "dimensions": [{"label": "доверие", "signal": 0.6}],
+                    }]
+                },
+            },
+        )
+        after_first = storage._read_json(root / "relationships.json", {})
+        assert after_first["npc_to_pov"]["npc"]["evidence"]["доверие"]["score"] == 0.6
+        assert after_first["npc_to_pov"]["npc"]["dimensions"] == {}
+
+        second = session_runtime.prepare_turn_packet(sid, "Второй спокойный эпизод.")
+        read_all(second, sid)
+        session_runtime.commit_turn(
+            sid,
+            {
+                "packet_id": second["packet_id"],
+                "user_input": "Второй спокойный эпизод.",
+                "scene_output": "NPC снова видит подтверждение.",
+                "extracted": {
+                    "relationship_evidence": [{
+                        "character_id": "npc",
+                        "reason": "Второй небольшой плюс к доверию.",
+                        "dimensions": [{"label": "доверие", "signal": 0.5}],
+                    }]
+                },
+            },
+        )
+        after_second = storage._read_json(root / "relationships.json", {})
+        assert after_second["npc_to_pov"]["npc"]["dimensions"]["доверие"]["value"] == 1
+        assert after_second["npc_to_pov"]["npc"]["evidence"]["доверие"]["score"] == 0.1
+
+        rollback_last_turn(sid, 2, True)
+        restored = storage._read_json(root / "relationships.json", {})
+        assert restored == after_first
+
+
+def test_continuation_copies_relationship_evidence_exactly():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(base_novel())["session_id"]
+        root = storage.SESSIONS_DIR / sid
+
+        manifest = session_runtime.prepare_turn_packet(sid, "Небольшой сдвиг.")
+        read_all(manifest, sid)
+        session_runtime.commit_turn(
+            sid,
+            {
+                "packet_id": manifest["packet_id"],
+                "user_input": "Небольшой сдвиг.",
+                "scene_output": "NPC становится чуть спокойнее рядом с POV.",
+                "extracted": {
+                    "relationship_evidence": [{
+                        "character_id": "npc",
+                        "reason": "Слабый накопительный сигнал доверия.",
+                        "dimensions": [{"label": "доверие", "signal": 0.65}],
+                    }]
+                },
+            },
+        )
+        source_relationships = storage._read_json(root / "relationships.json", {})
+        state = storage._read_json(root / "state.json", {})
+        memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
+        chronology = storage._read_json(root / "chronology.json", [])
+        meta = storage._read_json(root / "meta.json", {})
+
+        continuation_runtime._save_migration(
+            sid,
+            {
+                "version": continuation_runtime.MIGRATION_VERSION,
+                "migration_id": "test-evidence-copy",
+                "source_session_id": sid,
+                "source_turn": int(meta.get("turn_number", 0) or 0),
+                "block_size": continuation_runtime.BLOCK_SIZE,
+                "block_count": 1,
+                "block_summaries": {},
+                "active_read": None,
+                "final_package": {
+                    "current": deepcopy(state.get("current", {})),
+                    "threads": deepcopy(state.get("threads", {})),
+                    "memory_normalized": memory,
+                    "chronology_normalized": chronology,
+                },
+            },
+        )
+        created = continuation_runtime.create_continuation_session(sid)
+        new_root = storage.SESSIONS_DIR / created["session_id"]
+        copied = storage._read_json(new_root / "relationships.json", {})
+        assert copied == source_relationships
+        assert copied["npc_to_pov"]["npc"]["evidence"]["доверие"]["score"] == 0.65
+
 def test_v5_setup_preserves_and_seeds_starting_character_knowledge():
     draft = {
         "title": "Start Knowledge",
