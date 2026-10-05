@@ -1546,7 +1546,7 @@ def test_offscreen_npc_without_saved_intent_can_still_be_reviewed_for_ordinary_s
         assert row["pov_relationship"]["привязанность"] == 65
         assert "Личной мотивации NPC, его отношения, цели или story_function достаточно для инициативы." in context["runtime_rules"]
         assert "Режиссура сама находит логичный способ сталкивать важный каст" in context["runtime_rules"]
-        assert "до реального участия прочитай его целиком" in context["cast_registry"]["instruction"]
+        assert "До реального участия offscreen NPC прочитай его полный character bundle." in context["cast_registry"]["instruction"]
 
 
 def test_legacy_pending_packet_is_refreshed_into_current_knowledge_context():
