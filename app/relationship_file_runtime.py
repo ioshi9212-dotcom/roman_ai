@@ -679,7 +679,12 @@ def rebuild_from_turns(
         extracted = turn.get("extracted") if isinstance(turn.get("extracted"), dict) else {}
         after = storage._deep_merge(working_state, extracted.get("state_patch") or {})
         participants = _relationship_scene_participants(
-            working_state, after, extracted, cards=cards, user_input=str(turn.get("user_input") or "")
+            working_state,
+            after,
+            extracted,
+            cards=cards,
+            user_input=str(turn.get("user_input") or ""),
+            scene_output=str(turn.get("scene_output") or ""),
         )
         store = ensure_participant_records(store, participants, cards)
         working_state = after

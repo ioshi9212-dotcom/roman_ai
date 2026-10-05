@@ -225,7 +225,7 @@ def test_new_scene_npc_without_starting_relationship_is_still_in_relationship_le
             if item["owner_character_id"] == "tessa"
         )
         assert row["dimensions"] == []
-        assert "Первое впечатление после знакомства" in context["relationship_lens"]["initialization_rule"]
+        assert "После первого содержательного взаимодействия постоянного NPC с POV" in context["relationship_lens"]["initialization_rule"]
         assert "±1 = небольшой, но реальный сдвиг" in context["relationship_lens"]["small_shift_rule"]
 
 

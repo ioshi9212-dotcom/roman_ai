@@ -70,7 +70,12 @@ def _card_name(cards, character_id: str) -> str:
     return character_id
 
 
-def _normalise_updates(cards, raw_updates: Any) -> List[Dict[str, Any]]:
+def _normalise_updates(
+    cards,
+    raw_updates: Any,
+    *,
+    allowed_unknown_leave_ids: set[str] | None = None,
+) -> List[Dict[str, Any]]:
     if raw_updates in (None, []):
         return []
     if not isinstance(raw_updates, list):
@@ -83,7 +88,12 @@ def _normalise_updates(cards, raw_updates: Any) -> List[Dict[str, Any]]:
         action = str(raw.get("action") or "").casefold().strip()
         if action not in _ALLOWED_ACTIONS:
             base._http_error(409, "PRESENCE_UPDATES_INVALID", "Presence action must be enter, leave or move.")
-        character_id = _resolve_character_id(cards, raw.get("character_id"))
+        raw_character_id = raw.get("character_id")
+        character_id = _resolve_character_id(cards, raw_character_id)
+        if not character_id and action == "leave":
+            candidate = str(raw_character_id or "").strip()
+            if candidate and candidate in (allowed_unknown_leave_ids or set()):
+                character_id = candidate
         if not character_id:
             base._http_error(409, "PRESENCE_UPDATES_INVALID", "Unknown character_id in presence_updates.")
         item: Dict[str, Any] = {"character_id": str(character_id), "action": action}
@@ -97,6 +107,17 @@ def _normalise_updates(cards, raw_updates: Any) -> List[Dict[str, Any]]:
             seen_leave.add(character_id)
         result.append(item)
     return result
+
+
+def _raw_roster_values(value: Any) -> List[str]:
+    values = list(value.keys()) if isinstance(value, dict) else [value] if isinstance(value, str) else value if isinstance(value, list) else []
+    result: List[str] = []
+    for item in values:
+        if isinstance(item, dict):
+            item = item.get("character_id") or item.get("id") or item.get("name")
+        if item not in (None, ""):
+            result.append(str(item))
+    return list(dict.fromkeys(result))
 
 
 def _apply_presence_contract(payload: Dict[str, Any], *, root) -> Dict[str, Any]:
@@ -147,13 +168,19 @@ def _apply_presence_contract(payload: Dict[str, Any], *, root) -> Dict[str, Any]
         direct_state = {"current": {"present_characters": raw_direct}, "pov": {}}
         direct_ids = _present_ids(cards, direct_state)
 
-    updates = _normalise_updates(cards, extracted.get("presence_updates"))
+    updates = _normalise_updates(
+        cards,
+        extracted.get("presence_updates"),
+        allowed_unknown_leave_ids=start_set,
+    )
     entered: List[str] = [cid for cid in direct_ids if cid not in start_set]
     left: List[str] = []
     final = list(start_roster)
     final_set = set(final)
 
     current_before = state_before.get("current") if isinstance(state_before.get("current"), dict) else {}
+    raw_present_before = _raw_roster_values(current_before.get("present_characters"))
+    raw_remote_before = _raw_roster_values(current_before.get("remote_characters"))
     positions_before = deepcopy(current_before.get("positions")) if isinstance(current_before.get("positions"), dict) else {}
     positions = deepcopy(positions_before)
 
@@ -202,14 +229,16 @@ def _apply_presence_contract(payload: Dict[str, Any], *, root) -> Dict[str, Any]
         if cid and cid != pov_id and cid not in final_set
     ]
 
+    roster_canonicalized = raw_present_before != final
     transition_supplied = bool(updates) or direct_supplied
-    if transition_supplied:
+    if transition_supplied or roster_canonicalized:
         current_patch["present_characters"] = final
-        current_patch["entered_characters"] = entered
-        current_patch["left_characters"] = left
+        if transition_supplied:
+            current_patch["entered_characters"] = entered
+            current_patch["left_characters"] = left
     if positions != positions_before:
         current_patch["positions"] = positions
-    if remote_supplied or remote_ids != remote_before:
+    if remote_supplied or remote_ids != remote_before or raw_remote_before != remote_ids:
         current_patch["remote_characters"] = remote_ids
     if current_patch:
         state_patch["current"] = current_patch

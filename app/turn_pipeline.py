@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import secrets
 from copy import deepcopy
 from typing import Any, Dict, List
@@ -332,8 +333,7 @@ def _clean_relationship_lens(context: Dict[str, Any]) -> None:
                 row.pop("rule", None)
     lens.pop("initialization_required", None)
     lens["initialization_rule"] = (
-        "Первое впечатление после знакомства можно сохранить через relationship_updates: new через value. "
-        "Нейтральная запись без чисел не препятствует дальнейшему развитию."
+        "После первого содержательного взаимодействия постоянного NPC с POV сохрани реальный показатель через relationship_updates."
     )
     lens["small_shift_rule"] = (
         "Не жди крупного события ради обычного изменения: ±1 = небольшой, но реальный сдвиг; "
@@ -692,6 +692,7 @@ def _relationship_scene_participants(
     *,
     cards: List[Dict[str, Any]],
     user_input: str,
+    scene_output: str = "",
 ) -> List[str]:
     """Return every NPC who actually participated at any point in this turn."""
     result: List[str] = []
@@ -732,6 +733,9 @@ def _relationship_scene_participants(
         if isinstance(row, dict):
             add(row.get("recipient_id"))
 
+    for match in re.finditer(r"(?m)^\s*\*\*(?P<speaker>[^*\n]+)\*\*\s*[—-]\s*", str(scene_output or "")):
+        add(match.group("speaker"))
+
     pov = state_after.get("pov") if isinstance(state_after.get("pov"), dict) else {}
     pov_id = str(pov.get("character_id") or "")
     return [cid for cid in result if cid and cid != pov_id]
@@ -755,6 +759,7 @@ def _apply_relationship_changes(session_id: str, payload: Dict[str, Any]) -> Dic
         extracted,
         cards=cards,
         user_input=str(result.get("user_input") or ""),
+        scene_output=str(result.get("scene_output") or ""),
     )
     meta = storage._read_json(root / "meta.json", {})
     turn_number = int(meta.get("turn_number", 0) or 0) + 1
@@ -778,6 +783,46 @@ def _apply_relationship_changes(session_id: str, payload: Dict[str, Any]) -> Dic
             status_code=409,
             detail={"code": str(exc), "message": "Invalid NPC-to-POV relationship update."},
         ) from exc
+
+    source_ids = {
+        storage._card_id(card)
+        for card in storage._normalise_cards(source.get("characters", []))
+        if storage._card_id(card)
+    }
+    registry = (
+        state.get("world", {}).get("cast_registry", {})
+        if isinstance(state.get("world"), dict)
+        else {}
+    )
+    strict = extracted.get("runtime_rules_reviewed") is True
+    if strict:
+        for character_id in participants:
+            cid = str(character_id or "")
+            if not cid or cid == pov_id or cid in source_ids:
+                continue
+            card = next(
+                (card for card in cards if storage._card_id(card) == cid),
+                None,
+            )
+            registry_row = registry.get(cid) if isinstance(registry, dict) else None
+            story_created = bool(card) and (
+                not source_ids
+                or cid not in source_ids
+            )
+            if isinstance(registry_row, dict):
+                story_created = str(registry_row.get("origin") or "") == "story_created"
+            if not story_created:
+                continue
+            relation = relationship_file_runtime.character_relation(store, cid) or {}
+            dimensions = relation.get("dimensions") if isinstance(relation.get("dimensions"), dict) else {}
+            if not dimensions:
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "code": "RELATIONSHIP_INITIALIZATION_REQUIRED",
+                        "message": "A persistent story NPC who participated with POV needs at least one real NPC-to-POV relationship dimension.",
+                    },
+                )
 
     result["_relationships_after"] = store
     return result
