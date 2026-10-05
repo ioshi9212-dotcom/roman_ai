@@ -94,11 +94,12 @@ def _apply_saved_turn(
 
     cards = storage._apply_character_upserts(cards, extracted)
     previous_state = deepcopy(state)
-    state = _merge_state_patch_exact_relationships(state, extracted.get("state_patch"))
     header_current = _scene_header_current(str(turn.get("scene_output") or ""))
     if header_current:
         current = state.get("current") if isinstance(state.get("current"), dict) else {}
         state["current"] = storage._deep_merge(current, header_current)
+    # Replay must use the same final-state priority as a live commit.
+    state = _merge_state_patch_exact_relationships(state, extracted.get("state_patch"))
     state = _clean_scene_pointer(state, extracted)
     state = location_runtime.sync_current_location(source, state, previous_state=previous_state)
     state = sync_game_day(state, source)

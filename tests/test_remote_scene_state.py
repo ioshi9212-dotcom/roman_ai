@@ -204,6 +204,13 @@ def test_commit_keeps_explicit_final_pointer_and_header_fallback(tmp_path, monke
     assert (current["date"], current["time"], current["location"], current["game_day"]) == expected
     assert current["present_characters"] == ["pov", "silas"]
 
+    # Old sessions can restore from saved turns when recent snapshots are unavailable.
+    from app.turn_rollback import _replay_through
+    root = storage.SESSIONS_DIR / sid
+    replayed = _replay_through(storage._read_json(root / "source.json", {}), storage._read_turns(root), [], 1)
+    replay_current = replayed["state"]["current"]
+    assert (replay_current["date"], replay_current["time"], replay_current["location"], replay_current["game_day"]) == expected
+
 
 def test_scene_transition_retry_and_rollback_preserve_exact_state(tmp_path, monkeypatch):
     from app.turn_rollback import rollback_last_turn
