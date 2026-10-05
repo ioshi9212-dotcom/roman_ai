@@ -779,6 +779,46 @@ def _apply_relationship_changes(session_id: str, payload: Dict[str, Any]) -> Dic
             detail={"code": str(exc), "message": "Invalid NPC-to-POV relationship update."},
         ) from exc
 
+    source_ids = {
+        storage._card_id(card)
+        for card in storage._normalise_cards(source.get("characters", []))
+        if storage._card_id(card)
+    }
+    registry = (
+        state.get("world", {}).get("cast_registry", {})
+        if isinstance(state.get("world"), dict)
+        else {}
+    )
+    strict = extracted.get("runtime_rules_reviewed") is True
+    if strict:
+        for character_id in participants:
+            cid = str(character_id or "")
+            if not cid or cid == pov_id or cid in source_ids:
+                continue
+            card = next(
+                (card for card in cards if storage._card_id(card) == cid),
+                None,
+            )
+            registry_row = registry.get(cid) if isinstance(registry, dict) else None
+            story_created = bool(card) and (
+                not source_ids
+                or cid not in source_ids
+            )
+            if isinstance(registry_row, dict):
+                story_created = str(registry_row.get("origin") or "") == "story_created"
+            if not story_created:
+                continue
+            relation = relationship_file_runtime.character_relation(store, cid) or {}
+            dimensions = relation.get("dimensions") if isinstance(relation.get("dimensions"), dict) else {}
+            if not dimensions:
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "code": "RELATIONSHIP_INITIALIZATION_REQUIRED",
+                        "message": "A persistent story NPC who participated with POV needs at least one real NPC-to-POV relationship dimension.",
+                    },
+                )
+
     result["_relationships_after"] = store
     return result
 
