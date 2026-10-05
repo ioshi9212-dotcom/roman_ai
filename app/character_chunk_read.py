@@ -247,7 +247,7 @@ def install() -> None:
 
     def wrapped(context, cards, state):
         result = _ORIGINAL_INJECT(context, cards, state)
-        result["character_context_instruction"] = "Relevant offscreen NPC можно загрузить заранее по state/intents/threads; до содержательного участия прочитай prepareCharacterBundleRead и все chunks."
+        result["character_context_instruction"] = "Карточку подходящего offscreen NPC можно загрузить по cast_registry или state/intents/threads, чтобы решить, появится ли он. До участия прочитай prepareCharacterBundleRead и все chunks."
         contract = result.get("working_context_contract") if isinstance(result.get("working_context_contract"), dict) else {}
         contract["dormant_character_retrieval"] = "bounded_chunked_when_relevant"
         contract["remote_communication_requires_loaded_dossier"] = True

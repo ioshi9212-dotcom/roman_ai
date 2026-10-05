@@ -269,6 +269,9 @@ def _cast_registry_rows(
             "present": cid in present,
             "remote": cid in remote,
             "goals": compact(goals),
+            "work": compact(card.get("work"), 220),
+            "habits": compact(card.get("habits"), 260),
+            "character": compact(card.get("character") or card.get("personality"), 260),
             "pov_relationship": pov_relationship or None,
             "pov_relationship_dynamic": compact(relation.get("dynamic"), 700) if isinstance(relation, dict) else None,
             "current_location": compact(info.get("location") or info.get("location_id"), 220),
@@ -518,17 +521,17 @@ def _prepare_context(
         "offscreen_bundle_read": {
             "action": "prepareCharacterBundleRead",
             "then": "read all getCharacterBundleChunk chunks before material participation",
-            "rule": "Apply this once to any registered offscreen character who becomes causally selected to participate.",
+            "rule": "The bundle may be read to decide whether a candidate should participate; complete it before actual participation.",
         },
         "instruction": (
             "Перед сценой просмотри ВЕСЬ постоянный NPC-каст и npc_relationship_network. Это не очередь и не ротация. "
             "Отсутствие active_intent или active_thread НЕ запрещает инициативу зарегистрированного NPC. "
-            "Для каждого NPC оцени role/story_function, goals, pov_relationship/pov_relationship_dynamic, current_location/current_activity, "
+            "Для каждого NPC оцени role/story_function, goals, work, habits, character, pov_relationship/pov_relationship_dynamic, current_location/current_activity, "
             "pov_familiarity, npc_relation_refs, active_intents, active_threads, last_contact и реальные последствия. "
             "Обычная человеческая причина достаточна: написать, позвонить, зайти, пересечься по работе/месту, выполнить привычное действие, "
             "отреагировать на собственную связь, заботу, ревность, скуку, обязательство или план, если это естественно именно этому NPC. "
             "Давность контакта сама по себе не причина и не таймер, но может усиливать правдоподобие инициативы, если связь/характер это поддерживают. "
-            "Перед реальным участием offscreen NPC обязательно загрузи его full bundle; после возникшей инициативы сохраняй npc_intent_update только если намерение продолжается дальше. "
+            "Bundle подходящего кандидата можно прочитать до решения о появлении; до реального участия прочитай его целиком. После возникшей инициативы сохраняй npc_intent_update только если намерение продолжается дальше. "
             "POV не обязан искать, звать или вспоминать персонажа. Не вставляй NPC только ради камео."
         ),
         "characters": _cast_registry_rows(state, cards, source, current_turn, npc_network, relationship_store),
