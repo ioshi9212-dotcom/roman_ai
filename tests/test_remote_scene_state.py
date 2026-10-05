@@ -211,6 +211,13 @@ def test_commit_keeps_explicit_final_pointer_and_header_fallback(tmp_path, monke
     replay_current = replayed["state"]["current"]
     assert (replay_current["date"], replay_current["time"], replay_current["location"], replay_current["game_day"]) == expected
 
+    # Existing archives used header priority; replay must not invalidate their live state.
+    turns = storage._read_turns(root)
+    assert turns[0].pop("scene_state_version") == 2
+    legacy = _replay_through(storage._read_json(root / "source.json", {}), turns, [], 1)["state"]["current"]
+    legacy_expected = ("01.09.2026", "10:05", "кухня", 1) if header else expected
+    assert (legacy["date"], legacy["time"], legacy["location"], legacy["game_day"]) == legacy_expected
+
 
 def test_scene_transition_retry_and_rollback_preserve_exact_state(tmp_path, monkeypatch):
     from app.turn_rollback import rollback_last_turn

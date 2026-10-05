@@ -232,6 +232,7 @@ def _atomic_commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, A
         entry.update(
             {
                 "turn_number": turn_number,
+                "scene_state_version": 2,
                 "saved_at": datetime.now(timezone.utc).isoformat(),
                 "request_id": str(packet.get("request_id") or "") or None,
                 "user_input": payload["user_input"],
