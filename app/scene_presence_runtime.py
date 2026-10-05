@@ -109,6 +109,17 @@ def _normalise_updates(
     return result
 
 
+def _raw_roster_values(value: Any) -> List[str]:
+    values = list(value.keys()) if isinstance(value, dict) else [value] if isinstance(value, str) else value if isinstance(value, list) else []
+    result: List[str] = []
+    for item in values:
+        if isinstance(item, dict):
+            item = item.get("character_id") or item.get("id") or item.get("name")
+        if item not in (None, ""):
+            result.append(str(item))
+    return list(dict.fromkeys(result))
+
+
 def _apply_presence_contract(payload: Dict[str, Any], *, root) -> Dict[str, Any]:
     result = deepcopy(payload)
     extracted = result.get("extracted") if isinstance(result.get("extracted"), dict) else None
@@ -168,6 +179,8 @@ def _apply_presence_contract(payload: Dict[str, Any], *, root) -> Dict[str, Any]
     final_set = set(final)
 
     current_before = state_before.get("current") if isinstance(state_before.get("current"), dict) else {}
+    raw_present_before = _raw_roster_values(current_before.get("present_characters"))
+    raw_remote_before = _raw_roster_values(current_before.get("remote_characters"))
     positions_before = deepcopy(current_before.get("positions")) if isinstance(current_before.get("positions"), dict) else {}
     positions = deepcopy(positions_before)
 
@@ -216,14 +229,16 @@ def _apply_presence_contract(payload: Dict[str, Any], *, root) -> Dict[str, Any]
         if cid and cid != pov_id and cid not in final_set
     ]
 
+    roster_canonicalized = raw_present_before != final
     transition_supplied = bool(updates) or direct_supplied
-    if transition_supplied:
+    if transition_supplied or roster_canonicalized:
         current_patch["present_characters"] = final
-        current_patch["entered_characters"] = entered
-        current_patch["left_characters"] = left
+        if transition_supplied:
+            current_patch["entered_characters"] = entered
+            current_patch["left_characters"] = left
     if positions != positions_before:
         current_patch["positions"] = positions
-    if remote_supplied or remote_ids != remote_before:
+    if remote_supplied or remote_ids != remote_before or raw_remote_before != remote_ids:
         current_patch["remote_characters"] = remote_ids
     if current_patch:
         state_patch["current"] = current_patch
