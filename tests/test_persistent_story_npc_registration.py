@@ -88,6 +88,7 @@ def test_persistent_named_npc_passes_after_character_upsert():
         patch = prepared["extracted"]["state_patch"]["world"]["cast_registry"]
         assert patch["ada"]["origin"] == "story_created"
         assert patch["ada"]["name"] == "Ада"
+        assert prepared["extracted"]["state_patch"]["current"]["present_characters"] == ["pov", "ada"]
 
 
 def test_unregistered_one_off_extra_can_leave_without_becoming_a_card():
@@ -141,3 +142,38 @@ def test_participating_story_npc_needs_first_relationship_dimension():
         prepared = turn_pipeline._apply_relationship_changes(sid, base)
         relation = prepared["_relationships_after"]["npc_to_pov"]["ada"]
         assert relation["dimensions"]["интерес"]["value"] == 1
+
+
+def test_repeated_unregistered_scene_speaker_requires_card_even_without_presence_state():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = make_session()
+        root = storage.SESSIONS_DIR / sid
+
+        prior = {
+            "turn_number": 1,
+            "user_input": "поговорить",
+            "scene_output": "**Ада** — Первый разговор.",
+            "extracted": {},
+        }
+        (root / "turns.jsonl").write_text(
+            __import__("json").dumps(prior, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+        meta = storage._read_json(root / "meta.json", {})
+        meta["turn_number"] = 1
+        storage._write_json(root / "meta.json", meta)
+
+        payload = {
+            "user_input": "(ответить)",
+            "scene_output": "**Ада** — Второй разговор.",
+            "extracted": {
+                "runtime_rules_reviewed": True,
+                "character_upserts": [],
+                "presence_updates": [],
+                "state_patch": {},
+            },
+        }
+
+        with pytest.raises(RuntimeError, match="CAST_PERSISTENT_NPC_CARD_REQUIRED"):
+            cast_registry_runtime._with_registry_patch(sid, payload)
