@@ -71,7 +71,7 @@ Offscreen NPC можно выбрать через cast registry / NPC↔NPC с�
 - relationship_updates: только реальные NPC→POV изменения из relationships.json; existing через delta, new через value, обычная ось максимум ±3, итог 0 удаляется;
 - npc_relationship_updates: качественное NPC→NPC изменение, без чисел; owner→target не зеркаль;
 - npc_intent_updates/story_thread_updates: реальные изменения;
-- presence_updates/state_patch: текущее физическое состояние, включая важных offscreen/nearby; для profiled места сохраняй location_id и zone_id/zone.
+- presence_updates: enter/leave/move; выход из кадра — leave. state_patch: итог сцены, включая важных offscreen/nearby; для profiled места — location_id и zone_id/zone.
 
 Не придумывай update ради заполнения поля.
 
