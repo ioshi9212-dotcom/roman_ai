@@ -281,8 +281,7 @@ def _story_drive(context: Dict[str, Any], root, current_turn: int, pressure: lis
         "rule": (
             "Двигай существующие линии причинно. Значимый выбор POV оставляй игроку. Просроченную линию продвинь или явно поставь на причинную паузу. "
             "Если force_world_movement_this_turn=true, текущая сцена исчерпала право удерживать мир: доведи её до естественного конца/перехода "
-            "или дай уже назревшему внешнему действию, персонажу, сообщению, расписанию либо открытой линии реально изменить ситуацию. "
-            "Не выдумывай случайное событие ради счётчика."
+            "или дай внешнему действию, персонажу, сообщению, расписанию либо открытой линии реально изменить ситуацию."
         ),
     }
 
@@ -306,8 +305,7 @@ def _world_progress_required_error(streak: int) -> None:
             "code": "STORY_PROGRESS_REQUIRED",
             "message": (
                 "The current scene has continued too long without structural world/story movement. "
-                "Do not invent a random event. End or transition the scene naturally, or advance an already causal NPC action, "
-                "arrival/departure, message, schedule, open thread or other existing world line. "
+                "End or transition the scene, or let an NPC action, arrival/departure, message, schedule, open thread or other world line change the situation. "
                 "Relationship deltas, new pending intents and scene_progressed=true alone do not reset this long-horizon gate."
             ),
             "world_stagnant_turns_before_this_commit": streak,
