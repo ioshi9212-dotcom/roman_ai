@@ -109,6 +109,9 @@ def test_character_perception_and_scene_quality_stay_causal_without_pacing_modes
     assert "Заметное действие POV в сторону NPC получает естественную реакцию NPC" in builder
     assert "Ощущения POV не заменяют то, что физически происходит." in builder
     assert "На каждом значимом физическом переходе читатель должен понимать" in builder
+    assert "Важную физическую или интимную сцену не пересказывай итогом." in builder
+    assert "Снижай графичность, но не непрерывность сцены." in builder
+    assert "Показывай только те промежуточные действия, без которых читатель перестаёт понимать, что физически произошло." not in builder
     assert "Если новелла 18+, допустимы взрослые темы, включая секс." in builder
     assert "Служебные выводы из отношений, инициативы и persistence" in builder
     assert "Не растягивай один и тот же beat на несколько ходов без развития." in builder
