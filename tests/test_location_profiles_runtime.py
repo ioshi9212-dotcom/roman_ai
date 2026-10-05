@@ -37,6 +37,7 @@ def _novel(*, location="Дом Сайласа", location_id=None, zone="Кухн
                 "name": "Райна",
                 "surname": "Вальтор",
                 "work": "HOUSEKEEPER_CARD_ONLY_MARKER",
+                "appearance": "HOUSEKEEPER_FULL_CARD_MARKER",
                 "story_function": "связана с домом Сайласа",
             },
             {"character_id": "adrian", "name": "Эдриан"},
@@ -123,8 +124,11 @@ def test_turn_packet_loads_only_the_location_where_pov_is_physically_present():
         assert "SCHOOL_NOTE_MARKER" not in raw
         assert "UNSCOPED_NOTE_MARKER" not in raw
 
-        # A linked person is only a short directory reference. Their full card stays unloaded.
-        assert "HOUSEKEEPER_CARD_ONLY_MARKER" not in raw
+        # The cast preview can carry work; linking a person still does not load their full card.
+        assert "HOUSEKEEPER_FULL_CARD_MARKER" not in raw
+        row = next(row for row in context["cast_registry"]["characters"] if row["character_id"] == "rayna")
+        assert row["work"] == "HOUSEKEEPER_CARD_ONLY_MARKER"
+        assert "rayna" not in {card["character_id"] for card in context["character_cards"]}
         assert "rayna" not in context.get("character_profiles", {})
 
         # Full persistent location collections must not leak through generic source transport.

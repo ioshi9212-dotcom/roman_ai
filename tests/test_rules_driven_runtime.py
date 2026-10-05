@@ -1378,11 +1378,56 @@ def test_opening_scene_uses_empty_gameplay_input_not_service_command():
 
 
 
+def test_secondary_cast_cues_are_bounded_and_readable_before_selection():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        novel = base_novel()
+        novel["novel"]["core_cast"] = [{"character_id": "pov", "story_function": "POV"}]
+        novel["characters"] = [novel["characters"][0]] + [
+            {
+                "character_id": f"support_{i}", "name": f"Support {i}",
+                "story_function": "коллега", "work": "учитель " + "W" * 500,
+                "habits": "заходит к коллегам " + "H" * 500,
+                "personality": "общительный " + "C" * 500,
+            }
+            for i in range(52)
+        ]
+        novel["starting_state"]["current"]["present_characters"] = ["pov"]
+        sid = storage.create_session(novel)["session_id"]
+        _, context = read_context(sid, "(подождать)")
+        rows = context["cast_registry"]["characters"]
+        assert {row["character_id"] for row in rows} == {"pov", *[f"support_{i}" for i in range(52)]}
+        assert [card["character_id"] for card in context["character_cards"]] == ["pov"]
+        for row in rows:
+            if row["character_id"] == "pov":
+                continue
+            assert row["importance"] == "support"
+            assert row["work"].startswith("учитель") and len(row["work"]) <= 220
+            assert row["habits"].startswith("заходит к коллегам") and len(row["habits"]) <= 260
+            assert row["character"].startswith("общительный") and len(row["character"]) <= 260
+            assert "active_intents" not in row and "active_threads" not in row
+
+        # An exploratory read gives the full card and does not put the NPC in the scene.
+        manifest = character_chunk_read.prepare_character_bundle_read(sid, "support_0")
+        parts = [manifest["content"]]
+        for index in range(1, manifest["chunk_count"]):
+            parts.append(character_chunk_read.get_character_bundle_chunk(
+                sid, "support_0", manifest["read_id"], index,
+            )["content"])
+        bundle = json.loads("".join(parts))
+        assert "W" * 500 in bundle["profile"]
+        assert "C" * 500 in bundle["profile"]
+        saved = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
+        assert saved["current"]["present_characters"] == ["pov"]
+
+
 def test_cast_registry_exposes_causal_character_data_without_recency_pressure():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         novel = base_novel()
         novel["characters"][1]["work"] = "инструктор"
+        novel["characters"][1]["habits"] = "после обеда заходит к коллегам"
+        novel["characters"][1]["character"] = "общительный, вспыльчивый"
         novel["characters"][1]["residence"] = "база"
         novel["characters"][1]["relationships"] = [
             {
@@ -1444,7 +1489,9 @@ def test_cast_registry_exposes_causal_character_data_without_recency_pressure():
         assert row["story_function"] == "possible romance"
         assert "добиться ответа" in row["goals"]
         assert "initiative_cues" not in row
-        assert "work" not in row
+        assert row["work"] == "инструктор"
+        assert row["habits"] == "после обеда заходит к коллегам"
+        assert row["character"] == "общительный, вспыльчивый"
         assert "residence" not in row
         assert row["pov_relationship"]["близость"] == 1
         assert "known_relationships" not in row
@@ -1491,12 +1538,12 @@ def test_offscreen_npc_without_saved_intent_can_still_be_reviewed_for_ordinary_s
         assert row.get("active_intents") in (None, [])
         assert row.get("active_threads") in (None, [])
         assert "initiative_cues" not in row
-        assert "work" not in row
-        assert "habits" not in row
+        assert row["work"] == "тренер"
+        assert "пишет вечером после работы" in row["habits"]
         assert row["pov_relationship"]["привязанность"] == 65
         assert "Отсутствие active intent или thread НЕ означает" in context["runtime_rules"]
         assert "Крупный сюжетный триггер не требуется." in context["runtime_rules"]
-        assert "full bundle" in context["cast_registry"]["instruction"]
+        assert "до реального участия прочитай его целиком" in context["cast_registry"]["instruction"]
 
 
 def test_legacy_pending_packet_is_refreshed_into_current_knowledge_context():
