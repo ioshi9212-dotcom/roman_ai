@@ -265,7 +265,7 @@ def test_relationship_change_survives_npc_leaving_at_end_of_same_turn():
                         {
                             "character_id": "npc",
                             "reason": "Ссора перед уходом.",
-                            "dimensions": [{"label": "обида", "value": -2}],
+                            "dimensions": [{"label": "обида", "value": 2}],
                         }
                     ],
                 },
@@ -277,7 +277,7 @@ def test_relationship_change_survives_npc_leaving_at_end_of_same_turn():
         state = storage._read_json(root / "state.json", {})
         assert "npc" not in storage._present_character_ids(state)
         relationships = storage._read_json(root / "relationships.json", {})
-        assert relationships["npc_to_pov"]["npc"]["dimensions"]["обида"]["value"] == -2
+        assert relationships["npc_to_pov"]["npc"]["dimensions"]["обида"]["value"] == 2
 
 
 def test_relationship_lens_separates_physical_footer_from_remote_without_hidden_director_prose():
