@@ -9,4 +9,5 @@ def test_scene_builder_hands_off_only_when_player_is_needed():
     assert "Не придумывай событие специально ради конца хода." not in builder
     assert "Тихая сцена может оставаться тихой." not in builder
     assert "Не вставляй случайное событие" not in builder
+    assert "Не пихай жанровое событие" not in builder
     assert "небольшой бытовой выбор" not in builder
