@@ -189,3 +189,28 @@ def test_historical_relationship_replay_translates_old_payload_without_mutating_
     assert dims["доверие"]["value"] == 3
     assert "обида" not in dims
     assert turns == original
+
+
+def test_historical_replay_drops_axes_beyond_current_ten_slot_cap():
+    source = novel()
+    cards = storage._normalise_cards(source["characters"])
+    dimensions = [
+        {"label": f"ось-{index}", "value": 1}
+        for index in range(12)
+    ]
+    turns = [{
+        "turn_number": 1,
+        "user_input": "old many axes",
+        "extracted": {
+            "relationship_updates": [{
+                "character_id": "npc",
+                "reason": "legacy",
+                "dimensions": dimensions,
+            }],
+        },
+    }]
+
+    rebuilt = relationship_file_runtime.rebuild_from_turns(source, cards, turns)
+    saved = rebuilt["npc_to_pov"]["npc"]["dimensions"]
+    assert len(saved) == 10
+    assert all(1 <= item["value"] <= 100 for item in saved.values())
