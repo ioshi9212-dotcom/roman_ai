@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 from typing import Any, Dict, List
@@ -36,10 +37,23 @@ def runtime_documents() -> Dict[str, str]:
     return result
 
 
+
+
+def runtime_revision(documents: Dict[str, str] | None = None) -> str:
+    docs = documents or runtime_documents()
+    digest = hashlib.sha256()
+    for key in sorted(docs):
+        digest.update(key.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(docs[key].encode("utf-8"))
+        digest.update(b"\0")
+    return digest.hexdigest()[:16]
+
 def runtime_payload() -> Dict[str, Any]:
     documents = runtime_documents()
     return {
         "runtime_version": RUNTIME_VERSION,
+        "runtime_revision": runtime_revision(documents),
         "documents": {
             "rules": documents["rules"],
             "scene_builder": documents["scene_builder"],
@@ -58,6 +72,7 @@ def runtime_manifest() -> Dict[str, Any]:
     return {
         "ok": True,
         "runtime_version": RUNTIME_VERSION,
+        "runtime_revision": runtime_revision(),
         "chunk_count": len(chunks),
         "total_chars": sum(len(chunk) for chunk in chunks),
         "instruction": "Call getRuntimeChunk for every chunk index from 0 to chunk_count-1.",
