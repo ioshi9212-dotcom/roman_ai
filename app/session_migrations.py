@@ -48,10 +48,12 @@ def packet_is_current(packet: Any) -> bool:
     if not isinstance(packet, dict) or not packet.get("packet_id"):
         return False
     from . import runtime_access
+    from .turn_pipeline import PIPELINE_VERSION
 
     return (
         int(packet.get("data_schema_version", 0) or 0) == CURRENT_DATA_SCHEMA_VERSION
         and str(packet.get("runtime_revision") or "") == runtime_access.runtime_revision()
+        and int(packet.get("turn_pipeline_version", 0) or 0) == PIPELINE_VERSION
     )
 
 
@@ -61,6 +63,7 @@ def invalidate_stale_turn_packet(root: Path, *, reason: str = "runtime_or_schema
         return False
 
     from . import runtime_access
+    from .turn_pipeline import PIPELINE_VERSION
 
     path = root / "abandoned_turn_packets.json"
     rows = storage._read_json(path, [])
@@ -75,6 +78,8 @@ def invalidate_stale_turn_packet(root: Path, *, reason: str = "runtime_or_schema
         "new_runtime_revision": runtime_access.runtime_revision(),
         "old_data_schema_version": int(packet.get("data_schema_version", 0) or 0),
         "new_data_schema_version": CURRENT_DATA_SCHEMA_VERSION,
+        "old_turn_pipeline_version": int(packet.get("turn_pipeline_version", 0) or 0),
+        "new_turn_pipeline_version": PIPELINE_VERSION,
         "abandoned_at": datetime.now(timezone.utc).isoformat(),
     })
     storage._write_json(path, rows[-20:])
