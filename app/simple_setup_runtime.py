@@ -497,6 +497,8 @@ def _relationship_dimensions(raw: Any) -> List[Dict[str, Any]]:
         if not label or not isinstance(value, (int, float)) or isinstance(value, bool):
             raise ValueError("DRAFT_CHARACTER_RELATIONSHIP_DIMENSIONS_INVALID")
         numeric = float(value)
+        if numeric < 0 or numeric > 100:
+            raise ValueError("DRAFT_CHARACTER_RELATIONSHIP_DIMENSIONS_INVALID")
         if numeric == 0:
             continue
         key = _relationship_identity(label)

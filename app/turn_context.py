@@ -364,7 +364,7 @@ def inject_required_turn_context(context: Dict[str, Any], cards: List[Dict[str, 
         ],
         "rule": (
             "Единственный канон числовых NPC→POV отношений — relationships.json. "
-            "Показатели свободные, максимум 10 на NPC; нулевых показателей в файле нет."
+            "Показатели свободные, максимум 10 активных на NPC; значения 1–100, отрицательных и нулевых показателей в файле нет."
         ),
     }
     context["relationship_lens_instruction"] = "relationship_lens — только scene-view из relationships.json, не отдельное хранилище."

@@ -561,10 +561,12 @@ components:
           type: string
         value:
           type: number
-          description: Initial signed value for a new NPC→POV dimension. Zero is not stored.
+          minimum: 1
+          maximum: 100
+          description: Initial value for a new NPC→POV dimension. Active values are 1..100.
         delta:
           type: number
-          description: Signed change for an established dimension. Ordinary changes are limited to -3..+3. A final value of zero deletes the dimension.
+          description: Signed change for an established dimension. Ordinary changes are limited to -3..+3. Persisted values stay within 1..100; reaching zero deletes the dimension.
       additionalProperties: false
 
     RelationshipUpdate:
