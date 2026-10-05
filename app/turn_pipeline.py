@@ -62,7 +62,7 @@ def _packet_manifest(packet: Dict[str, Any], *, reused: bool) -> Dict[str, Any]:
         "working_context": True,
         "writer_first": True,
         "writer_first_version": writer_first_runtime.WRITER_FIRST_VERSION,
-        "relationship_review_required": bool(packet.get("relationship_review_required")),
+        "relationship_review_required": False,
         "chunk_chars_max": writer_first_runtime.WRITER_PACKET_CHARS,
         "first_chunk_included": bool(chunks),
         "reused_pending_packet": reused,
@@ -318,8 +318,8 @@ def _clean_relationship_lens(context: Dict[str, Any]) -> None:
                 row.pop("rule", None)
     lens.pop("initialization_required", None)
     lens["initialization_rule"] = (
-        "Пустые dimensions не запрещают отношение. Если участвующий NPC уже реально сформировал отношение к POV, "
-        "создай 1–3 естественные оси через relationship_updates; крупное событие для первой оси не требуется."
+        "Первое впечатление после знакомства можно сохранить через relationship_updates: new через value. "
+        "Нейтральная запись без чисел не препятствует дальнейшему развитию."
     )
     lens["small_shift_rule"] = (
         "Не жди крупного события ради обычного изменения: ±1 = небольшой, но реальный сдвиг; "
@@ -734,9 +734,6 @@ def _apply_relationship_changes(session_id: str, payload: Dict[str, Any]) -> Dic
     result = deepcopy(payload)
     extracted = result.get("extracted") if isinstance(result.get("extracted"), dict) else {}
     updates = extracted.get("relationship_updates") if isinstance(extracted.get("relationship_updates"), list) else []
-    if not updates:
-        return result
-
     root = storage.SESSIONS_DIR / session_id
     source = storage._read_json(root / "source.json", {})
     cards = storage._apply_character_upserts(storage._load_cards(root, source), extracted)
@@ -759,6 +756,7 @@ def _apply_relationship_changes(session_id: str, payload: Dict[str, Any]) -> Dic
     if not isinstance(store, dict):
         store = relationship_file_runtime.load(root, cards=cards, state=state, pov_id=pov_id)
 
+    store = relationship_file_runtime.ensure_participant_records(store, participants, cards)
     try:
         store = relationship_file_runtime.apply_updates(
             store,
@@ -897,90 +895,12 @@ def _normalise_chronology_for_save(session_id: str, payload: Dict[str, Any]) -> 
     return result
 
 
-def _validate_relationship_review(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
-    root = storage.SESSIONS_DIR / session_id
-    packet = storage._read_json(root / "turn_packet.json", {})
+def _strip_relationship_review(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Accept old clients' review rows without making them a gameplay gate."""
     result = deepcopy(payload)
-    extracted = result.get("extracted") if isinstance(result.get("extracted"), dict) else {}
-    extracted = deepcopy(extracted)
-
-    # Old pending packets created before this contract stay commit-compatible.
-    if not bool(packet.get("relationship_review_required")):
+    extracted = result.get("extracted")
+    if isinstance(extracted, dict):
         extracted.pop("relationship_review", None)
-        result["extracted"] = extracted
-        return result
-
-    source = storage._read_json(root / "source.json", {})
-    cards = storage._apply_character_upserts(storage._load_cards(root, source), extracted)
-    state = storage._read_json(root / "state.json", {})
-    patch = extracted.get("state_patch") if isinstance(extracted.get("state_patch"), dict) else {}
-    state_after = storage._deep_merge(state, patch)
-    participants = _relationship_scene_participants(
-        state,
-        state_after,
-        extracted,
-        cards=cards,
-        user_input=str(result.get("user_input") or ""),
-    )
-    participant_set = set(participants)
-
-    reviews = extracted.get("relationship_review") if isinstance(extracted.get("relationship_review"), list) else []
-    review_by_id: Dict[str, Dict[str, Any]] = {}
-    for raw in reviews:
-        if not isinstance(raw, dict):
-            continue
-        cid = session_runtime._resolve_character_id(cards, raw.get("character_id"))
-        cid = str(cid or "")
-        if not cid or cid not in participant_set or cid in review_by_id:
-            raise HTTPException(
-                status_code=409,
-                detail={"code": "RELATIONSHIP_REVIEW_INVALID", "message": "Review must contain each participating NPC exactly once."},
-            )
-        if not isinstance(raw.get("changed"), bool):
-            raise HTTPException(
-                status_code=409,
-                detail={"code": "RELATIONSHIP_REVIEW_INVALID", "message": "Relationship review changed must be boolean."},
-            )
-        reason = " ".join(str(raw.get("reason") or "").split())[:360]
-        if not reason:
-            raise HTTPException(
-                status_code=409,
-                detail={"code": "RELATIONSHIP_REVIEW_REASON_REQUIRED", "message": "Each relationship review needs a short current-scene reason."},
-            )
-        review_by_id[cid] = {"changed": bool(raw.get("changed")), "reason": reason}
-
-    missing = [cid for cid in participants if cid not in review_by_id]
-    if missing:
-        raise HTTPException(
-            status_code=409,
-            detail={"code": "RELATIONSHIP_REVIEW_REQUIRED", "character_ids": missing},
-        )
-
-    updates = extracted.get("relationship_updates") if isinstance(extracted.get("relationship_updates"), list) else []
-    update_ids = set()
-    for raw in updates:
-        if not isinstance(raw, dict):
-            continue
-        cid = session_runtime._resolve_character_id(cards, raw.get("character_id"))
-        if cid:
-            update_ids.add(str(cid))
-
-    for cid, review in review_by_id.items():
-        has_update = cid in update_ids
-        if review["changed"] and not has_update:
-            raise HTTPException(
-                status_code=409,
-                detail={"code": "RELATIONSHIP_REVIEW_CHANGED_WITHOUT_UPDATE", "character_id": cid},
-            )
-        if not review["changed"] and has_update:
-            raise HTTPException(
-                status_code=409,
-                detail={"code": "RELATIONSHIP_REVIEW_UNCHANGED_WITH_UPDATE", "character_id": cid},
-            )
-
-    # Review is a per-turn reasoning gate, not relationship canon.
-    extracted.pop("relationship_review", None)
-    result["extracted"] = extracted
     return result
 
 
@@ -1007,7 +927,7 @@ def commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         prepared,
         root=storage.SESSIONS_DIR / session_id,
     )
-    prepared = _validate_relationship_review(session_id, prepared)
+    prepared = _strip_relationship_review(prepared)
     prepared = _apply_story_and_intent_updates(session_id, prepared)
     prepared = _apply_npc_relationship_updates(session_id, prepared)
     prepared = _apply_relationship_changes(session_id, prepared)

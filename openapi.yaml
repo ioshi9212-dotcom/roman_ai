@@ -597,10 +597,10 @@ components:
           type: string
         changed:
           type: boolean
-          description: Result of reviewing this participating NPC after the finished scene; false is not a default.
+          description: Legacy review result; ignored.
         reason:
           type: string
-          description: Short concrete reason from the current scene for changed=true or changed=false.
+          description: Legacy review reason; ignored.
       additionalProperties: false
 
     NPCRelationshipUpdate:
@@ -755,8 +755,9 @@ components:
           items:
             $ref: '#/components/schemas/RelationshipUpdate'
         relationship_review:
+          deprecated: true
           type: array
-          description: One non-persistent review row for every NPC who actually participated in the turn.
+          description: Legacy optional review rows; accepted for compatibility, ignored and not persisted.
           items:
             $ref: '#/components/schemas/RelationshipReviewItem'
         state_patch:

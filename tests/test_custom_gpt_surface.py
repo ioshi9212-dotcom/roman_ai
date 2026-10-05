@@ -158,7 +158,6 @@ def test_custom_gpt_instruction_matches_rules_driven_transport():
         "packet_id",
         "knowledge_reviewed=true",
         "relationships.json",
-        "relationship_review",
         "change_scale=critical_event",
     ):
         assert required in text

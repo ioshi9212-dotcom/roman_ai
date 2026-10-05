@@ -403,7 +403,7 @@ def test_relationship_delta_uses_saved_baseline_and_is_not_double_applied():
         assert relationships["npc_to_pov"]["npc"]["dimensions"]["доверие"]["value"] == 12
 
 
-def test_pending_packet_uses_only_lightweight_relationship_review_marker_and_commits():
+def test_pending_packet_has_no_mandatory_relationship_review_and_commits():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         sid = storage.create_session(base_novel())["session_id"]
@@ -411,8 +411,8 @@ def test_pending_packet_uses_only_lightweight_relationship_review_marker_and_com
         read_all(manifest, sid)
         root = storage.SESSIONS_DIR / sid
         packet = storage._read_json(root / "turn_packet.json", {})
-        assert packet["relationship_review_required"] is True
-        assert manifest["relationship_review_required"] is True
+        assert "relationship_review_required" not in packet
+        assert manifest["relationship_review_required"] is False
         for key in (
             "relationship_review_details_required",
             "relationship_footer_scope_required",
