@@ -326,6 +326,8 @@ def load(root: Path, *, cards: List[Dict[str, Any]], state: Dict[str, Any], pov_
                             int(turn.get("turn_number", 0) or 0), 0, str(update.get("reason") or "")
                         )
             storage._write_json(path, store)
+        elif raw != store:
+            storage._write_json(path, store)
         return store
 
     store = build_initial_store(cards, state, pov_id)
