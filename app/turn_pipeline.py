@@ -524,22 +524,34 @@ def _prepare_context(
         pov_id=str(pov.get("character_id") or ""),
     )
     npc_network = relationship_file_runtime.npc_network(relationship_store)
+    source_ids = {
+        storage._card_id(card)
+        for card in storage._normalise_cards(source.get("characters", []))
+        if storage._card_id(card)
+    }
+    return_pressure = cast_registry_runtime._rotation_pressure(
+        state,
+        cards,
+        current_turn,
+        source_character_ids=source_ids,
+        source=source,
+    )
     context["cast_registry"] = {
         "persistent": True,
         "registry_index_path": "cast_registry.characters",
         "mandatory_causal_review": True,
-        "important_cast_return_required": True,
+        "return_pressure": return_pressure,
+        "important_cast_return_required": bool(return_pressure),
         "offscreen_bundle_read": {
             "action": "prepareCharacterBundleRead",
             "then": "read all getCharacterBundleChunk chunks before material participation",
             "rule": "The bundle may be read to decide whether a candidate should participate; complete it before actual participation.",
         },
         "instruction": (
-            "Перед сценой просмотри весь постоянный NPC-каст и npc_relationship_network. "
-            "Для каждого NPC оцени role/story_function, goals, character, pov_relationship, current_location/current_activity и last_contact. "
+            "Перед сценой просмотри весь постоянный NPC-каст, npc_relationship_network и return_pressure. "
             "Личной мотивации NPC, его отношения, цели или story_function достаточно для инициативы; active_intent или active_thread заранее не нужен. "
             "Режиссура сама находит логичный способ сталкивать важный каст с POV и другими персонажами. "
-            "Важный NPC не должен выпадать из истории только потому, что текущие сцены обходятся без него. "
+            "Если return_pressure не пуст, не оставляй этих персонажей вне истории: подведи к ближайшему логичному контакту. "
             "До реального участия offscreen NPC прочитай его полный character bundle. POV не обязан искать, звать или вспоминать персонажа."
         ),
         "characters": _cast_registry_rows(state, cards, source, current_turn, npc_network, relationship_store),
