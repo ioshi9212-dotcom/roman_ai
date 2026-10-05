@@ -280,7 +280,7 @@ def test_dynamic_and_numeric_changes_survive_retry_continuation_read_and_exact_r
         read_all_pending(sid, manifest)
         data = payload(manifest, "Я здесь.", updates=[{
             "character_id": "adrian", "reason": "POV пришла, как обещала", "dynamic": "Теперь охотнее полагается на неё",
-            "dimensions": [{"label": "доверие", "delta": 1}, {"label": "настороженность", "value": -1}],
+            "dimensions": [{"label": "доверие", "delta": 1}, {"label": "настороженность", "value": 1}],
         }])
         commit_turn_request(sid, data)
         after = storage._read_json(root / "relationships.json", {})
