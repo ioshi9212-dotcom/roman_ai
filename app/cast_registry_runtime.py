@@ -238,6 +238,39 @@ def _validate_character_upserts(
             raise RuntimeError("CAST_STORY_FUNCTION_REQUIRED")
 
 
+def _require_cards_for_persistent_unknown_participants(
+    state: Dict[str, Any],
+    current_cards: List[Dict[str, Any]],
+    resulting_cards: List[Dict[str, Any]],
+    extracted: Dict[str, Any],
+    *,
+    post_present: set[str],
+    post_remote: set[str],
+) -> None:
+    if extracted.get("runtime_rules_reviewed") is not True:
+        return
+
+    start_values = list(storage._present_character_ids(state))
+    start_values.extend(storage._remote_character_ids(state))
+    pov = state.get("pov") if isinstance(state.get("pov"), dict) else {}
+    pov_id = str(pov.get("character_id") or "")
+
+    unresolved: List[str] = []
+    for raw in dict.fromkeys(str(value) for value in start_values if value):
+        if raw == pov_id:
+            continue
+        if session_runtime._resolve_character_id(current_cards, raw):
+            continue
+        if session_runtime._resolve_character_id(resulting_cards, raw):
+            continue
+        if raw not in post_present and raw not in post_remote:
+            continue
+        unresolved.append(raw)
+
+    if unresolved:
+        raise RuntimeError("CAST_PERSISTENT_NPC_CARD_REQUIRED")
+
+
 def _ensure_registry(
     state: Dict[str, Any],
     cards: List[Dict[str, Any]],
@@ -552,6 +585,16 @@ def _with_registry_patch(session_id: str, payload: Dict[str, Any]) -> Dict[str, 
         _validate_character_upserts(current_cards, extracted, source_ids)
         resulting_cards = storage._apply_character_upserts(current_cards, extracted)
         upsert_ids = {storage._card_id(row) for row in extracted.get("character_upserts", []) if isinstance(row, dict) and storage._card_id(row)}
+        post_present = _post_turn_present(state, extracted)
+        post_remote = _post_turn_remote(state, extracted)
+        _require_cards_for_persistent_unknown_participants(
+            state,
+            current_cards,
+            resulting_cards,
+            extracted,
+            post_present=post_present,
+            post_remote=post_remote,
+        )
         registry = _ensure_registry(
             state,
             resulting_cards,
@@ -559,8 +602,6 @@ def _with_registry_patch(session_id: str, payload: Dict[str, Any]) -> Dict[str, 
             source_character_ids=source_ids,
             source=source,
         )
-        post_present = _post_turn_present(state, extracted)
-        post_remote = _post_turn_remote(state, extracted)
         start_remote = set(storage._remote_character_ids(state))
         turn_participants = _turn_participant_ids(extracted) | start_remote | post_remote
         chronology = extracted.get("chronology") if isinstance(extracted.get("chronology"), list) else []
