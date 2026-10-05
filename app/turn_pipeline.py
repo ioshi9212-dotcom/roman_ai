@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import secrets
 from copy import deepcopy
 from typing import Any, Dict, List
@@ -691,6 +692,7 @@ def _relationship_scene_participants(
     *,
     cards: List[Dict[str, Any]],
     user_input: str,
+    scene_output: str = "",
 ) -> List[str]:
     """Return every NPC who actually participated at any point in this turn."""
     result: List[str] = []
@@ -731,6 +733,9 @@ def _relationship_scene_participants(
         if isinstance(row, dict):
             add(row.get("recipient_id"))
 
+    for match in re.finditer(r"(?m)^\s*\*\*(?P<speaker>[^*\n]+)\*\*\s*[—-]\s*", str(scene_output or "")):
+        add(match.group("speaker"))
+
     pov = state_after.get("pov") if isinstance(state_after.get("pov"), dict) else {}
     pov_id = str(pov.get("character_id") or "")
     return [cid for cid in result if cid and cid != pov_id]
@@ -754,6 +759,7 @@ def _apply_relationship_changes(session_id: str, payload: Dict[str, Any]) -> Dic
         extracted,
         cards=cards,
         user_input=str(result.get("user_input") or ""),
+        scene_output=str(result.get("scene_output") or ""),
     )
     meta = storage._read_json(root / "meta.json", {})
     turn_number = int(meta.get("turn_number", 0) or 0) + 1
