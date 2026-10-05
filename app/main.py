@@ -711,6 +711,15 @@ def turns_commit(session_id: str, body: TurnCommit):
         raise HTTPException(status_code=409, detail="The packet_id was already used with a different commit payload. Prepare a fresh turn packet; no mutation was performed.")
     except RuntimeError as exc:
         code = str(exc)
+        if code == "TURN_PACKET_RUNTIME_STALE":
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": code,
+                    "message": "The prepared turn used an older runtime or session-data schema and was discarded before commit.",
+                    "instruction": "Call prepareTurn again for the same user input. The session itself was preserved and migrated in place.",
+                },
+            )
         if code in {"TURN_PACKET_REQUIRED", "TURN_PACKET_INCOMPLETE"}:
             pending = pending_turn_status(session_id)
             if code == "TURN_PACKET_INCOMPLETE":
