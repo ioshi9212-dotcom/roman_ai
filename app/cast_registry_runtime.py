@@ -481,7 +481,7 @@ def _rotation_pressure(
             "turns_since_activity": inactive_for,
             "turns_since_appearance": since_appearance,
             "appearance_count": appearance_count,
-            "return_rule": "Если цели, работа, story_function, незакрытое дело, отношения, время или место уже требуют следующего шага персонажа, подведи историю к ближайшему логичному контакту без напоминания от POV; не телепортируй его ради ротации.",
+            "return_rule": "Найди ближайший логичный способ вернуть персонажа в активную историю. Его личной мотивации, отношения, цели или story_function достаточно.",
         }
         if inactive_days is not None:
             item["game_days_since_activity"] = inactive_days
