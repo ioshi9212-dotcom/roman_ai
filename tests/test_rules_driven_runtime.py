@@ -81,8 +81,9 @@ def test_active_runtime_is_author_rules_plus_scene_builder():
     assert "present_characters" in rules
     assert "state.characters[ID]" in rules
     assert "Молчание не удаляет NPC" in builder
-    assert "Это не очередь и не ротация." in rules
-    assert "сколько ходов NPC отсутствовал" in rules
+    assert "Личной мотивации NPC, его отношения, цели или story_function достаточно для инициативы." in rules
+    assert "Режиссура сама находит логичный способ сталкивать важный каст" in rules
+    assert "сколько ходов NPC отсутствовал" not in rules
     assert "Мир не ждёт POV" in builder
 
     for removed in (
@@ -1485,8 +1486,9 @@ def test_cast_registry_exposes_causal_character_data_without_recency_pressure():
         row = next(x for x in registry["characters"] if x["character_id"] == "npc")
 
         assert registry["mandatory_causal_review"] is True
-        assert registry["recency_rotation_disabled"] is True
-        assert "не очередь и не ротация" in registry["instruction"]
+        assert "return_pressure" in registry
+        assert registry["important_cast_return_required"] is bool(registry["return_pressure"])
+        assert "Режиссура сама находит логичный способ сталкивать важный каст" in registry["instruction"]
         assert row["story_function"] == "possible romance"
         assert "добиться ответа" in row["goals"]
         assert "initiative_cues" not in row
