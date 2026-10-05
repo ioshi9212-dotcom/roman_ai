@@ -528,22 +528,19 @@ def _prepare_context(
         "persistent": True,
         "registry_index_path": "cast_registry.characters",
         "mandatory_causal_review": True,
-        "recency_rotation_disabled": True,
+        "important_cast_return_required": True,
         "offscreen_bundle_read": {
             "action": "prepareCharacterBundleRead",
             "then": "read all getCharacterBundleChunk chunks before material participation",
             "rule": "The bundle may be read to decide whether a candidate should participate; complete it before actual participation.",
         },
         "instruction": (
-            "Перед сценой просмотри ВЕСЬ постоянный NPC-каст и npc_relationship_network. Это не очередь и не ротация. "
-            "Отсутствие active_intent или active_thread НЕ запрещает инициативу зарегистрированного NPC. "
-            "Для каждого NPC оцени role/story_function, goals, work, habits, character, pov_relationship/pov_relationship_dynamic, current_location/current_activity, "
-            "pov_familiarity, npc_relation_refs, active_intents, active_threads, last_contact и реальные последствия. "
-            "Обычная человеческая причина достаточна: написать, позвонить, зайти, пересечься по работе/месту, выполнить привычное действие, "
-            "отреагировать на собственную связь, заботу, ревность, скуку, обязательство или план, если это естественно именно этому NPC. "
-            "Давность контакта сама по себе не причина и не таймер, но может усиливать правдоподобие инициативы, если связь/характер это поддерживают. "
-            "Bundle подходящего кандидата можно прочитать до решения о появлении; до реального участия прочитай его целиком. После возникшей инициативы сохраняй npc_intent_update только если намерение продолжается дальше. "
-            "POV не обязан искать, звать или вспоминать персонажа. Не вставляй NPC только ради камео."
+            "Перед сценой просмотри весь постоянный NPC-каст и npc_relationship_network. "
+            "Для каждого NPC оцени role/story_function, goals, character, pov_relationship, current_location/current_activity и last_contact. "
+            "Личной мотивации NPC, его отношения, цели или story_function достаточно для инициативы; active_intent или active_thread заранее не нужен. "
+            "Режиссура сама находит логичный способ сталкивать важный каст с POV и другими персонажами. "
+            "Важный NPC не должен выпадать из истории только потому, что текущие сцены обходятся без него. "
+            "До реального участия offscreen NPC прочитай его полный character bundle. POV не обязан искать, звать или вспоминать персонажа."
         ),
         "characters": _cast_registry_rows(state, cards, source, current_turn, npc_network, relationship_store),
     }
