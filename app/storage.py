@@ -451,6 +451,8 @@ def create_session(
         })
         if isinstance(meta_patch, dict):
             meta.update(deepcopy(meta_patch))
+        from .session_migrations import CURRENT_DATA_SCHEMA_VERSION
+        meta["data_schema_version"] = CURRENT_DATA_SCHEMA_VERSION
 
         cards = _normalise_cards(novel.get("characters", []))
         state = _template("state.json", {"current": {}, "pov": {}, "characters": {}, "threads": {}, "world": {}})

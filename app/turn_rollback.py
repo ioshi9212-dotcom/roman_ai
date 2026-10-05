@@ -4,7 +4,7 @@ from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Tuple
 
-from . import location_runtime, relationship_file_runtime, storage
+from . import location_runtime, relationship_file_runtime, session_migrations, storage
 from .character_registry import refresh_pov_familiarity
 from .game_day import sync_game_day
 from .rollback_snapshot_runtime import PREVIOUS2_SNAPSHOT_FILE, PREVIOUS_SNAPSHOT_FILE, SNAPSHOT_FILE
@@ -401,16 +401,28 @@ def _write_restored_state(
     next_snapshot: Dict[str, Any] | None = None,
     following_snapshot: Dict[str, Any] | None = None,
 ) -> None:
+    restored_state = deepcopy(state) if isinstance(state, dict) else {}
+    for key in session_migrations.LEGACY_RELATIONSHIP_KEYS:
+        restored_state.pop(key, None)
+
+    pov = restored_state.get("pov") if isinstance(restored_state.get("pov"), dict) else {}
+    restored_relationships = relationship_file_runtime.normalize_store(
+        relationships,
+        str(pov.get("character_id") or ""),
+    )
+    restored_meta = deepcopy(meta) if isinstance(meta, dict) else {}
+    restored_meta["data_schema_version"] = session_migrations.CURRENT_DATA_SCHEMA_VERSION
+
     values = {
         "turns.jsonl": _turns_text(turns),
         "characters.json": json_text(characters),
-        "state.json": json_text(state),
-        relationship_file_runtime.FILE_NAME: json_text(relationships),
+        "state.json": json_text(restored_state),
+        relationship_file_runtime.FILE_NAME: json_text(restored_relationships),
         "memory.json": json_text(memory),
         "chronology.json": json_text(chronology),
         "audits.json": json_text(audits),
         SCENE_MEMORY_FILE: json_text(scene_store_from_audits(audits)),
-        "meta.json": json_text(meta),
+        "meta.json": json_text(restored_meta),
     }
     if isinstance(next_snapshot, dict):
         values[SNAPSHOT_FILE] = json_text(next_snapshot)

@@ -1574,8 +1574,10 @@ def test_legacy_pending_packet_is_refreshed_into_current_knowledge_context():
         packet["turn_pipeline_version"] = 3
         storage._write_json(root / "turn_packet.json", packet)
 
+        old_packet_id = packet["packet_id"]
         refreshed = session_runtime.prepare_turn_packet(sid, "(посмотреть на NPC)")
-        assert refreshed["reused_pending_packet"] is True
+        assert refreshed["reused_pending_packet"] is False
+        assert refreshed["packet_id"] != old_packet_id
 
         rebuilt = json.loads(
             "".join(storage._read_json(root / "turn_packet.json", {})["chunks"])

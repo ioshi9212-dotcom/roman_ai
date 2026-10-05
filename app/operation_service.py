@@ -4,7 +4,7 @@ from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Any, Dict
 
-from . import audit_runtime, session_runtime, storage
+from . import audit_runtime, session_migrations, session_runtime, storage
 from .operation_receipts import (
     OperationReceiptConflict,
     current_turn_identity,
@@ -84,6 +84,7 @@ def prepare_turn_request(
     replace_pending: bool = False,
 ) -> Dict[str, Any]:
     root = _session_root(session_id)
+    session_migrations.ensure_current_session_data(session_id, invalidate_pending=True)
     identity = str(request_id or "").strip()
     if opening_scene:
         meta = storage._read_json(root / "meta.json", {})
@@ -173,6 +174,7 @@ def prepare_turn_request(
 
 def commit_turn_request(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     root = _session_root(session_id)
+    session_migrations.ensure_current_session_data(session_id, invalidate_pending=False)
     packet_id = str(payload.get("packet_id") or "").strip()
     if not packet_id:
         raise RuntimeError("TURN_PACKET_ID_REQUIRED")
@@ -188,6 +190,13 @@ def commit_turn_request(session_id: str, payload: Dict[str, Any]) -> Dict[str, A
         return replay
 
     packet = storage._read_json(root / "turn_packet.json", {})
+    if isinstance(packet, dict) and str(packet.get("packet_id") or "") == packet_id:
+        if not session_migrations.packet_is_current(packet):
+            session_migrations.invalidate_stale_turn_packet(
+                root,
+                reason="commit_rejected_after_runtime_or_schema_change",
+            )
+            raise RuntimeError("TURN_PACKET_RUNTIME_STALE")
     if not isinstance(packet, dict) or str(packet.get("packet_id") or "") != packet_id:
         raise RuntimeError("TURN_PACKET_REQUIRED")
     packet_status = _packet_status(packet)
@@ -249,6 +258,7 @@ def commit_audit_request(session_id: str, payload: Dict[str, Any]) -> Dict[str, 
 
 def rollback_last_turn_request(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     root = _session_root(session_id)
+    session_migrations.ensure_current_session_data(session_id, invalidate_pending=False)
     expected_turn = int(payload.get("expected_turn_number", 0) or 0)
     expected_turn_id = str(payload.get("expected_turn_id") or "").strip()
     if not expected_turn_id:

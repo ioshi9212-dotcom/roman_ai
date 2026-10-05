@@ -558,6 +558,105 @@ def apply_updates(
     return result
 
 
+def _historical_updates_for_replay(
+    store: Dict[str, Any],
+    updates: Any,
+    *,
+    cards: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    if not isinstance(updates, list):
+        return []
+
+    result: List[Dict[str, Any]] = []
+    npc_to_pov = store.get("npc_to_pov") if isinstance(store.get("npc_to_pov"), dict) else {}
+
+    for raw in updates:
+        if not isinstance(raw, dict):
+            continue
+        owner_id = _resolve_character_id(cards, raw.get("character_id"))
+        if not owner_id:
+            continue
+        owner = npc_to_pov.get(owner_id) if isinstance(npc_to_pov.get(owner_id), dict) else {}
+        saved_dimensions = owner.get("dimensions") if isinstance(owner.get("dimensions"), dict) else {}
+
+        existing_changes: List[Dict[str, Any]] = []
+        new_dimensions: List[Dict[str, Any]] = []
+        seen: set[str] = set()
+        critical = False
+        freed_slots = 0
+
+        for item in raw.get("dimensions", []) if isinstance(raw.get("dimensions"), list) else []:
+            if not isinstance(item, dict):
+                continue
+            label = " ".join(str(item.get("label") or "").split())
+            key = _norm(label)
+            if not label or not key or key in seen:
+                continue
+            seen.add(key)
+
+            existing_label = next(
+                (name for name in saved_dimensions if _norm(name) == key),
+                None,
+            )
+
+            if existing_label is not None:
+                current_value = float(saved_dimensions[existing_label]["value"])
+                delta = item.get("delta")
+                if _is_number(delta) and float(delta) != 0.0:
+                    replay_delta = float(delta)
+                elif _is_number(item.get("value")):
+                    target = max(0.0, min(100.0, float(item["value"])))
+                    replay_delta = target - current_value
+                else:
+                    continue
+                if replay_delta == 0.0:
+                    continue
+                if current_value + replay_delta <= 0.0:
+                    freed_slots += 1
+                existing_changes.append({
+                    "label": existing_label,
+                    "delta": _number(replay_delta),
+                })
+                critical = critical or abs(replay_delta) > ORDINARY_DELTA_LIMIT
+                continue
+
+            value = item.get("value")
+            if not _is_number(value) or float(value) <= 0.0:
+                continue
+            replay_value = min(100.0, float(value))
+            new_dimensions.append({
+                "label": label,
+                "value": _number(replay_value),
+            })
+            critical = critical or replay_value > ORDINARY_DELTA_LIMIT
+
+        free_slots = max(
+            0,
+            MAX_DIMENSIONS_PER_NPC - len(saved_dimensions) + freed_slots,
+        )
+        dimensions = existing_changes + new_dimensions[:free_slots]
+
+        dynamic = " ".join(str(raw.get("dynamic") or "").split())[:700]
+        if not dimensions and not dynamic:
+            continue
+
+        row: Dict[str, Any] = {
+            "character_id": owner_id,
+            "reason": " ".join(str(raw.get("reason") or "").split())[:360] or "историческая запись",
+        }
+        if dimensions:
+            row["dimensions"] = dimensions
+        if dynamic:
+            row["dynamic"] = dynamic
+        raw_scale = str(raw.get("change_scale") or "ordinary").strip().casefold()
+        row["change_scale"] = "critical_event" if critical else (
+            raw_scale if raw_scale in {"ordinary", "critical_event"} else "ordinary"
+        )
+        result.append(row)
+
+    return result
+
+
 def rebuild_from_turns(
     source: Dict[str, Any],
     cards: List[Dict[str, Any]],
@@ -590,9 +689,14 @@ def rebuild_from_turns(
             cards=cards,
             pov_id=pov_id,
         )
-        store = apply_updates(
+        replay_updates = _historical_updates_for_replay(
             store,
             extracted.get("relationship_updates"),
+            cards=cards,
+        )
+        store = apply_updates(
+            store,
+            replay_updates,
             cards=cards,
             pov_id=pov_id,
             turn_number=turn_number,
