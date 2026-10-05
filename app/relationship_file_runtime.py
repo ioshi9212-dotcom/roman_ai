@@ -486,6 +486,7 @@ def apply_updates(
             changed_any = True
 
         seen: set[str] = set()
+        prepared_dimensions: List[Tuple[Dict[str, Any], str, str, str | None]] = []
         for item in incoming_dimensions:
             if not isinstance(item, dict):
                 continue
@@ -497,8 +498,14 @@ def apply_updates(
             if enforce_turn_invariants and (owner_id, key) in changed_dimensions:
                 raise ValueError("RELATIONSHIP_DIMENSION_DUPLICATE_UPDATE")
             changed_dimensions.add((owner_id, key))
-
             existing_label = next((name for name in dimensions if _norm(name) == key), None)
+            prepared_dimensions.append((item, label, key, existing_label))
+
+        # Apply existing axes first so an axis that reaches zero frees a slot
+        # before a new axis from the same scene is created.
+        prepared_dimensions.sort(key=lambda row: row[3] is None)
+
+        for item, label, key, existing_label in prepared_dimensions:
             if existing_label is not None:
                 delta = item.get("delta")
                 if not _is_number(delta) or float(delta) == 0.0:
