@@ -244,11 +244,12 @@ def _atomic_commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, A
         cards = storage._apply_character_upserts(storage._load_cards(root, source), extracted)
         state = storage._read_json(root / "state.json", {})
         previous_state = deepcopy(state)
-        state = _merge_state_patch_exact_relationships(state, extracted.get("state_patch"))
         header_current = _scene_header_current(payload.get("scene_output", ""))
         if header_current:
             current = state.get("current") if isinstance(state.get("current"), dict) else {}
             state["current"] = storage._deep_merge(current, header_current)
+        # The header is a fallback; an explicit patch describes the scene's final state.
+        state = _merge_state_patch_exact_relationships(state, extracted.get("state_patch"))
         state = _clean_scene_pointer(state, extracted)
         state = location_runtime.sync_current_location(source, state, previous_state=previous_state)
         state = sync_game_day(state, source)
