@@ -579,31 +579,41 @@ def _historical_updates_for_replay(
         owner = npc_to_pov.get(owner_id) if isinstance(npc_to_pov.get(owner_id), dict) else {}
         saved_dimensions = owner.get("dimensions") if isinstance(owner.get("dimensions"), dict) else {}
 
-        dimensions: List[Dict[str, Any]] = []
+        existing_changes: List[Dict[str, Any]] = []
+        new_dimensions: List[Dict[str, Any]] = []
+        seen: set[str] = set()
         critical = False
+        freed_slots = 0
+
         for item in raw.get("dimensions", []) if isinstance(raw.get("dimensions"), list) else []:
             if not isinstance(item, dict):
                 continue
             label = " ".join(str(item.get("label") or "").split())
-            if not label:
+            key = _norm(label)
+            if not label or not key or key in seen:
                 continue
+            seen.add(key)
+
             existing_label = next(
-                (name for name in saved_dimensions if _norm(name) == _norm(label)),
+                (name for name in saved_dimensions if _norm(name) == key),
                 None,
             )
 
             if existing_label is not None:
+                current_value = float(saved_dimensions[existing_label]["value"])
                 delta = item.get("delta")
                 if _is_number(delta) and float(delta) != 0.0:
                     replay_delta = float(delta)
                 elif _is_number(item.get("value")):
                     target = max(0.0, min(100.0, float(item["value"])))
-                    replay_delta = target - float(saved_dimensions[existing_label]["value"])
+                    replay_delta = target - current_value
                 else:
                     continue
                 if replay_delta == 0.0:
                     continue
-                dimensions.append({
+                if current_value + replay_delta <= 0.0:
+                    freed_slots += 1
+                existing_changes.append({
                     "label": existing_label,
                     "delta": _number(replay_delta),
                 })
@@ -614,11 +624,17 @@ def _historical_updates_for_replay(
             if not _is_number(value) or float(value) <= 0.0:
                 continue
             replay_value = min(100.0, float(value))
-            dimensions.append({
+            new_dimensions.append({
                 "label": label,
                 "value": _number(replay_value),
             })
             critical = critical or replay_value > ORDINARY_DELTA_LIMIT
+
+        free_slots = max(
+            0,
+            MAX_DIMENSIONS_PER_NPC - len(saved_dimensions) + freed_slots,
+        )
+        dimensions = existing_changes + new_dimensions[:free_slots]
 
         dynamic = " ".join(str(raw.get("dynamic") or "").split())[:700]
         if not dimensions and not dynamic:
