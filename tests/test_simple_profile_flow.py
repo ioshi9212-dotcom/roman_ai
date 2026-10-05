@@ -25,7 +25,7 @@ def _read_working_draft(draft_id: str) -> None:
         get_novel_read_chunk(manifest["read_id"], index)
 
 
-def _build_simple_draft() -> str:
+def _build_simple_draft(*, raw_text=None, silas_notes=None) -> str:
     draft = novel_drafts.create_draft("simple_profiles", "Пока мир не сгорит", version=5)
     draft_id = draft["draft_id"]
 
@@ -34,7 +34,7 @@ def _build_simple_draft() -> str:
         block_id="raw_setup",
         stage="setup",
         chunk_index=0,
-        raw_text=(
+        raw_text=raw_text if raw_text is not None else (
             "POV — Рината Дейл, 21 год. Сайлас Вейн, 400 лет, часовщик. "
             "Сайлас скрывает свой возраст от Ринаты. История — мистический триллер."
         ),
@@ -73,6 +73,7 @@ def _build_simple_draft() -> str:
                 "status": "не человек",
                 "role": "главный",
                 "profession": "часовщик",
+                **({"notes": silas_notes} if silas_notes is not None else {}),
             },
         ], ensure_ascii=False),
         expected_revision=revision,
@@ -135,6 +136,50 @@ def test_identical_v5_section_resave_does_not_invalidate_completed_full_read():
         assert after["intake_coverage"]["full_read_current"] is True
         assert after["reconciliation_current"] is True
         assert after["ready_to_finalize"] is True
+
+
+def test_finalized_source_keeps_verbatim_trigger_without_bloating_gameplay():
+    with tempfile.TemporaryDirectory() as tmp:
+        _setup(tmp)
+        trigger = (
+            "  При начале близости с Ринатой у Сайласа могут появляться короткие\n"
+            "обрывки памяти первой жизни. Он пока не понимает их происхождения.  "
+        )
+        # This old instruction must remain in the audit source, even though the
+        # working-canon migration removes it.
+        raw = trigger + "\nЕсли игрок не дал реплику, не придумывай её.\n"
+        draft_id = _build_simple_draft(raw_text=raw, silas_notes=trigger)
+        novel_drafts.finalize_draft(draft_id)
+        finalized = novel_drafts._read(draft_id)
+        template = finalized["finalized_template"]
+        assert template["source_intake"][-1] == {
+            "block_id": "raw_setup", "stage": "setup", "raw_text": raw,
+        }
+        manifest = novel_drafts.prepare_draft_read(draft_id)
+        assert manifest["intake_archived_in_draft_only"] is False
+        read_back = json.loads("".join(
+            get_novel_read_chunk(manifest["read_id"], index)["content"]
+            for index in range(manifest["chunk_count"])
+        ))
+        assert read_back["source_intake"][-1]["raw_text"] == raw
+        setup_draft_v3_runtime.set_launch_state(
+            draft_id, expected_finalized_revision=finalized["finalized_revision"],
+            starting_state_json=json.dumps({
+                "current": {"date": "05.10.2026", "time": "10:00", "location": "комната",
+                            "present_characters": ["rinata", "silas"]},
+                "pov": {"character_id": "rinata"},
+            }, ensure_ascii=False),
+        )
+        sid = novel_drafts.create_session_from_draft(draft_id)["session_id"]
+        manifest = session_runtime.prepare_turn_packet(sid, "(Коснуться его ладони.)")
+        chunks = [manifest["content"]]
+        for index in range(1, manifest["chunk_count"]):
+            chunks.append(storage.get_turn_packet_chunk(sid, manifest["packet_id"], index)["content"])
+        context = json.loads("".join(chunks))
+        assert "source_intake" not in "".join(chunks)
+        assert next(c for c in context["character_cards"] if c["character_id"] == "silas")["notes"].split() == trigger.split()
+        # Source cleanup during prepare must not rewrite the archived RAW.
+        assert storage.load_session(sid)["source"]["source_intake"][-1]["raw_text"] == raw
 
 
 def test_actual_v5_section_change_still_invalidates_full_read_and_reconciliation():

@@ -309,7 +309,7 @@ def _ensure_core_cast(novel: Dict[str, Any], characters: List[Dict[str, Any]]) -
 
 def _content_template(draft: Dict[str, Any]) -> Dict[str, Any]:
     sections = deepcopy(draft.get("sections", {})) if isinstance(draft.get("sections"), dict) else {}
-    sections.pop("intake", None)
+    intake = sections.pop("intake", None)
     sections.pop("starting_state", None)
 
     characters = normalize_character_profiles(sections.pop("characters", []))
@@ -341,6 +341,14 @@ def _content_template(draft: Dict[str, Any]) -> Dict[str, Any]:
         "profile_schema": profile_manifest(),
     }
     template.update(sections)
+    if isinstance(intake, dict):
+        # Keep the author's exact text available after finalization. This is an
+        # audit source, not another set of facts or character knowledge.
+        template["source_intake"] = [
+            {key: deepcopy(block[key]) for key in ("block_id", "stage", "raw_text") if key in block}
+            for block in intake.get("blocks", [])
+            if isinstance(block, dict) and isinstance(block.get("raw_text"), str)
+        ]
     return template
 
 
