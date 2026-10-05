@@ -848,7 +848,10 @@ def _prepare_draft_read(draft_id: str) -> Dict[str, Any]:
     if draft.get("finalized"):
         result = dict(_ORIGINAL_PREPARE_READ(draft_id))
         result["working_draft"] = False
-        result["intake_archived_in_draft_only"] = isinstance(draft.get("sections", {}).get("intake"), dict)
+        result["intake_archived_in_draft_only"] = (
+            isinstance(draft.get("sections", {}).get("intake"), dict)
+            and "source_intake" not in draft.get("finalized_template", {})
+        )
         return result
     sections = deepcopy(draft.get("sections", {}))
     # V5 reconciles verbatim RAW directly against fixed profiles. Legacy
@@ -878,7 +881,12 @@ def _prepare_draft_read(draft_id: str) -> Dict[str, Any]:
         source_revision=int(draft.get("revision", 0) or 0),
     )
     result["working_draft"] = True
-    result["instruction"] = "Read every chunk in order from next_chunk_index. Finalization stays blocked until every chunk of the current draft revision is read. Reuse the same read_id while revision is unchanged. If review finds omissions, save all needed corrections, then start one fresh full read of the new revision."
+    result["instruction"] = (
+        "Read every chunk in order from next_chunk_index; reuse read_id while revision is unchanged. "
+        "Compare each RAW passage with the profiles, including who acts, what triggers it, what happens, "
+        "exceptions and whether it is possible or required. Preserve these clauses verbatim; "
+        "a broad summary is not an equivalent. Correct omissions together, then fully read the new revision."
+    )
     return result
 
 

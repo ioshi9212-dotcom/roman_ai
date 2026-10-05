@@ -42,6 +42,7 @@ _SOURCE_STANDARD_KEYS = {
     "story_direction",
     "locations",
     "canon_notes",
+    "source_intake",
 }
 
 

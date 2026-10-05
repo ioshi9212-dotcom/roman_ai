@@ -127,7 +127,12 @@ def _strip_legacy_pov_rule_from_session_source(root) -> None:
     source = storage._read_json(root / "source.json", {})
     if not isinstance(source, dict) or not source:
         return
-    cleaned = profile_templates._strip_legacy_pov_silence_rule(source)
+    # The archived author input must remain verbatim, including whitespace and
+    # old wording. Only the working canon receives the legacy-rule cleanup.
+    working_source = {key: value for key, value in source.items() if key != "source_intake"}
+    cleaned = profile_templates._strip_legacy_pov_silence_rule(working_source)
+    if "source_intake" in source:
+        cleaned["source_intake"] = deepcopy(source["source_intake"])
     if cleaned != source:
         storage._write_json(root / "source.json", cleaned)
 
