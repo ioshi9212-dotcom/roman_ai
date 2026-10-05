@@ -25,8 +25,10 @@ from . import (
     profile_templates,
     relationship_file_runtime,
     resume_compact_runtime,
+    runtime_access,
     runtime_fixes,
     scene_presence_runtime,
+    session_migrations,
     session_recovery,
     session_runtime,
     simple_profile_runtime,
@@ -70,6 +72,8 @@ def _packet_manifest(packet: Dict[str, Any], *, reused: bool) -> Dict[str, Any]:
         "next_chunk_index": unread[0] if unread else None,
         "all_chunks_read": not unread,
         "turn_pipeline_version": PIPELINE_VERSION,
+        "runtime_revision": packet.get("runtime_revision"),
+        "data_schema_version": int(packet.get("data_schema_version", 0) or 0),
         "instruction": (
             "Pending packet reused. Read only unread chunks, silently re-check the final scene against Scene Builder, and commit once."
             if reused
@@ -105,6 +109,8 @@ def _write_packet_context(root, packet: Dict[str, Any], context: Dict[str, Any])
     packet["writer_first_version"] = writer_first_runtime.WRITER_FIRST_VERSION
     packet["writer_first_payload_chars"] = len(text)
     packet["turn_pipeline_version"] = PIPELINE_VERSION
+    packet["runtime_revision"] = runtime_access.runtime_revision()
+    packet["data_schema_version"] = session_migrations.CURRENT_DATA_SCHEMA_VERSION
     storage._write_json(root / "turn_packet.json", packet)
     return packet
 
@@ -600,6 +606,7 @@ def prepare_turn_packet(session_id: str, user_input: str) -> Dict[str, Any]:
         raise FileNotFoundError(session_id)
 
     stability_runtime._recover_session(session_id)
+    session_migrations.ensure_current_session_data(session_id, invalidate_pending=True)
     _current_pointer_guard(session_id)
     _clear_legacy_audit_gate(root)
     _strip_legacy_pov_rule_from_session_source(root)
@@ -621,18 +628,8 @@ def prepare_turn_packet(session_id: str, user_input: str) -> Dict[str, Any]:
         ):
             if int(pending.get("turn_pipeline_version", 0) or 0) == PIPELINE_VERSION:
                 return _packet_manifest(pending, reused=True)
-
-    if (
-        isinstance(pending, dict)
-        and pending.get("packet_id")
-        and int(pending.get("prepared_for_turn", 0) or 0) == expected_turn
-        and str(pending.get("user_input") or "") == str(user_input)
-        and isinstance(pending.get("chunks"), list)
-        and pending.get("chunks")
-    ):
-        _prepare_context(session_id, _packet_manifest(pending, reused=True))
-        refreshed = storage._read_json(root / "turn_packet.json", {})
-        return _packet_manifest(refreshed, reused=True)
+            (root / "turn_packet.json").unlink(missing_ok=True)
+            pending = {}
 
     # Build once in memory, then serialize only the final writer packet.
     # This avoids storage -> packet -> read -> rewrite -> packet round-trips.
@@ -647,6 +644,8 @@ def prepare_turn_packet(session_id: str, user_input: str) -> Dict[str, Any]:
         "chunk_count": 0,
         "read_chunks": [],
         "chunks": [],
+        "runtime_revision": runtime_access.runtime_revision(),
+        "data_schema_version": session_migrations.CURRENT_DATA_SCHEMA_VERSION,
     }
     base = {
         "packet_id": packet["packet_id"],
@@ -988,7 +987,10 @@ def commit_audit(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
 
 def continue_session(session_id: str) -> Dict[str, Any]:
     stability_runtime._recover_session(session_id)
+    migration = session_migrations.ensure_current_session_data(session_id, invalidate_pending=True)
     result = dict(_BASE_CONTINUE(session_id))
+    result["data_schema_version"] = migration["data_schema_version"]
+    result["runtime_revision"] = runtime_access.runtime_revision()
     for key in ("relationships", "relationship_documents", "relationship_schemas", "npc_relationships"):
         result.pop(key, None)
     status = session_recovery.current_recovery_status(session_id)
