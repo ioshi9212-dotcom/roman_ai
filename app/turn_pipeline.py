@@ -332,8 +332,7 @@ def _clean_relationship_lens(context: Dict[str, Any]) -> None:
                 row.pop("rule", None)
     lens.pop("initialization_required", None)
     lens["initialization_rule"] = (
-        "Первое впечатление после знакомства можно сохранить через relationship_updates: new через value. "
-        "Нейтральная запись без чисел не препятствует дальнейшему развитию."
+        "После первого содержательного взаимодействия постоянного NPC с POV сохрани реальный показатель через relationship_updates."
     )
     lens["small_shift_rule"] = (
         "Не жди крупного события ради обычного изменения: ±1 = небольшой, но реальный сдвиг; "
