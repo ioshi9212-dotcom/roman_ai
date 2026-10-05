@@ -16,7 +16,7 @@ Backend = канон. Actions молча. В игровом ходе до сце
 
 **Character profile:** character_id, name, surname, aliases, age, status, role, is_pov, story_function, appearance, character, speech, habits, work, residence, relationships, abilities, weaknesses, goals, background, secrets_known_to_self, notes, generated_details, additional.
 
-В character `relationships` сохраняй только заданные RAW связи, направленно, одной записью на target. Если NPC уже знает POV, придумай до 10 уместных ему `dimensions:{label,value}`; value только 1–100, 0 не записывай, отрицательных значений нет. Не знает POV - строки нет. Одностороннее знакомство допустимо. Чувства POV не назначай. NPC↔NPC только словами, без dimensions. Ошибку setup исправляй по RAW, связь не удаляй.
+В character `relationships` сохраняй только заданные RAW связи, направленно, одной записью на target. Если NPC знает POV: до 10 `dimensions:{label,value}`; value 1–100, 0 и минусы не хранить. Не знает POV - строки нет. Одностороннее знакомство допустимо. Чувства POV не назначай. NPC↔NPC только словами, без dimensions. Ошибку setup исправляй по RAW, связь не удаляй.
 
 **Location profile:** location_id, name, aliases, type, parent_location_id, where, floor, hours, staff, linked_characters, layout, zones, appearance, fixed_features, notes.
 
@@ -44,7 +44,7 @@ Packet уже содержит режиссёрский context, recent/continui
 
 Перед `commitTurn` проверь `scene_builder`: сцена не оборвана сразу после user_input, POV не исчез из наблюдаемой сцены до нового значимого выбора, а длинный диалог не превращён в «радио». Молчание POV допустимо, если естественно и его присутствие всё равно видно. Исправь нарушения → `scene_builder_reviewed=true`.
 
-После сцены сохрани NPC→POV сдвиги в `relationships.json` через `relationship_updates` с причиной. Обычного взаимодействия достаточно: ±1 малый, ±2 ясный, ±3 сильный; >3 через `change_scale=critical_event`. Existing через `delta`, new через `value`; итог хранится только 1–100, 0 удаляется, отрицательных значений нет; при 10 активных dimensions новая не создаётся до освобождения слота. Первое впечатление тоже подходит. `dynamic` дополняет числа; качественный поворот без подходящей оси сохраняй отдельно. Нет сдвига → update нет. Отчёт не нужен. Footer показывает все активные оси только физически присутствующих NPC; неизменённые /0. Затем `persistence_reviewed=true`.
+После сцены сохрани NPC→POV сдвиги в `relationships.json` через `relationship_updates` с причиной. Обычного взаимодействия достаточно: ±1 малый, ±2 ясный, ±3 сильный; >3 через `change_scale=critical_event`. Existing: `delta`; new: `value`. Хранить 1–100; 0 удаляет; при 10 осях new запрещён до свободного слота. Первое впечатление тоже подходит. `dynamic` дополняет числа; качественный поворот без подходящей оси сохраняй отдельно. Нет сдвига → update нет. Отчёт не нужен. Footer показывает все активные оси только физически присутствующих NPC; неизменённые /0. Затем `persistence_reviewed=true`.
 
 Проверь знания каждого физического/удалённого участника. Новое знание → `knowledge_journal_add` только тому, кто реально его получил; чужое без источника не копируй. Затем `knowledge_reviewed=true`.
 
