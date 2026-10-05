@@ -70,7 +70,12 @@ def _card_name(cards, character_id: str) -> str:
     return character_id
 
 
-def _normalise_updates(cards, raw_updates: Any) -> List[Dict[str, Any]]:
+def _normalise_updates(
+    cards,
+    raw_updates: Any,
+    *,
+    allowed_unknown_leave_ids: set[str] | None = None,
+) -> List[Dict[str, Any]]:
     if raw_updates in (None, []):
         return []
     if not isinstance(raw_updates, list):
@@ -83,7 +88,12 @@ def _normalise_updates(cards, raw_updates: Any) -> List[Dict[str, Any]]:
         action = str(raw.get("action") or "").casefold().strip()
         if action not in _ALLOWED_ACTIONS:
             base._http_error(409, "PRESENCE_UPDATES_INVALID", "Presence action must be enter, leave or move.")
-        character_id = _resolve_character_id(cards, raw.get("character_id"))
+        raw_character_id = raw.get("character_id")
+        character_id = _resolve_character_id(cards, raw_character_id)
+        if not character_id and action == "leave":
+            candidate = str(raw_character_id or "").strip()
+            if candidate and candidate in (allowed_unknown_leave_ids or set()):
+                character_id = candidate
         if not character_id:
             base._http_error(409, "PRESENCE_UPDATES_INVALID", "Unknown character_id in presence_updates.")
         item: Dict[str, Any] = {"character_id": str(character_id), "action": action}
@@ -147,7 +157,11 @@ def _apply_presence_contract(payload: Dict[str, Any], *, root) -> Dict[str, Any]
         direct_state = {"current": {"present_characters": raw_direct}, "pov": {}}
         direct_ids = _present_ids(cards, direct_state)
 
-    updates = _normalise_updates(cards, extracted.get("presence_updates"))
+    updates = _normalise_updates(
+        cards,
+        extracted.get("presence_updates"),
+        allowed_unknown_leave_ids=start_set,
+    )
     entered: List[str] = [cid for cid in direct_ids if cid not in start_set]
     left: List[str] = []
     final = list(start_roster)
