@@ -480,6 +480,7 @@ def apply_updates(
             owner["dimensions"] = dimensions
 
         changed_any = False
+        bounded_noop = False
         if incoming_dynamic and incoming_dynamic != str(owner.get("dynamic") or ""):
             owner["dynamic"] = incoming_dynamic
             owner["dynamic_last_change"] = _change(turn_number, 0, reason)
@@ -523,6 +524,7 @@ def apply_updates(
                     continue
                 effective_delta = new_value - current_value
                 if effective_delta == 0.0:
+                    bounded_noop = True
                     continue
                 dimensions[existing_label] = {
                     "value": _number(new_value),
@@ -546,7 +548,7 @@ def apply_updates(
             }
             changed_any = True
 
-        if not changed_any and not incoming_dimensions:
+        if not changed_any and not bounded_noop:
             raise ValueError("RELATIONSHIP_UPDATE_EMPTY")
         if not dimensions and not owner.get("dynamic"):
             npc_to_pov.pop(owner_id, None)
