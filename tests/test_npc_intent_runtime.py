@@ -144,7 +144,7 @@ def test_offscreen_active_intent_is_visible_before_character_is_pulled_into_scen
             if row["character_id"] == "ren"
         )
         assert registry_row["active_intents"]
-        assert "Отсутствие active intent или thread НЕ означает" in context["runtime_rules"]
+        assert "Личной мотивации NPC, его отношения, цели или story_function достаточно для инициативы." in context["runtime_rules"]
 
         # The owner still gets the full private intent once their dossier is loaded.
         bundle = get_character_bundle(sid, "ren")

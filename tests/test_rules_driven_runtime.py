@@ -81,8 +81,9 @@ def test_active_runtime_is_author_rules_plus_scene_builder():
     assert "present_characters" in rules
     assert "state.characters[ID]" in rules
     assert "Молчание не удаляет NPC" in builder
-    assert "Это не очередь и не ротация." in rules
-    assert "сколько ходов NPC отсутствовал" in rules
+    assert "Личной мотивации NPC, его отношения, цели или story_function достаточно для инициативы." in rules
+    assert "Режиссура сама находит логичный способ сталкивать важный каст" in rules
+    assert "сколько ходов NPC отсутствовал" not in rules
     assert "Мир не ждёт POV" in builder
 
     for removed in (
@@ -1485,8 +1486,9 @@ def test_cast_registry_exposes_causal_character_data_without_recency_pressure():
         row = next(x for x in registry["characters"] if x["character_id"] == "npc")
 
         assert registry["mandatory_causal_review"] is True
-        assert registry["recency_rotation_disabled"] is True
-        assert "не очередь и не ротация" in registry["instruction"]
+        assert "return_pressure" in registry
+        assert registry["important_cast_return_required"] is bool(registry["return_pressure"])
+        assert "Режиссура сама находит логичный способ сталкивать важный каст" in registry["instruction"]
         assert row["story_function"] == "possible romance"
         assert "добиться ответа" in row["goals"]
         assert "initiative_cues" not in row
@@ -1542,9 +1544,9 @@ def test_offscreen_npc_without_saved_intent_can_still_be_reviewed_for_ordinary_s
         assert row["work"] == "тренер"
         assert "пишет вечером после работы" in row["habits"]
         assert row["pov_relationship"]["привязанность"] == 65
-        assert "Отсутствие active intent или thread НЕ означает" in context["runtime_rules"]
-        assert "Крупный сюжетный триггер не требуется." in context["runtime_rules"]
-        assert "до реального участия прочитай его целиком" in context["cast_registry"]["instruction"]
+        assert "Личной мотивации NPC, его отношения, цели или story_function достаточно для инициативы." in context["runtime_rules"]
+        assert "Режиссура сама находит логичный способ сталкивать важный каст" in context["runtime_rules"]
+        assert "До реального участия offscreen NPC прочитай его полный character bundle." in context["cast_registry"]["instruction"]
 
 
 def test_legacy_pending_packet_is_refreshed_into_current_knowledge_context():
@@ -2111,3 +2113,54 @@ def test_present_character_remains_present_without_leave():
         assert "npc" in context["scene_presence"]["present_character_ids"]
         state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
         assert "npc" in state["current"]["present_characters"]
+
+
+def test_active_writer_packet_exposes_return_pressure_for_long_absent_core_cast():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(base_novel())["session_id"]
+        root = storage.SESSIONS_DIR / sid
+
+        state = storage._read_json(root / "state.json", {})
+        state["current"]["present_characters"] = ["pov"]
+        state["world"] = {
+            "cast_registry": {
+                "npc": {
+                    "character_id": "npc",
+                    "name": "NPC",
+                    "origin": "player_created",
+                    "importance": "core",
+                    "first_registered_turn": 0,
+                    "last_appearance_turn": 1,
+                    "last_contact_turn": 1,
+                    "appearance_count": 2,
+                    "status": "active",
+                }
+            }
+        }
+        storage._write_json(root / "state.json", state)
+
+        turns = [
+            {
+                "turn_number": number,
+                "user_input": "",
+                "scene_output": "",
+                "extracted": {},
+            }
+            for number in range(1, 26)
+        ]
+        (root / "turns.jsonl").write_text(
+            "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in turns),
+            encoding="utf-8",
+        )
+        meta = storage._read_json(root / "meta.json", {})
+        meta["turn_number"] = 25
+        storage._write_json(root / "meta.json", meta)
+
+        _, context = read_context(sid, "(заняться своими делами)")
+        registry = context["cast_registry"]
+        pressured = {row["character_id"] for row in registry["return_pressure"]}
+
+        assert registry["important_cast_return_required"] is True
+        assert "npc" in pressured
+        assert "ближайшему логичному контакту" in registry["instruction"]
