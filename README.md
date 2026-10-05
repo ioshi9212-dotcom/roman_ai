@@ -48,7 +48,7 @@ Each session keeps:
 
 Every gameplay turn uses a lossless chunked turn packet and is written back to the same Railway session.
 
-Every 15 turns an audit is mandatory before the next gameplay turn. The audit is also chunked and contains the exact 15-turn range plus complete persistent context.
+Technical audits are optional and do not block gameplay every 15 turns. Use them only when the client exposes the corresponding actions.
 
 There is no 60-turn transfer package and no copied handoff session. A session remains the same persistent object across chats.
 
@@ -60,15 +60,15 @@ The new chat calls `resumeSession` for that same id. The next `prepareTurn` relo
 
 ## Runtime invariants
 
-- `scene_builder` remains the scene-format authority.
+- `scene_builder` defines character behavior, scene writing and format; `runtime_rules` defines reading and persistence.
 - Character card/source/chronology are author truth, not automatic character knowledge.
 - Personal knowledge is stored per character.
 - Relationships are `NPC -> POV`, persist across absences, and use `relationship_lens` as the authoritative model.
 - A relationship changed for an NPC who leaves before the visible footer can be persisted through `extracted.relationship_updates` without displaying an absent NPC.
 - Durable NPC questions/plans use `npc_intent_updates`; bounded live plot events use `story_thread_updates` and persist in `state.threads`.
-- The final writer packet includes mandatory narrative guardrails, including POV activity, NPC intent drive, scene momentum and story drive.
+- The writer follows the active `scene_builder` and `runtime_rules` from the turn packet.
 - Audit chronology/memory repairs must keep the original turn where the event or knowledge actually occurred.
 
 ## Custom GPT
 
-Use `/openapi.json` as the Action schema and the current instructions in `gpt/custom_gpt_instructions.md`. Runtime contracts and final narrative guardrails are delivered inside the turn packets.
+Use `/openapi.json` as the Action schema and the current instructions in `gpt/custom_gpt_instructions.md`. Active runtime documents are delivered inside the turn packets.

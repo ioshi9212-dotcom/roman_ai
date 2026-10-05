@@ -181,7 +181,8 @@ def test_custom_gpt_instruction_matches_rules_driven_transport():
 
     assert "стартовые знания" in text
     assert "turn=0" in text
-    assert "Решение о появлении, инициативе и поведении offscreen-персонажей определяется только `runtime_rules`" in text
+    assert "Поведение и инициатива offscreen-персонажей — по `scene_builder`" in text
+    assert "Поведение POV, интерпретация ввода и форма сцены — по `scene_builder`" in text
     assert "Intent из bundle принадлежит только его владельцу" in text
     assert "показывай `session_id`" in text
     assert "`packet_id`, `read_id`, chunk-статусы и сверки не показывай" in text

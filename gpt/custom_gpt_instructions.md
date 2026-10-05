@@ -54,13 +54,13 @@ Chronology не даёт личное знание автоматически: �
 
 ## Offscreen персонаж
 
-Решение о появлении, инициативе и поведении offscreen-персонажей определяется только `runtime_rules`.
+Поведение и инициатива offscreen-персонажей — по `scene_builder`; чтение карточек и сохранение — по `runtime_rules`.
 
 Offscreen NPC можно выбрать через cast registry / NPC↔NPC связи без готового intent/thread: обычная инициатива может возникнуть из него самого. До реального участия прочитай `prepareCharacterBundleRead` → все `getCharacterBundleChunk`. Intent из bundle принадлежит только его владельцу.
 
 ## POV-ввод
 
-Передавай в `prepareTurn` exact raw пользователя без смысловой переработки. Поведение POV и интерпретация ввода определяются только `runtime_rules`; форма сцены — только `scene_builder`.
+Передавай в `prepareTurn` exact raw пользователя без смысловой переработки. Поведение POV, интерпретация ввода и форма сцены — по `scene_builder`; чтение и сохранение — по `runtime_rules`.
 
 ## Persistence
 
