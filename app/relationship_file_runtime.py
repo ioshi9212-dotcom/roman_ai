@@ -26,6 +26,11 @@ def _is_number(value: Any) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool) and isfinite(value)
 
 
+def _bounded_value(value: Any) -> int | float:
+    number = max(0.0, min(100.0, float(value)))
+    return _number(number)
+
+
 def _change(turn: int, delta: Any, reason: str) -> Dict[str, Any]:
     return {
         "turn": int(turn),
@@ -131,19 +136,19 @@ def _profile_store(cards: List[Dict[str, Any]], pov_id: str) -> Dict[str, Any]:
                         continue
                     label = " ".join(str(raw_dim.get("label") or raw_dim.get("key") or "").split())
                     value = raw_dim.get("value")
-                    if not label or not _is_number(value) or float(value) == 0.0:
+                    if not label or not _is_number(value) or float(value) <= 0.0:
                         continue
                     existing_label = next((name for name in dimensions if _norm(name) == _norm(label)), None)
                     if existing_label is not None:
                         dimensions[existing_label] = {
-                            "value": _number(value),
+                            "value": _bounded_value(value),
                             "last_change": _change(0, 0, _reason_from_relation(row)),
                         }
                         continue
                     if len(dimensions) >= MAX_DIMENSIONS_PER_NPC:
                         break
                     dimensions[label] = {
-                        "value": _number(value),
+                        "value": _bounded_value(value),
                         "last_change": _change(0, 0, _reason_from_relation(row)),
                     }
                 if not dimensions and not owner.get("dynamic"):
@@ -200,10 +205,10 @@ def _migrate_legacy_state(store: Dict[str, Any], state: Dict[str, Any]) -> Dict[
             continue
         dimensions: Dict[str, Dict[str, Any]] = {}
         for label, value in raw.items():
-            if not _is_number(value) or float(value) == 0.0:
+            if not _is_number(value) or float(value) <= 0.0:
                 continue
             dimensions[str(label)] = {
-                "value": _number(value),
+                "value": _bounded_value(value),
                 "last_change": _change(0, 0, _legacy_reason(state, str(owner_id), str(label))),
             }
             if len(dimensions) >= MAX_DIMENSIONS_PER_NPC:
@@ -247,7 +252,7 @@ def normalize_store(value: Any, pov_id: str = "") -> Dict[str, Any]:
             if not isinstance(item, dict):
                 continue
             value = item.get("value")
-            if not _is_number(value) or float(value) == 0.0:
+            if not _is_number(value) or float(value) <= 0.0:
                 continue
             last_change = item.get("last_change") if isinstance(item.get("last_change"), dict) else {}
             if not last_change:
@@ -257,7 +262,7 @@ def normalize_store(value: Any, pov_id: str = "") -> Dict[str, Any]:
                     "reason": item.get("reason", ""),
                 }
             clean[str(label)] = {
-                "value": _number(value),
+                "value": _bounded_value(value),
                 "last_change": _change(
                     int(last_change.get("turn", 0) or 0),
                     last_change.get("delta", 0),
@@ -498,32 +503,41 @@ def apply_updates(
                     raise ValueError("RELATIONSHIP_EXISTING_DIMENSION_DELTA_REQUIRED")
                 if scale == "ordinary" and abs(float(delta)) > ORDINARY_DELTA_LIMIT:
                     raise ValueError("RELATIONSHIP_ORDINARY_DELTA_LIMIT")
-                new_value = float(dimensions[existing_label]["value"]) + float(delta)
-                if not isfinite(new_value):
+                current_value = float(dimensions[existing_label]["value"])
+                raw_new_value = current_value + float(delta)
+                if not isfinite(raw_new_value):
                     raise ValueError("RELATIONSHIP_VALUE_INVALID")
+                new_value = max(0.0, min(100.0, raw_new_value))
                 if new_value == 0.0:
                     dimensions.pop(existing_label, None)
                     changed_any = True
                     continue
+                effective_delta = new_value - current_value
+                if effective_delta == 0.0:
+                    continue
                 dimensions[existing_label] = {
                     "value": _number(new_value),
-                    "last_change": _change(turn_number, delta, reason),
+                    "last_change": _change(turn_number, effective_delta, reason),
                 }
                 changed_any = True
                 continue
 
             value = item.get("value")
-            if not _is_number(value) or float(value) == 0.0:
+            if not _is_number(value) or float(value) <= 0.0:
                 raise ValueError("RELATIONSHIP_NEW_DIMENSION_VALUE_REQUIRED")
-            if scale == "ordinary" and abs(float(value)) > ORDINARY_DELTA_LIMIT:
+            if float(value) > 100.0:
+                raise ValueError("RELATIONSHIP_VALUE_INVALID")
+            if scale == "ordinary" and float(value) > ORDINARY_DELTA_LIMIT:
                 raise ValueError("RELATIONSHIP_ORDINARY_DELTA_LIMIT")
+            if len(dimensions) >= MAX_DIMENSIONS_PER_NPC:
+                raise ValueError("RELATIONSHIP_DIMENSION_LIMIT")
             dimensions[label] = {
                 "value": _number(value),
                 "last_change": _change(turn_number, value, reason),
             }
             changed_any = True
 
-        if not changed_any:
+        if not changed_any and not incoming_dimensions:
             raise ValueError("RELATIONSHIP_UPDATE_EMPTY")
         if not dimensions and not owner.get("dynamic"):
             npc_to_pov.pop(owner_id, None)
