@@ -44,7 +44,7 @@ Packet уже содержит режиссёрский context, recent/continui
 
 Перед `commitTurn` проверь `scene_builder`: сцена не оборвана сразу после user_input, POV не исчез из наблюдаемой сцены до нового значимого выбора, а длинный диалог не превращён в «радио». Молчание POV допустимо, если естественно и его присутствие всё равно видно. Исправь нарушения → `scene_builder_reviewed=true`.
 
-После сцены проверь NPC→POV по `relationships.json`. Не жди крупного события: ±1 = небольшой реальный сдвиг, ±2 ясный, ±3 сильный обычный; >3 только `change_scale=critical_event`. Если связи ещё нет, первая реальная реакция может создать 1–3 оси через `value`; existing меняй через `delta`. Нет даже малого сдвига - update нет. Итог 0 удаляет ось. Footer показывает все активные оси только физически присутствующих NPC; неизменённые /0. Затем `persistence_reviewed=true`.
+После сцены сохрани NPC→POV сдвиги в `relationships.json` через `relationship_updates` с причиной. Обычного взаимодействия достаточно: ±1 малый, ±2 ясный, ±3 сильный; >3 через `change_scale=critical_event`. Existing через `delta`, new через `value`; итог 0 удаляется. Первое впечатление тоже подходит. `dynamic` дополняет числа; качественный поворот без подходящей оси сохраняй отдельно. Нет сдвига → update нет. Отчёт не нужен. Footer показывает все активные оси только физически присутствующих NPC; неизменённые /0. Затем `persistence_reviewed=true`.
 
 Проверь знания каждого физического/удалённого участника. Новое знание → `knowledge_journal_add` только тому, кто реально его получил; чужое без источника не копируй. Затем `knowledge_reviewed=true`.
 
@@ -69,7 +69,7 @@ Offscreen NPC можно выбрать через cast registry / NPC↔NPC с�
 - knowledge_journal_add: новые знания конкретному персонажу;
 - character_upserts: постоянная деталь или новый NPC с конкретной story_function; фон не регистрируй;
 - relationship_updates: только реальные NPC→POV изменения из relationships.json; existing через delta, new через value, обычная ось максимум ±3, итог 0 удаляется;
-- npc_relationship_updates: только устойчивое качественное NPC→NPC изменение, без чисел; owner→target не зеркаль;
+- npc_relationship_updates: качественное NPC→NPC изменение, без чисел; owner→target не зеркаль;
 - npc_intent_updates/story_thread_updates: реальные изменения;
 - presence_updates/state_patch: текущее физическое состояние, включая важных offscreen/nearby; для profiled места сохраняй location_id и zone_id/zone.
 

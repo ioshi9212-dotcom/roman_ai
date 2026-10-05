@@ -222,7 +222,7 @@ def test_new_scene_npc_without_starting_relationship_is_still_in_relationship_le
             if item["owner_character_id"] == "tessa"
         )
         assert row["dimensions"] == []
-        assert "крупное событие для первой оси не требуется" in context["relationship_lens"]["initialization_rule"]
+        assert "Первое впечатление после знакомства" in context["relationship_lens"]["initialization_rule"]
         assert "±1 = небольшой, но реальный сдвиг" in context["relationship_lens"]["small_shift_rule"]
 
 
@@ -255,10 +255,10 @@ def test_relationship_rules_do_not_require_major_or_durable_event_for_plus_one()
     instructions = Path("gpt/custom_gpt_instructions.md").read_text(encoding="utf-8")
 
     assert "±1 — небольшой, но заметный сдвиг" in rules
-    assert "Не требуй крупного, необратимого" in rules
-    assert "не обнуляй маленький реальный сдвиг" in rules
-    assert "Не жди крупного события" in instructions
-    assert "±1 = небольшой реальный сдвиг" in instructions
+    assert "не требуй доказательства, что он окончательный или долговременный" in rules
+    assert "Отдельный отчёт о проверке не нужен" in rules
+    assert "changed=false" not in instructions
+    assert "±1 малый" in instructions
 
 def test_v5_setup_requires_structured_pre_story_npc_to_pov_relationship():
     template = relationship_novel()
@@ -348,6 +348,13 @@ def test_small_delta_persists_only_in_relationships_file_and_is_visible_next_tur
                     "npc_relationship_updates": [],
                     "story_thread_updates": [],
                     "presence_updates": [],
+                    "relationship_review": [
+                        {
+                            "character_id": "adrian",
+                            "changed": True,
+                            "reason": "Сцена немного усилила ревность.",
+                        }
+                    ],
                     "relationship_updates": [
                         {
                             "character_id": "adrian",

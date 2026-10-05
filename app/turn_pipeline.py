@@ -62,6 +62,7 @@ def _packet_manifest(packet: Dict[str, Any], *, reused: bool) -> Dict[str, Any]:
         "working_context": True,
         "writer_first": True,
         "writer_first_version": writer_first_runtime.WRITER_FIRST_VERSION,
+        "relationship_review_required": False,
         "chunk_chars_max": writer_first_runtime.WRITER_PACKET_CHARS,
         "first_chunk_included": bool(chunks),
         "reused_pending_packet": reused,
@@ -269,6 +270,7 @@ def _cast_registry_rows(
             "remote": cid in remote,
             "goals": compact(goals),
             "pov_relationship": pov_relationship or None,
+            "pov_relationship_dynamic": compact(relation.get("dynamic"), 700) if isinstance(relation, dict) else None,
             "current_location": compact(info.get("location") or info.get("location_id"), 220),
             "current_zone": compact(info.get("zone") or info.get("zone_id"), 180),
             "current_activity": compact(info.get("activity"), 320),
@@ -316,8 +318,8 @@ def _clean_relationship_lens(context: Dict[str, Any]) -> None:
                 row.pop("rule", None)
     lens.pop("initialization_required", None)
     lens["initialization_rule"] = (
-        "Пустые dimensions не запрещают отношение. Если участвующий NPC уже реально сформировал отношение к POV, "
-        "создай 1–3 естественные оси через relationship_updates; крупное событие для первой оси не требуется."
+        "Первое впечатление после знакомства можно сохранить через relationship_updates: new через value. "
+        "Нейтральная запись без чисел не препятствует дальнейшему развитию."
     )
     lens["small_shift_rule"] = (
         "Не жди крупного события ради обычного изменения: ±1 = небольшой, но реальный сдвиг; "
@@ -521,7 +523,7 @@ def _prepare_context(
         "instruction": (
             "Перед сценой просмотри ВЕСЬ постоянный NPC-каст и npc_relationship_network. Это не очередь и не ротация. "
             "Отсутствие active_intent или active_thread НЕ запрещает инициативу зарегистрированного NPC. "
-            "Для каждого NPC оцени role/story_function, goals, pov_relationship, current_location/current_activity, "
+            "Для каждого NPC оцени role/story_function, goals, pov_relationship/pov_relationship_dynamic, current_location/current_activity, "
             "pov_familiarity, npc_relation_refs, active_intents, active_threads, last_contact и реальные последствия. "
             "Обычная человеческая причина достаточна: написать, позвонить, зайти, пересечься по работе/месту, выполнить привычное действие, "
             "отреагировать на собственную связь, заботу, ревность, скуку, обязательство или план, если это естественно именно этому NPC. "
@@ -732,9 +734,6 @@ def _apply_relationship_changes(session_id: str, payload: Dict[str, Any]) -> Dic
     result = deepcopy(payload)
     extracted = result.get("extracted") if isinstance(result.get("extracted"), dict) else {}
     updates = extracted.get("relationship_updates") if isinstance(extracted.get("relationship_updates"), list) else []
-    if not updates:
-        return result
-
     root = storage.SESSIONS_DIR / session_id
     source = storage._read_json(root / "source.json", {})
     cards = storage._apply_character_upserts(storage._load_cards(root, source), extracted)
@@ -757,6 +756,7 @@ def _apply_relationship_changes(session_id: str, payload: Dict[str, Any]) -> Dic
     if not isinstance(store, dict):
         store = relationship_file_runtime.load(root, cards=cards, state=state, pov_id=pov_id)
 
+    store = relationship_file_runtime.ensure_participant_records(store, participants, cards)
     try:
         store = relationship_file_runtime.apply_updates(
             store,
@@ -895,6 +895,15 @@ def _normalise_chronology_for_save(session_id: str, payload: Dict[str, Any]) -> 
     return result
 
 
+def _strip_relationship_review(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Accept old clients' review rows without making them a gameplay gate."""
+    result = deepcopy(payload)
+    extracted = result.get("extracted")
+    if isinstance(extracted, dict):
+        extracted.pop("relationship_review", None)
+    return result
+
+
 def _disable_mandatory_audit_after_commit(session_id: str, result: Dict[str, Any]) -> Dict[str, Any]:
     root = storage.SESSIONS_DIR / session_id
     meta = storage._read_json(root / "meta.json", {})
@@ -918,6 +927,7 @@ def commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         prepared,
         root=storage.SESSIONS_DIR / session_id,
     )
+    prepared = _strip_relationship_review(prepared)
     prepared = _apply_story_and_intent_updates(session_id, prepared)
     prepared = _apply_npc_relationship_updates(session_id, prepared)
     prepared = _apply_relationship_changes(session_id, prepared)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from math import isfinite
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Tuple
 
@@ -22,7 +23,7 @@ def _number(value: Any) -> int | float:
 
 
 def _is_number(value: Any) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool)
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and isfinite(value)
 
 
 def _change(turn: int, delta: Any, reason: str) -> Dict[str, Any]:
@@ -95,7 +96,7 @@ def _qualitative_relation(row: Dict[str, Any]) -> str:
 
 def _empty_store(pov_id: str) -> Dict[str, Any]:
     return {
-        "version": 1,
+        "version": 2,
         "pov_character_id": str(pov_id or ""),
         "npc_to_pov": {},
         "npc_to_npc": {},
@@ -117,6 +118,10 @@ def _profile_store(cards: List[Dict[str, Any]], pov_id: str) -> Dict[str, Any]:
                 continue
             if target_id == pov_id:
                 owner = npc_to_pov.setdefault(owner_id, {"dimensions": {}})
+                dynamic = " ".join(str(row.get("current_dynamic") or "").split())[:700]
+                if dynamic:
+                    owner["dynamic"] = dynamic
+                    owner["dynamic_last_change"] = _change(0, 0, _reason_from_relation(row))
                 dimensions = owner.setdefault("dimensions", {})
                 if not isinstance(dimensions, dict):
                     dimensions = {}
@@ -141,7 +146,7 @@ def _profile_store(cards: List[Dict[str, Any]], pov_id: str) -> Dict[str, Any]:
                         "value": _number(value),
                         "last_change": _change(0, 0, _reason_from_relation(row)),
                     }
-                if not dimensions:
+                if not dimensions and not owner.get("dynamic"):
                     npc_to_pov.pop(owner_id, None)
             else:
                 text = _qualitative_relation(row)
@@ -170,6 +175,21 @@ def _legacy_reason(state: Dict[str, Any], owner_id: str, label: str) -> str:
     return "перенесено из существующей сессии"
 
 
+def _legacy_dynamic(state: Dict[str, Any], owner_id: str, pov_id: str) -> str:
+    docs = state.get("relationship_documents") if isinstance(state.get("relationship_documents"), dict) else {}
+    doc = docs.get(owner_id) if isinstance(docs.get(owner_id), dict) else {}
+    for relation in doc.get("relations", []) if isinstance(doc.get("relations"), list) else []:
+        if not isinstance(relation, dict):
+            continue
+        target = str(relation.get("target_character_id") or relation.get("target_id") or relation.get("target") or "")
+        if target and _norm(target) != _norm(pov_id):
+            continue
+        text = " ".join(str(relation.get("current_dynamic") or "").split())[:700]
+        if text:
+            return text
+    return ""
+
+
 def _migrate_legacy_state(store: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
     result = deepcopy(store)
     flat = state.get("relationships") if isinstance(state.get("relationships"), dict) else {}
@@ -188,8 +208,15 @@ def _migrate_legacy_state(store: Dict[str, Any], state: Dict[str, Any]) -> Dict[
             }
             if len(dimensions) >= MAX_DIMENSIONS_PER_NPC:
                 break
-        if dimensions:
+        existing = npc_to_pov.get(str(owner_id)) if isinstance(npc_to_pov.get(str(owner_id)), dict) else {}
+        dynamic = (
+            _legacy_dynamic(state, str(owner_id), str(result.get("pov_character_id") or ""))
+            or " ".join(str(existing.get("dynamic") or "").split())[:700]
+        )
+        if dimensions or dynamic:
             npc_to_pov[str(owner_id)] = {"dimensions": dimensions}
+            if dynamic:
+                npc_to_pov[str(owner_id)]["dynamic"] = dynamic
 
     legacy_npc = state.get("npc_relationships") if isinstance(state.get("npc_relationships"), dict) else {}
     npc_to_npc = result.setdefault("npc_to_npc", {})
@@ -237,8 +264,16 @@ def normalize_store(value: Any, pov_id: str = "") -> Dict[str, Any]:
                     str(last_change.get("reason") or ""),
                 ),
             }
-        if clean:
+        dynamic = " ".join(str(raw.get("dynamic") or "").split())[:700]
+        if clean or dynamic or raw.get("dimensions") == {}:
             result["npc_to_pov"][str(owner_id)] = {"dimensions": clean}
+            if dynamic:
+                result["npc_to_pov"][str(owner_id)]["dynamic"] = dynamic
+                change = raw.get("dynamic_last_change")
+                if isinstance(change, dict):
+                    result["npc_to_pov"][str(owner_id)]["dynamic_last_change"] = _change(
+                        int(change.get("turn", 0) or 0), 0, str(change.get("reason") or "")
+                    )
 
     npc_to_npc = source.get("npc_to_npc") if isinstance(source.get("npc_to_npc"), dict) else {}
     for owner_id, targets in npc_to_npc.items():
@@ -261,7 +296,32 @@ def build_initial_store(cards: List[Dict[str, Any]], state: Dict[str, Any], pov_
 def load(root: Path, *, cards: List[Dict[str, Any]], state: Dict[str, Any], pov_id: str) -> Dict[str, Any]:
     path = root / FILE_NAME
     if path.exists():
-        return normalize_store(storage._read_json(path, {}), pov_id)
+        raw = storage._read_json(path, {})
+        store = normalize_store(raw, pov_id)
+        if raw.get("version", 1) == 1:
+            # Never relabel a played relationship with its outdated setup description.
+            meta = storage._read_json(root / "meta.json", {})
+            turns = storage._read_turns(root)
+            if not turns and not int(meta.get("turn_number", 0) or 0):
+                initial = _profile_store(cards, pov_id)
+                for cid, row in store["npc_to_pov"].items():
+                    initial_row = initial["npc_to_pov"].get(cid, {})
+                    if not row.get("dynamic") and initial_row.get("dynamic"):
+                        row["dynamic"] = initial_row["dynamic"]
+                        row["dynamic_last_change"] = deepcopy(initial_row["dynamic_last_change"])
+            for turn in turns:
+                extracted = turn.get("extracted") or {}
+                for update in extracted.get("relationship_updates") or []:
+                    cid = _resolve_character_id(cards, update.get("character_id"))
+                    row = store["npc_to_pov"].get(cid)
+                    dynamic = " ".join(str(update.get("dynamic") or "").split())[:700]
+                    if row is not None and dynamic:
+                        row["dynamic"] = dynamic
+                        row["dynamic_last_change"] = _change(
+                            int(turn.get("turn_number", 0) or 0), 0, str(update.get("reason") or "")
+                        )
+            storage._write_json(path, store)
+        return store
 
     store = build_initial_store(cards, state, pov_id)
     storage._write_json(path, store)
@@ -357,6 +417,16 @@ def apply_npc_updates(
     return result
 
 
+def ensure_participant_records(store: Dict[str, Any], participant_ids: Iterable[str], cards: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Remember an encounter without inventing a numeric attitude."""
+    result = deepcopy(store)
+    known_ids = {storage._card_id(card) for card in cards}
+    for cid in participant_ids:
+        if cid in known_ids and cid != result.get("pov_character_id"):
+            result["npc_to_pov"].setdefault(cid, {"dimensions": {}})
+    return result
+
+
 def apply_updates(
     store: Dict[str, Any],
     updates: Any,
@@ -365,6 +435,7 @@ def apply_updates(
     pov_id: str,
     turn_number: int,
     participant_ids: Iterable[str],
+    enforce_turn_invariants: bool = True,
 ) -> Dict[str, Any]:
     if not isinstance(updates, list) or not updates:
         return deepcopy(store)
@@ -372,6 +443,7 @@ def apply_updates(
     result = deepcopy(store)
     npc_to_pov = result.setdefault("npc_to_pov", {})
     participants = {str(value) for value in participant_ids if value}
+    changed_dimensions: set[tuple[str, str]] = set()
 
     for raw in updates:
         if not isinstance(raw, dict):
@@ -390,7 +462,8 @@ def apply_updates(
             raise ValueError("RELATIONSHIP_CHANGE_SCALE_INVALID")
 
         incoming_dimensions = raw.get("dimensions") if isinstance(raw.get("dimensions"), list) else []
-        if not incoming_dimensions:
+        incoming_dynamic = " ".join(str(raw.get("dynamic") or "").split())[:700]
+        if not incoming_dimensions and not incoming_dynamic:
             raise ValueError("RELATIONSHIP_UPDATE_EMPTY")
 
         owner = npc_to_pov.setdefault(owner_id, {"dimensions": {}})
@@ -400,6 +473,11 @@ def apply_updates(
             owner["dimensions"] = dimensions
 
         changed_any = False
+        if incoming_dynamic and incoming_dynamic != str(owner.get("dynamic") or ""):
+            owner["dynamic"] = incoming_dynamic
+            owner["dynamic_last_change"] = _change(turn_number, 0, reason)
+            changed_any = True
+
         seen: set[str] = set()
         for item in incoming_dimensions:
             if not isinstance(item, dict):
@@ -409,6 +487,9 @@ def apply_updates(
             if not label or not key or key in seen:
                 raise ValueError("RELATIONSHIP_DIMENSION_INVALID")
             seen.add(key)
+            if enforce_turn_invariants and (owner_id, key) in changed_dimensions:
+                raise ValueError("RELATIONSHIP_DIMENSION_DUPLICATE_UPDATE")
+            changed_dimensions.add((owner_id, key))
 
             existing_label = next((name for name in dimensions if _norm(name) == key), None)
             if existing_label is not None:
@@ -418,6 +499,8 @@ def apply_updates(
                 if scale == "ordinary" and abs(float(delta)) > ORDINARY_DELTA_LIMIT:
                     raise ValueError("RELATIONSHIP_ORDINARY_DELTA_LIMIT")
                 new_value = float(dimensions[existing_label]["value"]) + float(delta)
+                if not isfinite(new_value):
+                    raise ValueError("RELATIONSHIP_VALUE_INVALID")
                 if new_value == 0.0:
                     dimensions.pop(existing_label, None)
                     changed_any = True
@@ -434,8 +517,6 @@ def apply_updates(
                 raise ValueError("RELATIONSHIP_NEW_DIMENSION_VALUE_REQUIRED")
             if scale == "ordinary" and abs(float(value)) > ORDINARY_DELTA_LIMIT:
                 raise ValueError("RELATIONSHIP_ORDINARY_DELTA_LIMIT")
-            if len(dimensions) >= MAX_DIMENSIONS_PER_NPC:
-                raise ValueError("RELATIONSHIP_DIMENSION_LIMIT")
             dimensions[label] = {
                 "value": _number(value),
                 "last_change": _change(turn_number, value, reason),
@@ -444,9 +525,11 @@ def apply_updates(
 
         if not changed_any:
             raise ValueError("RELATIONSHIP_UPDATE_EMPTY")
-        if not dimensions:
+        if not dimensions and not owner.get("dynamic"):
             npc_to_pov.pop(owner_id, None)
 
+    if any(len(row.get("dimensions", {})) > MAX_DIMENSIONS_PER_NPC for row in npc_to_pov.values()):
+        raise ValueError("RELATIONSHIP_DIMENSION_LIMIT")
     return result
 
 
@@ -462,11 +545,20 @@ def rebuild_from_turns(
     store = build_initial_store(cards, starting_state, pov_id)
     all_ids = [storage._card_id(card) for card in cards if storage._card_id(card)]
 
+    working_state = deepcopy(starting_state)
+    from .turn_pipeline import _relationship_scene_participants
+
     for turn in turns:
         if not isinstance(turn, dict):
             continue
         turn_number = int(turn.get("turn_number", 0) or 0)
         extracted = turn.get("extracted") if isinstance(turn.get("extracted"), dict) else {}
+        after = storage._deep_merge(working_state, extracted.get("state_patch") or {})
+        participants = _relationship_scene_participants(
+            working_state, after, extracted, cards=cards, user_input=str(turn.get("user_input") or "")
+        )
+        store = ensure_participant_records(store, participants, cards)
+        working_state = after
         store = apply_npc_updates(
             store,
             extracted.get("npc_relationship_updates"),
@@ -480,6 +572,7 @@ def rebuild_from_turns(
             pov_id=pov_id,
             turn_number=turn_number,
             participant_ids=all_ids,
+            enforce_turn_invariants=False,
         )
     return store
 

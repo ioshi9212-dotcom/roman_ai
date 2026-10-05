@@ -50,6 +50,7 @@ def _packet_status(packet: Any) -> Dict[str, Any] | None:
         "status": "ready_for_commit" if not unread else "reading",
         "scene_archive_capable": bool(packet.get("scene_archive_capable")),
         "writer_review_required": bool(packet.get("writer_review_required")),
+        "relationship_review_required": False,
     }
 
 
@@ -121,6 +122,7 @@ def prepare_turn_request(
                 result["scene_archive_capable"] = bool(packet.get("scene_archive_capable"))
                 result["opening_scene"] = bool(packet.get("opening_scene"))
                 result["writer_review_required"] = bool(packet.get("writer_review_required"))
+                result["relationship_review_required"] = False
                 result["pending_turn"] = pending_turn_status(session_id)
                 return result
 
@@ -145,9 +147,6 @@ def prepare_turn_request(
             packet["scene_archive_capable"] = bool(scene_archive_capable)
             packet["opening_scene"] = bool(opening_scene)
             packet["writer_review_required"] = True
-            # relationships.json is the sole relationship canon. Relationship review
-            # is now implicit: send relationship_updates only when the finished scene
-            # actually changed an NPC→POV relationship.
             for key in (
                 "relationship_review_required",
                 "relationship_review_details_required",
@@ -165,6 +164,7 @@ def prepare_turn_request(
         result["scene_archive_capable"] = bool(scene_archive_capable)
         result["opening_scene"] = bool(opening_scene)
         result["writer_review_required"] = bool(packet.get("writer_review_required"))
+        result["relationship_review_required"] = False
         result["pending_turn"] = pending_turn_status(session_id)
         return result
 

@@ -359,6 +359,13 @@ def test_new_public_packet_requires_scene_and_persistence_review_before_commit()
             commit_turn_request(sid, payload)
 
         payload["extracted"]["knowledge_reviewed"] = True
+        payload["extracted"]["relationship_review"] = [
+            {
+                "character_id": "npc",
+                "changed": False,
+                "reason": "Проверено: сцена не изменила отношение NPC к POV.",
+            }
+        ]
         result = commit_turn_request(sid, payload)
         assert result["turn_number"] == 1
 
@@ -396,16 +403,17 @@ def test_relationship_delta_uses_saved_baseline_and_is_not_double_applied():
         assert relationships["npc_to_pov"]["npc"]["dimensions"]["доверие"]["value"] == 12
 
 
-def test_pending_packet_has_no_legacy_relationship_review_markers_and_commits():
+def test_pending_packet_has_no_mandatory_relationship_review_and_commits():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         sid = storage.create_session(base_novel())["session_id"]
-        manifest = prepare_turn_request(sid, "(посмотреть на NPC)", request_id="no-rel-review")
+        manifest = prepare_turn_request(sid, "(посмотреть на NPC)", request_id="rel-review-lite")
         read_all(manifest, sid)
         root = storage.SESSIONS_DIR / sid
         packet = storage._read_json(root / "turn_packet.json", {})
+        assert "relationship_review_required" not in packet
+        assert manifest["relationship_review_required"] is False
         for key in (
-            "relationship_review_required",
             "relationship_review_details_required",
             "relationship_footer_scope_required",
             "relationship_review_v3_required",
@@ -422,10 +430,19 @@ def test_pending_packet_has_no_legacy_relationship_review_markers_and_commits():
                     "scene_builder_reviewed": True,
                     "persistence_reviewed": True,
                     "knowledge_reviewed": True,
+                    "relationship_review": [
+                        {
+                            "character_id": "npc",
+                            "changed": False,
+                            "reason": "Сцена проверена: отношение NPC к POV не изменилось.",
+                        }
+                    ],
                 },
             },
         )
         assert result["turn_number"] == 1
+        turns = storage._read_turns(root)
+        assert "relationship_review" not in turns[-1].get("extracted", {})
 
 def test_explicit_chronology_participants_are_mirrored_into_personal_knowledge():
     with tempfile.TemporaryDirectory() as tmp:
