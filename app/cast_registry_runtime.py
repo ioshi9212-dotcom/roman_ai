@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from copy import deepcopy
 from typing import Any, Dict, List
 
@@ -238,24 +239,37 @@ def _validate_character_upserts(
             raise RuntimeError("CAST_STORY_FUNCTION_REQUIRED")
 
 
+_SPEAKER_RE = re.compile(r"(?m)^\s*\*\*(?P<speaker>[^*\n]+)\*\*\s*[—-]\s*")
+
+
+def _speaker_labels(text: str) -> List[str]:
+    return [
+        " ".join(match.group("speaker").split())
+        for match in _SPEAKER_RE.finditer(str(text or ""))
+        if " ".join(match.group("speaker").split())
+    ]
+
+
 def _require_cards_for_persistent_unknown_participants(
+    root,
     state: Dict[str, Any],
     current_cards: List[Dict[str, Any]],
     resulting_cards: List[Dict[str, Any]],
     extracted: Dict[str, Any],
     *,
+    scene_output: str,
     post_present: set[str],
     post_remote: set[str],
 ) -> None:
     if extracted.get("runtime_rules_reviewed") is not True:
         return
 
-    start_values = list(storage._present_character_ids(state))
-    start_values.extend(storage._remote_character_ids(state))
     pov = state.get("pov") if isinstance(state.get("pov"), dict) else {}
     pov_id = str(pov.get("character_id") or "")
-
     unresolved: List[str] = []
+
+    start_values = list(storage._present_character_ids(state))
+    start_values.extend(storage._remote_character_ids(state))
     for raw in dict.fromkeys(str(value) for value in start_values if value):
         if raw == pov_id:
             continue
@@ -266,6 +280,24 @@ def _require_cards_for_persistent_unknown_participants(
         if raw not in post_present and raw not in post_remote:
             continue
         unresolved.append(raw)
+
+    prior_speakers: set[str] = set()
+    for turn in storage._read_turns(root):
+        if not isinstance(turn, dict):
+            continue
+        prior_speakers.update(
+            label.casefold().replace("ё", "е")
+            for label in _speaker_labels(str(turn.get("scene_output") or ""))
+        )
+
+    for label in _speaker_labels(scene_output):
+        if session_runtime._resolve_character_id(current_cards, label):
+            continue
+        if session_runtime._resolve_character_id(resulting_cards, label):
+            continue
+        normalized = label.casefold().replace("ё", "е")
+        if normalized in prior_speakers and label not in unresolved:
+            unresolved.append(label)
 
     if unresolved:
         raise RuntimeError("CAST_PERSISTENT_NPC_CARD_REQUIRED")
@@ -588,10 +620,12 @@ def _with_registry_patch(session_id: str, payload: Dict[str, Any]) -> Dict[str, 
         post_present = _post_turn_present(state, extracted)
         post_remote = _post_turn_remote(state, extracted)
         _require_cards_for_persistent_unknown_participants(
+            root,
             state,
             current_cards,
             resulting_cards,
             extracted,
+            scene_output=str(prepared.get("scene_output") or ""),
             post_present=post_present,
             post_remote=post_remote,
         )
