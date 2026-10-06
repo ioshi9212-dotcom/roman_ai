@@ -44,7 +44,7 @@ Packet уже содержит director context, current/recent, POV, physical/r
 
 ## Offscreen персонаж
 
-Кто появляется, звонит, пишет или остаётся вне сцены, решает ИИ по текущей ситуации и логике мира; нет очереди или таймера появления. Поведение персонажа в контакте — по `scene_builder`; чтение карточек и сохранение — по `runtime_rules`.
+Появление, частота и поведение NPC — по `scene_builder`; чтение карточек и сохранение — по `runtime_rules`. Cast registry не является расписанием.
 
 До реального участия offscreen NPC прочитай `prepareCharacterBundleRead` → все `getCharacterBundleChunk`. Intent из bundle принадлежит только его владельцу.
 
