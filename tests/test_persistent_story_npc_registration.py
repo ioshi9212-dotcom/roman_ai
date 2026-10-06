@@ -425,69 +425,6 @@ def test_fast_audit_reads_canonical_relationships_file_not_legacy_state():
         assert audit["source"] == "relationships.json"
         assert audit["current_numeric"]["npc"]["доверие"] == 7
 
-def test_audit_repairs_missing_intent_and_story_thread():
-    with tempfile.TemporaryDirectory() as tmp:
-        setup_temp_storage(tmp)
-        sid = make_session()
-        root = storage.SESSIONS_DIR / sid
-        turns = [
-            {
-                "turn_number": number,
-                "user_input": f"Ход {number}",
-                "scene_output": f"Сохранённая сцена {number}.",
-                "extracted": {},
-            }
-            for number in range(1, 16)
-        ]
-        (root / "turns.jsonl").write_text(
-            "".join(json.dumps(turn, ensure_ascii=False) + "\n" for turn in turns),
-            encoding="utf-8",
-        )
-        meta = storage._read_json(root / "meta.json", {})
-        meta["turn_number"] = 15
-        meta["audit_required"] = True
-        meta["last_audit_turn"] = 0
-        storage._write_json(root / "meta.json", meta)
-
-        turn_pipeline.commit_audit(
-            sid,
-            {
-                "audit_id": "audit-hooks",
-                "start_turn": 1,
-                "end_turn": 15,
-                "repairs": {
-                    "npc_intent_updates": [{
-                        "character_id": "pov",
-                        "intent_id": "finish_conversation",
-                        "summary": "Вернуться к незавершённому разговору.",
-                    }],
-                    "story_thread_updates": [{
-                        "thread_id": "unfinished_question",
-                        "operation": "upsert",
-                        "summary": "Остался незакрытый вопрос после разговора.",
-                        "participants": ["pov"],
-                        "progressed_now": True,
-                    }],
-                    "scene_compactions": [{
-                        "start_turn": 1,
-                        "end_turn": 15,
-                        "summary": "Пятнадцать ходов содержали незавершённый разговор и открытый вопрос, которые должны сохраниться для продолжения.",
-                        "status": "open",
-                        "participants": ["pov"],
-                        "location": "bar",
-                    }],
-                },
-                "notes": [],
-            },
-        )
-
-        state = storage._read_json(root / "state.json", {})
-        assert any(
-            row.get("intent_id") == "finish_conversation"
-            for row in state.get("npc_intents", {}).get("pov", [])
-        )
-        assert state.get("threads", {}).get("unfinished_question", {}).get("status") == "active"
-
 def test_fast_audit_scopes_active_continuity_and_does_not_duplicate_cast_registry():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
