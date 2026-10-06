@@ -106,7 +106,7 @@ def prepare_turn_request(
             same_input = str(packet.get("user_input") or "") == str(user_input)
             pending_id = str(packet.get("request_id") or "").strip()
 
-            if same_input:
+            if same_input and not replace_pending:
                 if identity and pending_id and identity != pending_id:
                     raise RuntimeError("TURN_IN_PROGRESS")
                 if identity and not pending_id:
@@ -130,7 +130,11 @@ def prepare_turn_request(
             if not replace_pending:
                 raise RuntimeError("TURN_IN_PROGRESS")
 
-            _archive_abandoned_pending(root, packet, reason="explicit_replace_pending")
+            _archive_abandoned_pending(
+                root,
+                packet,
+                reason="explicit_rebuild_pending" if same_input else "explicit_replace_pending",
+            )
             (root / "turn_packet.json").unlink(missing_ok=True)
 
         if not identity:
