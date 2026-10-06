@@ -789,9 +789,9 @@ def audit_commit(session_id: str, body: AuditCommit):
     except RuntimeError as exc:
         errors = {
             "AUDIT_NOT_REQUIRED": "Audit is not currently required",
-            "AUDIT_PACKET_ID_REQUIRED": "commitAudit requires the exact audit_id returned by getAuditSnapshot",
-            "AUDIT_PACKET_REQUIRED": "Call getAuditSnapshot, use its exact audit_id, then read every audit snapshot chunk before commitAudit",
-            "AUDIT_PACKET_INCOMPLETE": "Every audit snapshot chunk must be read before commitAudit",
+            "AUDIT_PACKET_ID_REQUIRED": "The audit payload requires the exact audit_id returned in required_audit.",
+            "AUDIT_PACKET_REQUIRED": "Use required_audit, read every remaining chunk through getTurnPacketChunk with audit_id as packet_id, then retry commitTurn with the audit payload.",
+            "AUDIT_PACKET_INCOMPLETE": "Read every remaining audit chunk through getTurnPacketChunk before retrying commitTurn with the audit payload.",
             "AUDIT_REPAIR_TURN_REQUIRED": "Every historical audit repair must include its original turn number.",
             "AUDIT_REPAIR_TURN_OUT_OF_RANGE": "An audit repair referenced a turn outside the exact audited range.",
             "AUDIT_RELATIONSHIP_REPAIR_INVALID": "A relationship repair is inconsistent with the canonical relationships.json store.",
