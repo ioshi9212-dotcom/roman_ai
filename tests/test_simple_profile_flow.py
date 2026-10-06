@@ -25,6 +25,23 @@ def _read_working_draft(draft_id: str) -> None:
         get_novel_read_chunk(manifest["read_id"], index)
 
 
+def test_v5_intake_conflict_keeps_recovery_metadata_and_instruction():
+    with tempfile.TemporaryDirectory() as tmp:
+        _setup(tmp)
+        draft_id = novel_drafts.create_draft("v5_recovery", "V5 recovery", version=5)["draft_id"]
+        draft_intake_runtime.append_intake_chunk(
+            draft_id, block_id="raw_setup", stage="setup", chunk_index=0, raw_text="ABC", is_last=False
+        )
+        recovery = draft_intake_runtime.append_intake_chunk(
+            draft_id, block_id="raw_setup", stage="setup", chunk_index=0, raw_text="XYZ", is_last=False
+        )
+        assert recovery["recovery_required"] is True
+        assert recovery["next_chunk_index"] == 1
+        assert recovery["last_saved_chunk"] == "ABC"
+        assert "Stored RAW prefix is immutable" in recovery["instruction"]
+        assert recovery["simple_profile_mode"] is True
+
+
 def _build_simple_draft(*, raw_text=None, silas_notes=None) -> str:
     draft = novel_drafts.create_draft("simple_profiles", "Пока мир не сгорит", version=5)
     draft_id = draft["draft_id"]
