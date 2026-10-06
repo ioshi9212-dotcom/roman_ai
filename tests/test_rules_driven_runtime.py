@@ -2307,3 +2307,25 @@ def test_sixtieth_audit_includes_macro_chronology_and_cast_promotion_review():
         assert "recurring" in promotion_rule
         assert "durably important" in promotion_rule
 
+def test_fast_audit_keeps_exact_long_user_input_and_npc_relationship_updates():
+    raw_input = "начало-" + ("длинный ввод " * 180) + "-конец"
+    evidence = fast_audit_runtime._turn_evidence(
+        {
+            "turn_number": 9,
+            "user_input": raw_input,
+            "scene_output": "Сцена.",
+            "extracted": {
+                "npc_relationship_updates": [
+                    {
+                        "owner_character_id": "npc",
+                        "target_character_id": "away",
+                        "description": "поссорились",
+                    }
+                ]
+            },
+        }
+    )
+    assert evidence["user_input"] == raw_input
+    assert evidence["user_input"].endswith("-конец")
+    assert evidence["npc_relationship_updates"][0]["description"] == "поссорились"
+
