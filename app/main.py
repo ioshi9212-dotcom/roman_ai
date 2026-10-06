@@ -547,7 +547,14 @@ def turn_packet_prepare(session_id: str, body: TurnPrepare):
     except RuntimeError as exc:
         code = str(exc)
         if code == "AUDIT_REQUIRED":
-            raise HTTPException(status_code=409, detail="Audit is required before preparing the next turn")
+            return {
+                "audit_required": True,
+                "required_audit": get_audit_snapshot(session_id),
+                "instruction": (
+                    "Complete required_audit first. Read remaining chunks with getTurnPacketChunk using audit_id as packet_id, "
+                    "then submit the audit payload through commitTurn. After success call prepareTurn again with the same user_input/request_id."
+                ),
+            }
         if code == "TURN_REQUEST_ID_REUSED":
             raise HTTPException(
                 status_code=409,
@@ -579,7 +586,7 @@ def turn_packet_chunk_get(session_id: str, packet_id: str, chunk_index: int):
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Session not found")
     except PermissionError:
-        raise HTTPException(status_code=403, detail="Invalid or stale packet_id")
+        raise HTTPException(status_code=403, detail="Invalid or stale packet_id/audit_id")
     except IndexError:
         raise HTTPException(status_code=404, detail="Chunk index out of range")
 
@@ -702,7 +709,9 @@ def turns_get(session_id: str, start_turn: int, end_turn: int):
 
 
 @app.post("/sessions/{session_id}/turns", operation_id="commitTurn")
-def turns_commit(session_id: str, body: TurnCommit):
+def turns_commit(session_id: str, body: TurnCommit | AuditCommit):
+    if isinstance(body, AuditCommit):
+        return audit_commit(session_id, body)
     try:
         return commit_turn_request(session_id, body.model_dump())
     except FileNotFoundError:
