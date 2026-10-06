@@ -1065,7 +1065,7 @@ def install() -> None:
     storage.save_novel = runtime_fixes.save_novel
     storage.get_novel = runtime_fixes.get_novel
 
-    # Optional audit endpoints remain readable, but gameplay never blocks on them.
+    # Required audits reuse the existing public chunk/commit Actions; hidden audit endpoints remain internal compatibility routes.
     audit_runtime.get_audit_snapshot = fast_audit_runtime.get_audit_snapshot
     audit_runtime.get_audit_snapshot_chunk = runtime_fixes.get_audit_snapshot_chunk
     audit_runtime.require_complete_audit_read = runtime_fixes.require_complete_audit_read
