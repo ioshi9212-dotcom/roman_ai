@@ -213,6 +213,9 @@ def test_custom_gpt_instruction_matches_rules_driven_transport():
     assert "`locations`" in text
     assert "`canon_notes`" in text
     assert "`location_context` только текущего физического места" in text
+    assert "`recovery_required`" in text
+    assert "`last_saved_chunk`" in text
+    assert "Новый материал → новый `block_id`" in text
 
 
 def test_runtime_contract_file_stays_removed_and_transport_lives_in_active_docs():
