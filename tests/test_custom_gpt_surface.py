@@ -190,7 +190,7 @@ def test_custom_gpt_instruction_matches_rules_driven_transport():
 
     assert "стартовые знания" in text
     assert "turn=0" in text
-    assert "Кто появляется, звонит, пишет или остаётся вне сцены, решает ИИ" in text
+    assert "Появление, частота и поведение NPC — по `scene_builder`" in text
     assert "Chronology и personal knowledge независимы" in text
     assert "required_audit" in text
     assert "Intent из bundle принадлежит только его владельцу" in text
