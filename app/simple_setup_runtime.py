@@ -111,6 +111,8 @@ def _append_intake_chunk(
     result.pop("source_units", None)
     result.pop("source_unit_count", None)
     result["simple_profile_mode"] = True
+    if result.get("recovery_required"):
+        return result
     result["instruction"] = (
         "RAW сохранён дословно. Не создавай fact_id/source_unit_id. После команды «подтверждаю» "
         "разложи весь RAW по фиксированным профилям и отметь этот блок reviewed_against_raw=true."
