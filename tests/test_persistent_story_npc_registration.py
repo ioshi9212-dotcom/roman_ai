@@ -471,3 +471,48 @@ def test_fast_audit_scopes_active_continuity_and_does_not_duplicate_cast_registr
         assert [row["intent_id"] for row in payload["continuity_audit"]["active_npc_intents"]["npc"]] == ["open"]
         assert set(payload["continuity_audit"]["active_story_threads"]) == {"open_thread"}
 
+def test_sixtieth_audit_cannot_skip_macro_compaction():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = make_session()
+        root = storage.SESSIONS_DIR / sid
+        turns = [
+            {
+                "turn_number": number,
+                "user_input": f"Ход {number}",
+                "scene_output": f"Сохранённая сцена {number}.",
+                "extracted": {},
+            }
+            for number in range(1, 61)
+        ]
+        (root / "turns.jsonl").write_text(
+            "".join(json.dumps(turn, ensure_ascii=False) + "\n" for turn in turns),
+            encoding="utf-8",
+        )
+        meta = storage._read_json(root / "meta.json", {})
+        meta["turn_number"] = 60
+        meta["last_audit_turn"] = 45
+        meta["audit_required"] = True
+        storage._write_json(root / "meta.json", meta)
+
+        with pytest.raises(RuntimeError, match="MACRO_CHRONOLOGY_COMPACTION_REQUIRED"):
+            turn_pipeline.commit_audit(
+                sid,
+                {
+                    "audit_id": "audit-60-macro-required",
+                    "start_turn": 46,
+                    "end_turn": 60,
+                    "repairs": {
+                        "scene_compactions": [{
+                            "start_turn": 46,
+                            "end_turn": 60,
+                            "summary": "Последние пятнадцать ходов проверены, но обязательная шестидесятиходовая сборка хронологии намеренно не передана.",
+                            "status": "open",
+                            "participants": ["pov"],
+                            "location": "bar",
+                        }],
+                    },
+                    "notes": [],
+                },
+            )
+
