@@ -356,11 +356,14 @@ def _atomic_commit_audit(session_id: str, payload: Dict[str, Any]) -> Dict[str, 
             raise ValueError("AUDIT_RANGE_MISMATCH")
 
         repairs = deepcopy(payload.get("repairs", {})) if isinstance(payload.get("repairs"), dict) else {}
+        start_turn = int(payload["start_turn"])
+        end_turn = int(payload["end_turn"])
         audit_state_patch = deepcopy(repairs.get("state_patch")) if isinstance(repairs.get("state_patch"), dict) else {}
         for key in ("relationships", "relationship_documents", "relationship_schemas", "npc_relationships"):
             audit_state_patch.pop(key, None)
         repairs["state_patch"] = audit_state_patch
         source = storage._read_json(root / "source.json", {})
+        cards = storage._apply_character_upserts(storage._load_cards(root, source), repairs)
         state = storage._read_json(root / "state.json", {})
         previous_state = deepcopy(state)
         state = _merge_state_patch_exact_relationships(state, audit_state_patch)
@@ -368,13 +371,58 @@ def _atomic_commit_audit(session_id: str, payload: Dict[str, Any]) -> Dict[str, 
         state = location_runtime.sync_current_location(source, state, previous_state=previous_state)
         state = sync_game_day(state, source)
 
+        journal_repairs = repairs.get("knowledge_journal_add")
+        if isinstance(journal_repairs, list):
+            for item in journal_repairs:
+                if not isinstance(item, dict):
+                    continue
+                raw_turn = item.get("turn") or item.get("source_turn") or item.get("learned_turn")
+                try:
+                    original_turn = int(raw_turn)
+                except (TypeError, ValueError):
+                    raise RuntimeError("AUDIT_REPAIR_TURN_REQUIRED")
+                if original_turn < start_turn or original_turn > end_turn:
+                    raise RuntimeError("AUDIT_REPAIR_TURN_OUT_OF_RANGE")
+                item["turn"] = original_turn
+
         memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
-        memory = storage._apply_memory_events(memory, repairs, expected_end)
+        for card in cards:
+            cid = storage._card_id(card)
+            if cid:
+                storage._memory_bucket(memory, cid)
+        memory = storage._apply_memory_events(
+            memory,
+            repairs,
+            expected_end,
+            preserve_journal_turn=True,
+        )
+
         chronology = storage._read_json(root / "chronology.json", [])
         if not isinstance(chronology, list):
             chronology = []
-        if isinstance(repairs.get("chronology_add"), list):
-            chronology = [*chronology, *deepcopy(repairs["chronology_add"])]
+        chronology_repairs = repairs.get("chronology_add")
+        if isinstance(chronology_repairs, list):
+            normalized_repairs: list[Dict[str, Any]] = []
+            for raw in chronology_repairs:
+                if not isinstance(raw, dict):
+                    continue
+                raw_turn = raw.get("turn_number") or raw.get("turn") or raw.get("source_turn")
+                try:
+                    original_turn = int(raw_turn)
+                except (TypeError, ValueError):
+                    raise RuntimeError("AUDIT_REPAIR_TURN_REQUIRED")
+                if original_turn < start_turn or original_turn > end_turn:
+                    raise RuntimeError("AUDIT_REPAIR_TURN_OUT_OF_RANGE")
+                normalized_repairs.extend(
+                    session_runtime._normalise_chronology_events(
+                        [raw],
+                        turn_number=original_turn,
+                        state=state,
+                        cards=cards,
+                    )
+                )
+            repairs["chronology_add"] = normalized_repairs
+            chronology = [*chronology, *deepcopy(normalized_repairs)]
 
         memory, chronology, scene_store, resolved_scene_rows = apply_audit_compactions(
             root,
@@ -409,7 +457,6 @@ def _atomic_commit_audit(session_id: str, payload: Dict[str, Any]) -> Dict[str, 
             }
         )
 
-        cards = storage._load_cards(root, source)
         turns = storage._read_turns(root)
         state = session_runtime._finalize_persisted_state(
             source=source,
@@ -440,6 +487,7 @@ def _atomic_commit_audit(session_id: str, payload: Dict[str, Any]) -> Dict[str, 
             result["audit_id"] = audit_id
 
         values = {
+            "characters.json": json_text(cards),
             "state.json": json_text(state),
             "memory.json": json_text(memory),
             "chronology.json": json_text(chronology),
