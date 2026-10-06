@@ -897,7 +897,7 @@ paths:
     post:
       operationId: appendDraftIntakeChunk
       summary: Append one verbatim chunk of a large intake block
-      description: Prefer 4000-6000 verbatim characters per chunk, in order from 0. Exact retries are idempotent. Draft v5 keeps the RAW verbatim and later marks each block reviewed with fact_ids=[]. Legacy v4 retains source-unit/foundation mapping. On 422 split only unsaved text. Set is_last only on the final chunk.
+      description: Prefer 4000-6000 verbatim chars per chunk, in order. Exact retries are idempotent. On recovery_required, never resend saved chunks; complete=true means done, otherwise resume at next_chunk_index after last_saved_chunk. New material uses a new block_id.
       parameters:
         - {in: path, name: draft_id, required: true, schema: {type: string}}
       requestBody:
