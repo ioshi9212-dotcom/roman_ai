@@ -126,7 +126,13 @@ def prepare_turn_packet(session_id: str, user_input: str) -> Dict[str, Any]:
 
 def get_turn_packet_chunk(session_id: str, packet_id: str, chunk_index: int) -> Dict[str, Any]:
     with _session_lock(session_id):
-        return _ORIGINAL_GET_TURN_PACKET_CHUNK(session_id, packet_id, chunk_index)
+        try:
+            return _ORIGINAL_GET_TURN_PACKET_CHUNK(session_id, packet_id, chunk_index)
+        except PermissionError:
+            row = dict(_ORIGINAL_GET_AUDIT_CHUNK(session_id, packet_id, chunk_index))
+            row["packet_id"] = packet_id
+            row["packet_kind"] = "audit"
+            return row
 
 
 def _numeric_relationships(state: Dict[str, Any], owner_id: str) -> Dict[str, int | float]:
