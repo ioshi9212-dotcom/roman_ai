@@ -4,11 +4,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict
 
-from . import relationship_file_runtime, storage
+from . import personal_memory_transport, relationship_file_runtime, storage
 from .transactional_storage import session_transaction
 
 
-CURRENT_DATA_SCHEMA_VERSION = 1
+CURRENT_DATA_SCHEMA_VERSION = 2
 LEGACY_RELATIONSHIP_KEYS = (
     "relationships",
     "relationship_documents",
@@ -39,8 +39,39 @@ def _migrate_v0_to_v1(root: Path) -> None:
         storage._write_json(root / "state.json", cleaned)
 
 
+def _migrate_v1_to_v2(root: Path) -> None:
+    source = storage._read_json(root / "source.json", {})
+    cards = storage._load_cards(root, source)
+    memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
+    characters = memory.get("characters") if isinstance(memory.get("characters"), dict) else {}
+    changed = False
+
+    for owner_id, bucket in characters.items():
+        if not isinstance(bucket, dict):
+            continue
+        journal = bucket.get("knowledge_journal")
+        if not isinstance(journal, list):
+            continue
+        for row in journal:
+            if not isinstance(row, dict):
+                continue
+            old_text = str(row.get("text") or "")
+            new_text = personal_memory_transport.neutralize_generated_remote_journal(
+                old_text,
+                owner_id=str(owner_id),
+                cards=cards,
+            )
+            if new_text != old_text:
+                row["text"] = new_text
+                changed = True
+
+    if changed:
+        storage._write_json(root / "memory.json", memory)
+
+
 _MIGRATIONS: Dict[int, Callable[[Path], None]] = {
     0: _migrate_v0_to_v1,
+    1: _migrate_v1_to_v2,
 }
 
 

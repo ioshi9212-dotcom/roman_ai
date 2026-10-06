@@ -5,7 +5,7 @@ import re
 from copy import deepcopy
 from typing import Any, Dict, List
 
-from . import relationship_file_runtime, storage
+from . import personal_memory_transport, relationship_file_runtime, storage
 from .profile_templates import render_knowledge_journal
 from .runtime_access import runtime_documents
 from .scene_compaction_runtime import active_memory_records, complete_knowledge_records
@@ -191,7 +191,13 @@ def _working_records(records: Any, current_turn: int) -> tuple[List[Dict[str, An
     return full, omitted
 
 
-def _working_memory_bucket(bucket: Any, current_turn: int) -> Dict[str, Any]:
+def _working_memory_bucket(
+    bucket: Any,
+    current_turn: int,
+    *,
+    character_id: str = "",
+    cards: List[Dict[str, Any]] | None = None,
+) -> Dict[str, Any]:
     source = bucket if isinstance(bucket, dict) else {}
 
     # Knowledge is factual authority for dialogue. Every active knowledge record for
@@ -209,6 +215,12 @@ def _working_memory_bucket(bucket: Any, current_turn: int) -> Dict[str, Any]:
     # factual knowledge authority, so they can stay bounded for packet size.
     experiences, old_experiences = _working_records(source.get("experiences", []), current_turn)
     dialogue, old_dialogue = _working_records(source.get("dialogue_memory", []), current_turn)
+    if character_id and cards is not None:
+        dialogue = personal_memory_transport.personal_dialogue_rows(
+            dialogue,
+            owner_id=character_id,
+            cards=cards,
+        )
     return {
         "knowledge": deepcopy(knowledge),
         "knowledge_journal": knowledge_journal,
@@ -226,10 +238,20 @@ def _working_memory_bucket(bucket: Any, current_turn: int) -> Dict[str, Any]:
     }
 
 
-def _selected_memory(memory: Dict[str, Any], character_ids: List[str], current_turn: int) -> Dict[str, Any]:
+def _selected_memory(
+    memory: Dict[str, Any],
+    character_ids: List[str],
+    current_turn: int,
+    cards: List[Dict[str, Any]],
+) -> Dict[str, Any]:
     buckets = memory.get("characters", {}) if isinstance(memory.get("characters"), dict) else {}
     return {
-        character_id: _working_memory_bucket(buckets.get(character_id, {}), current_turn)
+        character_id: _working_memory_bucket(
+            buckets.get(character_id, {}),
+            current_turn,
+            character_id=character_id,
+            cards=cards,
+        )
         for character_id in character_ids
     }
 
@@ -309,7 +331,7 @@ def inject_required_turn_context(context: Dict[str, Any], cards: List[Dict[str, 
     session = context.get("session") if isinstance(context.get("session"), dict) else {}
     current_turn = int(session.get("turn_number", 0) or 0)
     scene_cards = _selected_cards(cards, scene_ids)
-    scene_memory = _selected_memory(memory, scene_ids, current_turn)
+    scene_memory = _selected_memory(memory, scene_ids, current_turn, cards)
 
     context["relevant_character_ids"] = scene_ids
     context["scene_state"] = _compact_scene_state(state, scene_ids)

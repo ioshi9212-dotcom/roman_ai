@@ -6,7 +6,7 @@ from copy import deepcopy
 from typing import Any, Dict, List
 
 from .character_access import get_character_bundle
-from . import relationship_file_runtime, storage, session_runtime
+from . import personal_memory_transport, relationship_file_runtime, storage, session_runtime
 from .scene_compaction_runtime import active_memory_records, complete_knowledge_records
 
 
@@ -121,7 +121,12 @@ def _intent_source_ids(bundle: Dict[str, Any]) -> set[str]:
     return result
 
 
-def _working_memory(bundle: Dict[str, Any]) -> Dict[str, Any]:
+def _working_memory(
+    bundle: Dict[str, Any],
+    *,
+    character_id: str,
+    cards: List[Dict[str, Any]],
+) -> Dict[str, Any]:
     memory = bundle.get("personal_memory") if isinstance(bundle.get("personal_memory"), dict) else {}
     all_knowledge = complete_knowledge_records(memory.get("knowledge"))
 
@@ -131,7 +136,11 @@ def _working_memory(bundle: Dict[str, Any]) -> Dict[str, Any]:
     knowledge = deepcopy(all_knowledge)
 
     experiences = _tail(memory.get("experiences"), CHARACTER_WORKING_EXPERIENCES)
-    dialogue = _tail(memory.get("dialogue_memory"), CHARACTER_WORKING_DIALOGUE)
+    dialogue = personal_memory_transport.personal_dialogue_rows(
+        _tail(memory.get("dialogue_memory"), CHARACTER_WORKING_DIALOGUE),
+        owner_id=character_id,
+        cards=cards,
+    )
     return {
         "knowledge": knowledge,
         "experiences": _bound_memory_value(experiences),
@@ -177,7 +186,7 @@ def _participation_bundle(session_id: str, character_id: str) -> Dict[str, Any]:
         "card": deepcopy(full.get("card", {})),
         "current_state": deepcopy(full.get("current_state", {})),
         "pov_familiarity": deepcopy(full.get("pov_familiarity")),
-        "personal_memory": _working_memory(full),
+        "personal_memory": _working_memory(full, character_id=character_id, cards=cards),
         "relationship_to_pov": deepcopy(full.get("relationship_to_pov")),
         "npc_relationships_director_only": relationship_file_runtime.outgoing_npc_relations(relationship_store, character_id),
         "active_intents": deepcopy(full.get("active_intents", [])),

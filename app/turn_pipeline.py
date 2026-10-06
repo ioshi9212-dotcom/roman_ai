@@ -50,7 +50,7 @@ _BASE_PARTICIPATION_BUNDLE = character_chunk_read._participation_bundle
 _BASE_CREATE_SESSION = storage.create_session
 _BASE_RECOVER_CURRENT = session_recovery.recover_session_current
 
-PIPELINE_VERSION = 16
+PIPELINE_VERSION = 17
 
 def _packet_manifest(packet: Dict[str, Any], *, reused: bool) -> Dict[str, Any]:
     chunks = packet.get("chunks", []) if isinstance(packet.get("chunks"), list) else []
@@ -513,7 +513,12 @@ def _prepare_context(
     memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
     memory_buckets = memory.get("characters", {}) if isinstance(memory.get("characters"), dict) else {}
     context["character_memory"] = {
-        cid: turn_context._working_memory_bucket(memory_buckets.get(cid, {}), current_turn)
+        cid: turn_context._working_memory_bucket(
+            memory_buckets.get(cid, {}),
+            current_turn,
+            character_id=cid,
+            cards=cards,
+        )
         for cid in scene_ids
     }
     pov = state.get("pov") if isinstance(state.get("pov"), dict) else {}
@@ -981,13 +986,14 @@ def _disable_mandatory_audit_after_commit(session_id: str, result: Dict[str, Any
 def commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     _validate_technical_state_patch(payload)
     prepared = _prepare_profile_persistence(session_id, payload)
-    private_knowledge_runtime.validate_private_knowledge(session_id, prepared)
     prepared = private_knowledge_runtime.add_direct_communication_memory(session_id, prepared)
-    prepared = private_knowledge_runtime.add_scene_remote_communication_memory(session_id, prepared)
     prepared = scene_presence_runtime._apply_presence_contract(
         prepared,
         root=storage.SESSIONS_DIR / session_id,
     )
+    prepared = private_knowledge_runtime.normalize_dialogue_memory_modes(session_id, prepared)
+    prepared = private_knowledge_runtime.add_scene_remote_communication_memory(session_id, prepared)
+    private_knowledge_runtime.validate_private_knowledge(session_id, prepared)
     prepared = _strip_relationship_review(prepared)
     prepared = _apply_story_and_intent_updates(session_id, prepared)
     prepared = _apply_npc_relationship_updates(session_id, prepared)
