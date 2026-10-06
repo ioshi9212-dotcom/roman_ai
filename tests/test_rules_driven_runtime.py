@@ -4,9 +4,10 @@ import tempfile
 import pytest
 from pathlib import Path
 
-from app import character_chunk_read, continuation_runtime, private_knowledge_runtime, runtime_access, session_runtime, simple_setup_runtime, storage
+from app import character_chunk_read, continuation_runtime, fast_audit_runtime, private_knowledge_runtime, runtime_access, session_runtime, simple_setup_runtime, storage
+from app import main as main_api
 from app.operation_service import commit_turn_request, prepare_turn_request
-from app.models import TurnCommit
+from app.models import AuditCommit, TurnCommit
 from app.turn_rollback import rollback_last_turn
 
 
@@ -2147,4 +2148,151 @@ def test_long_absent_core_cast_is_not_forced_back_by_recency_timer():
         assert "return_pressure" not in registry
         assert "important_cast_return_required" not in registry
         assert "нет очереди, квоты или таймера возвращения" in registry["instruction"]
+
+def test_private_perception_is_saved_only_to_actual_recipient():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(base_novel())["session_id"]
+
+        manifest = session_runtime.prepare_turn_packet(sid, "(слушать Аду)")
+        read_all(manifest, sid)
+        session_runtime.commit_turn(
+            sid,
+            {
+                "packet_id": manifest["packet_id"],
+                "user_input": "(слушать Аду)",
+                "scene_output": "Девушка наклонилась к POV и тихо назвала своё имя. Away стоял в стороне.",
+                "extracted": {
+                    "chronology": [
+                        {
+                            "event": "Девушка представилась POV как Ада.",
+                            "participants": ["pov", "npc", "away"],
+                            "importance": "major",
+                        }
+                    ],
+                    "knowledge_journal_add": [
+                        {
+                            "character_id": "pov",
+                            "text": "Девушка тихо сказала, что её зовут Ада.",
+                        }
+                    ],
+                },
+            },
+        )
+
+        memory = storage._normalise_memory(
+            storage._read_json(storage.SESSIONS_DIR / sid / "memory.json", {})
+        )
+        pov_text = " ".join(row["text"] for row in memory["characters"]["pov"]["knowledge_journal"])
+        away_text = " ".join(row["text"] for row in memory["characters"]["away"]["knowledge_journal"])
+        assert "зовут Ада" in pov_text
+        assert "Ада" not in away_text
+
+
+def test_required_audit_roundtrip_uses_existing_chunk_and_commit_actions():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        novel = base_novel()
+        novel["characters"] = [{"character_id": "pov", "name": "POV", "is_pov": True}]
+        novel["starting_state"]["current"]["present_characters"] = ["pov"]
+        sid = storage.create_session(novel)["session_id"]
+        root = storage.SESSIONS_DIR / sid
+
+        prior_turns = [
+            {
+                "turn_number": number,
+                "user_input": f"Ход {number}.",
+                "scene_output": f"Сохранённый ход {number}.",
+                "extracted": {},
+            }
+            for number in range(1, 15)
+        ]
+        (root / "turns.jsonl").write_text(
+            "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in prior_turns),
+            encoding="utf-8",
+        )
+        meta = storage._read_json(root / "meta.json", {})
+        meta["turn_number"] = 14
+        meta["last_audit_turn"] = 0
+        meta["audit_required"] = False
+        storage._write_json(root / "meta.json", meta)
+
+        manifest = session_runtime.prepare_turn_packet(sid, "Ход 15.")
+        read_all(manifest, sid)
+        committed = session_runtime.commit_turn(
+            sid,
+            {
+                "packet_id": manifest["packet_id"],
+                "user_input": "Ход 15.",
+                "scene_output": "Сохранённый ход 15.",
+                "extracted": {},
+            },
+        )
+
+        audit = committed["required_audit"]
+        assert audit["first_chunk_included"] is True
+        for index in range(1, audit["chunk_count"]):
+            row = storage.get_turn_packet_chunk(sid, audit["audit_id"], index)
+            assert row["packet_kind"] == "audit"
+            assert row["all_chunks_read"] is (index == audit["chunk_count"] - 1)
+
+        result = main_api.turns_commit(
+            sid,
+            AuditCommit(
+                audit_id=audit["audit_id"],
+                start_turn=1,
+                end_turn=15,
+                repairs={
+                    "scene_compactions": [
+                        {
+                            "start_turn": 1,
+                            "end_turn": 15,
+                            "summary": "Первые пятнадцать тестовых ходов образуют одну непрерывную сцену без дополнительных долговременных событий или пропущенных личных знаний.",
+                            "status": "open",
+                            "participants": ["pov"],
+                            "location": "room",
+                        }
+                    ]
+                },
+                notes=[],
+            ),
+        )
+        assert result["audited_through"] == 15
+        assert storage._read_json(root / "meta.json", {})["audit_required"] is False
+
+        next_manifest = session_runtime.prepare_turn_packet(sid, "Ход 16.")
+        assert next_manifest["prepared_for_turn"] == 16
+
+
+def test_sixtieth_audit_includes_macro_chronology_and_cast_promotion_review():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(base_novel())["session_id"]
+        root = storage.SESSIONS_DIR / sid
+
+        turns = [
+            {
+                "turn_number": number,
+                "user_input": "",
+                "scene_output": f"Ход {number}.",
+                "extracted": {},
+            }
+            for number in range(1, 61)
+        ]
+        (root / "turns.jsonl").write_text(
+            "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in turns),
+            encoding="utf-8",
+        )
+        meta = storage._read_json(root / "meta.json", {})
+        meta["turn_number"] = 60
+        meta["last_audit_turn"] = 45
+        meta["audit_required"] = True
+        storage._write_json(root / "meta.json", meta)
+
+        payload = fast_audit_runtime._build_fast_payload(sid)
+        macro = payload["macro_audit_60"]
+        assert macro["required"] is True
+        assert macro["macro_range"] == [1, 60]
+        assert "repairs.character_upserts" in macro["output_required"]
+        assert "повторяющимся или долговременно важным" in macro["output_required"]["repairs.character_upserts"]
 
