@@ -449,7 +449,8 @@ def test_pending_packet_has_no_mandatory_relationship_review_and_commits():
         turns = storage._read_turns(root)
         assert "relationship_review" not in turns[-1].get("extracted", {})
 
-def test_explicit_chronology_participants_are_mirrored_into_personal_knowledge():
+
+def test_chronology_never_grants_personal_knowledge_even_with_legacy_marker():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         sid = storage.create_session(base_novel())["session_id"]
@@ -477,30 +478,11 @@ def test_explicit_chronology_participants_are_mirrored_into_personal_knowledge()
         memory = storage._normalise_memory(
             storage._read_json(storage.SESSIONS_DIR / sid / "memory.json", {})
         )
-        npc_text = " ".join(
-            row["text"] for row in memory["characters"]["npc"]["knowledge_journal"]
-        )
-        away_text = " ".join(
-            row["text"] for row in memory["characters"]["away"]["knowledge_journal"]
-        )
-        assert "поезд завтра уходит в шесть" in npc_text
-        assert "поезд завтра уходит в шесть" not in away_text
-
-        second = session_runtime.prepare_turn_packet(sid, "(перейти к следующему дню)")
-        read_all(second, sid)
-        session_runtime.commit_turn(
-            sid,
-            {
-                "packet_id": second["packet_id"],
-                "user_input": "(перейти к следующему дню)",
-                "scene_output": "Наступило следующее утро.",
-                "extracted": {"state_patch": {"current": {"date": "02.09.2026"}}},
-            },
-        )
+        assert not memory["characters"]["npc"]["knowledge_journal"]
+        assert not memory["characters"]["away"]["knowledge_journal"]
 
         _, context = read_context(sid, "(посмотреть на NPC)")
-        npc_journal = context["character_memory"]["npc"]["knowledge_journal"]
-        assert "поезд завтра уходит в шесть" in npc_journal
+        assert "поезд завтра уходит в шесть" not in context["character_memory"]["npc"]["knowledge_journal"]
 
 
 def test_chronology_without_explicit_knowledge_participants_does_not_grant_memory():
@@ -536,7 +518,8 @@ def test_chronology_without_explicit_knowledge_participants_does_not_grant_memor
         assert "решила пока не раскрывать секрет" not in npc_text
 
 
-def test_safe_chronology_marker_repairs_missing_personal_memory_before_next_packet():
+
+def test_persisted_legacy_chronology_marker_does_not_repair_personal_memory():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         sid = storage.create_session(base_novel())["session_id"]
@@ -559,14 +542,10 @@ def test_safe_chronology_marker_repairs_missing_personal_memory_before_next_pack
         )
 
         _, context = read_context(sid, "(посмотреть на NPC)")
-        npc_journal = context["character_memory"]["npc"]["knowledge_journal"]
-        assert "NPC узнал код от сейфа" in npc_journal
+        assert "NPC узнал код от сейфа" not in context["character_memory"]["npc"]["knowledge_journal"]
 
         memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
-        assert any(
-            "NPC узнал код от сейфа" in row["text"]
-            for row in memory["characters"]["npc"]["knowledge_journal"]
-        )
+        assert not memory["characters"]["npc"]["knowledge_journal"]
 
 
 def test_exact_duplicate_persisted_journal_rows_are_compacted_before_packet():
@@ -1212,7 +1191,8 @@ def test_turn_commit_schema_exposes_review_flags_without_exact_scene_format():
     assert model.extracted.persistence_reviewed is False
 
 
-def test_fifteenth_turn_does_not_create_mandatory_audit_gate():
+
+def test_fifteenth_turn_creates_mandatory_audit_gate_and_manifest():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         novel = base_novel()
@@ -1223,6 +1203,7 @@ def test_fifteenth_turn_does_not_create_mandatory_audit_gate():
         meta = storage._read_json(root / "meta.json", {})
         meta["turn_number"] = 14
         meta["audit_required"] = False
+        meta["last_audit_turn"] = 0
         storage._write_json(root / "meta.json", meta)
 
         manifest = session_runtime.prepare_turn_packet(sid, "Ход 15.")
@@ -1237,8 +1218,13 @@ def test_fifteenth_turn_does_not_create_mandatory_audit_gate():
             },
         )
         assert result["turn_number"] == 15
-        assert result["audit_due"] is False
-        assert storage._read_json(root / "meta.json", {})["audit_required"] is False
+        assert result["audit_due"] is True
+        assert result["required_audit"]["audit_range"] == [1, 15]
+        assert result["required_audit"]["first_chunk_included"] is True
+        assert storage._read_json(root / "meta.json", {})["audit_required"] is True
+
+        with pytest.raises(RuntimeError, match="AUDIT_REQUIRED"):
+            session_runtime.prepare_turn_packet(sid, "Ход 16.")
 
 
 def test_last_turn_rollback_still_works_without_mandatory_audit():
@@ -1426,7 +1412,8 @@ def test_secondary_cast_cues_are_bounded_and_readable_before_selection():
         assert saved["current"]["present_characters"] == ["pov"]
 
 
-def test_cast_registry_exposes_causal_character_data_without_recency_pressure():
+
+def test_cast_registry_exposes_context_without_forced_return_pressure():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         novel = base_novel()
@@ -1489,9 +1476,9 @@ def test_cast_registry_exposes_causal_character_data_without_recency_pressure():
         row = next(x for x in registry["characters"] if x["character_id"] == "npc")
 
         assert registry["mandatory_causal_review"] is True
-        assert "return_pressure" in registry
-        assert registry["important_cast_return_required"] is bool(registry["return_pressure"])
-        assert "Режиссура сама находит логичный способ сталкивать важный каст" in registry["instruction"]
+        assert "return_pressure" not in registry
+        assert "important_cast_return_required" not in registry
+        assert "нет очереди, квоты или таймера возвращения" in registry["instruction"]
         assert row["story_function"] == "possible romance"
         assert "добиться ответа" in row["goals"]
         assert "initiative_cues" not in row
@@ -1509,17 +1496,9 @@ def test_cast_registry_exposes_causal_character_data_without_recency_pressure():
         assert "вернуться к незакрытому вопросу" in row["active_intents"]
         assert "остался рядом" in row["last_meaningful_event"]
 
-        for forbidden in (
-            "last_physical_turn",
-            "last_physical_game_day",
-            "turns_since_physical",
-            "game_days_since_physical",
-            "overdue",
-            "last_seen",
-        ):
-            assert forbidden not in row
 
-def test_offscreen_npc_without_saved_intent_can_still_be_reviewed_for_ordinary_self_initiative():
+
+def test_offscreen_npc_can_be_considered_without_saved_intent_or_forced_timer():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         novel = base_novel()
@@ -1547,8 +1526,8 @@ def test_offscreen_npc_without_saved_intent_can_still_be_reviewed_for_ordinary_s
         assert row["work"] == "тренер"
         assert "пишет вечером после работы" in row["habits"]
         assert row["pov_relationship"]["привязанность"] == 65
-        assert "Личной мотивации NPC, его отношения, цели или story_function достаточно для инициативы." in context["runtime_rules"]
-        assert "Режиссура сама находит логичный способ сталкивать важный каст" in context["runtime_rules"]
+        assert "Появление, звонок, сообщение, уход и возвращение персонажей выбирает режиссура сама" in context["runtime_rules"]
+        assert "нет очереди, квоты или таймера возвращения" in context["cast_registry"]["instruction"]
         assert "До реального участия offscreen NPC прочитай его полный character bundle." in context["cast_registry"]["instruction"]
 
 
@@ -2118,7 +2097,8 @@ def test_present_character_remains_present_without_leave():
         assert "npc" in state["current"]["present_characters"]
 
 
-def test_active_writer_packet_exposes_return_pressure_for_long_absent_core_cast():
+
+def test_long_absent_core_cast_is_not_forced_back_by_recency_timer():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         sid = storage.create_session(base_novel())["session_id"]
@@ -2158,12 +2138,13 @@ def test_active_writer_packet_exposes_return_pressure_for_long_absent_core_cast(
         )
         meta = storage._read_json(root / "meta.json", {})
         meta["turn_number"] = 25
+        meta["audit_required"] = False
         storage._write_json(root / "meta.json", meta)
 
         _, context = read_context(sid, "(заняться своими делами)")
         registry = context["cast_registry"]
-        pressured = {row["character_id"] for row in registry["return_pressure"]}
 
-        assert registry["important_cast_return_required"] is True
-        assert "npc" in pressured
-        assert "ближайшему логичному контакту" in registry["instruction"]
+        assert "return_pressure" not in registry
+        assert "important_cast_return_required" not in registry
+        assert "нет очереди, квоты или таймера возвращения" in registry["instruction"]
+
