@@ -63,6 +63,15 @@ def test_static_custom_gpt_schema_has_exact_current_30_actions():
 
     turn_commit = schema["components"]["schemas"]["TurnCommit"]
     assert set(turn_commit["required"]) == {"packet_id", "user_input", "scene_output", "extracted"}
+    audit_commit = schema["components"]["schemas"]["AuditCommit"]
+    assert set(audit_commit["required"]) == {"audit_id", "start_turn", "end_turn"}
+    commit_action = schema["paths"]["/sessions/{session_id}/turns"]["post"]
+    refs = commit_action["requestBody"]["content"]["application/json"]["schema"]["oneOf"]
+    assert {row["$ref"] for row in refs} == {
+        "#/components/schemas/TurnCommit",
+        "#/components/schemas/AuditCommit",
+    }
+    assert "knowledge_participants" not in schema["components"]["schemas"]["ChronologyItem"]["properties"]
     dumped = str(turn_commit)
     assert "knowledge_reviewed" not in dumped
     assert "runtime_contract_version" not in dumped
@@ -181,8 +190,9 @@ def test_custom_gpt_instruction_matches_rules_driven_transport():
 
     assert "стартовые знания" in text
     assert "turn=0" in text
-    assert "Поведение и инициатива offscreen-персонажей — по `scene_builder`" in text
-    assert "Поведение POV, интерпретация ввода и форма сцены — по `scene_builder`" in text
+    assert "Кто появляется, звонит, пишет или остаётся вне сцены, решает ИИ" in text
+    assert "Chronology и personal knowledge независимы" in text
+    assert "required_audit" in text
     assert "Intent из bundle принадлежит только его владельцу" in text
     assert "показывай `session_id`" in text
     assert "`packet_id`, `read_id`, chunk-статусы и сверки не показывай" in text
