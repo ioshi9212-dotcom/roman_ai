@@ -503,15 +503,35 @@ def append_intake_chunk(
                 and int(lengths[chunk_index]) == len(raw_text)
                 and bool(is_last) == (chunk_index == chunk_count - 1)
             )
-            if not exact:
-                raise ValueError("INTAKE_UPLOAD_CHUNK_CONFLICT")
             existing = existing_blocks.get(block_id) if isinstance(existing_blocks.get(block_id), dict) else {}
+            if not exact:
+                char_count = int(receipt.get("char_count", sum(lengths)) or 0)
+                return {
+                    "draft_id": draft_id,
+                    "block_id": block_id,
+                    "complete": True,
+                    "already_completed": True,
+                    "payload_mismatch": True,
+                    "recovery_required": True,
+                    "recovery_kind": "completed_block_payload_mismatch",
+                    "chunk_count": chunk_count,
+                    "next_chunk_index": chunk_count,
+                    "char_count": char_count,
+                    "saved_prefix_char_count": char_count,
+                    "draft_revision": int(draft.get("revision", 0) or 0),
+                    "instruction": (
+                        "This RAW block is already complete and immutable. Do not resend or rewrite it. "
+                        "If this call was a retry of the same user material, continue setup after this block. "
+                        "If raw_text is genuinely new material, use a new unique block_id."
+                    ),
+                }
             return {
                 "draft_id": draft_id,
                 "block_id": block_id,
                 "complete": True,
                 "already_completed": True,
                 "chunk_count": chunk_count,
+                "next_chunk_index": chunk_count,
                 "char_count": int(receipt.get("char_count", sum(lengths)) or 0),
                 "draft_revision": int(draft.get("revision", 0) or 0),
                 "source_units": deepcopy(existing.get("source_units", [])),
@@ -545,19 +565,55 @@ def append_intake_chunk(
                 and chunks[chunk_index] == raw_text
                 and not is_last
             )
+            saved_prefix_char_count = sum(int(value) for value in lengths)
             if not exact:
-                raise ValueError("INTAKE_UPLOAD_CHUNK_CONFLICT")
+                return {
+                    "draft_id": draft_id,
+                    "block_id": block_id,
+                    "complete": False,
+                    "payload_mismatch": True,
+                    "recovery_required": True,
+                    "recovery_kind": "saved_prefix_payload_mismatch",
+                    "next_chunk_index": expected,
+                    "char_count": saved_prefix_char_count,
+                    "saved_prefix_char_count": saved_prefix_char_count,
+                    "last_saved_chunk": str(chunks[-1]) if chunks else "",
+                    "draft_revision": int(draft.get("revision", 0) or 0),
+                    "instruction": (
+                        "Stored RAW prefix is immutable. Do not resend earlier chunks. If this is the same original "
+                        "user material, continue with next_chunk_index immediately after last_saved_chunk in the exact "
+                        "original source. If this is new material, use a new unique block_id."
+                    ),
+                }
             return {
                 "draft_id": draft_id,
                 "block_id": block_id,
                 "complete": False,
                 "already_received": True,
                 "next_chunk_index": expected,
-                "char_count": sum(int(value) for value in lengths),
+                "char_count": saved_prefix_char_count,
+                "saved_prefix_char_count": saved_prefix_char_count,
                 "draft_revision": int(draft.get("revision", 0) or 0),
             }
         if chunk_index > expected:
-            raise ValueError("INTAKE_UPLOAD_OUT_OF_ORDER")
+            saved_prefix_char_count = sum(int(value) for value in lengths)
+            return {
+                "draft_id": draft_id,
+                "block_id": block_id,
+                "complete": False,
+                "out_of_order": True,
+                "recovery_required": True,
+                "recovery_kind": "out_of_order",
+                "next_chunk_index": expected,
+                "char_count": saved_prefix_char_count,
+                "saved_prefix_char_count": saved_prefix_char_count,
+                "last_saved_chunk": str(chunks[-1]) if chunks else "",
+                "draft_revision": int(draft.get("revision", 0) or 0),
+                "instruction": (
+                    "Continue this immutable RAW upload at next_chunk_index. Do not skip or resend saved chunks; "
+                    "resume the exact original source immediately after last_saved_chunk."
+                ),
+            }
 
         chunks.append(raw_text)
         hashes.append(digest)
