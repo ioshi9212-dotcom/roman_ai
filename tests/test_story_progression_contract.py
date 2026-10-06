@@ -12,11 +12,9 @@ def test_scene_length_uses_single_non_whitespace_range():
 
 def test_scene_endings_leave_a_concrete_playable_hook():
     text = (ROOT / "runtime" / "scene_builder.md").read_text(encoding="utf-8")
-    assert "конкретный активный крючок" in text
-    assert "можно просто побыть" in text
-    assert "Не придумывай новый активный элемент" in text
-    assert "не обязан быть клиффхэнгером в драматическом смысле" in text
-
+    assert "Продолжай естественные реакции, реплики и уже выбранное действие до следующего момента, где решение игрока действительно может заметно изменить происходящее." in text
+    assert "Не останавливайся перед обычным ответом POV, короткой реакцией или очевидным продолжением уже выбранного действия." in text
+    assert "Тихая сцена допустима." in text
 
 def test_scene_builder_has_no_meaningful_choice_or_pacing_lock():
     text = (ROOT / "runtime" / "scene_builder.md").read_text(encoding="utf-8")
