@@ -234,6 +234,22 @@ def test_audit_can_promote_missing_npc_and_keep_original_knowledge_turn():
                             "dimensions": [{"label": "доверие", "value": 1}],
                         }
                     ],
+                    "npc_intent_updates": [
+                        {
+                            "character_id": "ada",
+                            "intent_id": "ask_again",
+                            "turn": 9,
+                            "summary": "Вернуться к незакрытому вопросу Кайра.",
+                        }
+                    ],
+                    "story_thread_updates": [
+                        {
+                            "thread_id": "ada_question",
+                            "turn": 10,
+                            "summary": "Между Адой и Кайром остался незакрытый вопрос.",
+                            "participants": ["ada", "pov"],
+                        }
+                    ],
                     "scene_compactions": [
                         {
                             "start_turn": 1,
@@ -268,6 +284,13 @@ def test_audit_can_promote_missing_npc_and_keep_original_knowledge_turn():
         assert trust["value"] == 1
         assert trust["last_change"]["turn"] == 8
         assert result["relationship_repairs_saved"] == 1
+
+        state = storage._read_json(root / "state.json", {})
+        ada_intents = state["npc_intents"]["ada"]
+        intent = next(row for row in ada_intents if row["intent_id"] == "ask_again")
+        assert intent["created_turn"] == 9
+        assert state["threads"]["ada_question"]["created_turn"] == 10
+        assert result["continuity_repairs_saved"] == 2
         assert storage._read_json(root / "meta.json", {})["audit_required"] is False
 
 def test_audit_rejects_new_persistent_npc_without_story_function():
@@ -464,4 +487,50 @@ def test_audit_repairs_missing_intent_and_story_thread():
             for row in state.get("npc_intents", {}).get("pov", [])
         )
         assert state.get("threads", {}).get("unfinished_question", {}).get("status") == "active"
+
+def test_fast_audit_scopes_active_continuity_and_does_not_duplicate_cast_registry():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        novel = {
+            "novel_id": "audit-continuity-scope",
+            "title": "Audit Continuity Scope",
+            "novel": {"pov_character": "pov"},
+            "characters": [
+                {"character_id": "pov", "name": "POV", "is_pov": True},
+                {"character_id": "npc", "name": "NPC", "story_function": "постоянный участник"},
+            ],
+            "starting_state": {
+                "pov": {"character_id": "pov"},
+                "current": {"location": "room", "present_characters": ["pov", "npc"]},
+            },
+        }
+        sid = storage.create_session(novel)["session_id"]
+        root = storage.SESSIONS_DIR / sid
+        state = storage._read_json(root / "state.json", {})
+        state["npc_intents"] = {
+            "npc": [
+                {"intent_id": "open", "character_id": "npc", "summary": "Спросить ещё раз", "status": "active"},
+                {"intent_id": "done", "character_id": "npc", "summary": "Уже решено", "status": "resolved"},
+            ]
+        }
+        state["threads"] = {
+            "open_thread": {"thread_id": "open_thread", "summary": "Незакрытая встреча", "status": "active"},
+            "done_thread": {"thread_id": "done_thread", "summary": "Закрыто", "status": "resolved"},
+        }
+        state.setdefault("world", {})["cast_registry"] = {
+            "npc": {"character_id": "npc", "name": "NPC", "status": "active"}
+        }
+        storage._write_json(root / "state.json", state)
+
+        meta = storage._read_json(root / "meta.json", {})
+        meta["turn_number"] = 15
+        meta["last_audit_turn"] = 0
+        meta["audit_required"] = True
+        storage._write_json(root / "meta.json", meta)
+
+        payload = fast_audit_runtime._build_fast_payload(sid)
+        assert "npc_intents" not in payload["state_audit"]
+        assert "cast_registry" not in payload["state_audit"].get("world", {})
+        assert [row["intent_id"] for row in payload["continuity_audit"]["active_npc_intents"]["npc"]] == ["open"]
+        assert set(payload["continuity_audit"]["active_story_threads"]) == {"open_thread"}
 
