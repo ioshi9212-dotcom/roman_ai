@@ -99,6 +99,7 @@ def _build_fast_payload(session_id: str) -> Dict[str, Any]:
             "experiences_add": "Experience keeps the original turn.",
             "dialogue_memory_add": "Dialogue memory keeps the original turn.",
             "npc_intent_updates": "Repair intent only from audited evidence.",
+            "character_upserts": "Create a missing card only when the audited turns prove that a named one-off NPC became recurring or durably important.",
             "scene_compactions": "REQUIRED: cover every audited turn exactly once by real scenes; one dense factual summary per scene.",
             "memory_compactions": "Optional: merge duplicates only if every distinct fact survives.",
         },
@@ -107,7 +108,7 @@ def _build_fast_payload(session_id: str) -> Dict[str, Any]:
             "persistent_storage_is_complete": True,
             "do_not_reaudit_entire_novel": True,
             "check": [
-                "missing chronology/journal/memory/intents",
+                "missing chronology/journal/memory/intents and missing promoted recurring NPC cards",
                 "state, inventory, scene-item, physical-presence or remote-contact contradictions",
                 "relationship dimensions/metadata drift",
                 "cast last-appearance/last-contact turn and game-day metadata",
@@ -116,8 +117,10 @@ def _build_fast_payload(session_id: str) -> Dict[str, Any]:
             ],
         },
         "instruction": (
-            "Проверь только эти 15 ходов: current scene state, предметы/инвентарь, физическое presence и remote contacts, "
-            "знания, отношения и last-seen cast metadata. Исправь только доказанные пропуски, сделай scene compaction и один commitAudit."
+            "Проверь только эти 15 raw turns и сравни их с уже сохранённым. Для каждого участника восстанавливай knowledge только из того, "
+            "что он лично видел, слышал, прочитал, получил или что ему сказали; само присутствие не означает, что он слышал шёпот, звонок или приватное сообщение. "
+            "Исправь только доказанные пропуски в chronology, personal knowledge, state, отношениях, intents/threads и cast; если именованный one-off стал повторяющимся или долговременно важным, создай character_upsert. "
+            "Повторы и бытовую воду не размножай: scene compaction должна быть короткой и фактической. Затем один commitAudit."
         ),
     }
     if macro_review is not None:
