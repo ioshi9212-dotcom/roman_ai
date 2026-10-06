@@ -36,7 +36,6 @@ from . import (
     stability_runtime,
     storage,
     story_thread,
-    story_thread_runtime,
     transport_scope_runtime,
     turn_context,
     writer_first_runtime,
@@ -996,8 +995,6 @@ def commit_audit(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         payload,
         audit=True,
     )
-    prepared = npc_intent_runtime._with_intent_patch(session_id, prepared, audit=True)
-    prepared = story_thread_runtime._with_story_patch(session_id, prepared, audit=True)
     return dict(stability_runtime._atomic_commit_audit(session_id, prepared))
 
 
