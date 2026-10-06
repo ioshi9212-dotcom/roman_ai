@@ -31,11 +31,6 @@ components:
           type: array
           items:
             type: string
-        knowledge_participants:
-          type: array
-          description: Characters who personally know the durable meaning of this chronology event. Use only when they actually learned it.
-          items:
-            type: string
         importance:
           type: string
           enum: [normal, major, anchor, critical]
@@ -786,6 +781,29 @@ components:
           $ref: '#/components/schemas/TurnExtracted'
       additionalProperties: false
 
+    AuditCommit:
+      type: object
+      required: [audit_id, start_turn, end_turn]
+      properties:
+        audit_id:
+          type: string
+          minLength: 1
+        start_turn:
+          type: integer
+          minimum: 1
+        end_turn:
+          type: integer
+          minimum: 1
+        repairs:
+          type: object
+          properties: {}
+          additionalProperties: true
+        notes:
+          type: array
+          items:
+            type: string
+      additionalProperties: false
+
 paths:
   /sessions/{session_id}/rollback-last-turn:
     post:
@@ -990,8 +1008,8 @@ paths:
   /sessions/{session_id}/turn-packet/{packet_id}/{chunk_index}:
     get:
       operationId: getTurnPacketChunk
-      summary: Read one remaining writer-first packet chunk
-      description: When prepareTurn included chunk 0, start at next_chunk_index and read only remaining indices. Do not batch Action responses.
+      summary: Read one remaining gameplay or required-audit chunk
+      description: For a gameplay packet use packet_id. For required_audit use its audit_id as packet_id. Chunk 0 is already included when first_chunk_included=true; read only remaining indices.
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
         - {in: path, name: packet_id, required: true, schema: {type: string}}
@@ -1028,15 +1046,18 @@ paths:
   /sessions/{session_id}/turns:
     post:
       operationId: commitTurn
-      summary: Save one completed gameplay turn
-      description: Echo packet_id and exact user_input. Persist only real chronology, knowledge, relationship, intent, character and physical-state changes; empty arrays are allowed.
+      summary: Save one completed gameplay turn or finish a required audit
+      description: Gameplay uses TurnCommit with packet_id and exact user_input. When required_audit is active, use AuditCommit with its audit_id after all audit chunks were read. Persist only evidence-backed changes.
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
       requestBody:
         required: true
         content:
           application/json:
-            schema: {$ref: '#/components/schemas/TurnCommit'}
+            schema:
+              oneOf:
+                - {$ref: '#/components/schemas/TurnCommit'}
+                - {$ref: '#/components/schemas/AuditCommit'}
       responses:
         '200': {description: "Turn committed"}
         '409': {description: "Packet identity, pending-turn, current-state or persistence integrity conflict"}
