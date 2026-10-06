@@ -378,10 +378,7 @@ def _apply_macro_chronology_compaction_core(
         return values
 
     if "chronology_compactions" not in repairs:
-        # Fail-safe for long-running chats and older live GPT schemas: never block the
-        # whole 15-turn audit just because the optional 60-turn macro summary was omitted.
-        # Raw chronology remains untouched, so canon is preserved losslessly.
-        return values
+        raise RuntimeError("MACRO_CHRONOLOGY_COMPACTION_REQUIRED")
 
     raw_rows = repairs.get("chronology_compactions")
     if not isinstance(raw_rows, list):
