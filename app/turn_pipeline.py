@@ -144,13 +144,6 @@ def _strip_legacy_pov_rule_from_session_source(root) -> None:
         storage._write_json(root / "source.json", cleaned)
 
 
-def _clear_legacy_audit_gate(root) -> None:
-    meta = storage._read_json(root / "meta.json", {})
-    if isinstance(meta, dict) and meta.get("audit_required"):
-        meta["audit_required"] = False
-        storage._write_json(root / "meta.json", meta)
-
-
 def _scene_ids(state: Dict[str, Any], cards: List[Dict[str, Any]]) -> List[str]:
     values = [str(value) for value in storage._present_character_ids(state) if value]
     values.extend(str(value) for value in storage._remote_character_ids(state) if value)
@@ -534,30 +527,20 @@ def _prepare_context(
         for card in storage._normalise_cards(source.get("characters", []))
         if storage._card_id(card)
     }
-    return_pressure = cast_registry_runtime._rotation_pressure(
-        state,
-        cards,
-        current_turn,
-        source_character_ids=source_ids,
-        source=source,
-    )
     context["cast_registry"] = {
         "persistent": True,
         "registry_index_path": "cast_registry.characters",
         "mandatory_causal_review": True,
-        "return_pressure": return_pressure,
-        "important_cast_return_required": bool(return_pressure),
         "offscreen_bundle_read": {
             "action": "prepareCharacterBundleRead",
             "then": "read all getCharacterBundleChunk chunks before material participation",
             "rule": "The bundle may be read to decide whether a candidate should participate; complete it before actual participation.",
         },
         "instruction": (
-            "Перед сценой просмотри весь постоянный NPC-каст, npc_relationship_network и return_pressure. "
-            "Личной мотивации NPC, его отношения, цели или story_function достаточно для инициативы; active_intent или active_thread заранее не нужен. "
-            "Режиссура сама находит логичный способ сталкивать важный каст с POV и другими персонажами. "
-            "Если return_pressure не пуст, не оставляй этих персонажей вне истории: подведи к ближайшему логичному контакту. "
-            "До реального участия offscreen NPC прочитай его полный character bundle. POV не обязан искать, звать или вспоминать персонажа."
+            "Перед сценой просмотри постоянный NPC-каст и npc_relationship_network. "
+            "Кто появляется, пишет, звонит или остаётся вне сцены, решает режиссура по текущей ситуации, целям, делам и логике мира; "
+            "нет очереди, квоты или таймера возвращения. Незакрытый intent/thread можно продолжить, но он не обязан вызывать персонажа именно сейчас. "
+            "До реального участия offscreen NPC прочитай его полный character bundle."
         ),
         "characters": _cast_registry_rows(state, cards, source, current_turn, npc_network, relationship_store),
     }
@@ -622,10 +605,8 @@ def prepare_turn_packet(session_id: str, user_input: str) -> Dict[str, Any]:
     stability_runtime._recover_session(session_id)
     session_migrations.ensure_current_session_data(session_id, invalidate_pending=True)
     _current_pointer_guard(session_id)
-    _clear_legacy_audit_gate(root)
     _strip_legacy_pov_rule_from_session_source(root)
     game_day._sync_session_game_day(session_id)
-    knowledge_persistence_runtime.repair_personal_memory_from_safe_chronology(session_id)
     knowledge_persistence_runtime.dedupe_persisted_knowledge_journal(session_id)
 
     with session_transaction(root):
@@ -970,19 +951,6 @@ def _strip_relationship_review(payload: Dict[str, Any]) -> Dict[str, Any]:
     return result
 
 
-def _disable_mandatory_audit_after_commit(session_id: str, result: Dict[str, Any]) -> Dict[str, Any]:
-    root = storage.SESSIONS_DIR / session_id
-    meta = storage._read_json(root / "meta.json", {})
-    if isinstance(meta, dict) and meta.get("audit_required"):
-        meta["audit_required"] = False
-        storage._write_json(root / "meta.json", meta)
-    updated = dict(result)
-    updated["audit_due"] = False
-    updated["audit_range"] = None
-    updated["audit_required"] = False
-    return updated
-
-
 def commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     _validate_technical_state_patch(payload)
     prepared = _prepare_profile_persistence(session_id, payload)
@@ -999,21 +967,7 @@ def commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     prepared = _apply_npc_relationship_updates(session_id, prepared)
     prepared = _apply_relationship_changes(session_id, prepared)
     prepared = cast_registry_runtime._with_registry_patch(session_id, prepared)
-    raw_chronology = deepcopy(
-        prepared.get("extracted", {}).get("chronology", [])
-        if isinstance(prepared.get("extracted"), dict)
-        else []
-    )
     prepared = _normalise_chronology_for_save(session_id, prepared)
-    prepared = knowledge_persistence_runtime.attach_explicit_chronology_participants(
-        session_id,
-        prepared,
-        raw_chronology,
-    )
-    prepared = knowledge_persistence_runtime.mirror_explicit_chronology_to_personal_memory(
-        session_id,
-        prepared,
-    )
     prepared = knowledge_persistence_runtime.dedupe_new_journal_against_persisted(
         session_id,
         prepared,
@@ -1025,7 +979,6 @@ def commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     )
 
     saved = dict(stability_runtime._atomic_commit_turn(session_id, prepared))
-    saved = _disable_mandatory_audit_after_commit(session_id, saved)
     saved["saved_chronology_events"] = len(
         prepared.get("extracted", {}).get("chronology", [])
         if isinstance(prepared.get("extracted"), dict)
@@ -1036,7 +989,6 @@ def commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def commit_audit(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
-    # Audit remains available as an optional maintenance tool, but gameplay no longer blocks on it.
     prepared = memory_integrity_runtime._canonicalize_memory_payload(
         session_id,
         payload,
