@@ -2231,6 +2231,15 @@ def test_required_audit_roundtrip_uses_existing_chunk_and_commit_actions():
 
         audit = committed["required_audit"]
         assert audit["first_chunk_included"] is True
+
+        # A retry must resend chunk 0 because the previous HTTP response could
+        # have been lost after the server marked it read.
+        retry_manifest = fast_audit_runtime.get_audit_snapshot(sid)
+        assert retry_manifest["first_chunk_included"] is True
+        assert retry_manifest["content"] == audit["content"]
+        if audit["chunk_count"] > 1:
+            assert retry_manifest["next_chunk_index"] == 1
+
         for index in range(1, audit["chunk_count"]):
             row = storage.get_turn_packet_chunk(sid, audit["audit_id"], index)
             assert row["packet_kind"] == "audit"
