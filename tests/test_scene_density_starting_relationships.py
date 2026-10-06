@@ -198,9 +198,11 @@ def test_scene_builder_keeps_pov_visible_without_forcing_speech():
     instructions = Path("gpt/custom_gpt_instructions.md").read_text(encoding="utf-8")
 
     assert "POV должен оставаться живым и наблюдаемым участником сцены" in builder
-    assert "После user_input POV не превращается в молчащую камеру." in builder
-    assert "Если с POV идёт активный диалог, не делай его молчаливым без причины." in builder
-    assert "POV может сам ответить, задать обычный вопрос, уточнить, пошутить, огрызнуться, ответить уклончиво" in builder
+    assert "После выполнения user_input POV не превращается в молчащую камеру." in builder
+    assert "Запрещено делать пов молчаливым если с ним идёт диалог." in builder
+    assert "ПОВЕДЕНИЕ ПОВ БЕЗ УЧАСТИЯ ИГРОКА: пов может сам задать вопросы, вести диалог, пошутить, ответить, ответить уклончиво" in builder
+    assert "Камера направлена на всю сцену." in builder
+    assert "В сцене так же видно как выглядит пов, его мимика, жесты, обычные бытовые действия." in builder
     assert "Обычная реплика POV не считается новым решением игрока." in builder
     assert "Явная реплика игрока может содержать действие." in builder
     assert "не продолжай дальше этого шага без нового решения игрока" in builder
