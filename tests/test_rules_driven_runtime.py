@@ -2294,5 +2294,7 @@ def test_sixtieth_audit_includes_macro_chronology_and_cast_promotion_review():
         assert macro["required"] is True
         assert macro["macro_range"] == [1, 60]
         assert "repairs.character_upserts" in macro["output_required"]
-        assert "повторяющимся или долговременно важным" in macro["output_required"]["repairs.character_upserts"]
+        promotion_rule = macro["output_required"]["repairs.character_upserts"].casefold()
+        assert "recurring" in promotion_rule
+        assert "durably important" in promotion_rule
 
