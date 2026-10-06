@@ -200,10 +200,12 @@ def test_scene_builder_keeps_pov_visible_without_forcing_speech():
     assert "POV должен оставаться живым и наблюдаемым участником сцены" in builder
     assert "Это не означает обязательную речь" in builder
     assert "Диалог не должен превращаться в радиопьесу" in builder
-    assert "После user_input POV продолжает жить в сцене." in builder
-    assert "Обычная реплика, короткая реакция, шутка, ругань, уточнение, уклончивый ответ и продолжение уже выбранного действия не являются новым значимым решением." in builder
+    assert "Реплика сама по себе не задаёт новое действие." in builder
+    assert "Не решай за POV уйти, выйти, войти, поехать, остаться, закончить разговор" in builder
+    assert "Если в ней не меняются отношения, напряжение, информация, цель, риск или сюжет, это рутина" in builder
+    assert "Тихая сцена допустима." not in builder
     assert "Обычно сцена может быть около 1800–3000 непробельных символов, но это не лимит и не цель." in builder
-    assert "сцена не оборвана сразу после user_input" in instructions
+    assert "за POV не придуман новый самостоятельный выбор или действие" in instructions
     assert len(instructions) + 93 < 8000
 
 def test_new_scene_npc_without_starting_relationship_is_still_in_relationship_lens():
