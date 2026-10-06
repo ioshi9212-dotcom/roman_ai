@@ -82,8 +82,9 @@ def test_active_runtime_is_author_rules_plus_scene_builder():
     assert "present_characters" in rules
     assert "state.characters[ID]" in rules
     assert "Молчание не удаляет NPC" in builder
-    assert "Появление, звонок, сообщение, уход и возвращение персонажей выбирает режиссура сама" in rules
+    assert "Появление, звонок, сообщение, уход и возвращение персонажей выбирает режиссура сама" not in rules
     assert "само отсутствие в последних сценах не является причиной для возврата" in builder
+    assert "Появление и частота появления изначально заданных игроком NPC полностью определяются режиссурой." in builder
     assert "сколько ходов NPC отсутствовал" not in rules
     assert "Мир не ждёт POV" in builder
 
@@ -1479,7 +1480,8 @@ def test_cast_registry_exposes_context_without_forced_return_pressure():
         assert registry["mandatory_causal_review"] is True
         assert "return_pressure" not in registry
         assert "important_cast_return_required" not in registry
-        assert "нет очереди, квоты или таймера возвращения" in registry["instruction"]
+        assert "не задаёт очередь, квоту или таймер появления" in registry["instruction"]
+        assert "по scene_builder" in registry["instruction"]
         assert row["story_function"] == "possible romance"
         assert "добиться ответа" in row["goals"]
         assert "initiative_cues" not in row
@@ -1528,7 +1530,7 @@ def test_offscreen_npc_can_be_considered_without_saved_intent_or_forced_timer():
         assert "пишет вечером после работы" in row["habits"]
         assert row["pov_relationship"]["привязанность"] == 65
         assert "Появление, звонок, сообщение, уход и возвращение персонажей выбирает режиссура сама" in context["runtime_rules"]
-        assert "нет очереди, квоты или таймера возвращения" in context["cast_registry"]["instruction"]
+        assert "не задаёт очередь, квоту или таймер появления" in context["cast_registry"]["instruction"]
         assert "До реального участия offscreen NPC прочитай его полный character bundle." in context["cast_registry"]["instruction"]
 
 
@@ -2147,7 +2149,7 @@ def test_long_absent_core_cast_is_not_forced_back_by_recency_timer():
 
         assert "return_pressure" not in registry
         assert "important_cast_return_required" not in registry
-        assert "нет очереди, квоты или таймера возвращения" in registry["instruction"]
+        assert "не задаёт очередь, квоту или таймер появления" in registry["instruction"]
 
 def test_private_perception_is_saved_only_to_actual_recipient():
     with tempfile.TemporaryDirectory() as tmp:
