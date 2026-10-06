@@ -43,7 +43,12 @@ def _turn_evidence(turn: Dict[str, Any]) -> Dict[str, Any]:
 
 
 
-def _continuity_audit(state: Dict[str, Any], character_ids: list[str]) -> Dict[str, Any]:
+def _continuity_audit(
+    state: Dict[str, Any],
+    character_ids: list[str],
+    start_turn: int,
+    end_turn: int,
+) -> Dict[str, Any]:
     terminal = {"resolved", "closed", "done", "abandoned", "cancelled", "canceled", "superseded"}
 
     def clean_text(value: Any, limit: int) -> str | None:
@@ -76,11 +81,21 @@ def _continuity_audit(state: Dict[str, Any], character_ids: list[str]) -> Dict[s
             scoped_intents[str(character_id)] = active_rows
 
     thread_index = []
+    wanted = {str(value) for value in character_ids if value}
     for thread_id, row in story_thread.active_threads(state).items():
         if not isinstance(row, dict):
             continue
         participants = row.get("participants")
         participants = [str(value) for value in participants if value][:8] if isinstance(participants, list) else []
+        created_turn = int(row.get("created_turn", 0) or 0)
+        progress_turn = int(row.get("last_progress_turn", 0) or 0)
+        touched_in_range = (
+            start_turn <= created_turn <= end_turn
+            or start_turn <= progress_turn <= end_turn
+        )
+        linked_to_audited_character = bool(wanted.intersection(participants))
+        if not touched_in_range and not linked_to_audited_character:
+            continue
         compact = {
             "thread_id": str(thread_id),
             "status": row.get("status") or "active",
@@ -142,7 +157,7 @@ def _build_fast_payload(session_id: str) -> Dict[str, Any]:
         end_turn,
         relationship_store=relationship_store,
     )
-    continuity_review = _continuity_audit(state, character_ids)
+    continuity_review = _continuity_audit(state, character_ids, start_turn, end_turn)
     state_review = audit_runtime._audit_state(state, character_ids)
     state_review.pop("npc_intents", None)
     world_review = state_review.get("world") if isinstance(state_review.get("world"), dict) else None
