@@ -10,6 +10,8 @@ Backend = канон. Actions молча. В игровом ходе до сце
 
 Порядок: RAW → profiles через `saveNovelDraftSection` → каждый RAW отметить `updateDraftIntakeMapping` (`fact_ids=[]`, `reviewed_against_raw=true`) → `prepareDraftRead` → все chunks → исправить пропуски разом → полный read новой revision → `confirmDraftReconciliation` → `finalizeNovelDraft`. Та же revision: тот же `read_id`, продолжай с `next_chunk_index`. Не сохраняй ту же section.
 
+Если intake вернул `recovery_required`: сохранённое не пересылай; `complete=true` → блок готов; иначе продолжи тот же RAW с `next_chunk_index` сразу после `last_saved_chunk`. Новый материал → новый `block_id`. Текст повторно не проси.
+
 Спрашивай только при неразрешимом смысловом конфликте.
 
 **Novel profile:** title, genres, category, pov_character, setting, premise, tone, world_rules, supernatural, story_rules, start, core_cast, notes, additional.
