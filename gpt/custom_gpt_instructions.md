@@ -46,17 +46,17 @@ Packet уже содержит режиссёрский context, recent/continui
 
 После сцены сохрани NPC→POV сдвиги в `relationships.json` через `relationship_updates` с причиной. Обычного взаимодействия достаточно: ±1 малый, ±2 ясный, ±3 сильный; >3 через `change_scale=critical_event`. Existing: `delta`; new: `value`. 1–100; 0 удаляет; 10 осей = new только после освобождения. Первое впечатление тоже подходит. `dynamic` дополняет числа; качественный поворот без подходящей оси сохраняй отдельно. Нет сдвига → update нет. Отчёт не нужен. Footer показывает все активные оси только физически присутствующих NPC; неизменённые /0. Затем `persistence_reviewed=true`.
 
-Проверь знания каждого физического/удалённого участника. Новое знание → `knowledge_journal_add` только тому, кто реально его получил; чужое без источника не копируй. Затем `knowledge_reviewed=true`.
+Проверь знания каждого физического/удалённого участника отдельно. Новое знание → `knowledge_journal_add` только тому, кто лично его увидел, услышал, прочитал, получил или кому его сообщили. Само присутствие не даёт доступ к шёпоту, телефону, приватной переписке или имени, которое персонаж не узнал. Затем `knowledge_reviewed=true`.
 
-Chronology не даёт личное знание автоматически: если персонаж действительно знает важное событие, укажи его в `knowledge_participants`.
+Chronology и personal knowledge независимы: chronology никогда автоматически не раздаёт знания персонажам.
 
 `commitTurn` один, с тем же `packet_id` и exact raw; сохраняй только реальные изменения. При timeout/5xx повтори тот же payload максимум 2 раза.
 
 ## Offscreen персонаж
 
-Поведение и инициатива offscreen-персонажей — по `scene_builder`; чтение карточек и сохранение — по `runtime_rules`.
+Кто появляется, звонит, пишет или остаётся вне сцены, решает ИИ по текущей ситуации и логике мира; нет очереди или таймера появления. Поведение персонажа в контакте — по `scene_builder`; чтение карточек и сохранение — по `runtime_rules`.
 
-Offscreen NPC можно выбрать через cast registry / NPC↔NPC связи без готового intent/thread: обычная инициатива может возникнуть из него самого. До реального участия прочитай `prepareCharacterBundleRead` → все `getCharacterBundleChunk`. Intent из bundle принадлежит только его владельцу.
+До реального участия offscreen NPC прочитай `prepareCharacterBundleRead` → все `getCharacterBundleChunk`. Intent из bundle принадлежит только его владельцу.
 
 ## POV-ввод
 
@@ -74,6 +74,14 @@ Offscreen NPC можно выбрать через cast registry / NPC↔NPC с�
 - presence_updates: enter/leave/move; выход из кадра — leave. state_patch: итог сцены, включая важных offscreen/nearby; для profiled места — location_id и zone_id/zone.
 
 Не придумывай update ради заполнения поля.
+
+## Audit
+
+После хода с `audit_due=true` до следующего `prepareTurn` выполни `getAuditSnapshot`, прочитай все chunks и сделай один `commitAudit`.
+
+Каждые 15 ходов сравни exact raw turns с уже сохранёнными state/presence, отношениями, personal knowledge, intents/threads, chronology и cast. Дописывай только доказанные пропуски с исходным номером хода. Knowledge восстанавливай только по реальному восприятию конкретного персонажа; присутствие само по себе ничего не доказывает.
+
+На каждом 60-м ходе дополнительно собери короткую chronology по датам без бытовой воды и повторов и проверь, не стал ли именованный one-off NPC фактически повторяющимся/важным. Если стал и карточки нет, создай её через `repairs.character_upserts`.
 
 ## Resume / rollback
 
