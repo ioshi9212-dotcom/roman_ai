@@ -451,7 +451,17 @@ def test_fast_audit_scopes_active_continuity_and_does_not_duplicate_cast_registr
             ]
         }
         state["threads"] = {
-            "open_thread": {"thread_id": "open_thread", "summary": "Незакрытая встреча", "status": "active"},
+            "open_thread": {
+                "thread_id": "open_thread",
+                "summary": "Незакрытая встреча",
+                "status": "active",
+                "participants": ["npc"],
+            },
+            "unrelated_old_thread": {
+                "thread_id": "unrelated_old_thread",
+                "summary": "Старая линия без связи с текущим audit.",
+                "status": "active",
+            },
             "done_thread": {"thread_id": "done_thread", "summary": "Закрыто", "status": "resolved"},
         }
         state.setdefault("world", {})["cast_registry"] = {
