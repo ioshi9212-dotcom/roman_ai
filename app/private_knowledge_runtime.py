@@ -691,6 +691,7 @@ def normalize_dialogue_memory_modes(session_id: str, payload: Dict[str, Any]) ->
         if isinstance(row, dict) and row.get("recipient_id")
     }
 
+    exact, stems, _ = _alias_maps(cards)
     normalized: List[Dict[str, Any]] = []
     for raw in dialogue:
         row = deepcopy(raw) if isinstance(raw, dict) else raw
@@ -701,11 +702,13 @@ def normalize_dialogue_memory_modes(session_id: str, payload: Dict[str, Any]) ->
         participants = row.get("participants") or row.get("participant_ids") or []
         if isinstance(participants, str):
             participants = [participants]
-        resolved = [
-            str(value)
-            for value in participants
-            if value
-        ]
+        resolved: List[str] = []
+        for value in participants:
+            if not value:
+                continue
+            cid = _resolve_recipient(str(value), exact, stems) or str(value)
+            if cid not in resolved:
+                resolved.append(cid)
         counterparts = [cid for cid in resolved if cid != pov_id]
         has_remote_evidence = any(
             cid in remote_ids or cid in explicit_remote_ids or cid in direct_remote_ids
