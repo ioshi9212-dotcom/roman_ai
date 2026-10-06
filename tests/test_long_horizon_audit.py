@@ -138,7 +138,7 @@ def test_macro_compaction_replaces_raw_60_turn_chronology_with_dated_paragraphs(
         assert second["source_turn_range"] == [31, 60]
 
 
-def test_missing_macro_compaction_defers_without_losing_chronology_on_v5_turn_60():
+def test_missing_macro_compaction_is_rejected_on_v5_turn_60():
     with tempfile.TemporaryDirectory() as tmp:
         _setup(tmp)
         root = storage.SESSIONS_DIR / "sid"
@@ -155,14 +155,13 @@ def test_missing_macro_compaction_defers_without_losing_chronology_on_v5_turn_60
             }
         ]
 
-        result = apply_macro_chronology_compaction(
-            root,
-            chronology,
-            {},
-            end_turn=60,
-        )
-
-        assert result == chronology
+        with pytest.raises(RuntimeError, match="MACRO_CHRONOLOGY_COMPACTION_REQUIRED"):
+            apply_macro_chronology_compaction(
+                root,
+                chronology,
+                {},
+                end_turn=60,
+            )
 
 
 def test_legacy_v4_audit_does_not_require_macro_compaction():
@@ -187,7 +186,7 @@ def test_replay_keeps_historical_v5_audit_that_predates_macro_compaction():
     assert result == chronology
 
 
-def test_second_macro_boundary_at_120_can_defer_safely():
+def test_second_macro_boundary_at_120_also_requires_compaction():
     with tempfile.TemporaryDirectory() as tmp:
         _setup(tmp)
         root = storage.SESSIONS_DIR / "sid"
@@ -217,12 +216,10 @@ def test_second_macro_boundary_at_120_can_defer_safely():
             },
         ]
 
-        result = apply_macro_chronology_compaction(
-            root,
-            chronology,
-            {},
-            end_turn=120,
-        )
-
-        assert result == chronology
-        assert any(row["event_id"] == "raw-90" for row in result)
+        with pytest.raises(RuntimeError, match="MACRO_CHRONOLOGY_COMPACTION_REQUIRED"):
+            apply_macro_chronology_compaction(
+                root,
+                chronology,
+                {},
+                end_turn=120,
+            )
