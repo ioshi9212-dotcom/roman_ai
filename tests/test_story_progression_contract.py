@@ -19,12 +19,11 @@ def test_scene_endings_leave_a_concrete_playable_hook():
 def test_scene_builder_has_no_meaningful_choice_or_pacing_lock():
     text = (ROOT / "runtime" / "scene_builder.md").read_text(encoding="utf-8")
     assert "ТОЧКА ОСТАНОВКИ СЦЕНЫ" not in text
-    assert "Если такой точки ещё нет — сцена ещё не закончена." not in text
     assert "ROUTINE" not in text
     assert "STANDARD" not in text
     assert "CINEMATIC" not in text
-    assert "важную сцену нельзя заканчивать" in text
-
+    assert "Темп определяется происходящим, а не числом ходов." in text
+    assert "Мир может приносить новые события, если они естественны для сеттинга, места, времени, жанра и действующих сил." in text
 
 def test_rules_keep_world_active_without_turn_count_quota():
     rules = (ROOT / "runtime" / "rules.md").read_text(encoding="utf-8")
