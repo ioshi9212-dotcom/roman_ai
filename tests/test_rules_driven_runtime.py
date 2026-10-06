@@ -81,8 +81,8 @@ def test_active_runtime_is_author_rules_plus_scene_builder():
     assert "present_characters" in rules
     assert "state.characters[ID]" in rules
     assert "Молчание не удаляет NPC" in builder
-    assert "Личной мотивации NPC, его отношения, цели или story_function достаточно для инициативы." in rules
-    assert "Режиссура сама находит логичный способ сталкивать важный каст" in rules
+    assert "Появление, звонок, сообщение, уход и возвращение персонажей выбирает режиссура сама" in rules
+    assert "само отсутствие в последних сценах не является причиной для возврата" in builder
     assert "сколько ходов NPC отсутствовал" not in rules
     assert "Мир не ждёт POV" in builder
 
