@@ -273,21 +273,25 @@ def _atomic_commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, A
         else:
             relationship_store = relationship_file_runtime.build_initial_store(cards, state, pov_id)
 
-        try:
-            relationship_store = relationship_file_runtime.apply_npc_updates(
-                relationship_store,
-                repairs.get("npc_relationship_updates"),
-                cards=cards,
-                pov_id=pov_id,
-            )
+        relationship_repairs = (
+            repairs.get("relationship_updates")
+            if isinstance(repairs.get("relationship_updates"), list)
+            else []
+        )
+        npc_relationship_repairs = (
+            repairs.get("npc_relationship_updates")
+            if isinstance(repairs.get("npc_relationship_updates"), list)
+            else []
+        )
+        repaired_turns = deepcopy(storage._read_turns(root))
+        turns_by_number = {
+            int(turn.get("turn_number", 0) or 0): turn
+            for turn in repaired_turns
+            if isinstance(turn, dict)
+        }
 
-            relationship_repairs = (
-                repairs.get("relationship_updates")
-                if isinstance(repairs.get("relationship_updates"), list)
-                else []
-            )
-            prepared_relationship_repairs: list[tuple[int, Dict[str, Any]]] = []
-            for row in relationship_repairs:
+        def add_historical_repairs(rows: list[Any], field: str) -> None:
+            for row in rows:
                 if not isinstance(row, dict):
                     continue
                 raw_turn = row.get("turn") or row.get("source_turn") or row.get("learned_turn")
@@ -297,25 +301,124 @@ def _atomic_commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, A
                     raise RuntimeError("AUDIT_REPAIR_TURN_REQUIRED")
                 if original_turn < start_turn or original_turn > end_turn:
                     raise RuntimeError("AUDIT_REPAIR_TURN_OUT_OF_RANGE")
-                prepared_relationship_repairs.append((original_turn, deepcopy(row)))
+                target_turn = turns_by_number.get(original_turn)
+                if not isinstance(target_turn, dict):
+                    raise RuntimeError("AUDIT_REPAIR_TURN_OUT_OF_RANGE")
+                extracted = target_turn.get("extracted")
+                if not isinstance(extracted, dict):
+                    extracted = {}
+                    target_turn["extracted"] = extracted
+                values = extracted.get(field)
+                if not isinstance(values, list):
+                    values = []
+                    extracted[field] = values
+                values.append(deepcopy(row))
 
-            all_character_ids = [
-                storage._card_id(card)
-                for card in cards
-                if storage._card_id(card)
-            ]
-            for original_turn, row in sorted(prepared_relationship_repairs, key=lambda value: value[0]):
-                relationship_store = relationship_file_runtime.apply_updates(
-                    relationship_store,
-                    [row],
-                    cards=cards,
-                    pov_id=pov_id,
-                    turn_number=original_turn,
-                    participant_ids=all_character_ids,
-                    enforce_turn_invariants=False,
+        add_historical_repairs(relationship_repairs, "relationship_updates")
+        add_historical_repairs(npc_relationship_repairs, "npc_relationship_updates")
+
+        if relationship_repairs or npc_relationship_repairs:
+            try:
+                corrected_store = relationship_file_runtime.rebuild_from_turns(
+                    source,
+                    cards,
+                    repaired_turns,
                 )
-        except ValueError as exc:
-            raise RuntimeError("AUDIT_RELATIONSHIP_REPAIR_INVALID") from exc
+            except ValueError as exc:
+                raise RuntimeError("AUDIT_RELATIONSHIP_REPAIR_INVALID") from exc
+
+            def norm_label(value: Any) -> str:
+                return " ".join(str(value or "").casefold().replace("ё", "е").split())
+
+            current_npc_to_pov = relationship_store.setdefault("npc_to_pov", {})
+            corrected_npc_to_pov = (
+                corrected_store.get("npc_to_pov")
+                if isinstance(corrected_store.get("npc_to_pov"), dict)
+                else {}
+            )
+            for repair in relationship_repairs:
+                if not isinstance(repair, dict):
+                    continue
+                owner_id = session_runtime._resolve_character_id(cards, repair.get("character_id"))
+                owner_id = str(owner_id or "")
+                if not owner_id:
+                    raise RuntimeError("AUDIT_RELATIONSHIP_REPAIR_INVALID")
+                corrected_owner = (
+                    corrected_npc_to_pov.get(owner_id)
+                    if isinstance(corrected_npc_to_pov.get(owner_id), dict)
+                    else {}
+                )
+                current_owner = current_npc_to_pov.setdefault(owner_id, {"dimensions": {}})
+                current_dimensions = (
+                    current_owner.get("dimensions")
+                    if isinstance(current_owner.get("dimensions"), dict)
+                    else {}
+                )
+                current_owner["dimensions"] = current_dimensions
+                corrected_dimensions = (
+                    corrected_owner.get("dimensions")
+                    if isinstance(corrected_owner.get("dimensions"), dict)
+                    else {}
+                )
+
+                for dimension in repair.get("dimensions", []) if isinstance(repair.get("dimensions"), list) else []:
+                    if not isinstance(dimension, dict):
+                        continue
+                    wanted = norm_label(dimension.get("label"))
+                    if not wanted:
+                        continue
+                    current_label = next(
+                        (label for label in current_dimensions if norm_label(label) == wanted),
+                        None,
+                    )
+                    corrected_label = next(
+                        (label for label in corrected_dimensions if norm_label(label) == wanted),
+                        None,
+                    )
+                    if current_label is not None:
+                        current_dimensions.pop(current_label, None)
+                    if corrected_label is not None:
+                        current_dimensions[corrected_label] = deepcopy(corrected_dimensions[corrected_label])
+
+                if str(repair.get("dynamic") or "").strip():
+                    if corrected_owner.get("dynamic"):
+                        current_owner["dynamic"] = deepcopy(corrected_owner["dynamic"])
+                        if corrected_owner.get("dynamic_last_change"):
+                            current_owner["dynamic_last_change"] = deepcopy(corrected_owner["dynamic_last_change"])
+                    else:
+                        current_owner.pop("dynamic", None)
+                        current_owner.pop("dynamic_last_change", None)
+
+                if not current_dimensions and not current_owner.get("dynamic"):
+                    current_npc_to_pov.pop(owner_id, None)
+
+            current_npc_to_npc = relationship_store.setdefault("npc_to_npc", {})
+            corrected_npc_to_npc = (
+                corrected_store.get("npc_to_npc")
+                if isinstance(corrected_store.get("npc_to_npc"), dict)
+                else {}
+            )
+            for repair in npc_relationship_repairs:
+                if not isinstance(repair, dict):
+                    continue
+                owner_id = session_runtime._resolve_character_id(cards, repair.get("owner_character_id"))
+                target_id = session_runtime._resolve_character_id(cards, repair.get("target_character_id"))
+                owner_id = str(owner_id or "")
+                target_id = str(target_id or "")
+                if not owner_id or not target_id:
+                    raise RuntimeError("AUDIT_RELATIONSHIP_REPAIR_INVALID")
+                corrected_targets = (
+                    corrected_npc_to_npc.get(owner_id)
+                    if isinstance(corrected_npc_to_npc.get(owner_id), dict)
+                    else {}
+                )
+                description = corrected_targets.get(target_id)
+                if description:
+                    current_npc_to_npc.setdefault(owner_id, {})[target_id] = deepcopy(description)
+                elif isinstance(current_npc_to_npc.get(owner_id), dict):
+                    current_npc_to_npc[owner_id].pop(target_id, None)
+                    if not current_npc_to_npc[owner_id]:
+                        current_npc_to_npc.pop(owner_id, None)
 
         chronology = storage._read_json(root / "chronology.json", [])
         if not isinstance(chronology, list):
