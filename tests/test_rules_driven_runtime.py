@@ -4,9 +4,10 @@ import tempfile
 import pytest
 from pathlib import Path
 
-from app import character_chunk_read, continuation_runtime, private_knowledge_runtime, runtime_access, session_runtime, simple_setup_runtime, storage
+from app import character_chunk_read, continuation_runtime, fast_audit_runtime, private_knowledge_runtime, runtime_access, session_runtime, simple_setup_runtime, storage
+from app import main as main_api
 from app.operation_service import commit_turn_request, prepare_turn_request
-from app.models import TurnCommit
+from app.models import AuditCommit, TurnCommit
 from app.turn_rollback import rollback_last_turn
 
 
@@ -81,8 +82,9 @@ def test_active_runtime_is_author_rules_plus_scene_builder():
     assert "present_characters" in rules
     assert "state.characters[ID]" in rules
     assert "Молчание не удаляет NPC" in builder
-    assert "Личной мотивации NPC, его отношения, цели или story_function достаточно для инициативы." in rules
-    assert "Режиссура сама находит логичный способ сталкивать важный каст" in rules
+    assert "Появление, звонок, сообщение, уход и возвращение персонажей выбирает режиссура сама" not in rules
+    assert "само отсутствие в последних сценах не является причиной для возврата" in builder
+    assert "Появление и частота появления изначально заданных игроком NPC полностью определяются режиссурой." in builder
     assert "сколько ходов NPC отсутствовал" not in rules
     assert "Мир не ждёт POV" in builder
 
@@ -449,7 +451,8 @@ def test_pending_packet_has_no_mandatory_relationship_review_and_commits():
         turns = storage._read_turns(root)
         assert "relationship_review" not in turns[-1].get("extracted", {})
 
-def test_explicit_chronology_participants_are_mirrored_into_personal_knowledge():
+
+def test_chronology_never_grants_personal_knowledge_even_with_legacy_marker():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         sid = storage.create_session(base_novel())["session_id"]
@@ -477,30 +480,11 @@ def test_explicit_chronology_participants_are_mirrored_into_personal_knowledge()
         memory = storage._normalise_memory(
             storage._read_json(storage.SESSIONS_DIR / sid / "memory.json", {})
         )
-        npc_text = " ".join(
-            row["text"] for row in memory["characters"]["npc"]["knowledge_journal"]
-        )
-        away_text = " ".join(
-            row["text"] for row in memory["characters"]["away"]["knowledge_journal"]
-        )
-        assert "поезд завтра уходит в шесть" in npc_text
-        assert "поезд завтра уходит в шесть" not in away_text
-
-        second = session_runtime.prepare_turn_packet(sid, "(перейти к следующему дню)")
-        read_all(second, sid)
-        session_runtime.commit_turn(
-            sid,
-            {
-                "packet_id": second["packet_id"],
-                "user_input": "(перейти к следующему дню)",
-                "scene_output": "Наступило следующее утро.",
-                "extracted": {"state_patch": {"current": {"date": "02.09.2026"}}},
-            },
-        )
+        assert not memory["characters"]["npc"]["knowledge_journal"]
+        assert not memory["characters"]["away"]["knowledge_journal"]
 
         _, context = read_context(sid, "(посмотреть на NPC)")
-        npc_journal = context["character_memory"]["npc"]["knowledge_journal"]
-        assert "поезд завтра уходит в шесть" in npc_journal
+        assert "поезд завтра уходит в шесть" not in context["character_memory"]["npc"]["knowledge_journal"]
 
 
 def test_chronology_without_explicit_knowledge_participants_does_not_grant_memory():
@@ -536,7 +520,8 @@ def test_chronology_without_explicit_knowledge_participants_does_not_grant_memor
         assert "решила пока не раскрывать секрет" not in npc_text
 
 
-def test_safe_chronology_marker_repairs_missing_personal_memory_before_next_packet():
+
+def test_persisted_legacy_chronology_marker_does_not_repair_personal_memory():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         sid = storage.create_session(base_novel())["session_id"]
@@ -559,14 +544,10 @@ def test_safe_chronology_marker_repairs_missing_personal_memory_before_next_pack
         )
 
         _, context = read_context(sid, "(посмотреть на NPC)")
-        npc_journal = context["character_memory"]["npc"]["knowledge_journal"]
-        assert "NPC узнал код от сейфа" in npc_journal
+        assert "NPC узнал код от сейфа" not in context["character_memory"]["npc"]["knowledge_journal"]
 
         memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
-        assert any(
-            "NPC узнал код от сейфа" in row["text"]
-            for row in memory["characters"]["npc"]["knowledge_journal"]
-        )
+        assert not memory["characters"]["npc"]["knowledge_journal"]
 
 
 def test_exact_duplicate_persisted_journal_rows_are_compacted_before_packet():
@@ -1212,7 +1193,8 @@ def test_turn_commit_schema_exposes_review_flags_without_exact_scene_format():
     assert model.extracted.persistence_reviewed is False
 
 
-def test_fifteenth_turn_does_not_create_mandatory_audit_gate():
+
+def test_fifteenth_turn_creates_mandatory_audit_gate_and_manifest():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         novel = base_novel()
@@ -1223,6 +1205,7 @@ def test_fifteenth_turn_does_not_create_mandatory_audit_gate():
         meta = storage._read_json(root / "meta.json", {})
         meta["turn_number"] = 14
         meta["audit_required"] = False
+        meta["last_audit_turn"] = 0
         storage._write_json(root / "meta.json", meta)
 
         manifest = session_runtime.prepare_turn_packet(sid, "Ход 15.")
@@ -1237,8 +1220,13 @@ def test_fifteenth_turn_does_not_create_mandatory_audit_gate():
             },
         )
         assert result["turn_number"] == 15
-        assert result["audit_due"] is False
-        assert storage._read_json(root / "meta.json", {})["audit_required"] is False
+        assert result["audit_due"] is True
+        assert result["required_audit"]["audit_range"] == [1, 15]
+        assert result["required_audit"]["first_chunk_included"] is True
+        assert storage._read_json(root / "meta.json", {})["audit_required"] is True
+
+        with pytest.raises(RuntimeError, match="AUDIT_REQUIRED"):
+            session_runtime.prepare_turn_packet(sid, "Ход 16.")
 
 
 def test_last_turn_rollback_still_works_without_mandatory_audit():
@@ -1426,7 +1414,8 @@ def test_secondary_cast_cues_are_bounded_and_readable_before_selection():
         assert saved["current"]["present_characters"] == ["pov"]
 
 
-def test_cast_registry_exposes_causal_character_data_without_recency_pressure():
+
+def test_cast_registry_exposes_context_without_forced_return_pressure():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         novel = base_novel()
@@ -1489,9 +1478,10 @@ def test_cast_registry_exposes_causal_character_data_without_recency_pressure():
         row = next(x for x in registry["characters"] if x["character_id"] == "npc")
 
         assert registry["mandatory_causal_review"] is True
-        assert "return_pressure" in registry
-        assert registry["important_cast_return_required"] is bool(registry["return_pressure"])
-        assert "Режиссура сама находит логичный способ сталкивать важный каст" in registry["instruction"]
+        assert "return_pressure" not in registry
+        assert "important_cast_return_required" not in registry
+        assert "не задаёт очередь, квоту или таймер появления" in registry["instruction"]
+        assert "по scene_builder" in registry["instruction"]
         assert row["story_function"] == "possible romance"
         assert "добиться ответа" in row["goals"]
         assert "initiative_cues" not in row
@@ -1509,17 +1499,9 @@ def test_cast_registry_exposes_causal_character_data_without_recency_pressure():
         assert "вернуться к незакрытому вопросу" in row["active_intents"]
         assert "остался рядом" in row["last_meaningful_event"]
 
-        for forbidden in (
-            "last_physical_turn",
-            "last_physical_game_day",
-            "turns_since_physical",
-            "game_days_since_physical",
-            "overdue",
-            "last_seen",
-        ):
-            assert forbidden not in row
 
-def test_offscreen_npc_without_saved_intent_can_still_be_reviewed_for_ordinary_self_initiative():
+
+def test_offscreen_npc_can_be_considered_without_saved_intent_or_forced_timer():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         novel = base_novel()
@@ -1547,8 +1529,9 @@ def test_offscreen_npc_without_saved_intent_can_still_be_reviewed_for_ordinary_s
         assert row["work"] == "тренер"
         assert "пишет вечером после работы" in row["habits"]
         assert row["pov_relationship"]["привязанность"] == 65
-        assert "Личной мотивации NPC, его отношения, цели или story_function достаточно для инициативы." in context["runtime_rules"]
-        assert "Режиссура сама находит логичный способ сталкивать важный каст" in context["runtime_rules"]
+        assert "Появление, звонок, сообщение, уход и возвращение персонажей выбирает режиссура сама" not in context["runtime_rules"]
+        assert "Появление и частота появления изначально заданных игроком NPC полностью определяются режиссурой." in context["scene_builder"]
+        assert "не задаёт очередь, квоту или таймер появления" in context["cast_registry"]["instruction"]
         assert "До реального участия offscreen NPC прочитай его полный character bundle." in context["cast_registry"]["instruction"]
 
 
@@ -2118,7 +2101,8 @@ def test_present_character_remains_present_without_leave():
         assert "npc" in state["current"]["present_characters"]
 
 
-def test_active_writer_packet_exposes_return_pressure_for_long_absent_core_cast():
+
+def test_long_absent_core_cast_is_not_forced_back_by_recency_timer():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         sid = storage.create_session(base_novel())["session_id"]
@@ -2158,12 +2142,219 @@ def test_active_writer_packet_exposes_return_pressure_for_long_absent_core_cast(
         )
         meta = storage._read_json(root / "meta.json", {})
         meta["turn_number"] = 25
+        meta["audit_required"] = False
         storage._write_json(root / "meta.json", meta)
 
         _, context = read_context(sid, "(заняться своими делами)")
         registry = context["cast_registry"]
-        pressured = {row["character_id"] for row in registry["return_pressure"]}
 
-        assert registry["important_cast_return_required"] is True
-        assert "npc" in pressured
-        assert "ближайшему логичному контакту" in registry["instruction"]
+        assert "return_pressure" not in registry
+        assert "important_cast_return_required" not in registry
+        assert "не задаёт очередь, квоту или таймер появления" in registry["instruction"]
+
+def test_private_perception_is_saved_only_to_actual_recipient():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(base_novel())["session_id"]
+
+        manifest = session_runtime.prepare_turn_packet(sid, "(слушать Аду)")
+        read_all(manifest, sid)
+        session_runtime.commit_turn(
+            sid,
+            {
+                "packet_id": manifest["packet_id"],
+                "user_input": "(слушать Аду)",
+                "scene_output": "Девушка наклонилась к POV и тихо назвала своё имя. Away стоял в стороне.",
+                "extracted": {
+                    "chronology": [
+                        {
+                            "event": "Девушка представилась POV как Ада.",
+                            "participants": ["pov", "npc", "away"],
+                            "importance": "major",
+                        }
+                    ],
+                    "knowledge_journal_add": [
+                        {
+                            "character_id": "pov",
+                            "text": "Девушка тихо сказала, что её зовут Ада.",
+                        }
+                    ],
+                },
+            },
+        )
+
+        memory = storage._normalise_memory(
+            storage._read_json(storage.SESSIONS_DIR / sid / "memory.json", {})
+        )
+        pov_text = " ".join(row["text"] for row in memory["characters"]["pov"]["knowledge_journal"])
+        away_text = " ".join(row["text"] for row in memory["characters"]["away"]["knowledge_journal"])
+        assert "зовут Ада" in pov_text
+        assert "Ада" not in away_text
+
+
+def test_required_audit_roundtrip_uses_existing_chunk_and_commit_actions():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        novel = base_novel()
+        novel["characters"] = [{"character_id": "pov", "name": "POV", "is_pov": True}]
+        novel["starting_state"]["current"]["present_characters"] = ["pov"]
+        sid = storage.create_session(novel)["session_id"]
+        root = storage.SESSIONS_DIR / sid
+
+        prior_turns = [
+            {
+                "turn_number": number,
+                "user_input": f"Ход {number}.",
+                "scene_output": f"Сохранённый ход {number}.",
+                "extracted": {},
+            }
+            for number in range(1, 15)
+        ]
+        (root / "turns.jsonl").write_text(
+            "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in prior_turns),
+            encoding="utf-8",
+        )
+        meta = storage._read_json(root / "meta.json", {})
+        meta["turn_number"] = 14
+        meta["last_audit_turn"] = 0
+        meta["audit_required"] = False
+        storage._write_json(root / "meta.json", meta)
+
+        manifest = session_runtime.prepare_turn_packet(sid, "Ход 15.")
+        read_all(manifest, sid)
+        committed = session_runtime.commit_turn(
+            sid,
+            {
+                "packet_id": manifest["packet_id"],
+                "user_input": "Ход 15.",
+                "scene_output": "Сохранённый ход 15.",
+                "extracted": {},
+            },
+        )
+
+        audit = committed["required_audit"]
+        assert audit["first_chunk_included"] is True
+
+        # A retry must resend chunk 0 because the previous HTTP response could
+        # have been lost after the server marked it read.
+        retry_manifest = fast_audit_runtime.get_audit_snapshot(sid)
+        assert retry_manifest["first_chunk_included"] is True
+        assert retry_manifest["content"] == audit["content"]
+        if audit["chunk_count"] > 1:
+            assert retry_manifest["next_chunk_index"] == 1
+
+        for index in range(1, audit["chunk_count"]):
+            row = storage.get_turn_packet_chunk(sid, audit["audit_id"], index)
+            assert row["packet_kind"] == "audit"
+            assert row["all_chunks_read"] is (index == audit["chunk_count"] - 1)
+
+        result = main_api.turns_commit(
+            sid,
+            AuditCommit(
+                audit_id=audit["audit_id"],
+                start_turn=1,
+                end_turn=15,
+                repairs={
+                    "scene_compactions": [
+                        {
+                            "start_turn": 1,
+                            "end_turn": 15,
+                            "summary": "Первые пятнадцать тестовых ходов образуют одну непрерывную сцену без дополнительных долговременных событий или пропущенных личных знаний.",
+                            "status": "open",
+                            "participants": ["pov"],
+                            "location": "room",
+                        }
+                    ]
+                },
+                notes=[],
+            ),
+        )
+        assert result["audited_through"] == 15
+        assert storage._read_json(root / "meta.json", {})["audit_required"] is False
+
+        next_manifest = session_runtime.prepare_turn_packet(sid, "Ход 16.")
+        assert next_manifest["prepared_for_turn"] == 16
+
+
+def test_sixtieth_audit_includes_macro_chronology_and_cast_promotion_review():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(base_novel())["session_id"]
+        root = storage.SESSIONS_DIR / sid
+
+        turns = [
+            {
+                "turn_number": number,
+                "user_input": "",
+                "scene_output": f"Ход {number}.",
+                "extracted": {},
+            }
+            for number in range(1, 61)
+        ]
+        (root / "turns.jsonl").write_text(
+            "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in turns),
+            encoding="utf-8",
+        )
+        meta = storage._read_json(root / "meta.json", {})
+        meta["turn_number"] = 60
+        meta["last_audit_turn"] = 45
+        meta["audit_required"] = True
+        storage._write_json(root / "meta.json", meta)
+
+        payload = fast_audit_runtime._build_fast_payload(sid)
+        macro = payload["macro_audit_60"]
+        assert macro["required"] is True
+        assert macro["macro_range"] == [1, 60]
+        assert "repairs.character_upserts" in macro["output_required"]
+        promotion_rule = macro["output_required"]["repairs.character_upserts"].casefold()
+        assert "recurring" in promotion_rule
+        assert "durably important" in promotion_rule
+
+def test_fast_audit_keeps_exact_long_user_input_and_npc_relationship_updates():
+    raw_input = "начало-" + ("длинный ввод " * 180) + "-конец"
+    evidence = fast_audit_runtime._turn_evidence(
+        {
+            "turn_number": 9,
+            "user_input": raw_input,
+            "scene_output": "Сцена.",
+            "extracted": {
+                "npc_relationship_updates": [
+                    {
+                        "owner_character_id": "npc",
+                        "target_character_id": "away",
+                        "description": "поссорились",
+                    }
+                ]
+            },
+        }
+    )
+    assert evidence["user_input"] == raw_input
+    assert evidence["user_input"].endswith("-конец")
+    assert evidence["npc_relationship_updates"][0]["description"] == "поссорились"
+
+def test_turn_packet_keeps_full_compact_cast_but_scene_scopes_full_cards():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        novel = base_novel()
+        novel["characters"].extend([
+            {"character_id": "off_a", "name": "Off A", "story_function": "secondary friend"},
+            {"character_id": "off_b", "name": "Off B", "story_function": "secondary rival"},
+        ])
+        novel["starting_state"]["current"]["present_characters"] = ["pov"]
+        sid = storage.create_session(novel)["session_id"]
+
+        _, context = read_context(sid, "(заняться своими делами)")
+        registry_ids = {
+            row["character_id"]
+            for row in context["cast_registry"]["characters"]
+        }
+        assert registry_ids == {"pov", "npc", "away", "off_a", "off_b"}
+
+        full_card_ids = {
+            row["character_id"]
+            for row in context.get("character_cards", [])
+        }
+        assert full_card_ids == {"pov"}
+        assert "return_pressure" not in context["cast_registry"]
+        assert "important_cast_return_required" not in context["cast_registry"]
+

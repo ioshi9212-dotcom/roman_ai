@@ -6,7 +6,7 @@ from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Any, Dict
 
-from . import location_runtime, session_recovery, session_runtime, storage
+from . import location_runtime, npc_intent, relationship_file_runtime, session_recovery, session_runtime, storage, story_thread
 from .game_day import sync_game_day
 from .relationship_runtime import overwrite_relationship_snapshots
 from .relationship_file_runtime import FILE_NAME as RELATIONSHIPS_FILE
@@ -356,11 +356,26 @@ def _atomic_commit_audit(session_id: str, payload: Dict[str, Any]) -> Dict[str, 
             raise ValueError("AUDIT_RANGE_MISMATCH")
 
         repairs = deepcopy(payload.get("repairs", {})) if isinstance(payload.get("repairs"), dict) else {}
+        start_turn = int(payload["start_turn"])
+        end_turn = int(payload["end_turn"])
         audit_state_patch = deepcopy(repairs.get("state_patch")) if isinstance(repairs.get("state_patch"), dict) else {}
         for key in ("relationships", "relationship_documents", "relationship_schemas", "npc_relationships"):
             audit_state_patch.pop(key, None)
         repairs["state_patch"] = audit_state_patch
         source = storage._read_json(root / "source.json", {})
+        pre_audit_cards = storage._load_cards(root, source)
+        existing_card_ids = {
+            storage._card_id(card)
+            for card in pre_audit_cards
+            if storage._card_id(card)
+        }
+        for row in repairs.get("character_upserts", []) if isinstance(repairs.get("character_upserts"), list) else []:
+            if not isinstance(row, dict):
+                continue
+            cid = storage._card_id(row)
+            if cid and cid not in existing_card_ids and not str(row.get("story_function") or "").strip():
+                raise RuntimeError("CAST_STORY_FUNCTION_REQUIRED")
+        cards = storage._apply_character_upserts(pre_audit_cards, repairs)
         state = storage._read_json(root / "state.json", {})
         previous_state = deepcopy(state)
         state = _merge_state_patch_exact_relationships(state, audit_state_patch)
@@ -368,13 +383,327 @@ def _atomic_commit_audit(session_id: str, payload: Dict[str, Any]) -> Dict[str, 
         state = location_runtime.sync_current_location(source, state, previous_state=previous_state)
         state = sync_game_day(state, source)
 
+        journal_repairs = repairs.get("knowledge_journal_add")
+        if isinstance(journal_repairs, list):
+            for item in journal_repairs:
+                if not isinstance(item, dict):
+                    continue
+                raw_turn = item.get("turn") or item.get("source_turn") or item.get("learned_turn")
+                try:
+                    original_turn = int(raw_turn)
+                except (TypeError, ValueError):
+                    raise RuntimeError("AUDIT_REPAIR_TURN_REQUIRED")
+                if original_turn < start_turn or original_turn > end_turn:
+                    raise RuntimeError("AUDIT_REPAIR_TURN_OUT_OF_RANGE")
+                item["turn"] = original_turn
+
         memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
-        memory = storage._apply_memory_events(memory, repairs, expected_end)
+        for card in cards:
+            cid = storage._card_id(card)
+            if cid:
+                storage._memory_bucket(memory, cid)
+        memory = storage._apply_memory_events(
+            memory,
+            repairs,
+            expected_end,
+            preserve_journal_turn=True,
+        )
+
+        pov = state.get("pov") if isinstance(state.get("pov"), dict) else {}
+        pov_id = str(pov.get("character_id") or "")
+        relationship_path = root / RELATIONSHIPS_FILE
+        if relationship_path.exists():
+            relationship_store = relationship_file_runtime.normalize_store(
+                storage._read_json(relationship_path, {}),
+                pov_id,
+            )
+        else:
+            relationship_store = relationship_file_runtime.build_initial_store(cards, state, pov_id)
+
+        relationship_repairs = (
+            repairs.get("relationship_updates")
+            if isinstance(repairs.get("relationship_updates"), list)
+            else []
+        )
+        npc_relationship_repairs = (
+            repairs.get("npc_relationship_updates")
+            if isinstance(repairs.get("npc_relationship_updates"), list)
+            else []
+        )
+        intent_repairs = (
+            repairs.get("npc_intent_updates")
+            if isinstance(repairs.get("npc_intent_updates"), list)
+            else []
+        )
+        thread_repairs = (
+            repairs.get("story_thread_updates")
+            if isinstance(repairs.get("story_thread_updates"), list)
+            else []
+        )
+        turns = storage._read_turns(root)
+        historical_repairs = bool(
+            relationship_repairs
+            or npc_relationship_repairs
+            or intent_repairs
+            or thread_repairs
+        )
+        repaired_turns = deepcopy(turns) if historical_repairs else []
+        turns_by_number = {
+            int(turn.get("turn_number", 0) or 0): turn
+            for turn in repaired_turns
+            if isinstance(turn, dict)
+        }
+
+        def add_historical_repairs(rows: list[Any], field: str) -> None:
+            for row in rows:
+                if not isinstance(row, dict):
+                    continue
+                raw_turn = row.get("turn") or row.get("source_turn") or row.get("learned_turn")
+                try:
+                    original_turn = int(raw_turn)
+                except (TypeError, ValueError):
+                    raise RuntimeError("AUDIT_REPAIR_TURN_REQUIRED")
+                if original_turn < start_turn or original_turn > end_turn:
+                    raise RuntimeError("AUDIT_REPAIR_TURN_OUT_OF_RANGE")
+                target_turn = turns_by_number.get(original_turn)
+                if not isinstance(target_turn, dict):
+                    raise RuntimeError("AUDIT_REPAIR_TURN_OUT_OF_RANGE")
+                extracted = target_turn.get("extracted")
+                if not isinstance(extracted, dict):
+                    extracted = {}
+                    target_turn["extracted"] = extracted
+                values = extracted.get(field)
+                if not isinstance(values, list):
+                    values = []
+                    extracted[field] = values
+                values.append(deepcopy(row))
+
+        add_historical_repairs(relationship_repairs, "relationship_updates")
+        add_historical_repairs(npc_relationship_repairs, "npc_relationship_updates")
+        add_historical_repairs(intent_repairs, "npc_intent_updates")
+        add_historical_repairs(thread_repairs, "story_thread_updates")
+
+        if intent_repairs or thread_repairs:
+            starting_state = (
+                deepcopy(source.get("starting_state"))
+                if isinstance(source.get("starting_state"), dict)
+                else {}
+            )
+            replay_state = starting_state
+            for historical_turn in sorted(
+                repaired_turns,
+                key=lambda row: int(row.get("turn_number", 0) or 0) if isinstance(row, dict) else 0,
+            ):
+                if not isinstance(historical_turn, dict):
+                    continue
+                historical_number = int(historical_turn.get("turn_number", 0) or 0)
+                extracted = (
+                    historical_turn.get("extracted")
+                    if isinstance(historical_turn.get("extracted"), dict)
+                    else {}
+                )
+                patch = extracted.get("state_patch") if isinstance(extracted.get("state_patch"), dict) else {}
+                replay_state = storage._deep_merge(replay_state, patch)
+                replay_state = story_thread.apply_updates(
+                    replay_state,
+                    extracted.get("story_thread_updates") or [],
+                    current_turn=historical_number,
+                )
+                replay_state = npc_intent.apply_updates(
+                    replay_state,
+                    extracted.get("npc_intent_updates") or [],
+                    current_turn=historical_number,
+                )
+
+            current_intents = npc_intent.normalise_store(state)
+            corrected_intents = npc_intent.normalise_store(replay_state)
+            for repair in intent_repairs:
+                if not isinstance(repair, dict):
+                    continue
+                character_id = str(repair.get("character_id") or "").strip()
+                intent_id = str(repair.get("intent_id") or repair.get("id") or "").strip()
+                if not character_id or not intent_id:
+                    continue
+                current_bucket = current_intents.setdefault(character_id, [])
+                current_bucket[:] = [
+                    row for row in current_bucket
+                    if not isinstance(row, dict) or str(row.get("intent_id") or "") != intent_id
+                ]
+                corrected = next(
+                    (
+                        deepcopy(row)
+                        for row in corrected_intents.get(character_id, [])
+                        if isinstance(row, dict) and str(row.get("intent_id") or "") == intent_id
+                    ),
+                    None,
+                )
+                if corrected is not None:
+                    current_bucket.append(corrected)
+                if not current_bucket:
+                    current_intents.pop(character_id, None)
+            state["npc_intents"] = current_intents
+
+            def thread_map(value: Any) -> Dict[str, Dict[str, Any]]:
+                if isinstance(value, dict):
+                    return {
+                        str(key): deepcopy(row)
+                        for key, row in value.items()
+                        if isinstance(row, dict)
+                    }
+                if isinstance(value, list):
+                    result: Dict[str, Dict[str, Any]] = {}
+                    for row in value:
+                        if not isinstance(row, dict):
+                            continue
+                        thread_id = str(row.get("thread_id") or row.get("id") or "").strip()
+                        if thread_id:
+                            result[thread_id] = deepcopy(row)
+                    return result
+                return {}
+
+            current_threads = thread_map(state.get("threads"))
+            corrected_threads = thread_map(replay_state.get("threads"))
+            for repair in thread_repairs:
+                if not isinstance(repair, dict):
+                    continue
+                thread_id = str(repair.get("thread_id") or repair.get("id") or "").strip()
+                if not thread_id:
+                    continue
+                if thread_id in corrected_threads:
+                    current_threads[thread_id] = deepcopy(corrected_threads[thread_id])
+                else:
+                    current_threads.pop(thread_id, None)
+            state["threads"] = current_threads
+
+        if relationship_repairs or npc_relationship_repairs:
+            try:
+                corrected_store = relationship_file_runtime.rebuild_from_turns(
+                    source,
+                    cards,
+                    repaired_turns,
+                )
+            except ValueError as exc:
+                raise RuntimeError("AUDIT_RELATIONSHIP_REPAIR_INVALID") from exc
+
+            def norm_label(value: Any) -> str:
+                return " ".join(str(value or "").casefold().replace("ё", "е").split())
+
+            current_npc_to_pov = relationship_store.setdefault("npc_to_pov", {})
+            corrected_npc_to_pov = (
+                corrected_store.get("npc_to_pov")
+                if isinstance(corrected_store.get("npc_to_pov"), dict)
+                else {}
+            )
+            for repair in relationship_repairs:
+                if not isinstance(repair, dict):
+                    continue
+                owner_id = session_runtime._resolve_character_id(cards, repair.get("character_id"))
+                owner_id = str(owner_id or "")
+                if not owner_id:
+                    raise RuntimeError("AUDIT_RELATIONSHIP_REPAIR_INVALID")
+                corrected_owner = (
+                    corrected_npc_to_pov.get(owner_id)
+                    if isinstance(corrected_npc_to_pov.get(owner_id), dict)
+                    else {}
+                )
+                current_owner = current_npc_to_pov.setdefault(owner_id, {"dimensions": {}})
+                current_dimensions = (
+                    current_owner.get("dimensions")
+                    if isinstance(current_owner.get("dimensions"), dict)
+                    else {}
+                )
+                current_owner["dimensions"] = current_dimensions
+                corrected_dimensions = (
+                    corrected_owner.get("dimensions")
+                    if isinstance(corrected_owner.get("dimensions"), dict)
+                    else {}
+                )
+
+                for dimension in repair.get("dimensions", []) if isinstance(repair.get("dimensions"), list) else []:
+                    if not isinstance(dimension, dict):
+                        continue
+                    wanted = norm_label(dimension.get("label"))
+                    if not wanted:
+                        continue
+                    current_label = next(
+                        (label for label in current_dimensions if norm_label(label) == wanted),
+                        None,
+                    )
+                    corrected_label = next(
+                        (label for label in corrected_dimensions if norm_label(label) == wanted),
+                        None,
+                    )
+                    if current_label is not None:
+                        current_dimensions.pop(current_label, None)
+                    if corrected_label is not None:
+                        current_dimensions[corrected_label] = deepcopy(corrected_dimensions[corrected_label])
+
+                if str(repair.get("dynamic") or "").strip():
+                    if corrected_owner.get("dynamic"):
+                        current_owner["dynamic"] = deepcopy(corrected_owner["dynamic"])
+                        if corrected_owner.get("dynamic_last_change"):
+                            current_owner["dynamic_last_change"] = deepcopy(corrected_owner["dynamic_last_change"])
+                    else:
+                        current_owner.pop("dynamic", None)
+                        current_owner.pop("dynamic_last_change", None)
+
+                if not current_dimensions and not current_owner.get("dynamic"):
+                    current_npc_to_pov.pop(owner_id, None)
+
+            current_npc_to_npc = relationship_store.setdefault("npc_to_npc", {})
+            corrected_npc_to_npc = (
+                corrected_store.get("npc_to_npc")
+                if isinstance(corrected_store.get("npc_to_npc"), dict)
+                else {}
+            )
+            for repair in npc_relationship_repairs:
+                if not isinstance(repair, dict):
+                    continue
+                owner_id = session_runtime._resolve_character_id(cards, repair.get("owner_character_id"))
+                target_id = session_runtime._resolve_character_id(cards, repair.get("target_character_id"))
+                owner_id = str(owner_id or "")
+                target_id = str(target_id or "")
+                if not owner_id or not target_id:
+                    raise RuntimeError("AUDIT_RELATIONSHIP_REPAIR_INVALID")
+                corrected_targets = (
+                    corrected_npc_to_npc.get(owner_id)
+                    if isinstance(corrected_npc_to_npc.get(owner_id), dict)
+                    else {}
+                )
+                description = corrected_targets.get(target_id)
+                if description:
+                    current_npc_to_npc.setdefault(owner_id, {})[target_id] = deepcopy(description)
+                elif isinstance(current_npc_to_npc.get(owner_id), dict):
+                    current_npc_to_npc[owner_id].pop(target_id, None)
+                    if not current_npc_to_npc[owner_id]:
+                        current_npc_to_npc.pop(owner_id, None)
+
         chronology = storage._read_json(root / "chronology.json", [])
         if not isinstance(chronology, list):
             chronology = []
-        if isinstance(repairs.get("chronology_add"), list):
-            chronology = [*chronology, *deepcopy(repairs["chronology_add"])]
+        chronology_repairs = repairs.get("chronology_add")
+        if isinstance(chronology_repairs, list):
+            normalized_repairs: list[Dict[str, Any]] = []
+            for raw in chronology_repairs:
+                if not isinstance(raw, dict):
+                    continue
+                raw_turn = raw.get("turn_number") or raw.get("turn") or raw.get("source_turn")
+                try:
+                    original_turn = int(raw_turn)
+                except (TypeError, ValueError):
+                    raise RuntimeError("AUDIT_REPAIR_TURN_REQUIRED")
+                if original_turn < start_turn or original_turn > end_turn:
+                    raise RuntimeError("AUDIT_REPAIR_TURN_OUT_OF_RANGE")
+                normalized_repairs.extend(
+                    session_runtime._normalise_chronology_events(
+                        [raw],
+                        turn_number=original_turn,
+                        state=state,
+                        cards=cards,
+                    )
+                )
+            repairs["chronology_add"] = normalized_repairs
+            chronology = [*chronology, *deepcopy(normalized_repairs)]
 
         memory, chronology, scene_store, resolved_scene_rows = apply_audit_compactions(
             root,
@@ -409,8 +738,6 @@ def _atomic_commit_audit(session_id: str, payload: Dict[str, Any]) -> Dict[str, 
             }
         )
 
-        cards = storage._load_cards(root, source)
-        turns = storage._read_turns(root)
         state = session_runtime._finalize_persisted_state(
             source=source,
             cards=cards,
@@ -432,6 +759,8 @@ def _atomic_commit_audit(session_id: str, payload: Dict[str, Any]) -> Dict[str, 
             "transactional_commit": True,
             "relationship_snapshots_atomic": True,
             "scene_compactions_saved": len(resolved_scene_rows),
+            "relationship_repairs_saved": len(relationship_repairs) + len(npc_relationship_repairs),
+            "continuity_repairs_saved": len(intent_repairs) + len(thread_repairs),
             "macro_chronology_compacted": bool(macro_compaction_due and macro_compaction_requested),
             "macro_chronology_deferred": bool(macro_compaction_due and not macro_compaction_requested),
         }
@@ -440,8 +769,10 @@ def _atomic_commit_audit(session_id: str, payload: Dict[str, Any]) -> Dict[str, 
             result["audit_id"] = audit_id
 
         values = {
+            "characters.json": json_text(cards),
             "state.json": json_text(state),
             "memory.json": json_text(memory),
+            RELATIONSHIPS_FILE: json_text(relationship_store),
             "chronology.json": json_text(chronology),
             SCENE_MEMORY_FILE: json_text(scene_store),
             "audits.json": json_text(audits),

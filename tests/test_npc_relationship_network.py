@@ -116,8 +116,9 @@ def test_every_turn_has_causal_cast_and_qualitative_directed_npc_network_from_sa
 
         registry = context["cast_registry"]
         assert registry["mandatory_causal_review"] is True
-        assert "return_pressure" in registry
-        assert registry["important_cast_return_required"] is bool(registry["return_pressure"])
+        assert "return_pressure" not in registry
+        assert "important_cast_return_required" not in registry
+        assert "не задаёт очередь, квоту или таймер появления" in registry["instruction"]
         rows = {row["character_id"]: row for row in registry["characters"]}
         assert {"adrian", "dante", "yuna", "lem"}.issubset(rows)
         assert registry["offscreen_bundle_read"]["action"] == "prepareCharacterBundleRead"

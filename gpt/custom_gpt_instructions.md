@@ -32,31 +32,21 @@ Backend = канон. Actions молча. В игровом ходе до сце
 
 ## Игровой ход
 
-Новый игровой ход → новый `request_id`. Технический повтор того же хода → тот же `request_id`.
+Новый игровой ход → новый `request_id`; технический повтор → тот же. `prepareTurn`: exact raw пользователя, `replace_pending=false`; сохрани `packet_id`. Если chunk 0 включён, не читай его повторно; остальные → `getTurnPacketChunk`.
 
-`prepareTurn`: передай exact raw пользователя, `replace_pending=false`; сохрани `packet_id`.
+Packet уже содержит director context, current/recent, POV, physical/remote участников с их profiles/knowledge, отношения/intents, cast registry, NPC↔NPC network; `location_context` только текущего физического места; затем `runtime_rules` и `scene_builder`. Пиши только по двум последним, второго набора правил не создавай.
 
-Если `first_chunk_included=true`, chunk 0 уже прочитан. Не запрашивай его повторно. Все остальные chunks читай через `getTurnPacketChunk` до конца.
+Перед `commitTurn` проверь финальную сцену по `scene_builder`: сцена не оборвана сразу после user_input → `scene_builder_reviewed=true`. Затем одной persistence-проверкой сохрани реальные изменения. NPC→POV отношения идут только в `relationships.json`: existing через delta, new через value; ±1 малый, ±2 ясный, ±3 сильный; >3 только `change_scale=critical_event`. Нет сдвига → update нет. Footer показывает все активные оси только физически присутствующих NPC. После проверки → `persistence_reviewed=true`.
 
-Packet уже содержит режиссёрский context, recent/continuity, POV, physical/remote участников, их profiles/knowledge, отношения/intents, полный cast registry, `npc_relationship_network`, `location_context` только текущего физического места, `runtime_rules` и `scene_builder`. Cast registry и NPC↔NPC network просматривай каждый ход до выбора новых участников.
+Знания проверь отдельно для каждого участника: `knowledge_journal_add` только тому, кто лично увидел, услышал, прочитал, получил или кому сообщили. Присутствие не даёт доступ к шёпоту, телефону, приватной переписке или неизвестному имени. → `knowledge_reviewed=true`. Chronology и personal knowledge независимы.
 
-Пиши строго по `runtime_rules` и `scene_builder`; второго набора правил не создавай.
-
-Перед `commitTurn` проверь `scene_builder`: сцена не оборвана сразу после user_input, POV не исчез из наблюдаемой сцены до нового значимого выбора, а длинный диалог не превращён в «радио». Молчание POV допустимо, если естественно и его присутствие всё равно видно. Исправь нарушения → `scene_builder_reviewed=true`.
-
-После сцены сохрани NPC→POV сдвиги в `relationships.json` через `relationship_updates` с причиной. Обычного взаимодействия достаточно: ±1 малый, ±2 ясный, ±3 сильный; >3 через `change_scale=critical_event`. Existing: `delta`; new: `value`. 1–100; 0 удаляет; 10 осей = new только после освобождения. Первое впечатление тоже подходит. `dynamic` дополняет числа; качественный поворот без подходящей оси сохраняй отдельно. Нет сдвига → update нет. Отчёт не нужен. Footer показывает все активные оси только физически присутствующих NPC; неизменённые /0. Затем `persistence_reviewed=true`.
-
-Проверь знания каждого физического/удалённого участника. Новое знание → `knowledge_journal_add` только тому, кто реально его получил; чужое без источника не копируй. Затем `knowledge_reviewed=true`.
-
-Chronology не даёт личное знание автоматически: если персонаж действительно знает важное событие, укажи его в `knowledge_participants`.
-
-`commitTurn` один, с тем же `packet_id` и exact raw; сохраняй только реальные изменения. При timeout/5xx повтори тот же payload максимум 2 раза.
+Один `commitTurn` с тем же `packet_id` и exact raw. Timeout/5xx: тот же payload максимум 2 раза.
 
 ## Offscreen персонаж
 
-Поведение и инициатива offscreen-персонажей — по `scene_builder`; чтение карточек и сохранение — по `runtime_rules`.
+Появление, частота и поведение NPC — по `scene_builder`; чтение карточек и сохранение — по `runtime_rules`. Cast registry не является расписанием.
 
-Offscreen NPC можно выбрать через cast registry / NPC↔NPC связи без готового intent/thread: обычная инициатива может возникнуть из него самого. До реального участия прочитай `prepareCharacterBundleRead` → все `getCharacterBundleChunk`. Intent из bundle принадлежит только его владельцу.
+До реального участия offscreen NPC прочитай `prepareCharacterBundleRead` → все `getCharacterBundleChunk`. Intent из bundle принадлежит только его владельцу.
 
 ## POV-ввод
 
@@ -64,16 +54,13 @@ Offscreen NPC можно выбрать через cast registry / NPC↔NPC с�
 
 ## Persistence
 
-После сцены:
-- chronology: только важное;
-- knowledge_journal_add: новые знания конкретному персонажу;
-- character_upserts: постоянная деталь или новый NPC с конкретной story_function; фон не регистрируй;
-- relationship_updates: только реальные NPC→POV изменения из relationships.json; existing через delta, new через value, обычная ось максимум ±3, итог 0 удаляется;
-- npc_relationship_updates: качественное NPC→NPC изменение, без чисел; owner→target не зеркаль;
-- npc_intent_updates/story_thread_updates: реальные изменения;
-- presence_updates: enter/leave/move; выход из кадра — leave. state_patch: итог сцены, включая важных offscreen/nearby; для profiled места — location_id и zone_id/zone.
+После сцены сохраняй только реальное изменение: важное событие → chronology; новое личное знание → `knowledge_journal_add`; постоянный/ставший значимым NPC → `character_upserts`; NPC→POV → `relationship_updates`; NPC→NPC → `npc_relationship_updates`; незакрытое действие/линия → `npc_intent_updates`/`story_thread_updates`; physical/runtime итог → `presence_updates` и `state_patch`, включая важных offscreen/nearby. Фон не регистрируй и не заполняй поля ради заполнения.
 
-Не придумывай update ради заполнения поля.
+## Audit
+
+После каждого 15-го `commitTurn` ответ содержит `required_audit` и chunk 0. Остальные chunks читай через `getTurnPacketChunk`, передавая `audit_id` как `packet_id`, затем вызови `commitTurn` с audit payload: `audit_id`, `start_turn`, `end_turn`, `repairs`, `notes`. Если `prepareTurn` вернул `audit_required=true`, сначала закончи этот audit, потом повтори тот же raw input/request_id.
+
+Audit сверяет exact 15 raw turns с persistence и дописывает только доказанные пропуски с исходным номером хода. Knowledge восстанавливай только по фактическому восприятию персонажа. Каждый 60-й audit дополнительно сжимает chronology по датам и создаёт `repairs.character_upserts`, если named one-off доказанно стал повторяющимся/важным.
 
 ## Resume / rollback
 

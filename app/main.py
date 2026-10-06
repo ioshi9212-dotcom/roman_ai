@@ -547,7 +547,14 @@ def turn_packet_prepare(session_id: str, body: TurnPrepare):
     except RuntimeError as exc:
         code = str(exc)
         if code == "AUDIT_REQUIRED":
-            raise HTTPException(status_code=409, detail="Audit is required before preparing the next turn")
+            return {
+                "audit_required": True,
+                "required_audit": get_audit_snapshot(session_id),
+                "instruction": (
+                    "Complete required_audit first. Read remaining chunks with getTurnPacketChunk using audit_id as packet_id, "
+                    "then submit the audit payload through commitTurn. After success call prepareTurn again with the same user_input/request_id."
+                ),
+            }
         if code == "TURN_REQUEST_ID_REUSED":
             raise HTTPException(
                 status_code=409,
@@ -579,7 +586,7 @@ def turn_packet_chunk_get(session_id: str, packet_id: str, chunk_index: int):
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Session not found")
     except PermissionError:
-        raise HTTPException(status_code=403, detail="Invalid or stale packet_id")
+        raise HTTPException(status_code=403, detail="Invalid or stale packet_id/audit_id")
     except IndexError:
         raise HTTPException(status_code=404, detail="Chunk index out of range")
 
@@ -702,7 +709,9 @@ def turns_get(session_id: str, start_turn: int, end_turn: int):
 
 
 @app.post("/sessions/{session_id}/turns", operation_id="commitTurn")
-def turns_commit(session_id: str, body: TurnCommit):
+def turns_commit(session_id: str, body: TurnCommit | AuditCommit):
+    if isinstance(body, AuditCommit):
+        return audit_commit(session_id, body)
     try:
         return commit_turn_request(session_id, body.model_dump())
     except FileNotFoundError:
@@ -780,9 +789,13 @@ def audit_commit(session_id: str, body: AuditCommit):
     except RuntimeError as exc:
         errors = {
             "AUDIT_NOT_REQUIRED": "Audit is not currently required",
-            "AUDIT_PACKET_ID_REQUIRED": "commitAudit requires the exact audit_id returned by getAuditSnapshot",
-            "AUDIT_PACKET_REQUIRED": "Call getAuditSnapshot, use its exact audit_id, then read every audit snapshot chunk before commitAudit",
-            "AUDIT_PACKET_INCOMPLETE": "Every audit snapshot chunk must be read before commitAudit",
+            "AUDIT_PACKET_ID_REQUIRED": "The audit payload requires the exact audit_id returned in required_audit.",
+            "AUDIT_PACKET_REQUIRED": "Use required_audit, read every remaining chunk through getTurnPacketChunk with audit_id as packet_id, then retry commitTurn with the audit payload.",
+            "AUDIT_PACKET_INCOMPLETE": "Read every remaining audit chunk through getTurnPacketChunk before retrying commitTurn with the audit payload.",
+            "AUDIT_REPAIR_TURN_REQUIRED": "Every historical audit repair must include its original turn number.",
+            "AUDIT_REPAIR_TURN_OUT_OF_RANGE": "An audit repair referenced a turn outside the exact audited range.",
+            "AUDIT_RELATIONSHIP_REPAIR_INVALID": "A relationship repair is inconsistent with the canonical relationships.json store.",
+            "CAST_STORY_FUNCTION_REQUIRED": "A newly promoted recurring NPC needs a short story_function.",
             "SCENE_COMPACTION_REQUIRED": "Audit must include repairs.scene_compactions covering the complete 15-turn range.",
             "SCENE_COMPACTION_INVALID": "scene_compactions is malformed. Use contiguous scene ranges with one dense summary per scene.",
             "SCENE_COMPACTION_COVERAGE_INVALID": "scene_compactions must cover every audited turn exactly once, with no gaps or overlaps.",
@@ -792,7 +805,7 @@ def audit_commit(session_id: str, body: AuditCommit):
             "MEMORY_COMPACTION_SOURCE_REUSED": "One source memory record cannot be compacted into multiple canonical records in the same audit.",
             "MEMORY_COMPACTION_SOURCE_UNKNOWN": "A memory_compaction referenced a missing or already superseded source record.",
             "MEMORY_COMPACTION_SOURCE_OUT_OF_RANGE": "memory_compactions may only supersede records created inside this exact audit range.",
-            "MACRO_CHRONOLOGY_COMPACTION_REQUIRED": "The 60-turn macro chronology compaction is missing. Retry the same audit_id with repairs.chronology_compactions, or omit the field entirely to preserve raw chronology and complete the normal 15-turn audit.",
+            "MACRO_CHRONOLOGY_COMPACTION_REQUIRED": "The scheduled 60-turn macro audit is incomplete. Retry the same audit_id with repairs.chronology_compactions; the next gameplay turn remains blocked until it is saved.",
             "MACRO_CHRONOLOGY_COMPACTION_INVALID": "repairs.chronology_compactions is malformed. Each row needs DD.MM.YYYY date and a 20-1800 character summary.",
             "MACRO_CHRONOLOGY_IMPORTANT_DATE_MISSING": "The macro compaction omitted a story date that contains major/anchor/critical chronology. Add a dated summary for every important date and retry the same audit_id.",
         }

@@ -5,13 +5,13 @@ import secrets
 from copy import deepcopy
 from typing import Any, Dict
 
-from . import audit_runtime, storage
+from . import audit_runtime, npc_intent, relationship_file_runtime, storage, story_thread
 from .scene_compaction_runtime import audit_scene_context
-from .long_horizon_audit import build_macro_payload, cast_audit, relationship_audit
+from .long_horizon_audit import build_macro_payload, cast_audit, macro_due, relationship_audit
 
 
 _ORIGINAL_GET_AUDIT = None
-FAST_AUDIT_PACKET_VERSION = 11
+FAST_AUDIT_PACKET_VERSION = 12
 AUDIT_PACKET_CHARS = 16000
 
 
@@ -19,11 +19,11 @@ def _turn_evidence(turn: Dict[str, Any]) -> Dict[str, Any]:
     extracted = turn.get("extracted") if isinstance(turn.get("extracted"), dict) else {}
     result: Dict[str, Any] = {
         "turn_number": int(turn.get("turn_number", 0) or 0),
-        "user_input": str(turn.get("user_input") or "")[:1000],
+        "user_input": str(turn.get("user_input") or ""),
     }
     for key in (
         "chronology", "knowledge_journal_add", "knowledge_add", "experiences_add", "dialogue_memory_add",
-        "presence_updates", "relationship_updates", "npc_intent_updates", "story_thread_updates", "character_upserts",
+        "presence_updates", "relationship_updates", "npc_relationship_updates", "npc_intent_updates", "story_thread_updates", "character_upserts",
     ):
         value = extracted.get(key)
         if isinstance(value, list) and value:
@@ -40,6 +40,86 @@ def _turn_evidence(turn: Dict[str, Any]) -> Dict[str, Any]:
     if scene:
         result["scene_output"] = scene
     return result
+
+
+
+def _continuity_audit(
+    state: Dict[str, Any],
+    character_ids: list[str],
+    start_turn: int,
+    end_turn: int,
+) -> Dict[str, Any]:
+    terminal = {"resolved", "closed", "done", "abandoned", "cancelled", "canceled", "superseded"}
+
+    def clean_text(value: Any, limit: int) -> str | None:
+        text = " ".join(str(value or "").split())
+        return text[:limit] if text else None
+
+    intents = npc_intent.normalise_store(state)
+    scoped_intents: Dict[str, Any] = {}
+    for character_id in character_ids:
+        active_rows = []
+        for row in intents.get(str(character_id), []):
+            if not isinstance(row, dict):
+                continue
+            if str(row.get("status") or "active").casefold().strip() in terminal:
+                continue
+            compact = {
+                "intent_id": row.get("intent_id"),
+                "status": row.get("status"),
+                "summary": clean_text(row.get("summary"), 260),
+                "priority": row.get("priority"),
+                "target_character_id": row.get("target_character_id"),
+                "trigger": clean_text(row.get("trigger"), 220),
+                "planned_action": clean_text(row.get("planned_action"), 260),
+                "created_turn": row.get("created_turn"),
+                "last_pursued_turn": row.get("last_pursued_turn"),
+                "next_eligible_game_day": row.get("next_eligible_game_day"),
+            }
+            active_rows.append({key: value for key, value in compact.items() if value not in (None, "", [], {})})
+        if active_rows:
+            scoped_intents[str(character_id)] = active_rows
+
+    thread_index = []
+    wanted = {str(value) for value in character_ids if value}
+    for thread_id, row in story_thread.active_threads(state).items():
+        if not isinstance(row, dict):
+            continue
+        participants = row.get("participants")
+        participants = [str(value) for value in participants if value][:8] if isinstance(participants, list) else []
+        created_turn = int(row.get("created_turn", 0) or 0)
+        progress_turn = int(row.get("last_progress_turn", 0) or 0)
+        touched_in_range = (
+            start_turn <= created_turn <= end_turn
+            or start_turn <= progress_turn <= end_turn
+        )
+        linked_to_audited_character = bool(wanted.intersection(participants))
+        if not touched_in_range and not linked_to_audited_character:
+            continue
+        compact = {
+            "thread_id": str(thread_id),
+            "status": row.get("status") or "active",
+            "title": clean_text(row.get("title"), 180),
+            "summary": clean_text(
+                row.get("summary") or row.get("progress_summary") or row.get("current_goal"),
+                260,
+            ),
+            "priority": row.get("priority"),
+            "participants": participants,
+            "created_turn": row.get("created_turn"),
+            "last_progress_turn": row.get("last_progress_turn"),
+            "next_eligible_game_day": row.get("next_eligible_game_day"),
+        }
+        thread_index.append({key: value for key, value in compact.items() if value not in (None, "", [], {})})
+
+    return {
+        "active_npc_intents": scoped_intents,
+        "active_story_thread_index": thread_index,
+        "contract": (
+            "All unresolved continuity is indexed compactly here. Exact audited turns contain the full in-range updates; "
+            "large old thread notes are not retransmitted every 15 turns."
+        ),
+    }
 
 
 def _build_fast_payload(session_id: str) -> Dict[str, Any]:
@@ -59,17 +139,43 @@ def _build_fast_payload(session_id: str) -> Dict[str, Any]:
         cards, state, memory, chronology, turns, start_turn, end_turn
     )
     card_map = {storage._card_id(card): card for card in cards}
-    relationship_review = relationship_audit(state, turns, character_ids, start_turn, end_turn)
-    cast_review = cast_audit(state, character_ids, start_turn, end_turn)
-    all_turns = storage._read_turns(root)
-    macro_review = build_macro_payload(
-        root,
-        source=source,
-        state=state,
-        chronology=chronology,
-        turns=all_turns,
-        end_turn=end_turn,
+    pov = state.get("pov") if isinstance(state.get("pov"), dict) else {}
+    pov_id = str(pov.get("character_id") or "")
+    relationship_path = root / relationship_file_runtime.FILE_NAME
+    if relationship_path.exists():
+        relationship_store = relationship_file_runtime.normalize_store(
+            storage._read_json(relationship_path, {}),
+            pov_id,
+        )
+    else:
+        relationship_store = relationship_file_runtime.build_initial_store(cards, state, pov_id)
+    relationship_review = relationship_audit(
+        state,
+        turns,
+        character_ids,
+        start_turn,
+        end_turn,
+        relationship_store=relationship_store,
     )
+    continuity_review = _continuity_audit(state, character_ids, start_turn, end_turn)
+    state_review = audit_runtime._audit_state(state, character_ids)
+    state_review.pop("npc_intents", None)
+    world_review = state_review.get("world") if isinstance(state_review.get("world"), dict) else None
+    if isinstance(world_review, dict):
+        world_review.pop("cast_registry", None)
+        if not world_review:
+            state_review.pop("world", None)
+    cast_review = cast_audit(state, character_ids, start_turn, end_turn)
+    macro_review = None
+    if macro_due(source, end_turn):
+        macro_review = build_macro_payload(
+            root,
+            source=source,
+            state=state,
+            chronology=chronology,
+            turns=storage._read_turns(root),
+            end_turn=end_turn,
+        )
 
     payload = {
         "audit_packet_version": FAST_AUDIT_PACKET_VERSION,
@@ -79,7 +185,8 @@ def _build_fast_payload(session_id: str) -> Dict[str, Any]:
         "chat_turns_are_primary_review_source": True,
         "turn_evidence_backup": [_turn_evidence(turn) for turn in turns],
         "source_reference": audit_runtime._source_reference(source),
-        "state_audit": audit_runtime._audit_state(state, character_ids),
+        "state_audit": state_review,
+        "continuity_audit": continuity_review,
         "audit_character_ids": character_ids,
         "character_cards_audit": [deepcopy(card_map[cid]) for cid in character_ids if cid in card_map],
         "character_registry_index": [
@@ -98,7 +205,11 @@ def _build_fast_payload(session_id: str) -> Dict[str, Any]:
             "knowledge_add": "Legacy knowledge keeps the learned turn.",
             "experiences_add": "Experience keeps the original turn.",
             "dialogue_memory_add": "Dialogue memory keeps the original turn.",
-            "npc_intent_updates": "Repair intent only from audited evidence.",
+            "npc_intent_updates": "Repair intent only from audited evidence and include the original turn.",
+            "story_thread_updates": "Repair unresolved story continuity only from audited evidence and include the original turn.",
+            "relationship_updates": "Repair canonical relationships.json only from audited evidence and include the original turn.",
+            "npc_relationship_updates": "Repair canonical qualitative NPC-to-NPC relations only from audited evidence and include the original turn.",
+            "character_upserts": "Create a missing card only when the audited turns prove that a named one-off NPC became recurring or durably important.",
             "scene_compactions": "REQUIRED: cover every audited turn exactly once by real scenes; one dense factual summary per scene.",
             "memory_compactions": "Optional: merge duplicates only if every distinct fact survives.",
         },
@@ -107,7 +218,7 @@ def _build_fast_payload(session_id: str) -> Dict[str, Any]:
             "persistent_storage_is_complete": True,
             "do_not_reaudit_entire_novel": True,
             "check": [
-                "missing chronology/journal/memory/intents",
+                "missing chronology/journal/memory/intents and missing promoted recurring NPC cards",
                 "state, inventory, scene-item, physical-presence or remote-contact contradictions",
                 "relationship dimensions/metadata drift",
                 "cast last-appearance/last-contact turn and game-day metadata",
@@ -116,8 +227,10 @@ def _build_fast_payload(session_id: str) -> Dict[str, Any]:
             ],
         },
         "instruction": (
-            "Проверь только эти 15 ходов: current scene state, предметы/инвентарь, физическое presence и remote contacts, "
-            "знания, отношения и last-seen cast metadata. Исправь только доказанные пропуски, сделай scene compaction и один commitAudit."
+            "Проверь только эти 15 raw turns и сравни их с уже сохранённым. Для каждого участника восстанавливай knowledge только из того, "
+            "что он лично видел, слышал, прочитал, получил или что ему сказали; само присутствие не означает, что он слышал шёпот, звонок или приватное сообщение. "
+            "Исправь только доказанные пропуски в chronology, personal knowledge, state, отношениях, intents/threads и cast; если именованный one-off стал повторяющимся или долговременно важным, создай character_upsert. "
+            "Повторы и бытовую воду не размножай: scene compaction должна быть короткой и фактической. Затем один commitTurn с audit payload."
         ),
     }
     if macro_review is not None:
@@ -128,21 +241,23 @@ def _build_fast_payload(session_id: str) -> Dict[str, Any]:
 
 def _response(packet: Dict[str, Any], *, include_first: bool) -> Dict[str, Any]:
     chunks = packet.get("chunks", []) if isinstance(packet.get("chunks"), list) else []
+    read = {int(value) for value in packet.get("read_chunks", []) if isinstance(value, int)}
+    unread_after_zero = [index for index in range(1, len(chunks)) if index not in read]
     result: Dict[str, Any] = {
         "ok": True,
         "audit_id": packet["audit_id"],
         "audit_range": packet["audit_range"],
         "chunk_count": len(chunks),
         "total_chars": sum(len(str(chunk)) for chunk in chunks),
-        "already_read_chunks": packet.get("read_chunks", []),
+        "already_read_chunks": sorted(read),
         "first_chunk_included": bool(include_first and chunks),
-        "next_chunk_index": 1 if include_first and len(chunks) > 1 else None,
-        "instruction": "Chunk 0 уже включён. Прочитай остальные chunks и сделай один commitAudit.",
+        "next_chunk_index": unread_after_zero[0] if unread_after_zero else None,
+        "instruction": "Chunk 0 уже включён. Прочитай остальные непрочитанные chunks и заверши audit одним commitTurn с audit payload.",
     }
     if include_first and chunks:
         result["chunk_index"] = 0
         result["content"] = chunks[0]
-        result["all_chunks_read"] = len(chunks) == 1
+        result["all_chunks_read"] = len(read) == len(chunks)
     return result
 
 
@@ -164,7 +279,10 @@ def get_audit_snapshot(session_id: str) -> Dict[str, Any]:
         and isinstance(packet.get("chunks"), list)
         and packet.get("chunks")
     ):
-        return _response(packet, include_first=False)
+        # Re-inline chunk 0 on retries. A prior HTTP response may have been lost
+        # after the server persisted read_chunks=[0], so "already read" is not
+        # proof that the client actually received the content.
+        return _response(packet, include_first=True)
 
     payload = _build_fast_payload(session_id)
     text = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))

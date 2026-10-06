@@ -116,8 +116,7 @@ def _canonicalize_memory_payload(session_id: str, payload: Dict[str, Any], *, au
 
     source = storage._read_json(root / "source.json", {})
     cards = storage._load_cards(root, source)
-    if not audit:
-        cards = storage._apply_character_upserts(cards, container)
+    cards = storage._apply_character_upserts(cards, container)
 
     for field in ("knowledge_journal_add", "knowledge_add", "experiences_add"):
         values = container.get(field)

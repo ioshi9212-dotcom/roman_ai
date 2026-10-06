@@ -168,10 +168,13 @@ def relationship_audit(
     character_ids: List[str],
     start_turn: int,
     end_turn: int,
+    *,
+    relationship_store: Dict[str, Any] | None = None,
 ) -> Dict[str, Any]:
     wanted = set(str(value) for value in character_ids if value)
-    flat = state.get("relationships") if isinstance(state.get("relationships"), dict) else {}
-    docs = state.get("relationship_documents") if isinstance(state.get("relationship_documents"), dict) else {}
+    store = relationship_store if isinstance(relationship_store, dict) else {}
+    npc_to_pov = store.get("npc_to_pov") if isinstance(store.get("npc_to_pov"), dict) else {}
+    npc_to_npc = store.get("npc_to_npc") if isinstance(store.get("npc_to_npc"), dict) else {}
 
     changes: List[Dict[str, Any]] = []
     for turn in turns:
@@ -181,32 +184,50 @@ def relationship_audit(
         extracted = turn.get("extracted") if isinstance(turn.get("extracted"), dict) else {}
         updates = extracted.get("relationship_updates")
         if isinstance(updates, list) and updates:
-            changes.append({
-                "turn_number": number,
-                "updates": deepcopy(updates),
-            })
+            changes.append({"turn_number": number, "updates": deepcopy(updates)})
             for row in updates:
                 if isinstance(row, dict) and row.get("character_id"):
                     wanted.add(str(row["character_id"]))
 
+    current_numeric: Dict[str, Dict[str, Any]] = {}
+    current_documents: Dict[str, Dict[str, Any]] = {}
+    for cid in wanted:
+        row = npc_to_pov.get(cid) if isinstance(npc_to_pov.get(cid), dict) else None
+        if not row:
+            continue
+        dimensions = row.get("dimensions") if isinstance(row.get("dimensions"), dict) else {}
+        numeric = {
+            str(label): item.get("value")
+            for label, item in dimensions.items()
+            if isinstance(item, dict) and item.get("value") not in (None, 0)
+        }
+        if numeric:
+            current_numeric[cid] = numeric
+        doc: Dict[str, Any] = {}
+        if dimensions:
+            doc["dimensions"] = deepcopy(dimensions)
+        if row.get("dynamic"):
+            doc["dynamic"] = str(row.get("dynamic"))
+        if doc:
+            current_documents[cid] = doc
+
+    current_npc_network = {
+        owner: deepcopy(targets)
+        for owner, targets in npc_to_npc.items()
+        if owner in wanted and isinstance(targets, dict)
+    }
+
     return {
-        "current_numeric": {
-            cid: deepcopy(flat[cid])
-            for cid in wanted
-            if isinstance(flat.get(cid), dict)
-        },
-        "current_documents": {
-            cid: _compact_relationship_doc(docs[cid])
-            for cid in wanted
-            if isinstance(docs.get(cid), dict)
-        },
+        "source": "relationships.json",
+        "current_numeric": current_numeric,
+        "current_documents": current_documents,
+        "current_npc_to_npc": current_npc_network,
         "changes_in_audit_range": changes,
         "contract": {
             "direction": "NPC -> POV",
             "check_no_dimension_loss_or_silent_rename": True,
             "check_numeric_deltas_against_saved_baseline": True,
-            "check_current_dynamic_beliefs_and_unresolved_are_causal": True,
-            "repair_path": "repairs.state_patch.relationships / relationship_documents only when audited evidence proves drift",
+            "repair_path": "repairs.relationship_updates / repairs.npc_relationship_updates",
         },
     }
 
@@ -322,6 +343,10 @@ def build_macro_payload(
                 "exact_time only when the exact time itself matters causally. Routine eating, showering, smoking, toilet, "
                 "ordinary travel and repeated atmosphere are omitted unless they caused a durable consequence."
             ),
+            "repairs.character_upserts": (
+                "Only for a named NPC proven by the audited evidence to have become recurring or durably important while still missing from the persistent registry. "
+                "Do not promote background extras merely because they were named once."
+            ),
         },
         "contract": {
             "raw_turns_remain_immutable_evidence": True,
@@ -334,8 +359,8 @@ def build_macro_payload(
         },
         "instruction": (
             "60-TURN MACRO AUDIT. После обычной проверки последних 15 ходов собери repairs.chronology_compactions "
-            "по macro_range. Это не дополнительный пересказ поверх старой chronology: commit заменит сырые chronology-события "
-            "этого диапазона этими короткими датированными абзацами. Удали бытовую воду и повторы, сохрани только важное."
+            "по macro_range: короткие датированные абзацы без бытовой воды и повторов, с сохранением причинно важных событий и значимых точных реплик только когда формулировка сама важна. "
+            "Одновременно проверь cast за доступный 60-turn evidence: если именованный one-off уже фактически стал повторяющимся или долговременно важным, а карточки всё ещё нет, добавь repairs.character_upserts."
         ),
     }
 
@@ -353,10 +378,7 @@ def _apply_macro_chronology_compaction_core(
         return values
 
     if "chronology_compactions" not in repairs:
-        # Fail-safe for long-running chats and older live GPT schemas: never block the
-        # whole 15-turn audit just because the optional 60-turn macro summary was omitted.
-        # Raw chronology remains untouched, so canon is preserved losslessly.
-        return values
+        raise RuntimeError("MACRO_CHRONOLOGY_COMPACTION_REQUIRED")
 
     raw_rows = repairs.get("chronology_compactions")
     if not isinstance(raw_rows, list):
