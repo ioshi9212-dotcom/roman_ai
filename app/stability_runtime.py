@@ -262,6 +262,153 @@ def _atomic_commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, A
             storage._memory_bucket(memory, storage._card_id(card))
         memory = storage._apply_memory_events(memory, extracted, turn_number)
 
+        chronology = storage._read_json(root / "chronology.json", [])
+        if not isinstance(chronology, list):
+            chronology = []
+        if isinstance(extracted.get("chronology"), list):
+            chronology = [*chronology, *deepcopy(extracted["chronology"])]
+
+        turns = storage._read_turns(root)
+        turns.append(entry)
+        state = session_runtime._finalize_persisted_state(
+            source=source,
+            cards=cards,
+            state=state,
+            memory=memory,
+            chronology=chronology,
+            turns=turns,
+            turn_number=turn_number,
+        )
+
+        audit_due = turn_number % 15 == 0
+        meta["turn_number"] = turn_number
+        meta["audit_required"] = bool(audit_due)
+        meta["handoff_required"] = False
+
+        result = {
+            "ok": True,
+            "turn_number": turn_number,
+            "audit_due": audit_due,
+            "audit_range": [max(1, turn_number - 14), turn_number] if audit_due else None,
+            "handoff_required": False,
+            "transactional_commit": True,
+            "relationship_snapshots_atomic": True,
+        }
+        if packet_id:
+            result["packet_id"] = packet_id
+        if packet.get("request_id"):
+            result["request_id"] = str(packet.get("request_id"))
+
+        values = {
+            "turns.jsonl": _turns_text(turns),
+            "characters.json": json_text(cards),
+            "state.json": json_text(state),
+            "memory.json": json_text(memory),
+            "chronology.json": json_text(chronology),
+            "meta.json": json_text(meta),
+            SNAPSHOT_FILE: json_text(pre_turn_snapshot),
+        }
+        relationships_after = payload.get("_relationships_after")
+        if isinstance(relationships_after, dict):
+            values[RELATIONSHIPS_FILE] = json_text(relationships_after)
+        prior_snapshot_valid = (
+            isinstance(prior_snapshot, dict)
+            and int(prior_snapshot.get("committed_turn", 0) or 0) == turn_number - 1
+        )
+        if prior_snapshot_valid:
+            values[PREVIOUS_SNAPSHOT_FILE] = json_text(prior_snapshot)
+        prior_previous_valid = (
+            isinstance(prior_previous_snapshot, dict)
+            and int(prior_previous_snapshot.get("committed_turn", 0) or 0) == turn_number - 2
+        )
+        if prior_previous_valid:
+            values[PREVIOUS2_SNAPSHOT_FILE] = json_text(prior_previous_snapshot)
+        receipt_meta = payload.get("_operation_receipt") if isinstance(payload.get("_operation_receipt"), dict) else None
+        if receipt_meta:
+            receipt = make_receipt(
+                operation=str(receipt_meta.get("operation") or "commit_turn"),
+                identity=str(receipt_meta.get("identity") or packet_id),
+                fingerprint=str(receipt_meta.get("request_fingerprint") or ""),
+                result=result,
+                turn_number=turn_number,
+            )
+            values[RECEIPTS_FILE] = json_text(ledger_with_receipt(root, receipt))
+
+        write_batch(root, values)
+        if not prior_snapshot_valid:
+            (root / PREVIOUS_SNAPSHOT_FILE).unlink(missing_ok=True)
+        if not prior_previous_valid:
+            (root / PREVIOUS2_SNAPSHOT_FILE).unlink(missing_ok=True)
+        (root / "turn_packet.json").unlink(missing_ok=True)
+        return result
+
+def _atomic_commit_audit(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    root = storage.SESSIONS_DIR / session_id
+    if not root.exists():
+        raise FileNotFoundError(session_id)
+
+    with session_transaction(root):
+        meta = storage._read_json(root / "meta.json", {})
+        expected_end = int(meta.get("turn_number", 0))
+        if not meta.get("audit_required"):
+            raise RuntimeError("AUDIT_NOT_REQUIRED")
+        if int(payload.get("end_turn", 0)) != expected_end:
+            raise ValueError("AUDIT_RANGE_MISMATCH")
+
+        repairs = deepcopy(payload.get("repairs", {})) if isinstance(payload.get("repairs"), dict) else {}
+        start_turn = int(payload["start_turn"])
+        end_turn = int(payload["end_turn"])
+        audit_state_patch = deepcopy(repairs.get("state_patch")) if isinstance(repairs.get("state_patch"), dict) else {}
+        for key in ("relationships", "relationship_documents", "relationship_schemas", "npc_relationships"):
+            audit_state_patch.pop(key, None)
+        repairs["state_patch"] = audit_state_patch
+        source = storage._read_json(root / "source.json", {})
+        pre_audit_cards = storage._load_cards(root, source)
+        existing_card_ids = {
+            storage._card_id(card)
+            for card in pre_audit_cards
+            if storage._card_id(card)
+        }
+        for row in repairs.get("character_upserts", []) if isinstance(repairs.get("character_upserts"), list) else []:
+            if not isinstance(row, dict):
+                continue
+            cid = storage._card_id(row)
+            if cid and cid not in existing_card_ids and not str(row.get("story_function") or "").strip():
+                raise RuntimeError("CAST_STORY_FUNCTION_REQUIRED")
+        cards = storage._apply_character_upserts(pre_audit_cards, repairs)
+        state = storage._read_json(root / "state.json", {})
+        previous_state = deepcopy(state)
+        state = _merge_state_patch_exact_relationships(state, audit_state_patch)
+        state = _clean_scene_pointer(state, repairs)
+        state = location_runtime.sync_current_location(source, state, previous_state=previous_state)
+        state = sync_game_day(state, source)
+
+        journal_repairs = repairs.get("knowledge_journal_add")
+        if isinstance(journal_repairs, list):
+            for item in journal_repairs:
+                if not isinstance(item, dict):
+                    continue
+                raw_turn = item.get("turn") or item.get("source_turn") or item.get("learned_turn")
+                try:
+                    original_turn = int(raw_turn)
+                except (TypeError, ValueError):
+                    raise RuntimeError("AUDIT_REPAIR_TURN_REQUIRED")
+                if original_turn < start_turn or original_turn > end_turn:
+                    raise RuntimeError("AUDIT_REPAIR_TURN_OUT_OF_RANGE")
+                item["turn"] = original_turn
+
+        memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
+        for card in cards:
+            cid = storage._card_id(card)
+            if cid:
+                storage._memory_bucket(memory, cid)
+        memory = storage._apply_memory_events(
+            memory,
+            repairs,
+            expected_end,
+            preserve_journal_turn=True,
+        )
+
         pov = state.get("pov") if isinstance(state.get("pov"), dict) else {}
         pov_id = str(pov.get("character_id") or "")
         relationship_path = root / RELATIONSHIPS_FILE
@@ -419,153 +566,6 @@ def _atomic_commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, A
                     current_npc_to_npc[owner_id].pop(target_id, None)
                     if not current_npc_to_npc[owner_id]:
                         current_npc_to_npc.pop(owner_id, None)
-
-        chronology = storage._read_json(root / "chronology.json", [])
-        if not isinstance(chronology, list):
-            chronology = []
-        if isinstance(extracted.get("chronology"), list):
-            chronology = [*chronology, *deepcopy(extracted["chronology"])]
-
-        turns = storage._read_turns(root)
-        turns.append(entry)
-        state = session_runtime._finalize_persisted_state(
-            source=source,
-            cards=cards,
-            state=state,
-            memory=memory,
-            chronology=chronology,
-            turns=turns,
-            turn_number=turn_number,
-        )
-
-        audit_due = turn_number % 15 == 0
-        meta["turn_number"] = turn_number
-        meta["audit_required"] = bool(audit_due)
-        meta["handoff_required"] = False
-
-        result = {
-            "ok": True,
-            "turn_number": turn_number,
-            "audit_due": audit_due,
-            "audit_range": [max(1, turn_number - 14), turn_number] if audit_due else None,
-            "handoff_required": False,
-            "transactional_commit": True,
-            "relationship_snapshots_atomic": True,
-        }
-        if packet_id:
-            result["packet_id"] = packet_id
-        if packet.get("request_id"):
-            result["request_id"] = str(packet.get("request_id"))
-
-        values = {
-            "turns.jsonl": _turns_text(turns),
-            "characters.json": json_text(cards),
-            "state.json": json_text(state),
-            "memory.json": json_text(memory),
-            "chronology.json": json_text(chronology),
-            "meta.json": json_text(meta),
-            SNAPSHOT_FILE: json_text(pre_turn_snapshot),
-        }
-        relationships_after = payload.get("_relationships_after")
-        if isinstance(relationships_after, dict):
-            values[RELATIONSHIPS_FILE] = json_text(relationships_after)
-        prior_snapshot_valid = (
-            isinstance(prior_snapshot, dict)
-            and int(prior_snapshot.get("committed_turn", 0) or 0) == turn_number - 1
-        )
-        if prior_snapshot_valid:
-            values[PREVIOUS_SNAPSHOT_FILE] = json_text(prior_snapshot)
-        prior_previous_valid = (
-            isinstance(prior_previous_snapshot, dict)
-            and int(prior_previous_snapshot.get("committed_turn", 0) or 0) == turn_number - 2
-        )
-        if prior_previous_valid:
-            values[PREVIOUS2_SNAPSHOT_FILE] = json_text(prior_previous_snapshot)
-        receipt_meta = payload.get("_operation_receipt") if isinstance(payload.get("_operation_receipt"), dict) else None
-        if receipt_meta:
-            receipt = make_receipt(
-                operation=str(receipt_meta.get("operation") or "commit_turn"),
-                identity=str(receipt_meta.get("identity") or packet_id),
-                fingerprint=str(receipt_meta.get("request_fingerprint") or ""),
-                result=result,
-                turn_number=turn_number,
-            )
-            values[RECEIPTS_FILE] = json_text(ledger_with_receipt(root, receipt))
-
-        write_batch(root, values)
-        if not prior_snapshot_valid:
-            (root / PREVIOUS_SNAPSHOT_FILE).unlink(missing_ok=True)
-        if not prior_previous_valid:
-            (root / PREVIOUS2_SNAPSHOT_FILE).unlink(missing_ok=True)
-        (root / "turn_packet.json").unlink(missing_ok=True)
-        return result
-
-def _atomic_commit_audit(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
-    root = storage.SESSIONS_DIR / session_id
-    if not root.exists():
-        raise FileNotFoundError(session_id)
-
-    with session_transaction(root):
-        meta = storage._read_json(root / "meta.json", {})
-        expected_end = int(meta.get("turn_number", 0))
-        if not meta.get("audit_required"):
-            raise RuntimeError("AUDIT_NOT_REQUIRED")
-        if int(payload.get("end_turn", 0)) != expected_end:
-            raise ValueError("AUDIT_RANGE_MISMATCH")
-
-        repairs = deepcopy(payload.get("repairs", {})) if isinstance(payload.get("repairs"), dict) else {}
-        start_turn = int(payload["start_turn"])
-        end_turn = int(payload["end_turn"])
-        audit_state_patch = deepcopy(repairs.get("state_patch")) if isinstance(repairs.get("state_patch"), dict) else {}
-        for key in ("relationships", "relationship_documents", "relationship_schemas", "npc_relationships"):
-            audit_state_patch.pop(key, None)
-        repairs["state_patch"] = audit_state_patch
-        source = storage._read_json(root / "source.json", {})
-        pre_audit_cards = storage._load_cards(root, source)
-        existing_card_ids = {
-            storage._card_id(card)
-            for card in pre_audit_cards
-            if storage._card_id(card)
-        }
-        for row in repairs.get("character_upserts", []) if isinstance(repairs.get("character_upserts"), list) else []:
-            if not isinstance(row, dict):
-                continue
-            cid = storage._card_id(row)
-            if cid and cid not in existing_card_ids and not str(row.get("story_function") or "").strip():
-                raise RuntimeError("CAST_STORY_FUNCTION_REQUIRED")
-        cards = storage._apply_character_upserts(pre_audit_cards, repairs)
-        state = storage._read_json(root / "state.json", {})
-        previous_state = deepcopy(state)
-        state = _merge_state_patch_exact_relationships(state, audit_state_patch)
-        state = _clean_scene_pointer(state, repairs)
-        state = location_runtime.sync_current_location(source, state, previous_state=previous_state)
-        state = sync_game_day(state, source)
-
-        journal_repairs = repairs.get("knowledge_journal_add")
-        if isinstance(journal_repairs, list):
-            for item in journal_repairs:
-                if not isinstance(item, dict):
-                    continue
-                raw_turn = item.get("turn") or item.get("source_turn") or item.get("learned_turn")
-                try:
-                    original_turn = int(raw_turn)
-                except (TypeError, ValueError):
-                    raise RuntimeError("AUDIT_REPAIR_TURN_REQUIRED")
-                if original_turn < start_turn or original_turn > end_turn:
-                    raise RuntimeError("AUDIT_REPAIR_TURN_OUT_OF_RANGE")
-                item["turn"] = original_turn
-
-        memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
-        for card in cards:
-            cid = storage._card_id(card)
-            if cid:
-                storage._memory_bucket(memory, cid)
-        memory = storage._apply_memory_events(
-            memory,
-            repairs,
-            expected_end,
-            preserve_journal_turn=True,
-        )
 
         chronology = storage._read_json(root / "chronology.json", [])
         if not isinstance(chronology, list):
