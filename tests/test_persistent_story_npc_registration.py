@@ -1,3 +1,4 @@
+import json
 import tempfile
 from pathlib import Path
 
@@ -183,6 +184,20 @@ def test_audit_can_promote_missing_npc_and_keep_original_knowledge_turn():
         setup_temp_storage(tmp)
         sid = make_session()
         root = storage.SESSIONS_DIR / sid
+
+        turns = [
+            {
+                "turn_number": number,
+                "user_input": f"Ход {number}",
+                "scene_output": f"Сохранённая сцена {number}.",
+                "extracted": {},
+            }
+            for number in range(1, 16)
+        ]
+        (root / "turns.jsonl").write_text(
+            "".join(json.dumps(turn, ensure_ascii=False) + "\n" for turn in turns),
+            encoding="utf-8",
+        )
 
         meta = storage._read_json(root / "meta.json", {})
         meta["turn_number"] = 15
