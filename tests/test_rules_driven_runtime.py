@@ -2331,3 +2331,29 @@ def test_fast_audit_keeps_exact_long_user_input_and_npc_relationship_updates():
     assert evidence["user_input"].endswith("-конец")
     assert evidence["npc_relationship_updates"][0]["description"] == "поссорились"
 
+def test_turn_packet_keeps_full_compact_cast_but_scene_scopes_full_cards():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        novel = base_novel()
+        novel["characters"].extend([
+            {"character_id": "off_a", "name": "Off A", "story_function": "secondary friend"},
+            {"character_id": "off_b", "name": "Off B", "story_function": "secondary rival"},
+        ])
+        novel["starting_state"]["current"]["present_characters"] = ["pov"]
+        sid = storage.create_session(novel)["session_id"]
+
+        _, context = read_context(sid, "(заняться своими делами)")
+        registry_ids = {
+            row["character_id"]
+            for row in context["cast_registry"]["characters"]
+        }
+        assert registry_ids == {"pov", "npc", "away", "off_a", "off_b"}
+
+        full_card_ids = {
+            row["character_id"]
+            for row in context.get("character_cards", [])
+        }
+        assert full_card_ids == {"pov"}
+        assert "return_pressure" not in context["cast_registry"]
+        assert "important_cast_return_required" not in context["cast_registry"]
+
