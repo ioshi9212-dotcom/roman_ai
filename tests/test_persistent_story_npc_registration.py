@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 from fastapi import HTTPException
 
-from app import cast_registry_runtime, relationship_file_runtime, scene_presence_runtime, storage, turn_pipeline
+from app import cast_registry_runtime, fast_audit_runtime, relationship_file_runtime, scene_presence_runtime, storage, turn_pipeline
 
 
 def setup_temp_storage(tmp: str):
@@ -338,4 +338,52 @@ def test_audit_relationship_repair_requires_original_turn():
                     "notes": [],
                 },
             )
+
+def test_fast_audit_reads_canonical_relationships_file_not_legacy_state():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        novel = {
+            "novel_id": "audit-relationship-source",
+            "title": "Audit Relationship Source",
+            "novel": {"pov_character": "pov"},
+            "characters": [
+                {"character_id": "pov", "name": "POV", "is_pov": True},
+                {"character_id": "npc", "name": "NPC", "story_function": "постоянный участник"},
+            ],
+            "starting_state": {
+                "pov": {"character_id": "pov"},
+                "current": {"location": "room", "present_characters": ["pov", "npc"]},
+            },
+        }
+        sid = storage.create_session(novel)["session_id"]
+        root = storage.SESSIONS_DIR / sid
+
+        relationships = relationship_file_runtime.normalize_store(
+            storage._read_json(root / relationship_file_runtime.FILE_NAME, {}),
+            "pov",
+        )
+        relationships["npc_to_pov"]["npc"] = {
+            "dimensions": {
+                "доверие": {
+                    "value": 7,
+                    "last_change": {"turn": 4, "delta": 1, "reason": "реальный сохранённый сдвиг"},
+                }
+            }
+        }
+        storage._write_json(root / relationship_file_runtime.FILE_NAME, relationships)
+
+        state = storage._read_json(root / "state.json", {})
+        state["relationships"] = {"npc": {"доверие": 99}}
+        storage._write_json(root / "state.json", state)
+
+        meta = storage._read_json(root / "meta.json", {})
+        meta["turn_number"] = 15
+        meta["last_audit_turn"] = 0
+        meta["audit_required"] = True
+        storage._write_json(root / "meta.json", meta)
+
+        payload = fast_audit_runtime._build_fast_payload(sid)
+        audit = payload["relationship_audit"]
+        assert audit["source"] == "relationships.json"
+        assert audit["current_numeric"]["npc"]["доверие"] == 7
 
