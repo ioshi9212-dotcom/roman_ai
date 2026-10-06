@@ -513,7 +513,12 @@ def _prepare_context(
     memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
     memory_buckets = memory.get("characters", {}) if isinstance(memory.get("characters"), dict) else {}
     context["character_memory"] = {
-        cid: turn_context._working_memory_bucket(memory_buckets.get(cid, {}), current_turn)
+        cid: turn_context._working_memory_bucket(
+            memory_buckets.get(cid, {}),
+            current_turn,
+            character_id=cid,
+            cards=cards,
+        )
         for cid in scene_ids
     }
     pov = state.get("pov") if isinstance(state.get("pov"), dict) else {}
