@@ -18,14 +18,13 @@ def test_runtime_keeps_pov_agency_without_separate_contract_document():
 
 def test_scene_builder_uses_content_based_detail_without_mode_machine():
     builder = runtime_documents()["scene_builder"]
-    assert "Важное физическое действие должно быть понятно глазами" in builder
-    assert "Не нужен покадровый каталог микродвижений" in builder
-    assert "Рутину, повтор и ожидание сжимай" in builder
-    assert "1800–3000 непробельных символов" in builder
+    assert "Сцену должно быть видно и слышно." in builder
+    assert "Не нужен каталог каждого движения." in builder
+    assert "Сжимай пустую дорогу, еду, ожидание, сборы и повторяющиеся действия" in builder
+    assert "Обычно сцена может быть около 1800–3000 непробельных символов, но это не лимит и не цель." in builder
     assert "ROUTINE" not in builder
     assert "STANDARD" not in builder
     assert "CINEMATIC" not in builder
-
 
 def test_runtime_version_marks_rules_scene_builder_runtime():
     manifest = runtime_manifest()
