@@ -6,7 +6,7 @@ from typing import Any, Dict, List
 
 from fastapi import HTTPException
 
-from . import storage, writer_first_runtime
+from . import personal_memory_transport, storage, writer_first_runtime
 
 
 _SPEECH_RE = re.compile(r"(?m)^\s*\*\*(?P<speaker>[^*\n]+)\*\*\s*[—-]\s*(?P<text>.*)$")
@@ -227,9 +227,20 @@ def _authorized_corpus(root, character_id: str, cards: List[Dict[str, Any]]) -> 
     knowledge = bucket.get("knowledge", [])
     if isinstance(knowledge, list):
         pieces.extend(str(row) for row in knowledge)
-    dialogue = bucket.get("dialogue_memory", [])
-    if isinstance(dialogue, list):
-        pieces.extend(str(row) for row in dialogue if isinstance(row, dict))
+    dialogue = personal_memory_transport.personal_dialogue_rows(
+        bucket.get("dialogue_memory", []),
+        owner_id=character_id,
+        cards=cards,
+    )
+    for row in dialogue:
+        if row.get("summary"):
+            pieces.append(str(row["summary"]))
+        for segment in row.get("segments", []) if isinstance(row.get("segments"), list) else []:
+            if isinstance(segment, dict) and segment.get("text"):
+                pieces.append(str(segment["text"]))
+        for key in ("question", "answer", "content", "text"):
+            if row.get(key):
+                pieces.append(str(row[key]))
     return "\n".join(piece for piece in pieces if piece)
 
 
@@ -638,6 +649,77 @@ def validate_private_knowledge(session_id: str, payload: Dict[str, Any]) -> None
                     )
 
 
+def normalize_dialogue_memory_modes(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    root = storage.SESSIONS_DIR / session_id
+    result = deepcopy(payload)
+    extracted = result.get("extracted")
+    if not isinstance(extracted, dict):
+        return result
+
+    dialogue = extracted.get("dialogue_memory_add")
+    if not isinstance(dialogue, list) or not dialogue:
+        return result
+
+    source = storage._read_json(root / "source.json", {})
+    cards = storage._load_cards(root, source)
+    state_before = storage._read_json(root / "state.json", {})
+    state_patch = extracted.get("state_patch") if isinstance(extracted.get("state_patch"), dict) else {}
+    state_after = storage._deep_merge(state_before, state_patch)
+    pov_id = _pov_id(state_before)
+
+    present_ids = {
+        str(value)
+        for value in [*storage._present_character_ids(state_before), *storage._present_character_ids(state_after)]
+        if value
+    }
+    remote_ids = {
+        str(value)
+        for value in [*storage._remote_character_ids(state_before), *storage._remote_character_ids(state_after)]
+        if value
+    }
+
+    units = _speaker_units(str(result.get("scene_output") or ""), cards)
+    explicit_remote_ids = {
+        str(unit.get("character_id") or "")
+        for unit in units
+        if unit.get("character_id")
+        and _REMOTE_MARKER_RE.search(f"{unit.get('speaker_label') or ''} {unit.get('text') or ''}") is not None
+    }
+    direct_remote_ids = {
+        str(row.get("recipient_id") or "")
+        for row in extract_private_communications(str(result.get("user_input") or ""), cards)
+        if isinstance(row, dict) and row.get("recipient_id")
+    }
+
+    normalized: List[Dict[str, Any]] = []
+    for raw in dialogue:
+        row = deepcopy(raw) if isinstance(raw, dict) else raw
+        if not isinstance(row, dict) or _norm(row.get("mode")) != "remote":
+            normalized.append(row)
+            continue
+
+        participants = row.get("participants") or row.get("participant_ids") or []
+        if isinstance(participants, str):
+            participants = [participants]
+        resolved = [
+            str(value)
+            for value in participants
+            if value
+        ]
+        counterparts = [cid for cid in resolved if cid != pov_id]
+        has_remote_evidence = any(
+            cid in remote_ids or cid in explicit_remote_ids or cid in direct_remote_ids
+            for cid in counterparts
+        )
+        if not has_remote_evidence:
+            row["mode"] = "physical" if any(cid in present_ids for cid in counterparts) else "dialogue"
+        normalized.append(row)
+
+    extracted["dialogue_memory_add"] = normalized
+    result["extracted"] = extracted
+    return result
+
+
 def add_direct_communication_memory(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     root = storage.SESSIONS_DIR / session_id
     result = deepcopy(payload)
@@ -839,44 +921,39 @@ def add_scene_remote_communication_memory(session_id: str, payload: Dict[str, An
         for row in dialogue if isinstance(row, dict) and row.get("topic_id")
     }
 
-    names = {
-        storage._card_id(card): storage._card_name(card)
-        for card in cards
-        if storage._card_id(card)
-    }
-    pov_name = names.get(pov_id, "POV")
-
     for counterpart_id, rows in exchanges.items():
-        counterpart_name = names.get(counterpart_id, counterpart_id)
         summary_parts: List[str] = []
-        missing_by_owner: Dict[str, List[str]] = {pov_id: [], counterpart_id: []}
+        missing_by_owner: Dict[str, List[Dict[str, str]]] = {pov_id: [], counterpart_id: []}
 
         for row in rows:
             speaker_id = str(row.get("speaker_id") or "")
             line = str(row.get("text") or "").strip()
             if not speaker_id or not line:
                 continue
-            speaker_name = names.get(speaker_id, pov_name if speaker_id == pov_id else speaker_id)
-            rendered = f"{speaker_name}: {line}"
+            rendered = f"{'POV' if speaker_id == pov_id else 'Собеседник'}: {line}"
             summary_parts.append(rendered)
 
             for owner_id in (pov_id, counterpart_id):
                 if not _journal_contains_message(journal, owner_id, line):
-                    missing_by_owner[owner_id].append(rendered)
+                    missing_by_owner[owner_id].append({"speaker_id": speaker_id, "text": line})
 
         content = " ".join(summary_parts).strip()[:4000]
         if not content:
             continue
 
-        for owner_id, missing_parts in missing_by_owner.items():
-            if not missing_parts:
+        for owner_id, missing_rows in missing_by_owner.items():
+            if not missing_rows:
                 continue
-            other_name = counterpart_name if owner_id == pov_id else pov_name
+            personal_parts = [
+                f"{'Я' if str(item.get('speaker_id') or '') == owner_id else 'Собеседник'}: {str(item.get('text') or '').strip()}"
+                for item in missing_rows
+                if str(item.get("text") or "").strip()
+            ]
             journal.append({
                 "character_id": owner_id,
                 "date": date,
                 "period": period,
-                "text": f"Удалённая коммуникация с {other_name}: {' '.join(missing_parts)[:4000]}",
+                "text": f"Коммуникация: {' '.join(personal_parts)[:4000]}",
             })
 
         topic_id = f"remote_t{turn_number}_{counterpart_id}"
