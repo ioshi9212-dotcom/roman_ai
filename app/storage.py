@@ -90,7 +90,13 @@ def _upsert_by_id(items: List[Dict[str, Any]], item: Dict[str, Any], id_key: str
     items.append(deepcopy(item))
 
 
-def _apply_memory_events(memory: Dict[str, Any], extracted: Dict[str, Any], turn_number: int) -> Dict[str, Any]:
+def _apply_memory_events(
+    memory: Dict[str, Any],
+    extracted: Dict[str, Any],
+    turn_number: int,
+    *,
+    preserve_journal_turn: bool = False,
+) -> Dict[str, Any]:
     result = _normalise_memory(deepcopy(memory))
     journal_rows = extracted.get("knowledge_journal_add", [])
     if isinstance(journal_rows, list):
@@ -104,12 +110,20 @@ def _apply_memory_events(memory: Dict[str, Any], extracted: Dict[str, Any], turn
                 continue
             cid = str(character_id)
             counters[cid] = counters.get(cid, 0) + 1
+            journal_turn = turn_number
+            if preserve_journal_turn:
+                raw_turn = item.get("turn") or item.get("source_turn") or item.get("learned_turn")
+                try:
+                    if raw_turn not in (None, ""):
+                        journal_turn = int(raw_turn)
+                except (TypeError, ValueError):
+                    journal_turn = turn_number
             record = {
-                "entry_id": str(item.get("entry_id") or f"journal_t{turn_number}_{counters[cid]}"),
+                "entry_id": str(item.get("entry_id") or f"journal_t{journal_turn}_{counters[cid]}"),
                 "date": item.get("date"),
                 "period": item.get("period"),
                 "text": text,
-                "turn": turn_number,
+                "turn": journal_turn,
             }
             _upsert_by_id(_memory_bucket(result, cid)["knowledge_journal"], record, "entry_id")
     for item in extracted.get("knowledge_add", []) if isinstance(extracted.get("knowledge_add"), list) else []:
