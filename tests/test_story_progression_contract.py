@@ -6,11 +6,9 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def test_scene_length_uses_single_non_whitespace_range():
     text = (ROOT / "runtime" / "scene_builder.md").read_text(encoding="utf-8")
-    assert "1800–3000 непробельных символов" in text
-    assert "2000–2400 непробельных символов" not in text
-    assert "2500–3000 непробельных символов" not in text
-    assert "У сцены нет целевого объёма." not in text
-
+    assert "Обычно сцена может быть около 1800–3000 непробельных символов, но это не лимит и не цель." in text
+    assert "Объём основной сцены: 1800–3000 непробельных символов." not in text
+    assert "Не добивай объём водой и не обрывай происходящее ради размера." in text
 
 def test_scene_endings_leave_a_concrete_playable_hook():
     text = (ROOT / "runtime" / "scene_builder.md").read_text(encoding="utf-8")
