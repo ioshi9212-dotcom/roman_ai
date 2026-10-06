@@ -80,7 +80,7 @@ def test_chunked_large_intake_reconstructs_exact_raw_without_placeholder_or_summ
         assert "chunks" not in draft["intake_uploads"]["full_setup_001"]
 
 
-def test_chunk_upload_exact_retry_is_idempotent_and_conflicting_retry_is_rejected():
+def test_chunk_upload_exact_retry_is_idempotent_and_conflicting_retry_is_resumable():
     with tempfile.TemporaryDirectory() as tmp:
         _setup_storage(tmp)
         draft_id = create_draft("chunk_retry", "Chunk Retry", version=2)["draft_id"]
@@ -92,10 +92,17 @@ def test_chunk_upload_exact_retry_is_idempotent_and_conflicting_retry_is_rejecte
             draft_id, block_id="b1", stage="setup", chunk_index=0, raw_text="ABC", is_last=False
         )
         assert retry["already_received"] is True
-        with pytest.raises(ValueError, match="INTAKE_UPLOAD_CHUNK_CONFLICT"):
-            draft_intake_runtime.append_intake_chunk(
-                draft_id, block_id="b1", stage="setup", chunk_index=0, raw_text="XYZ", is_last=False
-            )
+
+        conflict = draft_intake_runtime.append_intake_chunk(
+            draft_id, block_id="b1", stage="setup", chunk_index=0, raw_text="XYZ", is_last=False
+        )
+        assert conflict["recovery_required"] is True
+        assert conflict["payload_mismatch"] is True
+        assert conflict["next_chunk_index"] == 1
+        assert conflict["saved_prefix_char_count"] == 3
+        assert conflict["last_saved_chunk"] == "ABC"
+        assert novel_drafts._read(draft_id)["intake_uploads"]["b1"]["chunks"] == ["ABC"]
+
         done = draft_intake_runtime.append_intake_chunk(
             draft_id, block_id="b1", stage="setup", chunk_index=1, raw_text="DEF", is_last=True
         )
@@ -104,6 +111,14 @@ def test_chunk_upload_exact_retry_is_idempotent_and_conflicting_retry_is_rejecte
             draft_id, block_id="b1", stage="setup", chunk_index=1, raw_text="DEF", is_last=True
         )
         assert replay["already_completed"] is True
+
+        completed_conflict = draft_intake_runtime.append_intake_chunk(
+            draft_id, block_id="b1", stage="setup", chunk_index=0, raw_text="XYZ", is_last=False
+        )
+        assert completed_conflict["complete"] is True
+        assert completed_conflict["already_completed"] is True
+        assert completed_conflict["payload_mismatch"] is True
+        assert completed_conflict["recovery_kind"] == "completed_block_payload_mismatch"
         assert novel_drafts._read(draft_id)["sections"]["intake"]["blocks"][0]["raw_text"] == "ABCDEF"
 
 
