@@ -469,7 +469,7 @@ def test_fast_audit_scopes_active_continuity_and_does_not_duplicate_cast_registr
         assert "npc_intents" not in payload["state_audit"]
         assert "cast_registry" not in payload["state_audit"].get("world", {})
         assert [row["intent_id"] for row in payload["continuity_audit"]["active_npc_intents"]["npc"]] == ["open"]
-        assert set(payload["continuity_audit"]["active_story_threads"]) == {"open_thread"}
+        assert [row["thread_id"] for row in payload["continuity_audit"]["active_story_thread_index"]] == ["open_thread"]
 
 def test_sixtieth_audit_cannot_skip_macro_compaction():
     with tempfile.TemporaryDirectory() as tmp:
