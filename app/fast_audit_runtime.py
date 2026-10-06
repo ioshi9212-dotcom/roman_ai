@@ -45,23 +45,67 @@ def _turn_evidence(turn: Dict[str, Any]) -> Dict[str, Any]:
 
 def _continuity_audit(state: Dict[str, Any], character_ids: list[str]) -> Dict[str, Any]:
     terminal = {"resolved", "closed", "done", "abandoned", "cancelled", "canceled", "superseded"}
+
+    def clean_text(value: Any, limit: int) -> str | None:
+        text = " ".join(str(value or "").split())
+        return text[:limit] if text else None
+
     intents = npc_intent.normalise_store(state)
     scoped_intents: Dict[str, Any] = {}
     for character_id in character_ids:
-        active = [
-            deepcopy(row)
-            for row in intents.get(str(character_id), [])
-            if isinstance(row, dict)
-            and str(row.get("status") or "active").casefold().strip() not in terminal
-        ]
-        if active:
-            scoped_intents[str(character_id)] = active
+        active_rows = []
+        for row in intents.get(str(character_id), []):
+            if not isinstance(row, dict):
+                continue
+            if str(row.get("status") or "active").casefold().strip() in terminal:
+                continue
+            compact = {
+                "intent_id": row.get("intent_id"),
+                "status": row.get("status"),
+                "summary": clean_text(row.get("summary"), 260),
+                "priority": row.get("priority"),
+                "target_character_id": row.get("target_character_id"),
+                "trigger": clean_text(row.get("trigger"), 220),
+                "planned_action": clean_text(row.get("planned_action"), 260),
+                "created_turn": row.get("created_turn"),
+                "last_pursued_turn": row.get("last_pursued_turn"),
+                "next_eligible_game_day": row.get("next_eligible_game_day"),
+            }
+            active_rows.append({key: value for key, value in compact.items() if value not in (None, "", [], {})})
+        if active_rows:
+            scoped_intents[str(character_id)] = active_rows
+
+    thread_index = []
+    for thread_id, row in story_thread.active_threads(state).items():
+        if not isinstance(row, dict):
+            continue
+        participants = row.get("participants")
+        participants = [str(value) for value in participants if value][:8] if isinstance(participants, list) else []
+        compact = {
+            "thread_id": str(thread_id),
+            "status": row.get("status") or "active",
+            "title": clean_text(row.get("title"), 180),
+            "summary": clean_text(
+                row.get("summary") or row.get("progress_summary") or row.get("current_goal"),
+                260,
+            ),
+            "priority": row.get("priority"),
+            "participants": participants,
+            "created_turn": row.get("created_turn"),
+            "last_progress_turn": row.get("last_progress_turn"),
+            "next_eligible_game_day": row.get("next_eligible_game_day"),
+        }
+        thread_index.append({key: value for key, value in compact.items() if value not in (None, "", [], {})})
 
     return {
         "active_npc_intents": scoped_intents,
-        "active_story_threads": deepcopy(story_thread.active_threads(state)),
-        "contract": "Current unresolved continuity only; exact audited turns carry the historical updates.",
+        "active_story_thread_index": thread_index,
+        "contract": (
+            "All unresolved continuity is indexed compactly here. Exact audited turns contain the full in-range updates; "
+            "large old thread notes are not retransmitted every 15 turns."
+        ),
     }
+
 
 def _build_fast_payload(session_id: str) -> Dict[str, Any]:
     root = storage.SESSIONS_DIR / session_id
