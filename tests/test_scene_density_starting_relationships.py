@@ -198,16 +198,18 @@ def test_scene_builder_keeps_pov_visible_without_forcing_speech():
     instructions = Path("gpt/custom_gpt_instructions.md").read_text(encoding="utf-8")
 
     assert "POV должен оставаться живым и наблюдаемым участником сцены" in builder
-    assert "Это не означает обязательную речь" in builder
-    assert "Диалог не должен превращаться в радиопьесу" in builder
-    assert "Явная реплика может содержать действие." in builder
+    assert "После user_input POV не превращается в молчащую камеру." in builder
+    assert "Если с POV идёт активный диалог, не делай его молчаливым без причины." in builder
+    assert "POV может сам ответить, задать обычный вопрос, уточнить, пошутить, огрызнуться, ответить уклончиво" in builder
+    assert "Обычная реплика POV не считается новым решением игрока." in builder
+    assert "Явная реплика игрока может содержать действие." in builder
     assert "не продолжай дальше этого шага без нового решения игрока" in builder
     assert "Намерение POV уйти, выйти, поехать или закончить разговор не гарантирует исход." in builder
-    assert "Если несколько естественных ответов или действий POV ведут к заметно разной ближайшей динамике, не выбирай один за игрока." in builder
+    assert "Несколько возможных обычных реплик сами по себе не требуют остановки" in builder
     assert "Если в ней не меняются отношения, напряжение, информация, цель, риск или сюжет, это рутина" in builder
     assert "Тихая сцена допустима." not in builder
     assert "Обычно сцена может быть около 1800–3000 непробельных символов, но это не лимит и не цель." in builder
-    assert "за POV не придуман новый самостоятельный выбор или действие" in instructions
+    assert "POV остаётся активным и может говорить/реагировать" in instructions
     assert len(instructions) + 93 < 8000
 
 def test_new_scene_npc_without_starting_relationship_is_still_in_relationship_lens():
