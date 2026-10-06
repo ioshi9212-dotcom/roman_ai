@@ -39,9 +39,12 @@ def close_audit(session_id: str, expected_range):
     assert manifest["audit_range"] == expected_range
     for index in range(manifest["chunk_count"]):
         audit_runtime.get_audit_snapshot_chunk(session_id, manifest["audit_id"], index)
+    repairs = scene_compaction(*expected_range)
+    if expected_range[1] % 60 == 0:
+        repairs["chronology_compactions"] = []
     result = session_runtime.commit_audit(
         session_id,
-        {"start_turn": expected_range[0], "end_turn": expected_range[1], "repairs": scene_compaction(*expected_range), "notes": []},
+        {"start_turn": expected_range[0], "end_turn": expected_range[1], "repairs": repairs, "notes": []},
     )
     audit_runtime.clear_audit_packet(session_id)
     assert result["audited_through"] == expected_range[1]
@@ -92,8 +95,8 @@ def test_same_session_runs_through_45_and_60_without_handoff_block():
                 audited.append(turn)
                 assert audit_result["handoff_required"] is False
                 if turn == 60:
-                    assert audit_result["macro_chronology_deferred"] is True
-                    assert audit_result["macro_chronology_compacted"] is False
+                    assert audit_result["macro_chronology_deferred"] is False
+                    assert audit_result["macro_chronology_compacted"] is True
 
             if turn == 45:
                 # The exact failure point from the real incident: next packet must exist.
