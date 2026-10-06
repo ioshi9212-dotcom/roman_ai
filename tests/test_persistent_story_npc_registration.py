@@ -476,6 +476,10 @@ def test_sixtieth_audit_cannot_skip_macro_compaction():
         setup_temp_storage(tmp)
         sid = make_session()
         root = storage.SESSIONS_DIR / sid
+        source = storage._read_json(root / "source.json", {})
+        source["version"] = 5
+        source["profile_schema"] = {"version": 1}
+        storage._write_json(root / "source.json", source)
         turns = [
             {
                 "turn_number": number,
