@@ -11,7 +11,7 @@ from .long_horizon_audit import build_macro_payload, cast_audit, relationship_au
 
 
 _ORIGINAL_GET_AUDIT = None
-FAST_AUDIT_PACKET_VERSION = 11
+FAST_AUDIT_PACKET_VERSION = 12
 AUDIT_PACKET_CHARS = 16000
 
 
@@ -19,11 +19,11 @@ def _turn_evidence(turn: Dict[str, Any]) -> Dict[str, Any]:
     extracted = turn.get("extracted") if isinstance(turn.get("extracted"), dict) else {}
     result: Dict[str, Any] = {
         "turn_number": int(turn.get("turn_number", 0) or 0),
-        "user_input": str(turn.get("user_input") or "")[:1000],
+        "user_input": str(turn.get("user_input") or ""),
     }
     for key in (
         "chronology", "knowledge_journal_add", "knowledge_add", "experiences_add", "dialogue_memory_add",
-        "presence_updates", "relationship_updates", "npc_intent_updates", "story_thread_updates", "character_upserts",
+        "presence_updates", "relationship_updates", "npc_relationship_updates", "npc_intent_updates", "story_thread_updates", "character_upserts",
     ):
         value = extracted.get(key)
         if isinstance(value, list) and value:
