@@ -116,6 +116,8 @@ def _build_fast_payload(session_id: str) -> Dict[str, Any]:
             "experiences_add": "Experience keeps the original turn.",
             "dialogue_memory_add": "Dialogue memory keeps the original turn.",
             "npc_intent_updates": "Repair intent only from audited evidence.",
+            "relationship_updates": "Repair canonical relationships.json only from audited evidence and include the original turn.",
+            "npc_relationship_updates": "Repair canonical qualitative NPC-to-NPC relations only from audited evidence.",
             "character_upserts": "Create a missing card only when the audited turns prove that a named one-off NPC became recurring or durably important.",
             "scene_compactions": "REQUIRED: cover every audited turn exactly once by real scenes; one dense factual summary per scene.",
             "memory_compactions": "Optional: merge duplicates only if every distinct fact survives.",
