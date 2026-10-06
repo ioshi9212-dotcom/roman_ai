@@ -984,6 +984,8 @@ def commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         if isinstance(prepared.get("extracted"), dict)
         else []
     )
+    if saved.get("audit_due") is True:
+        saved["required_audit"] = fast_audit_runtime.get_audit_snapshot(session_id)
     saved["turn_pipeline_version"] = PIPELINE_VERSION
     return saved
 
@@ -1022,6 +1024,13 @@ def continue_session(session_id: str) -> Dict[str, Any]:
     pending = resume_compact_runtime._pending_turn(root)
     if pending:
         result["pending_turn"] = pending
+
+    meta = storage._read_json(root / "meta.json", {})
+    if meta.get("audit_required"):
+        result["audit_required"] = True
+        result["required_audit"] = fast_audit_runtime.get_audit_snapshot(session_id)
+        result["instruction"] = "Complete required_audit before preparing the next gameplay turn."
+        return result
 
     if result.get("current_recovery_required"):
         if pending:
