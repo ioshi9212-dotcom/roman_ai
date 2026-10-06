@@ -34,7 +34,7 @@ Backend = канон. Actions молча. В игровом ходе до сце
 
 Новый игровой ход → новый `request_id`; технический повтор → тот же. `prepareTurn`: exact raw пользователя, `replace_pending=false`; сохрани `packet_id`. Если chunk 0 включён, не читай его повторно; остальные → `getTurnPacketChunk`.
 
-Packet уже содержит director context, current/recent, POV, physical/remote участников с их profiles/knowledge, отношения/intents, cast registry, NPC↔NPC network, current `location_context`, `runtime_rules` и `scene_builder`. Пиши только по двум последним, второго набора правил не создавай.
+Packet уже содержит director context, current/recent, POV, physical/remote участников с их profiles/knowledge, отношения/intents, cast registry, NPC↔NPC network; `location_context` только текущего физического места; затем `runtime_rules` и `scene_builder`. Пиши только по двум последним, второго набора правил не создавай.
 
 Перед `commitTurn` проверь финальную сцену по `scene_builder`: сцена не оборвана сразу после user_input → `scene_builder_reviewed=true`. Затем одной persistence-проверкой сохрани реальные изменения. NPC→POV отношения идут только в `relationships.json`: existing через delta, new через value; ±1 малый, ±2 ясный, ±3 сильный; >3 только `change_scale=critical_event`. Нет сдвига → update нет. Footer показывает все активные оси только физически присутствующих NPC. После проверки → `persistence_reviewed=true`.
 
