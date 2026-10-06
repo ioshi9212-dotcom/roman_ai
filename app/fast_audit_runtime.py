@@ -7,7 +7,7 @@ from typing import Any, Dict
 
 from . import audit_runtime, npc_intent, relationship_file_runtime, storage, story_thread
 from .scene_compaction_runtime import audit_scene_context
-from .long_horizon_audit import build_macro_payload, cast_audit, relationship_audit
+from .long_horizon_audit import build_macro_payload, cast_audit, macro_due, relationship_audit
 
 
 _ORIGINAL_GET_AUDIT = None
@@ -151,15 +151,16 @@ def _build_fast_payload(session_id: str) -> Dict[str, Any]:
         if not world_review:
             state_review.pop("world", None)
     cast_review = cast_audit(state, character_ids, start_turn, end_turn)
-    all_turns = storage._read_turns(root)
-    macro_review = build_macro_payload(
-        root,
-        source=source,
-        state=state,
-        chronology=chronology,
-        turns=all_turns,
-        end_turn=end_turn,
-    )
+    macro_review = None
+    if macro_due(source, end_turn):
+        macro_review = build_macro_payload(
+            root,
+            source=source,
+            state=state,
+            chronology=chronology,
+            turns=storage._read_turns(root),
+            end_turn=end_turn,
+        )
 
     payload = {
         "audit_packet_version": FAST_AUDIT_PACKET_VERSION,
