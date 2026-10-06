@@ -6,7 +6,7 @@ from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Any, Dict
 
-from . import location_runtime, relationship_file_runtime, session_recovery, session_runtime, storage
+from . import location_runtime, npc_intent, relationship_file_runtime, session_recovery, session_runtime, storage, story_thread
 from .game_day import sync_game_day
 from .relationship_runtime import overwrite_relationship_snapshots
 from .relationship_file_runtime import FILE_NAME as RELATIONSHIPS_FILE
@@ -430,6 +430,16 @@ def _atomic_commit_audit(session_id: str, payload: Dict[str, Any]) -> Dict[str, 
             if isinstance(repairs.get("npc_relationship_updates"), list)
             else []
         )
+        intent_repairs = (
+            repairs.get("npc_intent_updates")
+            if isinstance(repairs.get("npc_intent_updates"), list)
+            else []
+        )
+        thread_repairs = (
+            repairs.get("story_thread_updates")
+            if isinstance(repairs.get("story_thread_updates"), list)
+            else []
+        )
         repaired_turns = deepcopy(storage._read_turns(root))
         turns_by_number = {
             int(turn.get("turn_number", 0) or 0): turn
@@ -463,6 +473,100 @@ def _atomic_commit_audit(session_id: str, payload: Dict[str, Any]) -> Dict[str, 
 
         add_historical_repairs(relationship_repairs, "relationship_updates")
         add_historical_repairs(npc_relationship_repairs, "npc_relationship_updates")
+        add_historical_repairs(intent_repairs, "npc_intent_updates")
+        add_historical_repairs(thread_repairs, "story_thread_updates")
+
+        if intent_repairs or thread_repairs:
+            starting_state = (
+                deepcopy(source.get("starting_state"))
+                if isinstance(source.get("starting_state"), dict)
+                else {}
+            )
+            replay_state = starting_state
+            for historical_turn in sorted(
+                repaired_turns,
+                key=lambda row: int(row.get("turn_number", 0) or 0) if isinstance(row, dict) else 0,
+            ):
+                if not isinstance(historical_turn, dict):
+                    continue
+                historical_number = int(historical_turn.get("turn_number", 0) or 0)
+                extracted = (
+                    historical_turn.get("extracted")
+                    if isinstance(historical_turn.get("extracted"), dict)
+                    else {}
+                )
+                patch = extracted.get("state_patch") if isinstance(extracted.get("state_patch"), dict) else {}
+                replay_state = storage._deep_merge(replay_state, patch)
+                replay_state = story_thread.apply_updates(
+                    replay_state,
+                    extracted.get("story_thread_updates") or [],
+                    current_turn=historical_number,
+                )
+                replay_state = npc_intent.apply_updates(
+                    replay_state,
+                    extracted.get("npc_intent_updates") or [],
+                    current_turn=historical_number,
+                )
+
+            current_intents = npc_intent.normalise_store(state)
+            corrected_intents = npc_intent.normalise_store(replay_state)
+            for repair in intent_repairs:
+                if not isinstance(repair, dict):
+                    continue
+                character_id = str(repair.get("character_id") or "").strip()
+                intent_id = str(repair.get("intent_id") or repair.get("id") or "").strip()
+                if not character_id or not intent_id:
+                    continue
+                current_bucket = current_intents.setdefault(character_id, [])
+                current_bucket[:] = [
+                    row for row in current_bucket
+                    if not isinstance(row, dict) or str(row.get("intent_id") or "") != intent_id
+                ]
+                corrected = next(
+                    (
+                        deepcopy(row)
+                        for row in corrected_intents.get(character_id, [])
+                        if isinstance(row, dict) and str(row.get("intent_id") or "") == intent_id
+                    ),
+                    None,
+                )
+                if corrected is not None:
+                    current_bucket.append(corrected)
+                if not current_bucket:
+                    current_intents.pop(character_id, None)
+            state["npc_intents"] = current_intents
+
+            def thread_map(value: Any) -> Dict[str, Dict[str, Any]]:
+                if isinstance(value, dict):
+                    return {
+                        str(key): deepcopy(row)
+                        for key, row in value.items()
+                        if isinstance(row, dict)
+                    }
+                if isinstance(value, list):
+                    result: Dict[str, Dict[str, Any]] = {}
+                    for row in value:
+                        if not isinstance(row, dict):
+                            continue
+                        thread_id = str(row.get("thread_id") or row.get("id") or "").strip()
+                        if thread_id:
+                            result[thread_id] = deepcopy(row)
+                    return result
+                return {}
+
+            current_threads = thread_map(state.get("threads"))
+            corrected_threads = thread_map(replay_state.get("threads"))
+            for repair in thread_repairs:
+                if not isinstance(repair, dict):
+                    continue
+                thread_id = str(repair.get("thread_id") or repair.get("id") or "").strip()
+                if not thread_id:
+                    continue
+                if thread_id in corrected_threads:
+                    current_threads[thread_id] = deepcopy(corrected_threads[thread_id])
+                else:
+                    current_threads.pop(thread_id, None)
+            state["threads"] = current_threads
 
         if relationship_repairs or npc_relationship_repairs:
             try:
@@ -649,15 +753,8 @@ def _atomic_commit_audit(session_id: str, payload: Dict[str, Any]) -> Dict[str, 
             "transactional_commit": True,
             "relationship_snapshots_atomic": True,
             "scene_compactions_saved": len(resolved_scene_rows),
-            "relationship_repairs_saved": len(
-                repairs.get("relationship_updates", [])
-                if isinstance(repairs.get("relationship_updates"), list)
-                else []
-            ) + len(
-                repairs.get("npc_relationship_updates", [])
-                if isinstance(repairs.get("npc_relationship_updates"), list)
-                else []
-            ),
+            "relationship_repairs_saved": len(relationship_repairs) + len(npc_relationship_repairs),
+            "continuity_repairs_saved": len(intent_repairs) + len(thread_repairs),
             "macro_chronology_compacted": bool(macro_compaction_due and macro_compaction_requested),
             "macro_chronology_deferred": bool(macro_compaction_due and not macro_compaction_requested),
         }
