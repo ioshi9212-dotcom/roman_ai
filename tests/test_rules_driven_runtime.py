@@ -1529,7 +1529,8 @@ def test_offscreen_npc_can_be_considered_without_saved_intent_or_forced_timer():
         assert row["work"] == "тренер"
         assert "пишет вечером после работы" in row["habits"]
         assert row["pov_relationship"]["привязанность"] == 65
-        assert "Появление, звонок, сообщение, уход и возвращение персонажей выбирает режиссура сама" in context["runtime_rules"]
+        assert "Появление, звонок, сообщение, уход и возвращение персонажей выбирает режиссура сама" not in context["runtime_rules"]
+        assert "Появление и частота появления изначально заданных игроком NPC полностью определяются режиссурой." in context["scene_builder"]
         assert "не задаёт очередь, квоту или таймер появления" in context["cast_registry"]["instruction"]
         assert "До реального участия offscreen NPC прочитай его полный character bundle." in context["cast_registry"]["instruction"]
 
