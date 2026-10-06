@@ -1,5 +1,5 @@
 from typing import Any, Dict, List, Optional
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 
@@ -202,6 +202,39 @@ class AuditCommit(BaseModel):
     end_turn: int
     repairs: Dict[str, Any] = Field(default_factory=dict)
     notes: List[str] = Field(default_factory=list)
+
+
+class CommitTurnRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    packet_id: Optional[str] = Field(default=None, min_length=1)
+    user_input: Optional[str] = None
+    scene_output: Optional[str] = Field(default=None, min_length=1)
+    extracted: Optional[TurnExtracted] = None
+
+    audit_id: Optional[str] = Field(default=None, min_length=1)
+    start_turn: Optional[int] = Field(default=None, ge=1)
+    end_turn: Optional[int] = Field(default=None, ge=1)
+    repairs: Dict[str, Any] = Field(default_factory=dict)
+    notes: List[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_commit_mode(self):
+        audit_mode = self.audit_id is not None
+        turn_fields = (self.packet_id, self.user_input, self.scene_output, self.extracted)
+
+        if audit_mode:
+            if self.start_turn is None or self.end_turn is None:
+                raise ValueError("audit commit requires audit_id, start_turn and end_turn")
+            if any(value is not None for value in turn_fields):
+                raise ValueError("audit commit cannot include gameplay turn fields")
+            return self
+
+        if self.start_turn is not None or self.end_turn is not None:
+            raise ValueError("gameplay turn cannot include audit turn range")
+        if self.packet_id is None or self.user_input is None or self.scene_output is None or self.extracted is None:
+            raise ValueError("gameplay turn requires packet_id, user_input, scene_output and extracted")
+        return self
 
 
 class ResumeConfirm(BaseModel):

@@ -804,6 +804,25 @@ components:
             type: string
       additionalProperties: false
 
+    CommitTurnRequest:
+      type: object
+      properties:
+        packet_id: {type: string, minLength: 1}
+        user_input: {type: string}
+        scene_output: {type: string, minLength: 1}
+        extracted: {$ref: '#/components/schemas/TurnExtracted'}
+        audit_id: {type: string, minLength: 1}
+        start_turn: {type: integer, minimum: 1}
+        end_turn: {type: integer, minimum: 1}
+        repairs:
+          type: object
+          properties: {}
+          additionalProperties: true
+        notes:
+          type: array
+          items: {type: string}
+      additionalProperties: false
+
 paths:
   /sessions/{session_id}/rollback-last-turn:
     post:
@@ -1054,10 +1073,7 @@ paths:
         required: true
         content:
           application/json:
-            schema:
-              oneOf:
-                - {$ref: '#/components/schemas/TurnCommit'}
-                - {$ref: '#/components/schemas/AuditCommit'}
+            schema: {$ref: '#/components/schemas/CommitTurnRequest'}
       responses:
         '200': {description: "Turn committed"}
         '409': {description: "Packet identity, pending-turn, current-state or persistence integrity conflict"}

@@ -9,7 +9,7 @@ from .character_access import get_character_bundle
 from .character_chunk_read import get_character_bundle_chunk, prepare_character_bundle_read
 from .context_stats import session_context_stats
 from .continuation_runtime import build_continuation_preview, commit_continuation_block, commit_continuation_final, create_continuation_session, get_continuation_read_chunk, prepare_continuation_block_read, prepare_continuation_compaction, prepare_continuation_final_read
-from .models import AuditCommit, ContinuationBlockCommit, ContinuationFinalCommit, NovelDraftCreate, NovelDraftIntakeChunk, NovelDraftIntakeMapping, NovelDraftLaunchState, NovelDraftReconciliation, NovelDraftSection, NovelRawSave, NovelTemplate, RollbackLastTurn, SceneArchiveRead, SessionCreate, TurnCommit, TurnPrepare
+from .models import AuditCommit, CommitTurnRequest, ContinuationBlockCommit, ContinuationFinalCommit, NovelDraftCreate, NovelDraftIntakeChunk, NovelDraftIntakeMapping, NovelDraftLaunchState, NovelDraftReconciliation, NovelDraftSection, NovelRawSave, NovelTemplate, RollbackLastTurn, SceneArchiveRead, SessionCreate, TurnCommit, TurnPrepare
 from .novel_access import get_novel_read_chunk, prepare_novel_read, verify_novel
 from .novel_drafts import (
     create_draft,
@@ -709,11 +709,25 @@ def turns_get(session_id: str, start_turn: int, end_turn: int):
 
 
 @app.post("/sessions/{session_id}/turns", operation_id="commitTurn")
-def turns_commit(session_id: str, body: TurnCommit | AuditCommit):
-    if isinstance(body, AuditCommit):
-        return audit_commit(session_id, body)
+def turns_commit(session_id: str, body: CommitTurnRequest):
+    if body.audit_id is not None:
+        audit_body = AuditCommit(
+            audit_id=body.audit_id,
+            start_turn=body.start_turn,
+            end_turn=body.end_turn,
+            repairs=body.repairs,
+            notes=body.notes,
+        )
+        return audit_commit(session_id, audit_body)
+
+    turn_body = TurnCommit(
+        packet_id=body.packet_id,
+        user_input=body.user_input,
+        scene_output=body.scene_output,
+        extracted=body.extracted,
+    )
     try:
-        return commit_turn_request(session_id, body.model_dump())
+        return commit_turn_request(session_id, turn_body.model_dump())
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Session not found")
     except OperationReceiptConflict:

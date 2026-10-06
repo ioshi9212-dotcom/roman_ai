@@ -65,12 +65,15 @@ def test_static_custom_gpt_schema_has_exact_current_30_actions():
     assert set(turn_commit["required"]) == {"packet_id", "user_input", "scene_output", "extracted"}
     audit_commit = schema["components"]["schemas"]["AuditCommit"]
     assert set(audit_commit["required"]) == {"audit_id", "start_turn", "end_turn"}
+
+    commit_request = schema["components"]["schemas"]["CommitTurnRequest"]
+    assert commit_request["type"] == "object"
+    assert {"packet_id", "user_input", "scene_output", "extracted"} <= set(commit_request["properties"])
+    assert {"audit_id", "start_turn", "end_turn", "repairs", "notes"} <= set(commit_request["properties"])
+
     commit_action = schema["paths"]["/sessions/{session_id}/turns"]["post"]
-    refs = commit_action["requestBody"]["content"]["application/json"]["schema"]["oneOf"]
-    assert {row["$ref"] for row in refs} == {
-        "#/components/schemas/TurnCommit",
-        "#/components/schemas/AuditCommit",
-    }
+    commit_schema = commit_action["requestBody"]["content"]["application/json"]["schema"]
+    assert commit_schema == {"$ref": "#/components/schemas/CommitTurnRequest"}
     assert "knowledge_participants" not in schema["components"]["schemas"]["ChronologyItem"]["properties"]
     dumped = str(turn_commit)
     assert "knowledge_reviewed" not in dumped
@@ -108,6 +111,10 @@ def test_static_custom_gpt_schema_has_exact_current_30_actions():
 def test_dynamic_fastapi_openapi_exposes_the_same_30_actions():
     dynamic = app.openapi()
     assert operation_ids(dynamic) == EXPECTED_ACTIONS
+
+    commit_schema = dynamic["paths"]["/sessions/{session_id}/turns"]["post"]["requestBody"]["content"]["application/json"]["schema"]
+    assert commit_schema == {"$ref": "#/components/schemas/CommitTurnRequest"}
+    assert dynamic["components"]["schemas"]["CommitTurnRequest"]["type"] == "object"
 
 
 def test_removed_gate_actions_stay_out_of_gpt_surface():
