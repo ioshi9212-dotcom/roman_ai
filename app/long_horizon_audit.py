@@ -322,6 +322,10 @@ def build_macro_payload(
                 "exact_time only when the exact time itself matters causally. Routine eating, showering, smoking, toilet, "
                 "ordinary travel and repeated atmosphere are omitted unless they caused a durable consequence."
             ),
+            "repairs.character_upserts": (
+                "Only for a named NPC proven by the audited evidence to have become recurring or durably important while still missing from the persistent registry. "
+                "Do not promote background extras merely because they were named once."
+            ),
         },
         "contract": {
             "raw_turns_remain_immutable_evidence": True,
@@ -334,8 +338,8 @@ def build_macro_payload(
         },
         "instruction": (
             "60-TURN MACRO AUDIT. После обычной проверки последних 15 ходов собери repairs.chronology_compactions "
-            "по macro_range. Это не дополнительный пересказ поверх старой chronology: commit заменит сырые chronology-события "
-            "этого диапазона этими короткими датированными абзацами. Удали бытовую воду и повторы, сохрани только важное."
+            "по macro_range: короткие датированные абзацы без бытовой воды и повторов, с сохранением причинно важных событий и значимых точных реплик только когда формулировка сама важна. "
+            "Одновременно проверь cast за доступный 60-turn evidence: если именованный one-off уже фактически стал повторяющимся или долговременно важным, а карточки всё ещё нет, добавь repairs.character_upserts."
         ),
     }
 
