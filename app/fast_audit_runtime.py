@@ -5,7 +5,7 @@ import secrets
 from copy import deepcopy
 from typing import Any, Dict
 
-from . import audit_runtime, relationship_file_runtime, storage
+from . import audit_runtime, npc_intent, relationship_file_runtime, storage, story_thread
 from .scene_compaction_runtime import audit_scene_context
 from .long_horizon_audit import build_macro_payload, cast_audit, relationship_audit
 
@@ -42,6 +42,27 @@ def _turn_evidence(turn: Dict[str, Any]) -> Dict[str, Any]:
     return result
 
 
+
+def _continuity_audit(state: Dict[str, Any], character_ids: list[str]) -> Dict[str, Any]:
+    terminal = {"resolved", "closed", "done", "abandoned", "cancelled", "canceled", "superseded"}
+    intents = npc_intent.normalise_store(state)
+    scoped_intents: Dict[str, Any] = {}
+    for character_id in character_ids:
+        active = [
+            deepcopy(row)
+            for row in intents.get(str(character_id), [])
+            if isinstance(row, dict)
+            and str(row.get("status") or "active").casefold().strip() not in terminal
+        ]
+        if active:
+            scoped_intents[str(character_id)] = active
+
+    return {
+        "active_npc_intents": scoped_intents,
+        "active_story_threads": deepcopy(story_thread.active_threads(state)),
+        "contract": "Current unresolved continuity only; exact audited turns carry the historical updates.",
+    }
+
 def _build_fast_payload(session_id: str) -> Dict[str, Any]:
     root = storage.SESSIONS_DIR / session_id
     meta = storage._read_json(root / "meta.json", {})
@@ -77,6 +98,14 @@ def _build_fast_payload(session_id: str) -> Dict[str, Any]:
         end_turn,
         relationship_store=relationship_store,
     )
+    continuity_review = _continuity_audit(state, character_ids)
+    state_review = audit_runtime._audit_state(state, character_ids)
+    state_review.pop("npc_intents", None)
+    world_review = state_review.get("world") if isinstance(state_review.get("world"), dict) else None
+    if isinstance(world_review, dict):
+        world_review.pop("cast_registry", None)
+        if not world_review:
+            state_review.pop("world", None)
     cast_review = cast_audit(state, character_ids, start_turn, end_turn)
     all_turns = storage._read_turns(root)
     macro_review = build_macro_payload(
@@ -96,7 +125,8 @@ def _build_fast_payload(session_id: str) -> Dict[str, Any]:
         "chat_turns_are_primary_review_source": True,
         "turn_evidence_backup": [_turn_evidence(turn) for turn in turns],
         "source_reference": audit_runtime._source_reference(source),
-        "state_audit": audit_runtime._audit_state(state, character_ids),
+        "state_audit": state_review,
+        "continuity_audit": continuity_review,
         "audit_character_ids": character_ids,
         "character_cards_audit": [deepcopy(card_map[cid]) for cid in character_ids if cid in card_map],
         "character_registry_index": [
@@ -115,7 +145,8 @@ def _build_fast_payload(session_id: str) -> Dict[str, Any]:
             "knowledge_add": "Legacy knowledge keeps the learned turn.",
             "experiences_add": "Experience keeps the original turn.",
             "dialogue_memory_add": "Dialogue memory keeps the original turn.",
-            "npc_intent_updates": "Repair intent only from audited evidence.",
+            "npc_intent_updates": "Repair intent only from audited evidence and include the original turn.",
+            "story_thread_updates": "Repair unresolved story continuity only from audited evidence and include the original turn.",
             "relationship_updates": "Repair canonical relationships.json only from audited evidence and include the original turn.",
             "npc_relationship_updates": "Repair canonical qualitative NPC-to-NPC relations only from audited evidence and include the original turn.",
             "character_upserts": "Create a missing card only when the audited turns prove that a named one-off NPC became recurring or durably important.",
