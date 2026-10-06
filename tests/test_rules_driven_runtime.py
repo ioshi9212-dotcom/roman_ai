@@ -118,7 +118,8 @@ def test_character_perception_and_scene_quality_stay_causal_without_pacing_modes
     assert "взрослая интимная сцена может оставаться прямой и конкретной." in builder
     assert "Не уходи в fade-to-black только потому, что сцена стала сексуальной." in builder
     assert "Не объясняй психологический, моральный или авторский смысл поведения." in builder
-    assert "Тихая сцена допустима." in builder
+    assert "Тихая сцена допустима." not in builder
+    assert "Если в ней не меняются отношения, напряжение, информация, цель, риск или сюжет, это рутина" in builder
     assert "Обычно сцена может быть около 1800–3000 непробельных символов, но это не лимит и не цель." in builder
     assert "Объём основной сцены: 1800–3000 непробельных символов." not in builder
     assert "Снижай графичность, но не непрерывность сцены." not in builder
