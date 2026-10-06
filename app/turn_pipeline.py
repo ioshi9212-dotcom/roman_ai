@@ -538,8 +538,7 @@ def _prepare_context(
         },
         "instruction": (
             "Перед сценой просмотри постоянный NPC-каст и npc_relationship_network. "
-            "Кто появляется, пишет, звонит или остаётся вне сцены, решает режиссура по текущей ситуации, целям, делам и логике мира; "
-            "нет очереди, квоты или таймера возвращения. Незакрытый intent/thread можно продолжить, но он не обязан вызывать персонажа именно сейчас. "
+            "Cast registry даёт контекст и не задаёт очередь, квоту или таймер появления; решение о появлении/контакте — по scene_builder. "
             "До реального участия offscreen NPC прочитай его полный character bundle."
         ),
         "characters": _cast_registry_rows(state, cards, source, current_turn, npc_network, relationship_store),
