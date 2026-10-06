@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 from fastapi import HTTPException
 
-from app import cast_registry_runtime, scene_presence_runtime, storage, turn_pipeline
+from app import cast_registry_runtime, relationship_file_runtime, scene_presence_runtime, storage, turn_pipeline
 
 
 def setup_temp_storage(tmp: str):
@@ -211,6 +211,14 @@ def test_audit_can_promote_missing_npc_and_keep_original_knowledge_turn():
                             "text": "Кайр отказался отвечать на её вопрос.",
                         }
                     ],
+                    "relationship_updates": [
+                        {
+                            "character_id": "ada",
+                            "turn": 8,
+                            "reason": "После нескольких разговоров Ада стала заметно больше доверять Кайру.",
+                            "dimensions": [{"label": "доверие", "value": 1}],
+                        }
+                    ],
                     "scene_compactions": [
                         {
                             "start_turn": 1,
@@ -236,5 +244,98 @@ def test_audit_can_promote_missing_npc_and_keep_original_knowledge_turn():
             row.get("turn") == 7 and "отказался отвечать" in row.get("text", "")
             for row in rows
         )
+
+        relationships = relationship_file_runtime.normalize_store(
+            storage._read_json(root / relationship_file_runtime.FILE_NAME, {}),
+            "pov",
+        )
+        trust = relationships["npc_to_pov"]["ada"]["dimensions"]["доверие"]
+        assert trust["value"] == 1
+        assert trust["last_change"]["turn"] == 8
+        assert result["relationship_repairs_saved"] == 1
         assert storage._read_json(root / "meta.json", {})["audit_required"] is False
+
+def test_audit_rejects_new_persistent_npc_without_story_function():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = make_session()
+        root = storage.SESSIONS_DIR / sid
+        meta = storage._read_json(root / "meta.json", {})
+        meta["turn_number"] = 15
+        meta["audit_required"] = True
+        meta["last_audit_turn"] = 0
+        storage._write_json(root / "meta.json", meta)
+
+        with pytest.raises(RuntimeError, match="CAST_STORY_FUNCTION_REQUIRED"):
+            turn_pipeline.commit_audit(
+                sid,
+                {
+                    "audit_id": "audit-no-story-function",
+                    "start_turn": 1,
+                    "end_turn": 15,
+                    "repairs": {
+                        "character_upserts": [{"character_id": "ada", "name": "Ада"}],
+                        "scene_compactions": [
+                            {
+                                "start_turn": 1,
+                                "end_turn": 15,
+                                "summary": "За пятнадцать ходов именованная Ада повторно участвовала в линии и стала постоянным персонажем истории.",
+                                "status": "open",
+                                "participants": ["pov", "ada"],
+                                "location": "bar",
+                            }
+                        ],
+                    },
+                    "notes": [],
+                },
+            )
+
+
+def test_audit_relationship_repair_requires_original_turn():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = make_session()
+        root = storage.SESSIONS_DIR / sid
+        meta = storage._read_json(root / "meta.json", {})
+        meta["turn_number"] = 15
+        meta["audit_required"] = True
+        meta["last_audit_turn"] = 0
+        storage._write_json(root / "meta.json", meta)
+
+        with pytest.raises(RuntimeError, match="AUDIT_REPAIR_TURN_REQUIRED"):
+            turn_pipeline.commit_audit(
+                sid,
+                {
+                    "audit_id": "audit-missing-relation-turn",
+                    "start_turn": 1,
+                    "end_turn": 15,
+                    "repairs": {
+                        "character_upserts": [
+                            {
+                                "character_id": "ada",
+                                "name": "Ада",
+                                "story_function": "повторяющийся участник линии Кайра",
+                            }
+                        ],
+                        "relationship_updates": [
+                            {
+                                "character_id": "ada",
+                                "reason": "Доказанный сдвиг из audited raw turns.",
+                                "dimensions": [{"label": "интерес", "value": 1}],
+                            }
+                        ],
+                        "scene_compactions": [
+                            {
+                                "start_turn": 1,
+                                "end_turn": 15,
+                                "summary": "Ада несколько раз участвовала в одной линии с Кайром, и в этой линии возник доказанный сдвиг отношения.",
+                                "status": "open",
+                                "participants": ["pov", "ada"],
+                                "location": "bar",
+                            }
+                        ],
+                    },
+                    "notes": [],
+                },
+            )
 
