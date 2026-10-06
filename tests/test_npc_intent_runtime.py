@@ -145,7 +145,7 @@ def test_offscreen_active_intent_is_visible_before_character_is_pulled_into_scen
         )
         assert registry_row["active_intents"]
         assert "Незакрытая линия остаётся активной" in context["runtime_rules"]
-        assert "нет очереди, квоты или таймера возвращения" in context["cast_registry"]["instruction"]
+        assert "не задаёт очередь, квоту или таймер появления" in context["cast_registry"]["instruction"]
 
         # The owner still gets the full private intent once their dossier is loaded.
         bundle = get_character_bundle(sid, "ren")
