@@ -5,7 +5,7 @@ import secrets
 from copy import deepcopy
 from typing import Any, Dict
 
-from . import audit_runtime, storage
+from . import audit_runtime, relationship_file_runtime, storage
 from .scene_compaction_runtime import audit_scene_context
 from .long_horizon_audit import build_macro_payload, cast_audit, relationship_audit
 
@@ -59,7 +59,24 @@ def _build_fast_payload(session_id: str) -> Dict[str, Any]:
         cards, state, memory, chronology, turns, start_turn, end_turn
     )
     card_map = {storage._card_id(card): card for card in cards}
-    relationship_review = relationship_audit(state, turns, character_ids, start_turn, end_turn)
+    pov = state.get("pov") if isinstance(state.get("pov"), dict) else {}
+    pov_id = str(pov.get("character_id") or "")
+    relationship_path = root / relationship_file_runtime.FILE_NAME
+    if relationship_path.exists():
+        relationship_store = relationship_file_runtime.normalize_store(
+            storage._read_json(relationship_path, {}),
+            pov_id,
+        )
+    else:
+        relationship_store = relationship_file_runtime.build_initial_store(cards, state, pov_id)
+    relationship_review = relationship_audit(
+        state,
+        turns,
+        character_ids,
+        start_turn,
+        end_turn,
+        relationship_store=relationship_store,
+    )
     cast_review = cast_audit(state, character_ids, start_turn, end_turn)
     all_turns = storage._read_turns(root)
     macro_review = build_macro_payload(
