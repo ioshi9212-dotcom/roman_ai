@@ -6,7 +6,7 @@ from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Any, Dict
 
-from . import location_runtime, session_recovery, session_runtime, storage
+from . import location_runtime, relationship_file_runtime, session_recovery, session_runtime, storage
 from .game_day import sync_game_day
 from .relationship_runtime import overwrite_relationship_snapshots
 from .relationship_file_runtime import FILE_NAME as RELATIONSHIPS_FILE
@@ -262,6 +262,61 @@ def _atomic_commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, A
             storage._memory_bucket(memory, storage._card_id(card))
         memory = storage._apply_memory_events(memory, extracted, turn_number)
 
+        pov = state.get("pov") if isinstance(state.get("pov"), dict) else {}
+        pov_id = str(pov.get("character_id") or "")
+        relationship_path = root / RELATIONSHIPS_FILE
+        if relationship_path.exists():
+            relationship_store = relationship_file_runtime.normalize_store(
+                storage._read_json(relationship_path, {}),
+                pov_id,
+            )
+        else:
+            relationship_store = relationship_file_runtime.build_initial_store(cards, state, pov_id)
+
+        try:
+            relationship_store = relationship_file_runtime.apply_npc_updates(
+                relationship_store,
+                repairs.get("npc_relationship_updates"),
+                cards=cards,
+                pov_id=pov_id,
+            )
+
+            relationship_repairs = (
+                repairs.get("relationship_updates")
+                if isinstance(repairs.get("relationship_updates"), list)
+                else []
+            )
+            prepared_relationship_repairs: list[tuple[int, Dict[str, Any]]] = []
+            for row in relationship_repairs:
+                if not isinstance(row, dict):
+                    continue
+                raw_turn = row.get("turn") or row.get("source_turn") or row.get("learned_turn")
+                try:
+                    original_turn = int(raw_turn)
+                except (TypeError, ValueError):
+                    raise RuntimeError("AUDIT_REPAIR_TURN_REQUIRED")
+                if original_turn < start_turn or original_turn > end_turn:
+                    raise RuntimeError("AUDIT_REPAIR_TURN_OUT_OF_RANGE")
+                prepared_relationship_repairs.append((original_turn, deepcopy(row)))
+
+            all_character_ids = [
+                storage._card_id(card)
+                for card in cards
+                if storage._card_id(card)
+            ]
+            for original_turn, row in sorted(prepared_relationship_repairs, key=lambda value: value[0]):
+                relationship_store = relationship_file_runtime.apply_updates(
+                    relationship_store,
+                    [row],
+                    cards=cards,
+                    pov_id=pov_id,
+                    turn_number=original_turn,
+                    participant_ids=all_character_ids,
+                    enforce_turn_invariants=False,
+                )
+        except ValueError as exc:
+            raise RuntimeError("AUDIT_RELATIONSHIP_REPAIR_INVALID") from exc
+
         chronology = storage._read_json(root / "chronology.json", [])
         if not isinstance(chronology, list):
             chronology = []
@@ -363,7 +418,19 @@ def _atomic_commit_audit(session_id: str, payload: Dict[str, Any]) -> Dict[str, 
             audit_state_patch.pop(key, None)
         repairs["state_patch"] = audit_state_patch
         source = storage._read_json(root / "source.json", {})
-        cards = storage._apply_character_upserts(storage._load_cards(root, source), repairs)
+        pre_audit_cards = storage._load_cards(root, source)
+        existing_card_ids = {
+            storage._card_id(card)
+            for card in pre_audit_cards
+            if storage._card_id(card)
+        }
+        for row in repairs.get("character_upserts", []) if isinstance(repairs.get("character_upserts"), list) else []:
+            if not isinstance(row, dict):
+                continue
+            cid = storage._card_id(row)
+            if cid and cid not in existing_card_ids and not str(row.get("story_function") or "").strip():
+                raise RuntimeError("CAST_STORY_FUNCTION_REQUIRED")
+        cards = storage._apply_character_upserts(pre_audit_cards, repairs)
         state = storage._read_json(root / "state.json", {})
         previous_state = deepcopy(state)
         state = _merge_state_patch_exact_relationships(state, audit_state_patch)
@@ -479,6 +546,15 @@ def _atomic_commit_audit(session_id: str, payload: Dict[str, Any]) -> Dict[str, 
             "transactional_commit": True,
             "relationship_snapshots_atomic": True,
             "scene_compactions_saved": len(resolved_scene_rows),
+            "relationship_repairs_saved": len(
+                repairs.get("relationship_updates", [])
+                if isinstance(repairs.get("relationship_updates"), list)
+                else []
+            ) + len(
+                repairs.get("npc_relationship_updates", [])
+                if isinstance(repairs.get("npc_relationship_updates"), list)
+                else []
+            ),
             "macro_chronology_compacted": bool(macro_compaction_due and macro_compaction_requested),
             "macro_chronology_deferred": bool(macro_compaction_due and not macro_compaction_requested),
         }
@@ -490,6 +566,7 @@ def _atomic_commit_audit(session_id: str, payload: Dict[str, Any]) -> Dict[str, 
             "characters.json": json_text(cards),
             "state.json": json_text(state),
             "memory.json": json_text(memory),
+            RELATIONSHIPS_FILE: json_text(relationship_store),
             "chronology.json": json_text(chronology),
             SCENE_MEMORY_FILE: json_text(scene_store),
             "audits.json": json_text(audits),
