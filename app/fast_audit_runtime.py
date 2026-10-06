@@ -131,21 +131,23 @@ def _build_fast_payload(session_id: str) -> Dict[str, Any]:
 
 def _response(packet: Dict[str, Any], *, include_first: bool) -> Dict[str, Any]:
     chunks = packet.get("chunks", []) if isinstance(packet.get("chunks"), list) else []
+    read = {int(value) for value in packet.get("read_chunks", []) if isinstance(value, int)}
+    unread_after_zero = [index for index in range(1, len(chunks)) if index not in read]
     result: Dict[str, Any] = {
         "ok": True,
         "audit_id": packet["audit_id"],
         "audit_range": packet["audit_range"],
         "chunk_count": len(chunks),
         "total_chars": sum(len(str(chunk)) for chunk in chunks),
-        "already_read_chunks": packet.get("read_chunks", []),
+        "already_read_chunks": sorted(read),
         "first_chunk_included": bool(include_first and chunks),
-        "next_chunk_index": 1 if include_first and len(chunks) > 1 else None,
-        "instruction": "Chunk 0 уже включён. Прочитай остальные chunks и сделай один commitAudit.",
+        "next_chunk_index": unread_after_zero[0] if unread_after_zero else None,
+        "instruction": "Chunk 0 уже включён. Прочитай остальные непрочитанные chunks и сделай один commitAudit.",
     }
     if include_first and chunks:
         result["chunk_index"] = 0
         result["content"] = chunks[0]
-        result["all_chunks_read"] = len(chunks) == 1
+        result["all_chunks_read"] = len(read) == len(chunks)
     return result
 
 
@@ -167,7 +169,10 @@ def get_audit_snapshot(session_id: str) -> Dict[str, Any]:
         and isinstance(packet.get("chunks"), list)
         and packet.get("chunks")
     ):
-        return _response(packet, include_first=False)
+        # Re-inline chunk 0 on retries. A prior HTTP response may have been lost
+        # after the server persisted read_chunks=[0], so "already read" is not
+        # proof that the client actually received the content.
+        return _response(packet, include_first=True)
 
     payload = _build_fast_payload(session_id)
     text = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
