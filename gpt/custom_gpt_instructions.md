@@ -77,7 +77,7 @@ Chronology и personal knowledge независимы: chronology никогда
 
 ## Audit
 
-После хода с `audit_due=true` до следующего `prepareTurn` выполни `getAuditSnapshot`, прочитай все chunks и сделай один `commitAudit`.
+После каждого 15-го `commitTurn` ответ содержит `required_audit` и chunk 0. До следующего игрового хода прочитай остальные audit chunks через `getTurnPacketChunk`, передавая `audit_id` как `packet_id`. Затем вызови `commitTurn` с audit payload: `audit_id`, `start_turn`, `end_turn`, `repairs`, `notes`. Если следующий `prepareTurn` сообщает `audit_required=true`, выполни возвращённый `required_audit` и после него повтори тот же `prepareTurn` с тем же raw input/request_id.
 
 Каждые 15 ходов сравни exact raw turns с уже сохранёнными state/presence, отношениями, personal knowledge, intents/threads, chronology и cast. Дописывай только доказанные пропуски с исходным номером хода. Knowledge восстанавливай только по реальному восприятию конкретного персонажа; присутствие само по себе ничего не доказывает.
 
