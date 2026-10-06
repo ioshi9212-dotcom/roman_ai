@@ -572,7 +572,8 @@ def turn_packet_prepare(session_id: str, body: TurnPrepare):
                     "pending_turn": pending_turn_status(session_id),
                     "instruction": (
                         "Resume the existing packet: read only its unread_chunk_indices and commit that same packet once. "
-                        "Do not call recoverSessionCurrent for a turn-packet error. Set replace_pending=true only if the user explicitly abandons the saved pending turn."
+                        "Do not call recoverSessionCurrent for a turn-packet error. If the user explicitly asks to rebuild a stuck uncommitted turn, "
+                        "call prepareTurn with the same user_input/request_id and replace_pending=true; this archives only the pending packet and does not roll back the last committed turn."
                     ),
                 },
             )
@@ -752,8 +753,9 @@ def turns_commit(session_id: str, body: CommitTurnRequest):
                 )
             else:
                 instruction = (
-                    "Do not invent a recovery turn. Inspect pending_turn. If it exists, resume that exact packet; "
-                    "otherwise call prepareTurn again for the same user input/request_id. recoverSessionCurrent is only for resumeSession current_recovery_required=true."
+                    "Do not invent a recovery turn. Inspect pending_turn. If it exists, resume that exact packet. "
+                    "If that uncommitted packet is stuck and the user explicitly wants it rebuilt, call prepareTurn with the same user_input/request_id and replace_pending=true; "
+                    "this does not touch the last committed turn. If no pending_turn exists, call prepareTurn again for the same user input/request_id."
                 )
             raise HTTPException(
                 status_code=409,
