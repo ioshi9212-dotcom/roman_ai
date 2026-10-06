@@ -120,7 +120,7 @@ def _build_fast_payload(session_id: str) -> Dict[str, Any]:
             "Проверь только эти 15 raw turns и сравни их с уже сохранённым. Для каждого участника восстанавливай knowledge только из того, "
             "что он лично видел, слышал, прочитал, получил или что ему сказали; само присутствие не означает, что он слышал шёпот, звонок или приватное сообщение. "
             "Исправь только доказанные пропуски в chronology, personal knowledge, state, отношениях, intents/threads и cast; если именованный one-off стал повторяющимся или долговременно важным, создай character_upsert. "
-            "Повторы и бытовую воду не размножай: scene compaction должна быть короткой и фактической. Затем один commitAudit."
+            "Повторы и бытовую воду не размножай: scene compaction должна быть короткой и фактической. Затем один commitTurn с audit payload."
         ),
     }
     if macro_review is not None:
@@ -142,7 +142,7 @@ def _response(packet: Dict[str, Any], *, include_first: bool) -> Dict[str, Any]:
         "already_read_chunks": sorted(read),
         "first_chunk_included": bool(include_first and chunks),
         "next_chunk_index": unread_after_zero[0] if unread_after_zero else None,
-        "instruction": "Chunk 0 уже включён. Прочитай остальные непрочитанные chunks и сделай один commitAudit.",
+        "instruction": "Chunk 0 уже включён. Прочитай остальные непрочитанные chunks и заверши audit одним commitTurn с audit payload.",
     }
     if include_first and chunks:
         result["chunk_index"] = 0
