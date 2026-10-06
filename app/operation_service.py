@@ -187,6 +187,10 @@ def commit_turn_request(session_id: str, payload: Dict[str, Any]) -> Dict[str, A
     )
     if replay is not None:
         replay.setdefault("already_committed", True)
+        if replay.get("audit_due") is True:
+            meta = storage._read_json(root / "meta.json", {})
+            if meta.get("audit_required"):
+                replay["required_audit"] = audit_runtime.get_audit_snapshot(session_id)
         return replay
 
     packet = storage._read_json(root / "turn_packet.json", {})
