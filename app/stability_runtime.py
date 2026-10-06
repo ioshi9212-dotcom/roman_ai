@@ -440,7 +440,14 @@ def _atomic_commit_audit(session_id: str, payload: Dict[str, Any]) -> Dict[str, 
             if isinstance(repairs.get("story_thread_updates"), list)
             else []
         )
-        repaired_turns = deepcopy(storage._read_turns(root))
+        turns = storage._read_turns(root)
+        historical_repairs = bool(
+            relationship_repairs
+            or npc_relationship_repairs
+            or intent_repairs
+            or thread_repairs
+        )
+        repaired_turns = deepcopy(turns) if historical_repairs else []
         turns_by_number = {
             int(turn.get("turn_number", 0) or 0): turn
             for turn in repaired_turns
@@ -731,7 +738,6 @@ def _atomic_commit_audit(session_id: str, payload: Dict[str, Any]) -> Dict[str, 
             }
         )
 
-        turns = storage._read_turns(root)
         state = session_runtime._finalize_persisted_state(
             source=source,
             cards=cards,
