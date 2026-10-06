@@ -177,3 +177,64 @@ def test_repeated_unregistered_scene_speaker_requires_card_even_without_presence
 
         with pytest.raises(RuntimeError, match="CAST_PERSISTENT_NPC_CARD_REQUIRED"):
             cast_registry_runtime._with_registry_patch(sid, payload)
+
+def test_audit_can_promote_missing_npc_and_keep_original_knowledge_turn():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = make_session()
+        root = storage.SESSIONS_DIR / sid
+
+        meta = storage._read_json(root / "meta.json", {})
+        meta["turn_number"] = 15
+        meta["audit_required"] = True
+        meta["last_audit_turn"] = 0
+        storage._write_json(root / "meta.json", meta)
+
+        result = turn_pipeline.commit_audit(
+            sid,
+            {
+                "audit_id": "audit-test",
+                "start_turn": 1,
+                "end_turn": 15,
+                "repairs": {
+                    "character_upserts": [
+                        {
+                            "character_id": "ada",
+                            "name": "Ада",
+                            "story_function": "повторяющийся участник линии Кайра",
+                        }
+                    ],
+                    "knowledge_journal_add": [
+                        {
+                            "character_id": "ada",
+                            "turn": 7,
+                            "text": "Кайр отказался отвечать на её вопрос.",
+                        }
+                    ],
+                    "scene_compactions": [
+                        {
+                            "start_turn": 1,
+                            "end_turn": 15,
+                            "summary": "За пятнадцать ходов Ада несколько раз участвовала в одной продолжающейся линии с Кайром, и её участие стало устойчивым.",
+                            "status": "open",
+                            "participants": ["pov", "ada"],
+                            "location": "bar",
+                        }
+                    ],
+                },
+                "notes": [],
+            },
+        )
+
+        assert result["audited_through"] == 15
+        cards = storage._read_json(root / "characters.json", [])
+        assert any(card.get("character_id") == "ada" for card in cards)
+
+        memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
+        rows = memory["characters"]["ada"]["knowledge_journal"]
+        assert any(
+            row.get("turn") == 7 and "отказался отвечать" in row.get("text", "")
+            for row in rows
+        )
+        assert storage._read_json(root / "meta.json", {})["audit_required"] is False
+
