@@ -277,6 +277,38 @@ def test_new_request_cannot_silently_replace_an_uncommitted_pending_turn():
         assert saved["packet_id"] == first["packet_id"]
 
 
+def test_explicit_same_input_pending_rebuild_replaces_only_uncommitted_packet():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = make_session()
+        first = prepare_turn_request(
+            sid,
+            "Тот же зависший ход.",
+            "req-stuck",
+        )
+        root = storage.SESSIONS_DIR / sid
+        meta_before = storage._read_json(root / "meta.json", {})
+        assert meta_before["turn_number"] == 0
+
+        rebuilt = prepare_turn_request(
+            sid,
+            "Тот же зависший ход.",
+            "req-stuck",
+            replace_pending=True,
+        )
+
+        assert rebuilt["packet_id"] != first["packet_id"]
+        assert rebuilt["prepared_for_turn"] == 1
+        assert rebuilt["request_id"] == "req-stuck"
+        assert storage._read_json(root / "meta.json", {})["turn_number"] == 0
+
+        abandoned = storage._read_json(root / "abandoned_turn_packets.json", [])
+        assert abandoned[-1]["packet_id"] == first["packet_id"]
+        assert abandoned[-1]["request_id"] == "req-stuck"
+        assert abandoned[-1]["user_input"] == "Тот же зависший ход."
+        assert abandoned[-1]["reason"] == "explicit_rebuild_pending"
+
+
 def test_explicit_pending_replacement_preserves_diagnostic_metadata():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
