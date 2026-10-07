@@ -231,7 +231,7 @@ def _rewrite_packet(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
             ),
             "location_context": (
                 "location_context — физический канон текущего места для режиссуры, не личное знание персонажа автоматически. "
-                "Связанный offscreen персонаж требует bundle до участия."
+                "Для уже выбранного offscreen-персонажа bundle загружается перед содержательным участием; это не условие его инициативы."
             ),
             "canon_notes_context": (
                 "canon_notes_context — только релевантные устойчивые авторские факты; они не становятся личным знанием без реального источника."
@@ -701,7 +701,7 @@ def _participation_bundle(session_id: str, character_id: str) -> Dict[str, Any]:
             ),
         },
         "instruction": (
-            "Этот bundle полностью готов для участия offscreen-персонажа: own profile + own complete knowledge "
+            "Этот bundle даёт уже выбранному offscreen-персонажу own profile + own complete knowledge для содержательного участия: "
             "+ relationship + current state. relationship берётся только из relationships.json. npc_relationships_director_only влияет на режиссуру поведения, но не является "
             "личным factual knowledge и не сообщает персонажу неизвестные факты о другом NPC. Используй только явно известные "
             "детали; не дополняй частичный факт скрытыми или вероятными подробностями. Отдельный knowledge-read не нужен."
