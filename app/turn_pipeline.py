@@ -51,7 +51,7 @@ _BASE_PARTICIPATION_BUNDLE = character_chunk_read._participation_bundle
 _BASE_CREATE_SESSION = storage.create_session
 _BASE_RECOVER_CURRENT = session_recovery.recover_session_current
 
-PIPELINE_VERSION = 18
+PIPELINE_VERSION = 19
 
 def _packet_manifest(packet: Dict[str, Any], *, reused: bool) -> Dict[str, Any]:
     chunks = packet.get("chunks", []) if isinstance(packet.get("chunks"), list) else []
@@ -521,7 +521,7 @@ def _prepare_context(
     }
     pov = state.get("pov") if isinstance(state.get("pov"), dict) else {}
     context["knowledge_boundaries"] = scene_knowledge_guard.build_boundaries(
-        root,
+        context,
         scene_ids,
         cards=cards,
         pov_id=str(pov.get("character_id") or ""),
@@ -970,12 +970,6 @@ def _strip_relationship_review(payload: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
-    # Preserve the existing specialized private-communication firewall and its
-    # precise error codes before the broader scene provenance check.
-    private_knowledge_runtime.validate_private_knowledge(session_id, payload)
-    # Scene text is validated before any persistence transformations or writes.
-    # A rejected scene keeps the same pending packet available for a corrected retry.
-    scene_knowledge_guard.validate_scene_output(session_id, payload)
     _validate_technical_state_patch(payload)
     prepared = _prepare_profile_persistence(session_id, payload)
     prepared = private_knowledge_runtime.add_direct_communication_memory(session_id, prepared)
@@ -985,7 +979,11 @@ def commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     )
     prepared = private_knowledge_runtime.normalize_dialogue_memory_modes(session_id, prepared)
     prepared = private_knowledge_runtime.add_scene_remote_communication_memory(session_id, prepared)
+    # Preserve the existing private-communication firewall and its error codes,
+    # then apply the broader scene provenance guard. Everything above is an
+    # in-memory payload transformation; no state has been persisted yet.
     private_knowledge_runtime.validate_private_knowledge(session_id, prepared)
+    scene_knowledge_guard.validate_scene_output(session_id, prepared)
     prepared = _strip_relationship_review(prepared)
     prepared = _apply_story_and_intent_updates(session_id, prepared)
     prepared = _apply_npc_relationship_updates(session_id, prepared)
