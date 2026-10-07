@@ -6,13 +6,12 @@ from typing import Any, Dict, Iterable, List
 
 from fastapi import HTTPException
 
-from . import knowledge_firewall_runtime, private_knowledge_runtime, storage, writer_first_runtime
+from . import character_chunk_read, knowledge_firewall_runtime, private_knowledge_runtime, storage, writer_first_runtime
 
 
 _VERSION = 2
 
 _NUMBER_RE = re.compile(r"(?<!\w)\d{1,4}(?!\w)")
-_INLINE_ACTION_RE = re.compile(r"\*\((?P<text>[^)]{2,})\)\*")
 _KNOWLEDGE_ACTION_RE = re.compile(
     r"(?iu)\b(?:"
     r"провер\w*|обыск\w*|разыск\w*|отыск\w*|наш[её]л\w*|"
@@ -199,7 +198,7 @@ def _memory_texts_from_bucket(bucket: Any) -> List[str]:
     return list(dict.fromkeys(rows))
 
 
-def _packet_context(root, payload: Dict[str, Any]) -> Dict[str, Any] | None:
+def _packet_context(root, payload: Dict[str, Any]) -> tuple[Dict[str, Any], Dict[str, Any]] | None:
     packet = storage._read_json(root / "turn_packet.json", {})
     if not isinstance(packet, dict) or not packet.get("chunks"):
         return None
@@ -214,7 +213,37 @@ def _packet_context(root, payload: Dict[str, Any]) -> Dict[str, Any] | None:
         value = json.loads("".join(str(chunk) for chunk in packet.get("chunks", [])))
     except (TypeError, ValueError, json.JSONDecodeError):
         return None
-    return value if isinstance(value, dict) else None
+    if not isinstance(value, dict):
+        return None
+    return packet, value
+
+
+def _loaded_bundle_ids(packet: Dict[str, Any]) -> set[str]:
+    reads = packet.get("character_bundle_reads")
+    if not isinstance(reads, dict):
+        return set()
+    return {
+        str(character_id)
+        for character_id, row in reads.items()
+        if character_id
+        and isinstance(row, dict)
+        and str(row.get("read_id") or "").strip()
+        and isinstance(row.get("read_chunks"), list)
+        and row.get("read_chunks")
+    }
+
+
+def _loaded_bundles(session_id: str, character_ids: set[str]) -> Dict[str, Dict[str, Any]]:
+    result: Dict[str, Dict[str, Any]] = {}
+    for character_id in character_ids:
+        try:
+            result[character_id] = character_chunk_read._participation_bundle(
+                session_id,
+                character_id,
+            )
+        except (FileNotFoundError, KeyError):
+            continue
+    return result
 
 
 def _context_cards(context: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -480,10 +509,14 @@ def _protected_rows(
     context: Dict[str, Any],
     character_id: str,
     card_map: Dict[str, Dict[str, Any]],
-) -> List[Dict[str, str]]:
-    rows: List[Dict[str, str]] = []
+    *,
+    all_card_map: Dict[str, Dict[str, Any]],
+    fallback_memory: Dict[str, Any],
+    loaded_bundles: Dict[str, Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    rows: List[Dict[str, Any]] = []
 
-    own_card = card_map.get(character_id)
+    own_card = card_map.get(character_id) or all_card_map.get(character_id)
     rows.extend(_blocked_self_rows(own_card))
 
     for other_id, card in card_map.items():
@@ -506,6 +539,51 @@ def _protected_rows(
                 "text": text,
             })
 
+    fallback_characters = (
+        fallback_memory.get("characters")
+        if isinstance(fallback_memory.get("characters"), dict)
+        else {}
+    )
+    for loaded_id, bundle in loaded_bundles.items():
+        if loaded_id == character_id:
+            director_only = bundle.get("npc_relationships_director_only")
+            for text in _iter_story_strings(director_only):
+                rows.append({
+                    "source": f"loaded_bundle_director:{loaded_id}",
+                    "text": text,
+                    "broad_override": True,
+                })
+            continue
+
+        if loaded_id not in card_map:
+            loaded_card = all_card_map.get(loaded_id)
+            for text in _iter_story_strings(loaded_card):
+                rows.append({
+                    "source": f"loaded_character_card:{loaded_id}",
+                    "text": text,
+                })
+
+        memories = context.get("character_memory") if isinstance(context.get("character_memory"), dict) else {}
+        if loaded_id not in memories:
+            for text in _memory_texts_from_bucket(fallback_characters.get(loaded_id, {})):
+                rows.append({
+                    "source": f"loaded_character_memory:{loaded_id}",
+                    "text": text,
+                })
+
+        for key in (
+            "current_state",
+            "relationship_to_pov",
+            "npc_relationships_director_only",
+            "active_intents",
+        ):
+            for text in _iter_story_strings(bundle.get(key)):
+                rows.append({
+                    "source": f"loaded_bundle_{key}:{loaded_id}",
+                    "text": text,
+                    "broad_override": True,
+                })
+
     for path in _PROTECTED_CONTEXT_PATHS:
         value = context.get(path)
         if value in (None, "", [], {}):
@@ -513,7 +591,7 @@ def _protected_rows(
         for text in _iter_story_strings(value):
             rows.append({"source": path, "text": text})
 
-    unique: List[Dict[str, str]] = []
+    unique: List[Dict[str, Any]] = []
     seen: set[tuple[str, str]] = set()
     for row in rows:
         text = str(row.get("text") or "").strip()
@@ -529,7 +607,7 @@ def _protected_rows(
             "text": text,
             "terms": private_knowledge_runtime._terms(text),
             "numbers": _numbers(text),
-            "broad": source in _BROAD_DIRECTOR_SOURCES,
+            "broad": row.get("broad_override") is True or source in _BROAD_DIRECTOR_SOURCES,
         })
     return unique
 
@@ -580,7 +658,6 @@ def _match_protected(
 
 
 def _authorized_base_text(
-    root,
     context: Dict[str, Any],
     character_id: str,
     *,
@@ -605,10 +682,8 @@ def build_boundaries(
     context: Dict[str, Any],
     character_ids: List[str],
     *,
-    cards: List[Dict[str, Any]] | None = None,
     pov_id: str = "",
 ) -> Dict[str, Any]:
-    cards = cards if cards is not None else _context_cards(context)
     present, remote, _, current = _state_sets(context)
     characters: Dict[str, Any] = {}
 
@@ -658,10 +733,13 @@ def validate_scene_output(session_id: str, payload: Dict[str, Any]) -> None:
     if not root.exists():
         raise FileNotFoundError(session_id)
 
-    context = _packet_context(root, payload)
-    if context is None:
+    packet_context = _packet_context(root, payload)
+    if packet_context is None:
         # Packet identity/completeness remains owned by the existing turn pipeline.
         return
+    packet, context = packet_context
+    loaded_bundle_ids = _loaded_bundle_ids(packet)
+    loaded_bundles = _loaded_bundles(session_id, loaded_bundle_ids)
 
     source = storage._read_json(root / "source.json", {})
     all_cards = storage._load_cards(root, source)
@@ -685,7 +763,7 @@ def validate_scene_output(session_id: str, payload: Dict[str, Any]) -> None:
     )
     units = _scene_units(str(payload.get("scene_output") or ""), all_cards)
     packet_memory = context.get("character_memory") if isinstance(context.get("character_memory"), dict) else {}
-    needs_fallback_memory = any(
+    needs_fallback_memory = bool(loaded_bundle_ids) or any(
         str(unit.get("character_id") or "") not in {"", pov_id}
         and str(unit.get("character_id") or "") not in packet_memory
         for unit in units
@@ -712,7 +790,6 @@ def validate_scene_output(session_id: str, payload: Dict[str, Any]) -> None:
             base_text = base_cache.setdefault(
                 cid,
                 _authorized_base_text(
-                    root,
                     context,
                     cid,
                     context_card_map=context_card_map,
@@ -741,7 +818,14 @@ def validate_scene_output(session_id: str, payload: Dict[str, Any]) -> None:
 
             for row in protected_cache.setdefault(
                 cid,
-                _protected_rows(context, cid, context_card_map),
+                _protected_rows(
+                    context,
+                    cid,
+                    context_card_map,
+                    all_card_map=all_card_map,
+                    fallback_memory=fallback_memory,
+                    loaded_bundles=loaded_bundles,
+                ),
             ):
                 protected_text = str(row.get("text") or "").strip()
                 match = _match_protected(
