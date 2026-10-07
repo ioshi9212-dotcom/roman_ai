@@ -746,7 +746,7 @@ def _relationship_scene_participants(
         if isinstance(row, dict):
             add(row.get("recipient_id"))
 
-    for match in re.finditer(r"(?m)^\s*\*\*(?P<speaker>[^*\n]+)\*\*\s*[—-]\s*", str(scene_output or "")):
+    for match in re.finditer(r"(?m)^\s*\*\*(?P<speaker>[^*\n]+)\*\*\s*(?:\([^\n)]{1,80}\))?\s*[—-]\s*", str(scene_output or "")):
         add(match.group("speaker"))
 
     pov = state_after.get("pov") if isinstance(state_after.get("pov"), dict) else {}
