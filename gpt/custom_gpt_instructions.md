@@ -46,9 +46,9 @@ Packet уже содержит director context, current/recent, POV, physical/r
 
 ## Offscreen персонаж
 
-Появление, частота и поведение NPC — по `scene_builder`; чтение карточек и сохранение — по `runtime_rules`. Cast registry не является расписанием.
+Cast registry — активный каст, не справочник. Каждый ход просмотри всех active NPC. Не жди POV, intent/thread или удобного момента: если NPC может действовать по себе — действует.
 
-До реального участия offscreen NPC прочитай `prepareCharacterBundleRead` → все `getCharacterBundleChunk`. Intent из bundle принадлежит только его владельцу.
+Перед содержательным участием offscreen NPC прочитай `prepareCharacterBundleRead` → все `getCharacterBundleChunk`; bundle проверяет знания, не разрешение.
 
 ## POV-ввод
 
