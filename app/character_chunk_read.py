@@ -214,7 +214,7 @@ def prepare_character_bundle_read(session_id: str, character_id: str) -> Dict[st
         "chunk_chars_max": CHARACTER_CHUNK_CHARS,
         "first_chunk_included": bool(chunks),
         "next_chunk_index": 1 if len(chunks) > 1 else None,
-        "instruction": "Chunk 0 уже включён. Прочитай остальные chunks до участия персонажа.",
+        "instruction": "NPC уже выбран для участия. Chunk 0 включён; прочитай остальные chunks до его содержательной реплики/действия. Это чтение проверяет знания, а не решает, может ли NPC появиться.",
     }
     if chunks:
         result["chunk_index"] = 0
@@ -256,7 +256,7 @@ def install() -> None:
 
     def wrapped(context, cards, state):
         result = _ORIGINAL_INJECT(context, cards, state)
-        result["character_context_instruction"] = "Карточку подходящего offscreen NPC можно загрузить по cast_registry или state/intents/threads, чтобы решить, появится ли он. До участия прочитай prepareCharacterBundleRead и все chunks."
+        result["character_context_instruction"] = "Offscreen NPC выбирается из активного cast_registry без отдельного допуска от intent/thread. После выбора прочитай prepareCharacterBundleRead и все chunks до содержательной реплики/действия; bundle проверяет знания, а не право появиться."
         contract = result.get("working_context_contract") if isinstance(result.get("working_context_contract"), dict) else {}
         contract["dormant_character_retrieval"] = "bounded_chunked_when_relevant"
         contract["remote_communication_requires_loaded_dossier"] = True
