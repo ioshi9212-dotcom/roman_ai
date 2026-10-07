@@ -52,6 +52,7 @@ jobs:
           tests/test_session_schema_migrations.py
           tests/test_persistent_story_npc_registration.py
           tests/test_personal_memory_identity_boundary.py
+          tests/test_scene_npc_knowledge_guard.py
           tests/test_commit_idempotency.py
           tests/test_61_turn_cycle.py
           tests/test_300_turn_longevity.py
