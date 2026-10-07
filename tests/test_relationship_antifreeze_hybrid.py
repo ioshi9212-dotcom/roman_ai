@@ -176,6 +176,7 @@ def test_dynamic_only_shift_persists_without_forcing_numeric_jump_and_is_visible
                     "character_id": "adrian",
                     "changed": True,
                     "reason": "Выполненное обещание немного изменило текущую динамику.",
+                    "numeric_result": "unchanged",
                 }],
                 updates=[{
                     "character_id": "adrian",
