@@ -71,6 +71,25 @@ def test_public_turn_requires_review_and_empty_durable_dynamic_cannot_pass_silen
         assert exc.value.detail["code"] == "RELATIONSHIP_DIMENSIONS_EMPTY_WITH_DURABLE_DYNAMIC"
 
 
+def test_stale_pending_packet_rebuild_keeps_public_review_marker():
+    with tempfile.TemporaryDirectory() as tmp:
+        sid = setup(tmp)
+        first = prepare(sid)
+        root = storage.SESSIONS_DIR / sid
+        packet = storage._read_json(root / "turn_packet.json", {})
+        packet["turn_pipeline_version"] = 19
+        packet.pop("relationship_review_required", None)
+        storage._write_json(root / "turn_packet.json", packet)
+
+        second = prepare_turn_request(sid, "(молчать)", request_id="rel-review")
+        rebuilt = storage._read_json(root / "turn_packet.json", {})
+
+        assert second["packet_id"] != first["packet_id"]
+        assert second["relationship_review_required"] is True
+        assert rebuilt["turn_pipeline_version"] == 20
+        assert rebuilt["relationship_review_required"] is True
+
+
 def test_empty_durable_dynamic_can_explicitly_have_no_numeric_axis():
     with tempfile.TemporaryDirectory() as tmp:
         sid = setup(tmp, dynamic="Мира пока насторожена к Кайру.")
