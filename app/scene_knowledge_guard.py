@@ -46,6 +46,20 @@ _REMOTE_AUDIBLE_MARKERS = (
     "конферен",
 )
 
+_PRIVATE_MENTAL_MARKERS = (
+    "подум",
+    "вспомн",
+    "решил",
+    "решить",
+    "знаю",
+    "знать",
+    "понял",
+    "понять",
+    "мыслен",
+    "про себя",
+    "намерен",
+)
+
 _GLOBAL_FORBIDDEN_SOURCES = [
     "character_cards[OTHER_CHARACTER_ID]",
     "character_memory[OTHER_CHARACTER_ID]",
@@ -343,6 +357,26 @@ def _physical_perception_text(
     return "\n".join(str(value) for value in parts if str(value).strip())
 
 
+def _observable_stage_text(user_input: str) -> str:
+    mapping = writer_first_runtime._parse_player_input(str(user_input or ""))
+    visible: List[str] = []
+    for stage in mapping.get("stage_directions", []):
+        for part in re.split(r"(?<=[.!?;])\\s+|\n+", str(stage or "")):
+            clean = part.strip()
+            if not clean or not private_knowledge_runtime._looks_like_action(clean):
+                continue
+            normalized = private_knowledge_runtime._norm(clean)
+            if any(marker in normalized for marker in _PRIVATE_MENTAL_MARKERS):
+                continue
+            if any(
+                stem in private_knowledge_runtime._terms(clean)
+                for stem in private_knowledge_runtime._COMMUNICATION_STEMS
+            ):
+                continue
+            visible.append(clean)
+    return " ".join(visible)
+
+
 def _current_input_access(
     user_input: str,
     context: Dict[str, Any],
@@ -357,11 +391,17 @@ def _current_input_access(
     ).strip()
 
     result: Dict[str, List[str]] = {}
+    observable_stage = _observable_stage_text(user_input)
+
+    for cid in present:
+        if cid == pov_id:
+            continue
+        if public_text:
+            result.setdefault(cid, []).append(public_text)
+        if observable_stage:
+            result.setdefault(cid, []).append(observable_stage)
 
     if public_text:
-        for cid in present:
-            if cid != pov_id:
-                result.setdefault(cid, []).append(public_text)
         for cid in remote:
             if _remote_channel_audible(_remote_channel(current, cid)):
                 result.setdefault(cid, []).append(public_text)
