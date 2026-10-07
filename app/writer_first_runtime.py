@@ -21,7 +21,6 @@ MAX_WORKING_EXPERIENCES = 10
 MAX_WORKING_DIALOGUE = 10
 MAX_HISTORICAL_KNOWLEDGE_CATALOG = 8
 MAX_ACTIVE_THREADS = 12
-MAX_OFFSCREEN_INTENT_CANDIDATES = 12
 MAX_RECENT_CHRONOLOGY = 12
 MAX_CHARACTER_CHRONOLOGY = 4
 MAX_LOCATION_CHRONOLOGY = 4
@@ -436,33 +435,10 @@ def _rewrite_context(session_id: str, context: Dict[str, Any]) -> Dict[str, Any]
         current_turn=current_turn,
     )
 
-    # Offscreen intents are director triggers only. Do not expose their summary/planned_action
-    # before that character is actually loaded, otherwise another scene character can
-    # accidentally "know" an offscreen person's private future plan.
-    store_ids = list(normalise_store(state).keys())
-    offscreen_ids = [cid for cid in store_ids if cid not in set(character_ids)]
-    offscreen = active_intents_for(state, offscreen_ids, current_turn=current_turn)
-    candidates = []
-    for character_id, intents in offscreen.items():
-        if not isinstance(intents, list) or not intents:
-            continue
-        eligible = [item for item in intents if isinstance(item, dict) and item.get("eligible_now") is True]
-        if not eligible:
-            continue
-        candidates.append({
-            "character_id": character_id,
-            "has_active_intent": True,
-            "highest_priority": max([int(item.get("priority") or 0) for item in eligible] or [0]),
-            "eligible_intent_count": len(eligible),
-        })
-    candidates.sort(
-        key=lambda item: (int(item.get("highest_priority") or 0), int(item.get("eligible_intent_count") or 0)),
-        reverse=True,
-    )
-    result["offscreen_intent_candidates"] = {
-        "director_only": True,
-        "characters": candidates[:MAX_OFFSCREEN_INTENT_CANDIDATES],
-    }
+    # Offscreen initiative is selected from the full cast registry later in the
+    # turn pipeline. Do not create an intent-only candidate list here: lacking a
+    # saved intent must never make a persistent NPC look ineligible to act.
+    result.pop("offscreen_intent_candidates", None)
 
     contract = result.get("working_context_contract") if isinstance(result.get("working_context_contract"), dict) else {}
     contract.update({
@@ -479,8 +455,8 @@ def _rewrite_context(session_id: str, context: Dict[str, Any]) -> Dict[str, Any]
         "npc_intents_are_persistent": True,
         "full_npc_intent_store_in_packet": False,
         "offscreen_active_intents_in_packet": False,
-        "offscreen_intent_candidates_in_packet": True,
-        "offscreen_intent_candidate_cap": MAX_OFFSCREEN_INTENT_CANDIDATES,
+        "offscreen_intent_candidates_in_packet": False,
+        "offscreen_initiative_source": "cast_registry",
         "first_packet_chunk_in_prepare_response": True,
     })
     result["working_context_contract"] = contract
