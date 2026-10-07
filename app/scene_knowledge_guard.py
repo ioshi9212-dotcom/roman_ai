@@ -1,19 +1,90 @@
 from __future__ import annotations
 
+import json
 import re
-from copy import deepcopy
 from typing import Any, Dict, Iterable, List
 
 from fastapi import HTTPException
 
-from . import private_knowledge_runtime, profile_templates, storage, writer_first_runtime
+from . import knowledge_firewall_runtime, private_knowledge_runtime, storage, writer_first_runtime
 
 
-_VERSION = 1
+_VERSION = 2
+
 _NUMBER_RE = re.compile(r"(?<!\w)\d{1,4}(?!\w)")
+_INLINE_ACTION_RE = re.compile(r"\*\((?P<text>[^)]{2,})\)\*")
+_KNOWLEDGE_ACTION_RE = re.compile(
+    r"(?iu)\b(?:"
+    r"провер\w*|обыск\w*|разыск\w*|отыск\w*|наш[её]л\w*|"
+    r"ввел\w*|ввод\w*|набрал\w*|открыл\w*|отпер\w*|"
+    r"достал\w*|вытащил\w*|направ\w*|подош\w*\s+прям\w*|"
+    r"позвони\w*|написал\w*|переслал\w*|показал\w*|указал\w*|"
+    r"спросил\w*\s+(?:про|о)\b"
+    r")"
+)
+_WHISPER_RE = re.compile(
+    r"(?iu)\b(?:шепот\w*|шёпот\w*|шепн\w*|шепч\w*|на\s+ухо|только\s+для)\b"
+)
 _INFERENCE_MARKERS = (
-    "может", "возможно", "похоже", "кажется", "наверное", "вероятно",
-    "думаю", "предполага", "если я правильно", "выходит",
+    "может",
+    "возможно",
+    "похоже",
+    "кажется",
+    "наверное",
+    "вероятно",
+    "думаю",
+    "предполага",
+    "если я правильно",
+    "выходит",
+)
+_REMOTE_AUDIBLE_MARKERS = (
+    "звон",
+    "call",
+    "voice",
+    "голос",
+    "видео",
+    "video",
+    "конферен",
+)
+
+_GLOBAL_FORBIDDEN_SOURCES = [
+    "character_cards[OTHER_CHARACTER_ID]",
+    "character_memory[OTHER_CHARACTER_ID]",
+    "own card branches marked unknown_to_self/hidden_from_self/not_known_to_self/known_to_self=false/author_only",
+    "chronology_recent",
+    "recent_turns",
+    "continuity_turns",
+    "scene_history",
+    "novel/novel_lore/hidden_lore/world_canon",
+    "future_guidance/story_direction/source_extra",
+    "scene_state beyond actually perceived current physical facts",
+    "location_context beyond actually perceived current physical facts",
+    "canon_notes_context",
+    "cast_registry",
+    "npc_relationship_network",
+    "npc_active_intents",
+]
+
+_PROTECTED_CONTEXT_PATHS = (
+    "chronology_recent",
+    "recent_turns",
+    "continuity_turns",
+    "scene_history",
+    "novel",
+    "novel_rules",
+    "novel_lore",
+    "hidden_lore",
+    "world_canon",
+    "future_guidance",
+    "story_direction",
+    "source_extra",
+    "scene_state",
+    "location_context",
+    "canon_notes_context",
+    "cast_registry",
+    "npc_relationship_network",
+    "npc_active_intents",
+    "starting_state",
 )
 
 
@@ -22,111 +93,361 @@ def _fact_text(item: Any) -> str:
         return item.strip()
     if not isinstance(item, dict):
         return ""
-    for key in ("text", "fact", "summary", "event", "description", "content", "memory", "note", "detail"):
+    for key in (
+        "text",
+        "fact",
+        "summary",
+        "event",
+        "description",
+        "content",
+        "memory",
+        "note",
+        "detail",
+    ):
         value = item.get(key)
         if isinstance(value, str) and value.strip():
             return value.strip()
     return ""
 
 
-def _memory_rows(root, character_id: str) -> List[str]:
-    memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
-    characters = memory.get("characters") if isinstance(memory.get("characters"), dict) else {}
-    bucket = characters.get(character_id) if isinstance(characters.get(character_id), dict) else {}
-    rows: List[str] = []
-
-    journal = bucket.get("knowledge_journal")
-    if isinstance(journal, list):
-        rows.extend(
-            str(row.get("text") or "").strip()
-            for row in journal
-            if isinstance(row, dict) and str(row.get("text") or "").strip()
-        )
-
-    knowledge = bucket.get("knowledge")
-    if isinstance(knowledge, list):
-        rows.extend(text for text in (_fact_text(row) for row in knowledge) if text)
-
-    return list(dict.fromkeys(rows))
-
-
-def _authorized_corpus(root, character_id: str, cards: List[Dict[str, Any]]) -> str:
-    card = next((row for row in cards if storage._card_id(row) == character_id), None)
-    pieces: List[str] = []
-    if isinstance(card, dict):
-        # Current v5 profiles are the character's self-known profile. Hidden/director
-        # facts live outside this rendered profile and are not added here.
-        rendered = profile_templates.render_character_profile(card)
-        if rendered:
-            pieces.append(rendered)
-    pieces.extend(_memory_rows(root, character_id))
-    return "\n".join(piece for piece in pieces if piece)
-
-
-def _iter_strings(value: Any) -> Iterable[str]:
+def _iter_story_strings(value: Any) -> Iterable[str]:
     if isinstance(value, str):
         text = value.strip()
         if text:
             yield text
+        return
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        yield str(value)
         return
     if isinstance(value, dict):
         preferred = _fact_text(value)
         if preferred:
             yield preferred
             return
-        for child in value.values():
-            yield from _iter_strings(child)
+        for key, child in value.items():
+            key_norm = str(key).casefold()
+            if key_norm in knowledge_firewall_runtime._SELF_CONTROL_KEYS:
+                continue
+            yield from _iter_story_strings(child)
         return
     if isinstance(value, list):
         for child in value:
-            yield from _iter_strings(child)
+            yield from _iter_story_strings(child)
 
 
-def _author_only_rows(root) -> List[Dict[str, str]]:
-    source = storage._read_json(root / "source.json", {})
-    rows: List[Dict[str, str]] = []
-    for key in ("hidden_lore", "lore", "foundation", "story_direction", "world"):
-        for text in _iter_strings(source.get(key)):
-            rows.append({"source": f"author:{key}", "text": text})
+def _blocked_self_rows(value: Any, path: str = "") -> Iterable[Dict[str, str]]:
+    if isinstance(value, dict):
+        if knowledge_firewall_runtime._self_node_blocked(value):
+            for text in _iter_story_strings(value):
+                if text:
+                    yield {
+                        "source": f"self_hidden_card:{path or '<root>'}",
+                        "text": text,
+                    }
+            return
+        for key, child in value.items():
+            key_norm = str(key).casefold()
+            if key_norm in knowledge_firewall_runtime._SELF_CONTROL_KEYS:
+                continue
+            child_path = f"{path}.{key}" if path else str(key)
+            yield from _blocked_self_rows(child, child_path)
+        return
+    if isinstance(value, list):
+        for index, child in enumerate(value):
+            yield from _blocked_self_rows(child, f"{path}[{index}]")
 
-    chronology = storage._read_json(root / "chronology.json", [])
-    for text in _iter_strings(chronology):
-        rows.append({"source": "chronology", "text": text})
-    return rows
+
+def _self_card_text(card: Dict[str, Any] | None) -> str:
+    if not isinstance(card, dict):
+        return ""
+    return "\n".join(knowledge_firewall_runtime._iter_self_card_texts(card))
 
 
-def _prior_scene_rows(root) -> List[Dict[str, str]]:
-    rows: List[Dict[str, str]] = []
-    turns = storage._read_turns(root)
-    for turn in turns[-8:]:
-        scene = str(turn.get("scene_output") or "")
-        if not scene:
+def _memory_texts_from_bucket(bucket: Any) -> List[str]:
+    source = bucket if isinstance(bucket, dict) else {}
+    rows: List[str] = []
+
+    journal = source.get("knowledge_journal")
+    if isinstance(journal, str) and journal.strip():
+        rows.append(journal.strip())
+    elif isinstance(journal, list):
+        rows.extend(
+            str(row.get("text") or "").strip()
+            for row in journal
+            if isinstance(row, dict) and str(row.get("text") or "").strip()
+        )
+
+    knowledge = source.get("knowledge")
+    if isinstance(knowledge, list):
+        rows.extend(text for text in (_fact_text(row) for row in knowledge) if text)
+
+    return list(dict.fromkeys(rows))
+
+
+def _packet_context(root, payload: Dict[str, Any]) -> Dict[str, Any] | None:
+    packet = storage._read_json(root / "turn_packet.json", {})
+    if not isinstance(packet, dict) or not packet.get("chunks"):
+        return None
+
+    packet_id = str(payload.get("packet_id") or "").strip()
+    if packet_id and packet_id != str(packet.get("packet_id") or ""):
+        return None
+    if str(payload.get("user_input") or "") != str(packet.get("user_input") or ""):
+        return None
+
+    try:
+        value = json.loads("".join(str(chunk) for chunk in packet.get("chunks", [])))
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return None
+    return value if isinstance(value, dict) else None
+
+
+def _context_cards(context: Dict[str, Any]) -> List[Dict[str, Any]]:
+    values = context.get("character_cards")
+    if not isinstance(values, list):
+        return []
+    return [row for row in values if isinstance(row, dict)]
+
+
+def _context_card_map(context: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+    return {
+        storage._card_id(card): card
+        for card in _context_cards(context)
+        if storage._card_id(card)
+    }
+
+
+def _context_memory_bucket(context: Dict[str, Any], character_id: str) -> Dict[str, Any]:
+    memory = context.get("character_memory")
+    if not isinstance(memory, dict):
+        return {}
+    bucket = memory.get(character_id)
+    return bucket if isinstance(bucket, dict) else {}
+
+
+def _state_sets(context: Dict[str, Any]) -> tuple[set[str], set[str], str, Dict[str, Any]]:
+    state = context.get("scene_state") if isinstance(context.get("scene_state"), dict) else {}
+    present = {str(value) for value in storage._present_character_ids(state) if value}
+    remote = {str(value) for value in storage._remote_character_ids(state) if value}
+    pov = state.get("pov") if isinstance(state.get("pov"), dict) else {}
+    pov_id = str(pov.get("character_id") or "")
+    current = state.get("current") if isinstance(state.get("current"), dict) else {}
+    return present, remote, pov_id, current
+
+
+def _remote_channel(current: Dict[str, Any], character_id: str) -> str:
+    channels = current.get("remote_channels") if isinstance(current.get("remote_channels"), dict) else {}
+    return str(channels.get(character_id) or "")
+
+
+def _remote_channel_audible(channel: str) -> bool:
+    normalized = private_knowledge_runtime._norm(channel)
+    return any(marker in normalized for marker in _REMOTE_AUDIBLE_MARKERS)
+
+
+def _visible_card_text(card: Dict[str, Any] | None) -> str:
+    if not isinstance(card, dict):
+        return ""
+    values: List[str] = []
+    for key in ("appearance",):
+        value = card.get(key)
+        if value not in (None, "", [], {}):
+            values.extend(_iter_story_strings(value))
+    return "\n".join(values)
+
+
+def _physical_perception_text(
+    context: Dict[str, Any],
+    character_id: str,
+    card_map: Dict[str, Dict[str, Any]],
+) -> str:
+    present, _, _, current = _state_sets(context)
+    if character_id not in present:
+        return ""
+
+    parts: List[str] = []
+    for key in ("location", "location_id", "zone", "zone_id", "weather", "season"):
+        value = current.get(key)
+        if value not in (None, "", [], {}):
+            parts.append(str(value))
+
+    positions = current.get("positions") if isinstance(current.get("positions"), dict) else {}
+    scene_items = current.get("scene_items") if isinstance(current.get("scene_items"), dict) else {}
+    parts.extend(_iter_story_strings(positions))
+    parts.extend(_iter_story_strings(scene_items))
+
+    scene_state = context.get("scene_state") if isinstance(context.get("scene_state"), dict) else {}
+    runtime = scene_state.get("characters") if isinstance(scene_state.get("characters"), dict) else {}
+    for cid in present:
+        row = runtime.get(cid) if isinstance(runtime.get(cid), dict) else {}
+        for key in ("clothing", "outfit", "hair", "activity", "zone", "position"):
+            value = row.get(key)
+            if value not in (None, "", [], {}):
+                parts.extend(_iter_story_strings(value))
+        if cid != character_id:
+            visible = _visible_card_text(card_map.get(cid))
+            if visible:
+                parts.append(visible)
+
+    location = context.get("location_context")
+    if isinstance(location, dict):
+        for key in ("name", "current_zone"):
+            value = location.get(key)
+            if value not in (None, "", [], {}):
+                parts.extend(_iter_story_strings(value))
+
+    return "\n".join(str(value) for value in parts if str(value).strip())
+
+
+def _current_input_access(
+    user_input: str,
+    context: Dict[str, Any],
+    cards: List[Dict[str, Any]],
+) -> Dict[str, str]:
+    present, remote, pov_id, current = _state_sets(context)
+    mapping = writer_first_runtime._parse_player_input(str(user_input or ""))
+    public_text = " ".join(
+        str(value)
+        for value in mapping.get("spoken_segments", [])
+        if str(value or "").strip()
+    ).strip()
+
+    result: Dict[str, List[str]] = {}
+
+    if public_text:
+        for cid in present:
+            if cid != pov_id:
+                result.setdefault(cid, []).append(public_text)
+        for cid in remote:
+            if _remote_channel_audible(_remote_channel(current, cid)):
+                result.setdefault(cid, []).append(public_text)
+
+    for row in private_knowledge_runtime.extract_private_communications(str(user_input or ""), cards):
+        cid = str(row.get("recipient_id") or "")
+        payload = str(row.get("payload") or "").strip()
+        if cid and payload:
+            result.setdefault(cid, []).append(payload)
+
+    return {
+        cid: "\n".join(values)
+        for cid, values in result.items()
+        if values
+    }
+
+
+def _named_character_ids(text: str, cards: List[Dict[str, Any]], *, exclude_id: str = "") -> List[str]:
+    normalized = private_knowledge_runtime._norm(text)
+    found: List[str] = []
+    for card in cards:
+        cid = storage._card_id(card)
+        if not cid or cid == exclude_id:
             continue
-        for unit in private_knowledge_runtime._speaker_units(scene, storage._load_cards(root, storage._read_json(root / "source.json", {}))):
-            text = str(unit.get("text") or "").strip()
-            if text:
-                rows.append({
-                    "source": f"prior_scene_output:{unit.get('character_id') or 'unknown'}",
-                    "text": text,
-                })
-    return rows
+        for name in storage._card_names(card):
+            alias = private_knowledge_runtime._norm(name)
+            if len(alias) < 2:
+                continue
+            if re.search(
+                rf"(?<![a-zа-яё0-9_-]){re.escape(alias)}(?![a-zа-яё0-9_-])",
+                normalized,
+                flags=re.IGNORECASE,
+            ):
+                found.append(cid)
+                break
+    return list(dict.fromkeys(found))
 
 
-def _protected_rows(root, character_id: str, cards: List[Dict[str, Any]]) -> List[Dict[str, str]]:
-    memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
-    characters = memory.get("characters") if isinstance(memory.get("characters"), dict) else {}
-    rows: List[Dict[str, str]] = []
+def _speech_recipients(
+    unit: Dict[str, Any],
+    context: Dict[str, Any],
+    cards: List[Dict[str, Any]],
+) -> set[str]:
+    cid = str(unit.get("character_id") or "")
+    text = str(unit.get("text") or "")
+    label = str(unit.get("speaker_label") or "")
+    present, remote, pov_id, current = _state_sets(context)
 
-    for source_character_id in characters:
-        source_character_id = str(source_character_id)
-        if source_character_id == character_id:
+    if _WHISPER_RE.search(text):
+        targets = set(_named_character_ids(text, cards, exclude_id=cid))
+        return {cid, *targets}
+
+    marker_text = f"{label} {text}"
+    explicit_remote = private_knowledge_runtime._REMOTE_MARKER_RE.search(marker_text) is not None
+
+    if cid == pov_id:
+        recipients = {pov_id}
+        if explicit_remote:
+            exact, stems, _ = private_knowledge_runtime._alias_maps(cards)
+            target = private_knowledge_runtime._remote_target_from_label(
+                label,
+                exact=exact,
+                stems=stems,
+                exclude_id=pov_id,
+            )
+            if not target and len(remote) == 1:
+                target = next(iter(remote))
+            if target:
+                recipients.add(target)
+            return recipients
+
+        recipients.update(present)
+        for remote_id in remote:
+            if _remote_channel_audible(_remote_channel(current, remote_id)):
+                recipients.add(remote_id)
+        return recipients
+
+    if cid in remote or explicit_remote:
+        return {cid, pov_id} if pov_id else {cid}
+
+    if cid in present:
+        return set(present)
+
+    return {cid}
+
+
+def _scene_units(scene_output: str, cards: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    scene = str(scene_output or "")
+    result: List[Dict[str, Any]] = []
+
+    speeches = private_knowledge_runtime._speaker_units(scene, cards)
+    speech_positions = {int(row.get("position", -1)) for row in speeches}
+    for row in speeches:
+        result.append({**row, "kind": "speech"})
+
+    main = scene
+    for marker in ("\nЧто я могу сделать", "\nСостояние:", "\nОтношения:"):
+        if marker in main:
+            main = main.split(marker, 1)[0]
+
+    offset = 0
+    for paragraph in re.split(r"\n\s*\n", main):
+        start = scene.find(paragraph, offset)
+        if start < 0:
+            start = offset
+        offset = start + len(paragraph)
+
+        clean = paragraph.strip()
+        if not clean or start in speech_positions:
             continue
-        for text in _memory_rows(root, source_character_id):
-            rows.append({"source": f"character:{source_character_id}", "text": text})
+        if clean.startswith(("🎭", "🕒", "📍", "⚙️", "✦", "---", "[")):
+            continue
+        if re.match(r"^\s*\*\*[^*\n]+\*\*\s*[—-]\s*", clean):
+            continue
+        if _KNOWLEDGE_ACTION_RE.search(clean) is None:
+            continue
 
-    rows.extend(_author_only_rows(root))
-    rows.extend(_prior_scene_rows(root))
-    return rows
+        found = _named_character_ids(clean, cards)
+        if len(found) != 1:
+            continue
+        result.append({
+            "character_id": found[0],
+            "speaker_label": "",
+            "text": clean,
+            "position": start,
+            "kind": "action",
+        })
+
+    result.sort(key=lambda row: (int(row.get("position", 0)), 0 if row.get("kind") == "action" else 1))
+    return result
 
 
 def _numbers(text: str) -> set[str]:
@@ -138,136 +459,169 @@ def _looks_like_inference(text: str) -> bool:
     return "?" in str(text or "") or any(marker in normalized for marker in _INFERENCE_MARKERS)
 
 
-def _can_be_supported_inference(
-    text: str,
-    *,
-    leaked_terms: set[str],
-    leaked_numbers: set[str],
-    allowed_terms: set[str],
-) -> bool:
-    if leaked_numbers or len(leaked_terms) != 1 or not _looks_like_inference(text):
-        return False
-    premises = private_knowledge_runtime._terms(text) - leaked_terms
-    return bool(premises & allowed_terms)
+def _protected_rows(
+    context: Dict[str, Any],
+    character_id: str,
+    card_map: Dict[str, Dict[str, Any]],
+) -> List[Dict[str, str]]:
+    rows: List[Dict[str, str]] = []
+
+    own_card = card_map.get(character_id)
+    rows.extend(_blocked_self_rows(own_card))
+
+    for other_id, card in card_map.items():
+        if other_id == character_id:
+            continue
+        for text in _iter_story_strings(card):
+            rows.append({
+                "source": f"character_card:{other_id}",
+                "text": text,
+            })
+
+    memories = context.get("character_memory") if isinstance(context.get("character_memory"), dict) else {}
+    for other_id, bucket in memories.items():
+        other_id = str(other_id)
+        if other_id == character_id:
+            continue
+        for text in _memory_texts_from_bucket(bucket):
+            rows.append({
+                "source": f"character_memory:{other_id}",
+                "text": text,
+            })
+
+    for path in _PROTECTED_CONTEXT_PATHS:
+        value = context.get(path)
+        if value in (None, "", [], {}):
+            continue
+        for text in _iter_story_strings(value):
+            rows.append({"source": path, "text": text})
+
+    unique: List[Dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for row in rows:
+        text = str(row.get("text") or "").strip()
+        source = str(row.get("source") or "unknown")
+        if not text:
+            continue
+        key = (source, private_knowledge_runtime._norm(text))
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append({"source": source, "text": text})
+    return unique
 
 
-def _current_input_access(user_input: str, cards: List[Dict[str, Any]]) -> tuple[str, Dict[str, str]]:
-    mapping = writer_first_runtime._parse_player_input(str(user_input or ""))
-    public_text = " ".join(str(value) for value in mapping.get("spoken_segments", []) if value)
-    recipient_text: Dict[str, List[str]] = {}
-    for row in private_knowledge_runtime.extract_private_communications(str(user_input or ""), cards):
-        cid = str(row.get("recipient_id") or "")
-        payload = str(row.get("payload") or "").strip()
-        if cid and payload:
-            recipient_text.setdefault(cid, []).append(payload)
-    return public_text, {
-        cid: "\n".join(values)
-        for cid, values in recipient_text.items()
-    }
-
-
-def _can_hear(
-    listener_id: str,
-    speaker_id: str,
-    *,
-    pov_id: str,
-    present: set[str],
-    remote: set[str],
-) -> bool:
-    if listener_id == speaker_id:
-        return True
-    if listener_id in present and speaker_id in present:
-        return True
-    if listener_id in remote and speaker_id == pov_id:
-        return True
-    if listener_id == pov_id and speaker_id in remote:
-        return True
-    return False
-
-
-def _unsupported_match(
+def _match_protected(
     text: str,
     protected_text: str,
     *,
-    allowed_text: str,
     allowed_terms: set[str],
-) -> tuple[set[str], set[str]]:
-    protected_terms = private_knowledge_runtime._terms(protected_text)
+    allowed_numbers: set[str],
+) -> Dict[str, Any] | None:
     used_terms = private_knowledge_runtime._terms(text)
-    leaked_terms = (used_terms & protected_terms) - allowed_terms
+    protected_terms = private_knowledge_runtime._terms(protected_text)
 
-    allowed_numbers = _numbers(allowed_text)
-    leaked_numbers = (_numbers(text) & _numbers(protected_text)) - allowed_numbers
+    raw_overlap = used_terms & protected_terms
+    unknown_terms = raw_overlap - allowed_terms
+    known_overlap = raw_overlap & allowed_terms
 
-    # Two matching concrete terms are a specificity leak. One long distinctive
-    # term is enough only when it is very specific; numbers are always exact.
-    strong_single = {term for term in leaked_terms if len(term) >= 9}
-    if leaked_numbers or len(leaked_terms) >= 2 or strong_single:
-        return leaked_terms, leaked_numbers
-    return set(), set()
+    unknown_numbers = (_numbers(text) & _numbers(protected_text)) - allowed_numbers
+
+    if len(unknown_terms) >= 2:
+        return {
+            "terms": sorted(unknown_terms),
+            "numbers": sorted(unknown_numbers),
+            "reason": "unsupported_specificity",
+        }
+
+    if unknown_numbers and raw_overlap:
+        return {
+            "terms": sorted(unknown_terms),
+            "numbers": sorted(unknown_numbers),
+            "reason": "unsupported_exact_number",
+        }
+
+    if len(unknown_terms) == 1 and len(known_overlap) >= 2:
+        if _looks_like_inference(text):
+            return None
+        return {
+            "terms": sorted(unknown_terms),
+            "numbers": [],
+            "reason": "unsupported_relation_completion",
+        }
+
+    return None
+
+
+def _authorized_base_text(
+    root,
+    context: Dict[str, Any],
+    character_id: str,
+    *,
+    context_card_map: Dict[str, Dict[str, Any]],
+    all_card_map: Dict[str, Dict[str, Any]],
+    fallback_memory: Dict[str, Any],
+) -> str:
+    card = context_card_map.get(character_id) or all_card_map.get(character_id)
+    pieces = [_self_card_text(card)]
+
+    bucket = _context_memory_bucket(context, character_id)
+    if bucket:
+        pieces.extend(_memory_texts_from_bucket(bucket))
+    else:
+        characters = fallback_memory.get("characters") if isinstance(fallback_memory.get("characters"), dict) else {}
+        pieces.extend(_memory_texts_from_bucket(characters.get(character_id, {})))
+
+    return "\n".join(piece for piece in pieces if piece)
 
 
 def build_boundaries(
-    root,
+    context: Dict[str, Any],
     character_ids: List[str],
     *,
     cards: List[Dict[str, Any]] | None = None,
     pov_id: str = "",
 ) -> Dict[str, Any]:
-    source = storage._read_json(root / "source.json", {})
-    cards = cards if cards is not None else storage._load_cards(root, source)
+    cards = cards if cards is not None else _context_cards(context)
+    present, remote, _, current = _state_sets(context)
     characters: Dict[str, Any] = {}
 
     for character_id in character_ids:
         cid = str(character_id)
         if not cid or cid == pov_id:
             continue
-        allowed_text = _authorized_corpus(root, cid, cards)
-        allowed_terms = private_knowledge_runtime._terms(allowed_text)
-        may_know = _memory_rows(root, cid)[-16:]
-
-        must_not: List[Dict[str, str]] = []
-        for row in _protected_rows(root, cid, cards):
-            text = str(row.get("text") or "").strip()
-            if not text:
-                continue
-            unknown = private_knowledge_runtime._terms(text) - allowed_terms
-            unknown_numbers = _numbers(text) - _numbers(allowed_text)
-            if len(unknown) < 2 and not unknown_numbers:
-                continue
-            must_not.append({
-                "source": str(row.get("source") or "unknown"),
-                "fact": text[:320],
-            })
-            if len(must_not) >= 16:
-                break
+        access = "offscreen"
+        if cid in present:
+            access = "physical"
+        elif cid in remote:
+            channel = _remote_channel(current, cid)
+            access = f"remote:{channel or 'active'}"
 
         characters[cid] = {
-            "may_know": may_know,
-            "must_not_know": must_not,
-            "authority": [
-                f"character_cards[character_id={cid}] self-known facts",
+            "may_know": [
+                f"character_cards[{cid}] self-known branches only",
                 f"character_memory[{cid}].knowledge",
                 f"character_memory[{cid}].knowledge_journal",
-                "information actually perceived/heard/read/received earlier in the current turn",
+                "current-turn information actually perceived/heard/read/received by this character",
             ],
+            "must_not_know": "global_must_not_know",
+            "current_access": access,
         }
 
     return {
         "version": _VERSION,
         "mandatory": True,
-        "epistemic_authority": "personal knowledge + self-known profile + current-turn perception only",
-        "narrative_continuity_only_not_knowledge": [
-            "chronology_recent",
-            "recent_turns",
-            "previous scene_output",
-            "another character's knowledge",
-            "hidden_lore/director context",
-            "location/canon context unless actually perceived or told",
-        ],
+        "epistemic_authority": (
+            "Own self-known profile + own factual knowledge/journal + current-turn information actually perceived or received."
+        ),
+        "global_must_not_know": list(_GLOBAL_FORBIDDEN_SOURCES),
+        "previous_scene_rule": (
+            "Previous scene_output/recent/chronology are narrative continuity only. "
+            "They never grant personal knowledge by themselves."
+        ),
         "inference_rule": (
-            "Unknown detail may appear only as an explicit suspicion/question when its premise is already known to that NPC. "
-            "A guess is not established knowledge and cannot add hidden specificity without a known premise."
+            "An inference must be visibly uncertain and use premises already available to that NPC. "
+            "It may not introduce an unavailable exact number, hidden object/detail, or hidden relation as established fact."
         ),
         "characters": characters,
     }
@@ -278,114 +632,123 @@ def validate_scene_output(session_id: str, payload: Dict[str, Any]) -> None:
     if not root.exists():
         raise FileNotFoundError(session_id)
 
-    source = storage._read_json(root / "source.json", {})
-    cards = storage._load_cards(root, source)
-    state = storage._read_json(root / "state.json", {})
-    pov = state.get("pov") if isinstance(state.get("pov"), dict) else {}
-    pov_id = str(pov.get("character_id") or "")
-    present = {str(value) for value in storage._present_character_ids(state) if value}
-    remote = {str(value) for value in storage._remote_character_ids(state) if value}
+    context = _packet_context(root, payload)
+    if context is None:
+        # Packet identity/completeness remains owned by the existing turn pipeline.
+        return
 
-    user_input = str(payload.get("user_input") or "")
-    public_input_text, recipient_text = _current_input_access(user_input, cards)
-    private_records = private_knowledge_runtime._private_records(root, cards, user_input)
-    transfer_sources = private_knowledge_runtime._current_private_transfer_sources(
-        user_input,
-        cards,
-        private_records,
-        pov_id=pov_id,
+    source = storage._read_json(root / "source.json", {})
+    all_cards = storage._load_cards(root, source)
+    all_card_map = {
+        storage._card_id(card): card
+        for card in all_cards
+        if storage._card_id(card)
+    }
+    context_card_map = _context_card_map(context)
+    fallback_memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
+
+    present, _, pov_id, _ = _state_sets(context)
+    if not pov_id:
+        state = storage._read_json(root / "state.json", {})
+        pov = state.get("pov") if isinstance(state.get("pov"), dict) else {}
+        pov_id = str(pov.get("character_id") or "")
+
+    current_input = _current_input_access(
+        str(payload.get("user_input") or ""),
+        context,
+        all_cards,
     )
-    transfer_allowed_terms = private_knowledge_runtime._current_transfer_allowed_terms(
-        payload,
-        private_records,
-        transfer_sources,
-        pov_id=pov_id,
-    )
-    units = private_knowledge_runtime._speaker_units(str(payload.get("scene_output") or ""), cards)
-    earlier_speech: List[Dict[str, str]] = []
+    units = _scene_units(str(payload.get("scene_output") or ""), all_cards)
 
     protected_cache: Dict[str, List[Dict[str, str]]] = {}
-    base_text_cache: Dict[str, str] = {}
+    base_cache: Dict[str, str] = {}
+    perception_cache: Dict[str, str] = {}
+    earlier_access: Dict[str, List[str]] = {}
 
     for unit in units:
         cid = str(unit.get("character_id") or "")
         text = str(unit.get("text") or "").strip()
+        kind = str(unit.get("kind") or "speech")
         if not cid or not text:
             continue
 
-        if cid == pov_id:
-            earlier_speech.append({"character_id": cid, "text": text})
-            continue
-
-        base_text = base_text_cache.setdefault(cid, _authorized_corpus(root, cid, cards))
-        heard = [
-            row["text"]
-            for row in earlier_speech
-            if _can_hear(
+        if cid != pov_id:
+            base_text = base_cache.setdefault(
                 cid,
-                str(row.get("character_id") or ""),
-                pov_id=pov_id,
-                present=present,
-                remote=remote,
+                _authorized_base_text(
+                    root,
+                    context,
+                    cid,
+                    context_card_map=context_card_map,
+                    all_card_map=all_card_map,
+                    fallback_memory=fallback_memory,
+                ),
             )
-        ]
-        allowed_text = "\n".join([
-            base_text,
-            public_input_text,
-            recipient_text.get(cid, ""),
-            *heard,
-        ])
-        allowed_terms = private_knowledge_runtime._terms(allowed_text)
-        allowed_terms.update(transfer_allowed_terms.get(cid, set()))
-
-        unsupported: List[Dict[str, Any]] = []
-        leaked_terms_all: set[str] = set()
-        leaked_numbers_all: set[str] = set()
-
-        for row in protected_cache.setdefault(cid, _protected_rows(root, cid, cards)):
-            protected_text = str(row.get("text") or "").strip()
-            if not protected_text:
-                continue
-            leaked_terms, leaked_numbers = _unsupported_match(
-                text,
-                protected_text,
-                allowed_text=allowed_text,
-                allowed_terms=allowed_terms,
+            perception = perception_cache.setdefault(
+                cid,
+                _physical_perception_text(context, cid, context_card_map),
             )
-            if not leaked_terms and not leaked_numbers:
-                continue
-            if _can_be_supported_inference(
-                text,
-                leaked_terms=leaked_terms,
-                leaked_numbers=leaked_numbers,
-                allowed_terms=allowed_terms,
+            allowed_text = "\n".join([
+                base_text,
+                perception,
+                current_input.get(cid, ""),
+                *earlier_access.get(cid, []),
+            ])
+            allowed_terms = private_knowledge_runtime._terms(allowed_text)
+            allowed_numbers = _numbers(allowed_text)
+
+            unsupported: List[Dict[str, Any]] = []
+            leaked_terms: set[str] = set()
+            leaked_numbers: set[str] = set()
+
+            for row in protected_cache.setdefault(
+                cid,
+                _protected_rows(context, cid, context_card_map),
             ):
-                continue
-            leaked_terms_all.update(leaked_terms)
-            leaked_numbers_all.update(leaked_numbers)
-            unsupported.append({
-                "source": str(row.get("source") or "unknown"),
-                "fact": protected_text[:320],
-            })
-            if len(unsupported) >= 3:
-                break
+                protected_text = str(row.get("text") or "").strip()
+                match = _match_protected(
+                    text,
+                    protected_text,
+                    allowed_terms=allowed_terms,
+                    allowed_numbers=allowed_numbers,
+                )
+                if match is None:
+                    continue
 
-        if unsupported:
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "code": "SCENE_NPC_KNOWLEDGE_LEAK",
-                    "character_id": cid,
-                    "unsupported_text": text,
-                    "unsupported_facts": unsupported,
-                    "leaked_terms": sorted(leaked_terms_all),
-                    "leaked_numbers": sorted(leaked_numbers_all),
-                    "instruction": (
-                        "Rewrite only the unsupported NPC line and retry the same pending turn/packet_id. "
-                        "chronology, recent/previous scene_output, hidden/director context and another character's knowledge "
-                        "are narrative context, not this NPC's epistemic authority."
-                    ),
-                },
-            )
+                leaked_terms.update(match.get("terms") or [])
+                leaked_numbers.update(match.get("numbers") or [])
+                unsupported.append({
+                    "source": str(row.get("source") or "unknown"),
+                    "fact": protected_text[:320],
+                    "reason": str(match.get("reason") or "unsupported"),
+                })
+                if len(unsupported) >= 3:
+                    break
 
-        earlier_speech.append({"character_id": cid, "text": text})
+            if unsupported:
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "code": "SCENE_NPC_KNOWLEDGE_LEAK",
+                        "character_id": cid,
+                        "unit_kind": kind,
+                        "unsupported_text": text,
+                        "unsupported_facts": unsupported,
+                        "leaked_terms": sorted(leaked_terms),
+                        "leaked_numbers": sorted(leaked_numbers),
+                        "instruction": (
+                            "Rewrite only the unsupported NPC speech/action and retry the same pending packet_id. "
+                            "Chronology/recent/previous scene_output, hidden/director context, another character's card or memory, "
+                            "and hidden branches of the NPC's own card are not epistemic authority."
+                        ),
+                    },
+                )
+
+        if kind == "speech":
+            recipients = _speech_recipients(unit, context, all_cards)
+            for recipient_id in recipients:
+                if recipient_id:
+                    earlier_access.setdefault(recipient_id, []).append(text)
+        elif cid in present:
+            for recipient_id in present:
+                earlier_access.setdefault(recipient_id, []).append(text)
