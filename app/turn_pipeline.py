@@ -523,7 +523,6 @@ def _prepare_context(
     context["knowledge_boundaries"] = scene_knowledge_guard.build_boundaries(
         context,
         scene_ids,
-        cards=cards,
         pov_id=str(pov.get("character_id") or ""),
     )
     relationship_store = relationship_file_runtime.load(
