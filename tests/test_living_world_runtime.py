@@ -146,7 +146,7 @@ def test_location_linked_cast_is_prioritized_without_asserting_presence():
     assert pressure[0]["character_id"] == "rayna"
     assert pressure[0]["location_linked"] is True
     assert pressure[0]["must_reconsider"] is True
-    assert "не оставляй его за кадром только ради сохранения текущей сцены" in pressure[0]["guidance"]
+    assert "Не жди дополнительной сюжетной причины" in pressure[0]["guidance"]
     assert "present" not in pressure[0]
 
 
