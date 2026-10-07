@@ -509,7 +509,7 @@ def _rotation_pressure(
             item["last_meaningful_event"] = str(summary)[:160]
         scored.append((score, item))
     scored.sort(key=lambda pair: pair[0], reverse=True)
-    return [row for _, row in scored[:10]]
+    return [row for _, row in scored]
 
 
 def _post_turn_present(state: Dict[str, Any], extracted: Dict[str, Any]) -> set[str]:
