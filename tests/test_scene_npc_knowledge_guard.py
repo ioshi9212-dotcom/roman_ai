@@ -560,8 +560,33 @@ def test_foreign_fact_seen_only_through_offscreen_bundle_cannot_leak_to_other_np
         detail = exc.value.detail
         assert detail["code"] == "SCENE_NPC_KNOWLEDGE_LEAK"
         assert any(
-            row["source"] == "loaded_character_memory:mira"
+            row["source"].startswith("loaded_bundle_chunk:mira:")
             for row in detail["unsupported_facts"]
+        )
+
+
+
+
+def test_unread_offscreen_bundle_chunks_do_not_become_protected_visibility():
+    with tempfile.TemporaryDirectory() as tmp:
+        _setup(tmp)
+        novel = _novel()
+        novel["starting_state"]["current"]["present_characters"] = ["kair", "adrian"]
+        mira = next(row for row in novel["characters"] if row["character_id"] == "mira")
+        mira["background"] = "A" * 13000 + " Фраза из непрочитанного хвоста: янтарный компас под лестницей."
+        sid = storage.create_session(novel)["session_id"]
+
+        manifest, _ = _prepare(sid, "(молчать)")
+        read = character_chunk_read.prepare_character_bundle_read(sid, "mira")
+        assert read["chunk_count"] > 1
+
+        # Only chunk 0 was returned. The hidden phrase is deliberately in a later
+        # unread chunk, so it must not be treated as something the model saw.
+        _validate(
+            sid,
+            manifest,
+            "(молчать)",
+            "**Адриан** — Янтарный компас лежит под лестницей.",
         )
 
 
