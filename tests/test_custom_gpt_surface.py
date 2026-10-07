@@ -84,6 +84,12 @@ def test_static_custom_gpt_schema_has_exact_current_30_actions():
     assert "knowledge_reviewed" in extracted["properties"]
     assert "relationship_reviewed" not in extracted["properties"]
     assert "relationship_review" in extracted["properties"]
+    assert extracted["properties"]["relationship_review"].get("deprecated") is not True
+    review_item = schema["components"]["schemas"]["RelationshipReviewItem"]
+    assert "numeric_result" in review_item["required"]
+    assert review_item["properties"]["numeric_result"]["enum"] == [
+        "updated", "unchanged", "no_numeric_dimension_justified"
+    ]
 
     relationship = schema["components"]["schemas"]["RelationshipUpdate"]
     assert "dynamic" in relationship["properties"]
