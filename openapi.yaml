@@ -757,7 +757,7 @@ components:
             $ref: '#/components/schemas/RelationshipUpdate'
         relationship_review:
           type: array
-          description: Mandatory review evidence: exactly one row for every NPC who physically participated in this turn. Validated before commit and not persisted.
+          description: "Mandatory review evidence: exactly one row for every NPC who physically participated in this turn. Validated before commit and not persisted."
           items:
             $ref: '#/components/schemas/RelationshipReviewItem'
         state_patch:
