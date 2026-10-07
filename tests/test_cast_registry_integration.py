@@ -102,13 +102,19 @@ def test_story_created_rotation_age_starts_at_registration_not_turn_zero():
         }},
     }
     source_ids = {"pov"}
-    assert cast_registry_runtime._rotation_pressure(
+    pressure_now = cast_registry_runtime._rotation_pressure(
         state, cards, current_turn=20, source_character_ids=source_ids
-    ) == []
+    )
+    row_now = next(item for item in pressure_now if item["character_id"] == "mark")
+    assert row_now["initiative_eligible"] is True
+    assert row_now["turns_since_activity"] == 8
+    assert row_now["turns_since_appearance"] == 8
+
     pressure = cast_registry_runtime._rotation_pressure(
         state, cards, current_turn=48, source_character_ids=source_ids
     )
     row = next(item for item in pressure if item["character_id"] == "mark")
+    assert row["initiative_eligible"] is True
     assert row["turns_since_activity"] == 36
     assert row["turns_since_appearance"] == 36
 
