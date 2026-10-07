@@ -535,6 +535,28 @@ def test_offscreen_bundle_read_is_tracked_without_rewriting_writer_chunks():
         assert tracked["character_bundle_reads"]["mira"]["read_chunks"] == [0]
 
 
+
+
+def test_reused_pending_prepare_keeps_bundle_read_metadata():
+    with tempfile.TemporaryDirectory() as tmp:
+        _setup(tmp)
+        novel = _novel()
+        novel["starting_state"]["current"]["present_characters"] = ["kair", "adrian"]
+        sid = storage.create_session(novel)["session_id"]
+        root = storage.SESSIONS_DIR / sid
+
+        first, _ = _prepare(sid, "(молчать)")
+        read = character_chunk_read.prepare_character_bundle_read(sid, "mira")
+
+        second = session_runtime.prepare_turn_packet(sid, "(молчать)")
+        packet = storage._read_json(root / "turn_packet.json", {})
+
+        assert second["packet_id"] == first["packet_id"]
+        assert second["reused_pending_packet"] is True
+        assert packet["character_bundle_reads"]["mira"]["read_id"] == read["read_id"]
+        assert packet["character_bundle_reads"]["mira"]["read_chunks"] == [0]
+
+
 def test_foreign_fact_seen_only_through_offscreen_bundle_cannot_leak_to_other_npc():
     with tempfile.TemporaryDirectory() as tmp:
         _setup(tmp)
