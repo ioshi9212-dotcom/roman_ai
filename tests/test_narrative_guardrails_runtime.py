@@ -115,6 +115,7 @@ def test_cast_pressure_surfaces_long_absent_important_npc_and_intent():
     assert "june" in ids
     assert next(row for row in pressure if row["character_id"] == "june")["active_intent"] is True
     assert all(row["must_reconsider"] is True for row in pressure)
+    assert all(row["initiative_eligible"] is True for row in pressure)
 
 
 def test_story_pressure_surfaces_overdue_or_high_priority_threads():
@@ -173,7 +174,9 @@ def test_scene_momentum_is_short_and_keeps_meaningful_boundary():
     assert "Короткое действие" in text
     assert "следующий самостоятельный этап" in text
     assert "Важную сцену не проматывай" in text
-    assert len(text) < 360
+    assert "любой active NPC" in text
+    assert "Не жди отдельного причинного триггера" in text
+    assert len(text) < 700
 
 
 def test_pov_activity_keeps_visible_presence_and_ordinary_dialogue():
