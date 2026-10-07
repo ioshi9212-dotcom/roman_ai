@@ -144,8 +144,12 @@ def test_offscreen_active_intent_is_visible_before_character_is_pulled_into_scen
             if row["character_id"] == "ren"
         )
         assert registry_row["active_intents"]
+        assert registry_row["story_actor"] is True
+        assert registry_row["initiative_eligible"] is True
+        assert registry_row["offscreen_can_initiate"] is True
         assert "Незакрытая линия остаётся активной" in context["runtime_rules"]
-        assert "не задаёт очередь, квоту или таймер появления" in context["cast_registry"]["instruction"]
+        assert "действующая фигура истории" in context["cast_registry"]["instruction"]
+        assert "Не жди приглашения POV" in context["cast_registry"]["instruction"]
 
         # The owner still gets the full private intent once their dossier is loaded.
         bundle = get_character_bundle(sid, "ren")
