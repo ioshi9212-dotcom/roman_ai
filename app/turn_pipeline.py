@@ -273,6 +273,9 @@ def _cast_registry_rows(
             "is_pov": cid == pov_id,
             "present": cid in present,
             "remote": cid in remote,
+            "story_actor": cid != pov_id and not cast_registry_runtime._is_inactive(raw.get("status") or info.get("status") or card.get("status")),
+            "initiative_eligible": cid != pov_id and not cast_registry_runtime._is_inactive(raw.get("status") or info.get("status") or card.get("status")),
+            "offscreen_can_initiate": cid != pov_id and cid not in present and cid not in remote and not cast_registry_runtime._is_inactive(raw.get("status") or info.get("status") or card.get("status")),
             "goals": compact(goals),
             "work": compact(card.get("work"), 220),
             "habits": compact(card.get("habits"), 260),
@@ -529,17 +532,25 @@ def _prepare_context(
     }
     context["cast_registry"] = {
         "persistent": True,
+        "active_story_cast": True,
         "registry_index_path": "cast_registry.characters",
         "mandatory_causal_review": True,
+        "review_every_turn": True,
         "offscreen_bundle_read": {
             "action": "prepareCharacterBundleRead",
             "then": "read all getCharacterBundleChunk chunks before material participation",
-            "rule": "The bundle may be read to decide whether a candidate should participate; complete it before actual participation.",
+            "rule": (
+                "Cast registry already establishes eligibility. Do not use bundle reading as a permission gate or reason to postpone an NPC. "
+                "Choose initiative from the compact row; once an offscreen NPC is going to participate, read the full bundle before substantive participation."
+            ),
         },
         "instruction": (
-            "Перед сценой просмотри постоянный NPC-каст и npc_relationship_network. "
-            "Cast registry даёт контекст и не задаёт очередь, квоту или таймер появления; решение о появлении/контакте — по scene_builder. "
-            "До реального участия offscreen NPC прочитай его полный character bundle."
+            "Перед каждой сценой просмотри весь постоянный NPC-каст и npc_relationship_network. "
+            "Каждый active NPC в cast_registry — действующая фигура истории, а не справочная запись. "
+            "Не жди приглашения POV, отдельного intent/thread, удобной сцены, таймера отсутствия или специальной причины. "
+            "Собственная цель, характер, отношения, работа, привычки, текущие дела и возможность действовать уже достаточны для инициативы. "
+            "Если offscreen NPC может прийти, пересечься, вмешаться, позвонить, написать или иначе действовать в рамках себя — не откладывай его только ради сохранения текущей сцены. "
+            "До содержательного участия выбранного offscreen NPC прочитай его полный character bundle; это проверка знания, а не разрешение на появление."
         ),
         "characters": _cast_registry_rows(state, cards, source, current_turn, npc_network, relationship_store),
     }
