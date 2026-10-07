@@ -457,9 +457,9 @@ def _rotation_pressure(
                 or (since_appearance_days is not None and since_appearance_days >= 3)
             )
         )
+        # Recency/intent/thread affect priority only, never eligibility.
+        # Every active offscreen persistent NPC remains eligible to initiate on every turn.
         due = turn_due or day_due or has_intent or has_thread or relationship_due or forgotten_core
-        if not due:
-            continue
 
         turn_pressure = inactive_for / max(1, turn_threshold)
         day_pressure = (inactive_days / max(1, day_threshold)) if inactive_days is not None else 0.0
@@ -481,7 +481,8 @@ def _rotation_pressure(
             "turns_since_activity": inactive_for,
             "turns_since_appearance": since_appearance,
             "appearance_count": appearance_count,
-            "return_rule": "Найди ближайший логичный способ вернуть персонажа в активную историю. Его личной мотивации, отношения, цели или story_function достаточно.",
+            "initiative_eligible": True,
+            "return_rule": "Персонаж уже является действующей фигурой истории. Не жди таймера, приглашения POV, intent/thread или отдельной сюжетной причины: его характер, цели, отношения, дела и возможность действовать достаточны для инициативы.",
         }
         if inactive_days is not None:
             item["game_days_since_activity"] = inactive_days
@@ -763,8 +764,9 @@ def _rewrite_packet(session_id: str, base_result: Dict[str, Any]) -> Dict[str, A
             "instruction": (
                 "character_registry = единственный полный компактный каталог зарегистрированных персонажей, включая core/story_function и last-seen metadata. "
                 "cast_registry не дублирует каталог: здесь только ротация и агрегаты. "
-                "Перед сценой проверь character_registry, особенно core. rotation_pressure не означает телепортацию: "
-                "ищи ближайшую естественную причинную возможность вернуть персонажа. "
+                "Перед сценой проверь весь character_registry. Все active постоянные NPC остаются доступными для инициативы каждый ход; "
+                "rotation_pressure только ранжирует внимание и не является допуском, таймером или условием появления. "
+                "Не жди приглашения POV или специальной причины: при возможности действовать персонаж действует из своего характера, целей и отношений. "
                 "Устойчивого нового NPC сохрани через character_upsert с короткой режиссёрской story_function."
             ),
         }
