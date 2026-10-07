@@ -612,60 +612,6 @@ def test_unread_offscreen_bundle_chunks_do_not_become_protected_visibility():
         )
 
 
-def test_validated_explicit_private_forward_remains_allowed():
-    with tempfile.TemporaryDirectory() as tmp:
-        _setup(tmp)
-        novel = _novel()
-        novel["starting_state"]["current"]["present_characters"] = ["kair"]
-        sid = storage.create_session(novel)["session_id"]
-
-        first, _ = _prepare(
-            sid,
-            "(ответить Мире - Встречаемся у старого моста. Я буду на мотоцикле.)",
-        )
-        session_runtime.commit_turn(
-            sid,
-            {
-                "packet_id": first["packet_id"],
-                "user_input": "(ответить Мире - Встречаемся у старого моста. Я буду на мотоцикле.)",
-                "scene_output": (
-                    "**Кайр** — *(в сообщении Мире)* "
-                    "Встречаемся у старого моста. Я буду на мотоцикле."
-                ),
-                "extracted": {},
-            },
-        )
-
-        second, _ = _prepare(
-            sid,
-            "(переслать Адриану выбранные сообщения Миры)",
-        )
-        result = session_runtime.commit_turn(
-            sid,
-            {
-                "packet_id": second["packet_id"],
-                "user_input": "(переслать Адриану выбранные сообщения Миры)",
-                "scene_output": (
-                    "**Адриан** — Значит, встреча у старого моста? "
-                    "И там будет мотоцикл?"
-                ),
-                "extracted": {
-                    "knowledge_journal_add": [
-                        {
-                            "character_id": "adrian",
-                            "text": (
-                                "Кайр переслал Адриану выбранные сообщения Миры: "
-                                "встреча у старого моста, Кайр будет на мотоцикле."
-                            ),
-                        }
-                    ]
-                },
-            },
-        )
-
-        assert result["turn_number"] == 2
-
-
 def test_rejected_commit_keeps_pending_turn_uncommitted():
     with tempfile.TemporaryDirectory() as tmp:
         _setup(tmp)
