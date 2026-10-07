@@ -86,7 +86,9 @@ def test_stale_pending_packet_rebuild_keeps_public_review_marker():
 
         assert second["packet_id"] != first["packet_id"]
         assert second["relationship_review_required"] is True
+        assert second["writer_review_required"] is True
         assert rebuilt["turn_pipeline_version"] == 20
+        assert rebuilt["writer_review_required"] is True
         assert rebuilt["relationship_review_required"] is True
 
 
