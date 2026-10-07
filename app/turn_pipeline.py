@@ -29,6 +29,7 @@ from . import (
     runtime_access,
     runtime_fixes,
     scene_presence_runtime,
+    scene_knowledge_guard,
     session_migrations,
     session_recovery,
     session_runtime,
@@ -50,7 +51,7 @@ _BASE_PARTICIPATION_BUNDLE = character_chunk_read._participation_bundle
 _BASE_CREATE_SESSION = storage.create_session
 _BASE_RECOVER_CURRENT = session_recovery.recover_session_current
 
-PIPELINE_VERSION = 18
+PIPELINE_VERSION = 19
 
 def _packet_manifest(packet: Dict[str, Any], *, reused: bool) -> Dict[str, Any]:
     chunks = packet.get("chunks", []) if isinstance(packet.get("chunks"), list) else []
@@ -418,6 +419,7 @@ def _move_runtime_documents_last(context: Dict[str, Any]) -> Dict[str, Any]:
         "scoped canon notes when relevant",
         "active character cards",
         "each active character's own knowledge",
+        "explicit NPC knowledge boundaries",
         "relationships and active intents",
         "cast registry",
         "NPC relationship network",
@@ -518,6 +520,11 @@ def _prepare_context(
         for cid in scene_ids
     }
     pov = state.get("pov") if isinstance(state.get("pov"), dict) else {}
+    context["knowledge_boundaries"] = scene_knowledge_guard.build_boundaries(
+        context,
+        scene_ids,
+        pov_id=str(pov.get("character_id") or ""),
+    )
     relationship_store = relationship_file_runtime.load(
         root,
         cards=cards,
@@ -738,7 +745,7 @@ def _relationship_scene_participants(
         if isinstance(row, dict):
             add(row.get("recipient_id"))
 
-    for match in re.finditer(r"(?m)^\s*\*\*(?P<speaker>[^*\n]+)\*\*\s*[—-]\s*", str(scene_output or "")):
+    for match in re.finditer(r"(?m)^\s*\*\*(?P<speaker>[^*\n]+)\*\*\s*(?:\([^\n)]{1,80}\))?\s*[—-]\s*", str(scene_output or "")):
         add(match.group("speaker"))
 
     pov = state_after.get("pov") if isinstance(state_after.get("pov"), dict) else {}
@@ -971,7 +978,11 @@ def commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     )
     prepared = private_knowledge_runtime.normalize_dialogue_memory_modes(session_id, prepared)
     prepared = private_knowledge_runtime.add_scene_remote_communication_memory(session_id, prepared)
+    # Preserve the existing private-communication firewall and its error codes,
+    # then apply the broader scene provenance guard. Everything above is an
+    # in-memory payload transformation; no state has been persisted yet.
     private_knowledge_runtime.validate_private_knowledge(session_id, prepared)
+    scene_knowledge_guard.validate_scene_output(session_id, prepared)
     prepared = _strip_relationship_review(prepared)
     prepared = _apply_story_and_intent_updates(session_id, prepared)
     prepared = _apply_npc_relationship_updates(session_id, prepared)

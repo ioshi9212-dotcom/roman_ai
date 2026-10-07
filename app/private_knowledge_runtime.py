@@ -9,7 +9,9 @@ from fastapi import HTTPException
 from . import personal_memory_transport, storage, writer_first_runtime
 
 
-_SPEECH_RE = re.compile(r"(?m)^\s*\*\*(?P<speaker>[^*\n]+)\*\*\s*[—-]\s*(?P<text>.*)$")
+_SPEECH_RE = re.compile(
+    r"(?m)^\s*\*\*(?P<speaker>[^*\n]+)\*\*\s*(?P<channel>\([^\n)]{1,80}\))?\s*[—-]\s*(?P<text>.*)$"
+)
 _COMMUNICATION_RE = re.compile(
     r"(?iu)\b(?:написать|ответить|отправить|переслать|сказать|сообщить|шепнуть|показать|позвонить)\s+([^\s,.;:()—-]+)"
 )
@@ -265,9 +267,11 @@ def _speaker_units(scene_output: str, cards: List[Dict[str, Any]]) -> List[Dict[
     exact, stems, _ = _alias_maps(cards)
     result: List[Dict[str, Any]] = []
     for match in _SPEECH_RE.finditer(str(scene_output or "")):
-        speaker_label = match.group("speaker").strip()
-        cid = _resolve_speaker_label(speaker_label, exact, stems)
+        speaker_name = match.group("speaker").strip()
+        channel = str(match.group("channel") or "").strip()
+        cid = _resolve_speaker_label(speaker_name, exact, stems)
         if cid:
+            speaker_label = " ".join(value for value in (speaker_name, channel) if value)
             result.append({
                 "character_id": cid,
                 "speaker_label": speaker_label,

@@ -8,6 +8,7 @@ from typing import Any, Dict, List
 from .character_access import get_character_bundle
 from . import personal_memory_transport, relationship_file_runtime, storage, session_runtime
 from .scene_compaction_runtime import active_memory_records, complete_knowledge_records
+from .transactional_storage import session_transaction
 
 
 CHARACTER_CHUNK_CHARS = 12000
@@ -204,8 +205,47 @@ def _snapshot(session_id: str, character_id: str) -> tuple[str, List[str]]:
     return read_id, chunks
 
 
+def _record_pending_bundle_read(
+    session_id: str,
+    character_id: str,
+    read_id: str,
+    chunk_index: int,
+    chunk_count: int,
+) -> None:
+    root = storage.SESSIONS_DIR / session_id
+    if not root.exists():
+        return
+    with session_transaction(root):
+        packet = storage._read_json(root / "turn_packet.json", {})
+        if not isinstance(packet, dict) or not packet.get("packet_id") or not packet.get("chunks"):
+            return
+        reads = packet.get("character_bundle_reads")
+        if not isinstance(reads, dict):
+            reads = {}
+        row = reads.get(character_id)
+        if not isinstance(row, dict) or str(row.get("read_id") or "") != read_id:
+            row = {
+                "read_id": read_id,
+                "chunk_count": int(chunk_count),
+                "read_chunks": [],
+            }
+        seen = {
+            int(value)
+            for value in row.get("read_chunks", [])
+            if isinstance(value, int)
+        }
+        seen.add(int(chunk_index))
+        row["read_chunks"] = sorted(seen)
+        row["chunk_count"] = int(chunk_count)
+        reads[str(character_id)] = row
+        packet["character_bundle_reads"] = reads
+        storage._write_json(root / "turn_packet.json", packet)
+
+
 def prepare_character_bundle_read(session_id: str, character_id: str) -> Dict[str, Any]:
     read_id, chunks = _snapshot(session_id, character_id)
+    if chunks:
+        _record_pending_bundle_read(session_id, character_id, read_id, 0, len(chunks))
     result: Dict[str, Any] = {
         "session_id": session_id,
         "character_id": character_id,
@@ -234,6 +274,13 @@ def get_character_bundle_chunk(
         raise PermissionError("STALE_CHARACTER_READ")
     if chunk_index < 0 or chunk_index >= len(chunks):
         raise IndexError(chunk_index)
+    _record_pending_bundle_read(
+        session_id,
+        character_id,
+        read_id,
+        chunk_index,
+        len(chunks),
+    )
     return {
         "session_id": session_id,
         "character_id": character_id,
