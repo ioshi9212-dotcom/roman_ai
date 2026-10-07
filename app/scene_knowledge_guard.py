@@ -286,7 +286,21 @@ def validate_scene_output(session_id: str, payload: Dict[str, Any]) -> None:
     present = {str(value) for value in storage._present_character_ids(state) if value}
     remote = {str(value) for value in storage._remote_character_ids(state) if value}
 
-    public_input_text, recipient_text = _current_input_access(str(payload.get("user_input") or ""), cards)
+    user_input = str(payload.get("user_input") or "")
+    public_input_text, recipient_text = _current_input_access(user_input, cards)
+    private_records = private_knowledge_runtime._private_records(root, cards, user_input)
+    transfer_sources = private_knowledge_runtime._current_private_transfer_sources(
+        user_input,
+        cards,
+        private_records,
+        pov_id=pov_id,
+    )
+    transfer_allowed_terms = private_knowledge_runtime._current_transfer_allowed_terms(
+        payload,
+        private_records,
+        transfer_sources,
+        pov_id=pov_id,
+    )
     units = private_knowledge_runtime._speaker_units(str(payload.get("scene_output") or ""), cards)
     earlier_speech: List[Dict[str, str]] = []
 
@@ -322,6 +336,7 @@ def validate_scene_output(session_id: str, payload: Dict[str, Any]) -> None:
             *heard,
         ])
         allowed_terms = private_knowledge_runtime._terms(allowed_text)
+        allowed_terms.update(transfer_allowed_terms.get(cid, set()))
 
         unsupported: List[Dict[str, Any]] = []
         leaked_terms_all: set[str] = set()
