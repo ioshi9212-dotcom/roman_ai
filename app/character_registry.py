@@ -322,5 +322,5 @@ def registry_instruction() -> str:
         "acquainted means an introduction/acquaintance is already established. Never stage a first introduction for known or "
         "acquainted characters. Never infer identity/name merely from NPC->POV relationship numbers. "
         "Never silently reuse an existing registered name/character_id for an anonymous newcomer. "
-        "If an existing registered character enters from offscreen, load that character's full bundle before writing the entrance."
+        "An existing registered character may be selected to enter from the compact cast registry; then load that character's full bundle before substantive dialogue/action. Bundle loading is not permission to appear."
     )
