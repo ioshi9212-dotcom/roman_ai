@@ -412,6 +412,48 @@ def test_knowledge_dependent_standalone_npc_action_is_checked():
 
 
 
+
+
+def test_observable_pov_stage_action_is_available_to_present_npc():
+    with tempfile.TemporaryDirectory() as tmp:
+        _setup(tmp)
+        sid = storage.create_session(_novel())["session_id"]
+        root = storage.SESSIONS_DIR / sid
+        _seed(root, "kair", "Телевизор был включён, пока Кайр сам его не выключил.")
+
+        raw = "(выключить телевизор)"
+        manifest, _ = _prepare(sid, raw)
+
+        _validate(
+            sid,
+            manifest,
+            raw,
+            "**Адриан** — Ты только что выключил телевизор.",
+        )
+
+
+def test_private_pov_thought_inside_stage_direction_is_not_available_to_npc():
+    with tempfile.TemporaryDirectory() as tmp:
+        _setup(tmp)
+        sid = storage.create_session(_novel())["session_id"]
+        root = storage.SESSIONS_DIR / sid
+        _seed(root, "kair", "Кодовое слово синяя комета.")
+
+        raw = "(подумать, что кодовое слово синяя комета)"
+        manifest, _ = _prepare(sid, raw)
+
+        with pytest.raises(HTTPException) as exc:
+            _validate(
+                sid,
+                manifest,
+                raw,
+                "**Адриан** — Кодовое слово синяя комета.",
+            )
+
+        assert exc.value.detail["code"] == "SCENE_NPC_KNOWLEDGE_LEAK"
+        assert exc.value.detail["character_id"] == "adrian"
+
+
 def test_scene_builder_remote_label_format_is_parsed_by_private_knowledge_runtime():
     cards = _novel()["characters"]
     units = private_knowledge_runtime._speaker_units(
