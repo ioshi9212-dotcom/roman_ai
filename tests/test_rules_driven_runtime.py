@@ -82,10 +82,10 @@ def test_active_runtime_is_author_rules_plus_scene_builder():
     assert "present_characters" in rules
     assert "state.characters[ID]" in rules
     assert "Молчание не удаляет NPC" in builder
-    assert "Появление, звонок, сообщение, уход и возвращение персонажей выбирает режиссура сама" not in rules
-    assert "само отсутствие в последних сценах не является причиной для возврата" in builder
-    assert "Появление и частота появления изначально заданных игроком NPC полностью определяются режиссурой." in builder
-    assert "сколько ходов NPC отсутствовал" not in rules
+    assert "Все постоянные NPC из cast_registry — действующие фигуры истории" in builder
+    assert "Offscreen NPC не ждёт приглашения POV" in builder
+    assert "Постоянный каст должен реально циркулировать по истории." in builder
+    assert "Bundle нужен для знания и continuity, а не для разрешения на появление." in rules
     assert "Мир не ждёт POV" in builder
 
     for removed in (
@@ -117,7 +117,7 @@ def test_character_perception_and_scene_quality_stay_causal_without_pacing_modes
     assert "Важное физическое взаимодействие не пересказывай итогом." in builder
     assert "взрослая интимная сцена может оставаться прямой и конкретной." in builder
     assert "Не уходи в fade-to-black только потому, что сцена стала сексуальной." in builder
-    assert "Не объясняй психологический, моральный или авторский смысл поведения." in builder
+    assert "Не хвали, не оправдывай и не оценивай персонажей через режиссуру." in builder
     assert "Тихая сцена допустима." not in builder
     assert "Если в ней не меняются отношения, напряжение, информация, цель, риск или сюжет, это рутина" in builder
     assert "Обычно сцена может быть около 1800–3000 непробельных символов, но это не лимит и не цель." in builder
@@ -1414,7 +1414,7 @@ def test_secondary_cast_cues_are_bounded_and_readable_before_selection():
 
 
 
-def test_cast_registry_exposes_context_without_forced_return_pressure():
+def test_cast_registry_exposes_active_story_cast_without_participation_gate():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         novel = base_novel()
@@ -1477,10 +1477,12 @@ def test_cast_registry_exposes_context_without_forced_return_pressure():
         row = next(x for x in registry["characters"] if x["character_id"] == "npc")
 
         assert registry["mandatory_causal_review"] is True
-        assert "return_pressure" not in registry
-        assert "important_cast_return_required" not in registry
-        assert "не задаёт очередь, квоту или таймер появления" in registry["instruction"]
-        assert "по scene_builder" in registry["instruction"]
+        assert registry["active_story_cast"] is True
+        assert registry["review_every_turn"] is True
+        assert "действующая фигура истории" in registry["instruction"]
+        assert "Не жди приглашения POV" in registry["instruction"]
+        assert row["story_actor"] is True
+        assert row["initiative_eligible"] is True
         assert row["story_function"] == "possible romance"
         assert "добиться ответа" in row["goals"]
         assert "initiative_cues" not in row
@@ -1528,10 +1530,12 @@ def test_offscreen_npc_can_be_considered_without_saved_intent_or_forced_timer():
         assert row["work"] == "тренер"
         assert "пишет вечером после работы" in row["habits"]
         assert row["pov_relationship"]["привязанность"] == 65
-        assert "Появление, звонок, сообщение, уход и возвращение персонажей выбирает режиссура сама" not in context["runtime_rules"]
-        assert "Появление и частота появления изначально заданных игроком NPC полностью определяются режиссурой." in context["scene_builder"]
-        assert "не задаёт очередь, квоту или таймер появления" in context["cast_registry"]["instruction"]
-        assert "До реального участия offscreen NPC прочитай его полный character bundle." in context["cast_registry"]["instruction"]
+        assert row["story_actor"] is True
+        assert row["initiative_eligible"] is True
+        assert row["offscreen_can_initiate"] is True
+        assert "наличие сохранённого intent/thread не является условием инициативы" in context["scene_builder"]
+        assert "Собственная цель, характер, отношения, работа, привычки, текущие дела и возможность действовать уже достаточны" in context["cast_registry"]["instruction"]
+        assert "проверка знания, а не разрешение на появление" in context["cast_registry"]["instruction"]
 
 
 def test_legacy_pending_packet_is_refreshed_into_current_knowledge_context():
@@ -2101,7 +2105,7 @@ def test_present_character_remains_present_without_leave():
 
 
 
-def test_long_absent_core_cast_is_not_forced_back_by_recency_timer():
+def test_long_absent_core_cast_remains_initiative_eligible_without_recency_gate():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         sid = storage.create_session(base_novel())["session_id"]
@@ -2147,9 +2151,13 @@ def test_long_absent_core_cast_is_not_forced_back_by_recency_timer():
         _, context = read_context(sid, "(заняться своими делами)")
         registry = context["cast_registry"]
 
-        assert "return_pressure" not in registry
-        assert "important_cast_return_required" not in registry
-        assert "не задаёт очередь, квоту или таймер появления" in registry["instruction"]
+        row = next(item for item in registry["characters"] if item["character_id"] == "npc")
+        assert registry["active_story_cast"] is True
+        assert registry["review_every_turn"] is True
+        assert row["story_actor"] is True
+        assert row["initiative_eligible"] is True
+        assert row["offscreen_can_initiate"] is True
+        assert "таймера отсутствия" in registry["instruction"]
 
 def test_private_perception_is_saved_only_to_actual_recipient():
     with tempfile.TemporaryDirectory() as tmp:
