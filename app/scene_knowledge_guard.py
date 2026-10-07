@@ -793,19 +793,21 @@ def validate_scene_output(session_id: str, payload: Dict[str, Any]) -> None:
         context,
         all_cards,
     )
-    private_records = private_knowledge_runtime._private_records(root, all_cards, user_input)
-    transfer_sources = private_knowledge_runtime._current_private_transfer_sources(
-        user_input,
-        all_cards,
-        private_records,
-        pov_id=pov_id,
-    )
-    transfer_allowed_terms = private_knowledge_runtime._current_transfer_allowed_terms(
-        payload,
-        private_records,
-        transfer_sources,
-        pov_id=pov_id,
-    )
+    transfer_allowed_terms: Dict[str, set[str]] = {}
+    if private_knowledge_runtime._TRANSFER_RE.search(user_input):
+        private_records = private_knowledge_runtime._private_records(root, all_cards, user_input)
+        transfer_sources = private_knowledge_runtime._current_private_transfer_sources(
+            user_input,
+            all_cards,
+            private_records,
+            pov_id=pov_id,
+        )
+        transfer_allowed_terms = private_knowledge_runtime._current_transfer_allowed_terms(
+            payload,
+            private_records,
+            transfer_sources,
+            pov_id=pov_id,
+        )
     units = _scene_units(str(payload.get("scene_output") or ""), all_cards)
     packet_memory = context.get("character_memory") if isinstance(context.get("character_memory"), dict) else {}
     needs_fallback_memory = any(
