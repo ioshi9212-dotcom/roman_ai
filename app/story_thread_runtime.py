@@ -222,7 +222,7 @@ def _story_pressure(context: Dict[str, Any], current_turn: int) -> list[Dict[str
             "current_goal": thread.get("current_goal"),
             "current_phase": thread.get("current_phase"),
             "unresolved": deepcopy(thread.get("unresolved")) if isinstance(thread.get("unresolved"), list) else None,
-            "guidance": "Продвинь причинно; если сейчас нельзя — сохрани понятную паузу/следующее условие.",
+            "guidance": "Продвинь при первой реальной возможности. Не откладывай линию ради удобства текущей сцены; пауза допустима только при фактической невозможности действия.",
         }))
     result.sort(key=lambda pair: pair[0], reverse=True)
     return [{key: value for key, value in item.items() if value not in (None, "", [], False)} for _, item in result[:6]]
@@ -279,7 +279,7 @@ def _story_drive(context: Dict[str, Any], root, current_turn: int, pressure: lis
             "или движение внутри той же сцены не считаются самостоятельным движением мира."
         ),
         "rule": (
-            "Двигай существующие линии причинно. Значимый выбор POV оставляй игроку. Просроченную линию продвинь или явно поставь на причинную паузу. "
+            "Двигай существующие линии при первой реальной возможности. Значимый выбор POV оставляй игроку. Просроченную линию не откладывай ради удобства текущей сцены. "
             "Если force_world_movement_this_turn=true, текущая сцена исчерпала право удерживать мир: доведи её до естественного конца/перехода "
             "или дай внешнему действию, персонажу, сообщению, расписанию либо открытой линии реально изменить ситуацию."
         ),
