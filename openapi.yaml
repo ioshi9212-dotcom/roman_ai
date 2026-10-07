@@ -558,7 +558,7 @@ components:
           type: number
           minimum: 1
           maximum: 100
-          description: Initial value for a new NPC→POV dimension. Active values are 1..100.
+          description: Initial value for a new NPC→POV dimension. Active values are 1..100. Interpret 1-20 as weak but durable, 21-40 noticeable, 41-60 pronounced, 61-80 strong, 81-100 dominant/extreme.
         delta:
           type: number
           description: Signed change for an established dimension. Ordinary changes are limited to -3..+3. Persisted values stay within 1..100; reaching zero deletes the dimension.
@@ -588,16 +588,20 @@ components:
       additionalProperties: false
     RelationshipReviewItem:
       type: object
-      required: [character_id, changed, reason]
+      required: [character_id, changed, reason, numeric_result]
       properties:
         character_id:
           type: string
         changed:
           type: boolean
-          description: Legacy review result; ignored.
+          description: True only when this turn caused a real numeric and/or dynamic NPC→POV persistence change.
         reason:
           type: string
-          description: Legacy review reason; ignored.
+          description: Short concrete result of reviewing this physical NPC's relationship after the scene.
+        numeric_result:
+          type: string
+          enum: [updated, unchanged, no_numeric_dimension_justified]
+          description: Final numeric review outcome. Empty dimensions require no_numeric_dimension_justified.
       additionalProperties: false
 
     NPCRelationshipUpdate:
@@ -752,9 +756,8 @@ components:
           items:
             $ref: '#/components/schemas/RelationshipUpdate'
         relationship_review:
-          deprecated: true
           type: array
-          description: Legacy optional review rows; accepted for compatibility, ignored and not persisted.
+          description: Mandatory review evidence: exactly one row for every NPC who physically participated in this turn. Validated before commit and not persisted.
           items:
             $ref: '#/components/schemas/RelationshipReviewItem'
         state_patch:
