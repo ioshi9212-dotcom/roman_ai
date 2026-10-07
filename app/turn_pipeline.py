@@ -112,7 +112,6 @@ def _write_packet_context(root, packet: Dict[str, Any], context: Dict[str, Any])
     packet["writer_first_version"] = writer_first_runtime.WRITER_FIRST_VERSION
     packet["writer_first_payload_chars"] = len(text)
     packet["turn_pipeline_version"] = PIPELINE_VERSION
-    packet["relationship_review_required"] = True
     packet["runtime_revision"] = runtime_access.runtime_revision()
     packet["data_schema_version"] = session_migrations.CURRENT_DATA_SCHEMA_VERSION
     storage._write_json(root / "turn_packet.json", packet)
