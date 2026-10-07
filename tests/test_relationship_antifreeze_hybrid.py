@@ -88,9 +88,15 @@ def payload(manifest, user_input: str, *, review=None, updates=None):
         }]
     else:
         review = [dict(row) for row in review]
+        numeric_changed = any(
+            isinstance(item, dict)
+            and isinstance(item.get("dimensions"), list)
+            and bool(item.get("dimensions"))
+            for item in updates
+        )
         for row in review:
             if "numeric_result" not in row:
-                row["numeric_result"] = "updated" if row.get("changed") else "unchanged"
+                row["numeric_result"] = "updated" if numeric_changed else "unchanged"
     return {
         "packet_id": manifest["packet_id"],
         "user_input": user_input,
