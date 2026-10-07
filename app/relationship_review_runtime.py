@@ -123,7 +123,20 @@ def validate_relationship_review(
 
     required_ids = _physical_participant_ids(state_before, extracted, cards)
     review_rows = extracted.get("relationship_review")
+
+    if not required_ids and (not isinstance(review_rows, list) or not review_rows):
+        return
+
     if not isinstance(review_rows, list):
+        for cid in required_ids:
+            relation = relationship_file_runtime.character_relation(after_store, cid) or {}
+            if not _dimensions(relation) and _dynamic(relation):
+                _error(
+                    "RELATIONSHIP_DIMENSIONS_EMPTY_WITH_DURABLE_DYNAMIC",
+                    "NPC has durable relationship dynamic but empty numeric dimensions; explicitly review whether a new dimension is justified.",
+                    character_id=cid,
+                    dynamic=_dynamic(relation),
+                )
         _error(
             "RELATIONSHIP_REVIEW_DETAIL_REQUIRED",
             "relationship_review must contain one row for every NPC who physically participated in this turn.",
