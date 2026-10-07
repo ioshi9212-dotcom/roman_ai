@@ -369,7 +369,8 @@ def test_new_public_packet_requires_scene_and_persistence_review_before_commit()
             {
                 "character_id": "npc",
                 "changed": False,
-                "reason": "Проверено: сцена не изменила отношение NPC к POV.",
+                "reason": "Проверено: сцена не сформировала устойчивую числовую ось.",
+                "numeric_result": "no_numeric_dimension_justified",
             }
         ]
         result = commit_turn_request(sid, payload)
