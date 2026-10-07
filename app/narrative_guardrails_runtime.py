@@ -81,7 +81,7 @@ def _cast_pressure(context: Dict[str, Any], state: Dict[str, Any], current_turn:
         }
         scored.append((score, {k: v for k, v in item.items() if v not in (None, "", False)}))
     scored.sort(key=lambda pair: pair[0], reverse=True)
-    return [item for _, item in scored[:5]]
+    return [item for _, item in scored]
 
 
 def _thread_turn(thread: Dict[str, Any]) -> int | None:
