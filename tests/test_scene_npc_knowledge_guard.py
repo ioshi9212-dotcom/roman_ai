@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from fastapi import HTTPException
 
-from app import private_knowledge_runtime, scene_knowledge_guard, session_runtime, storage
+from app import character_chunk_read, private_knowledge_runtime, scene_knowledge_guard, session_runtime, storage
 
 
 def _setup(tmp: str) -> None:
@@ -468,6 +468,59 @@ def test_broad_director_context_still_rejects_strong_specific_copy():
 
         assert exc.value.detail["code"] == "SCENE_NPC_KNOWLEDGE_LEAK"
         assert any(row["source"] == "future_guidance" for row in exc.value.detail["unsupported_facts"])
+
+
+
+
+def test_offscreen_bundle_read_is_tracked_without_rewriting_writer_chunks():
+    with tempfile.TemporaryDirectory() as tmp:
+        _setup(tmp)
+        novel = _novel()
+        novel["starting_state"]["current"]["present_characters"] = ["kair", "adrian"]
+        sid = storage.create_session(novel)["session_id"]
+        root = storage.SESSIONS_DIR / sid
+
+        manifest, _ = _prepare(sid, "(молчать)")
+        before = storage._read_json(root / "turn_packet.json", {})
+        chunks_before = list(before["chunks"])
+
+        read = character_chunk_read.prepare_character_bundle_read(sid, "mira")
+        tracked = storage._read_json(root / "turn_packet.json", {})
+
+        assert tracked["packet_id"] == manifest["packet_id"]
+        assert tracked["chunks"] == chunks_before
+        assert tracked["character_bundle_reads"]["mira"]["read_id"] == read["read_id"]
+        assert tracked["character_bundle_reads"]["mira"]["read_chunks"] == [0]
+
+
+def test_foreign_fact_seen_only_through_offscreen_bundle_cannot_leak_to_other_npc():
+    with tempfile.TemporaryDirectory() as tmp:
+        _setup(tmp)
+        novel = _novel()
+        novel["starting_state"]["current"]["present_characters"] = ["kair", "adrian"]
+        sid = storage.create_session(novel)["session_id"]
+        root = storage.SESSIONS_DIR / sid
+        _seed(root, "mira", "Мира хранит латунный ключ внутри синего чемодана.")
+
+        manifest, context = _prepare(sid, "(молчать)")
+        assert "mira" not in context["character_memory"]
+
+        character_chunk_read.prepare_character_bundle_read(sid, "mira")
+
+        with pytest.raises(HTTPException) as exc:
+            _validate(
+                sid,
+                manifest,
+                "(молчать)",
+                "**Адриан** — Мира хранит латунный ключ внутри синего чемодана.",
+            )
+
+        detail = exc.value.detail
+        assert detail["code"] == "SCENE_NPC_KNOWLEDGE_LEAK"
+        assert any(
+            row["source"] == "loaded_character_memory:mira"
+            for row in detail["unsupported_facts"]
+        )
 
 
 def test_rejected_commit_keeps_pending_turn_uncommitted():
