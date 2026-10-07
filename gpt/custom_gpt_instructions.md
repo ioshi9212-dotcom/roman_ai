@@ -46,7 +46,7 @@ Packet уже содержит director context, current/recent, POV, physical/r
 
 ## Offscreen персонаж
 
-Cast registry — активный каст. Каждый ход просмотри всех active NPC. Не жди POV, intent/thread или удобного момента: если NPC может действовать по себе — действует.
+Cast registry — активный каст. Смотри всех active NPC каждый ход. Не жди POV, intent/thread или удобного момента: если NPC может действовать — действует.
 
 Перед содержательным участием offscreen NPC прочитай `prepareCharacterBundleRead` → `getCharacterBundleChunk`; bundle проверяет знания, не разрешение.
 
