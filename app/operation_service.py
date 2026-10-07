@@ -116,6 +116,7 @@ def prepare_turn_request(
                     packet["scene_archive_capable"] = True
                 if opening_scene:
                     packet["opening_scene"] = True
+                packet["relationship_review_required"] = True
                 storage._write_json(root / "turn_packet.json", packet)
                 result = dict(session_runtime.prepare_turn_packet(session_id, user_input))
                 if identity:
