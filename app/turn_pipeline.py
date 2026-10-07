@@ -25,6 +25,7 @@ from . import (
     private_knowledge_runtime,
     profile_templates,
     relationship_file_runtime,
+    relationship_review_runtime,
     resume_compact_runtime,
     runtime_access,
     runtime_fixes,
@@ -51,7 +52,7 @@ _BASE_PARTICIPATION_BUNDLE = character_chunk_read._participation_bundle
 _BASE_CREATE_SESSION = storage.create_session
 _BASE_RECOVER_CURRENT = session_recovery.recover_session_current
 
-PIPELINE_VERSION = 19
+PIPELINE_VERSION = 20
 
 def _packet_manifest(packet: Dict[str, Any], *, reused: bool) -> Dict[str, Any]:
     chunks = packet.get("chunks", []) if isinstance(packet.get("chunks"), list) else []
@@ -66,7 +67,7 @@ def _packet_manifest(packet: Dict[str, Any], *, reused: bool) -> Dict[str, Any]:
         "working_context": True,
         "writer_first": True,
         "writer_first_version": writer_first_runtime.WRITER_FIRST_VERSION,
-        "relationship_review_required": False,
+        "relationship_review_required": bool(packet.get("relationship_review_required")),
         "chunk_chars_max": writer_first_runtime.WRITER_PACKET_CHARS,
         "first_chunk_included": bool(chunks),
         "reused_pending_packet": reused,
@@ -111,6 +112,7 @@ def _write_packet_context(root, packet: Dict[str, Any], context: Dict[str, Any])
     packet["writer_first_version"] = writer_first_runtime.WRITER_FIRST_VERSION
     packet["writer_first_payload_chars"] = len(text)
     packet["turn_pipeline_version"] = PIPELINE_VERSION
+    packet["relationship_review_required"] = True
     packet["runtime_revision"] = runtime_access.runtime_revision()
     packet["data_schema_version"] = session_migrations.CURRENT_DATA_SCHEMA_VERSION
     storage._write_json(root / "turn_packet.json", packet)
@@ -589,6 +591,20 @@ def _prepare_context(
         remote_set = set(remote_ids)
         lens["footer_character_ids"] = physical_ids
         lens["remote_participant_ids"] = remote_ids
+        lens["review_required_character_ids"] = physical_ids
+        lens["review_required_every_turn"] = True
+        lens["review_numeric_results"] = [
+            "updated",
+            "unchanged",
+            "no_numeric_dimension_justified",
+        ]
+        lens["new_dimension_initialization_scale"] = {
+            "1-20": "weak but durable",
+            "21-40": "noticeable",
+            "41-60": "pronounced",
+            "61-80": "strong",
+            "81-100": "dominant or extreme",
+        }
         for row in lens.get("relations_in_current_scene", []) if isinstance(lens.get("relations_in_current_scene"), list) else []:
             if not isinstance(row, dict):
                 continue
@@ -960,7 +976,7 @@ def _normalise_chronology_for_save(session_id: str, payload: Dict[str, Any]) -> 
 
 
 def _strip_relationship_review(payload: Dict[str, Any]) -> Dict[str, Any]:
-    """Accept old clients' review rows without making them a gameplay gate."""
+    """Remove validated review evidence before durable turn persistence."""
     result = deepcopy(payload)
     extracted = result.get("extracted")
     if isinstance(extracted, dict):
@@ -983,10 +999,11 @@ def commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     # in-memory payload transformation; no state has been persisted yet.
     private_knowledge_runtime.validate_private_knowledge(session_id, prepared)
     scene_knowledge_guard.validate_scene_output(session_id, prepared)
-    prepared = _strip_relationship_review(prepared)
     prepared = _apply_story_and_intent_updates(session_id, prepared)
     prepared = _apply_npc_relationship_updates(session_id, prepared)
     prepared = _apply_relationship_changes(session_id, prepared)
+    relationship_review_runtime.validate_relationship_review(session_id, prepared)
+    prepared = _strip_relationship_review(prepared)
     prepared = cast_registry_runtime._with_registry_patch(session_id, prepared)
     prepared = _normalise_chronology_for_save(session_id, prepared)
     prepared = knowledge_persistence_runtime.dedupe_new_journal_against_persisted(
