@@ -29,6 +29,7 @@ from . import (
     runtime_access,
     runtime_fixes,
     scene_presence_runtime,
+    scene_knowledge_guard,
     session_migrations,
     session_recovery,
     session_runtime,
@@ -418,6 +419,7 @@ def _move_runtime_documents_last(context: Dict[str, Any]) -> Dict[str, Any]:
         "scoped canon notes when relevant",
         "active character cards",
         "each active character's own knowledge",
+        "explicit NPC knowledge boundaries",
         "relationships and active intents",
         "cast registry",
         "NPC relationship network",
@@ -518,6 +520,12 @@ def _prepare_context(
         for cid in scene_ids
     }
     pov = state.get("pov") if isinstance(state.get("pov"), dict) else {}
+    context["knowledge_boundaries"] = scene_knowledge_guard.build_boundaries(
+        root,
+        scene_ids,
+        cards=cards,
+        pov_id=str(pov.get("character_id") or ""),
+    )
     relationship_store = relationship_file_runtime.load(
         root,
         cards=cards,
@@ -962,6 +970,9 @@ def _strip_relationship_review(payload: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    # Scene text is validated before any persistence transformations or writes.
+    # A rejected scene keeps the same pending packet available for a corrected retry.
+    scene_knowledge_guard.validate_scene_output(session_id, payload)
     _validate_technical_state_patch(payload)
     prepared = _prepare_profile_persistence(session_id, payload)
     prepared = private_knowledge_runtime.add_direct_communication_memory(session_id, prepared)
