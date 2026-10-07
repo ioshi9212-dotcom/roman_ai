@@ -87,6 +87,21 @@ _PROTECTED_CONTEXT_PATHS = (
     "starting_state",
 )
 
+_BROAD_DIRECTOR_SOURCES = {
+    "novel",
+    "novel_rules",
+    "world_canon",
+    "future_guidance",
+    "story_direction",
+    "source_extra",
+    "scene_state",
+    "location_context",
+    "cast_registry",
+    "npc_relationship_network",
+    "npc_active_intents",
+    "starting_state",
+}
+
 
 def _fact_text(item: Any) -> str:
     if isinstance(item, str):
@@ -509,27 +524,36 @@ def _protected_rows(
         if key in seen:
             continue
         seen.add(key)
-        unique.append({"source": source, "text": text})
+        unique.append({
+            "source": source,
+            "text": text,
+            "terms": private_knowledge_runtime._terms(text),
+            "numbers": _numbers(text),
+            "broad": source in _BROAD_DIRECTOR_SOURCES,
+        })
     return unique
 
 
 def _match_protected(
-    text: str,
-    protected_text: str,
+    used_terms: set[str],
+    used_numbers: set[str],
+    protected: Dict[str, Any],
     *,
     allowed_terms: set[str],
     allowed_numbers: set[str],
+    inference_text: str,
 ) -> Dict[str, Any] | None:
-    used_terms = private_knowledge_runtime._terms(text)
-    protected_terms = private_knowledge_runtime._terms(protected_text)
+    protected_terms = set(protected.get("terms") or [])
+    protected_numbers = set(protected.get("numbers") or [])
+    broad = protected.get("broad") is True
 
     raw_overlap = used_terms & protected_terms
     unknown_terms = raw_overlap - allowed_terms
     known_overlap = raw_overlap & allowed_terms
+    unknown_numbers = (used_numbers & protected_numbers) - allowed_numbers
 
-    unknown_numbers = (_numbers(text) & _numbers(protected_text)) - allowed_numbers
-
-    if len(unknown_terms) >= 2:
+    minimum_terms = 3 if broad else 2
+    if len(unknown_terms) >= minimum_terms:
         return {
             "terms": sorted(unknown_terms),
             "numbers": sorted(unknown_numbers),
@@ -543,8 +567,8 @@ def _match_protected(
             "reason": "unsupported_exact_number",
         }
 
-    if len(unknown_terms) == 1 and len(known_overlap) >= 2:
-        if _looks_like_inference(text):
+    if not broad and len(unknown_terms) == 1 and len(known_overlap) >= 2:
+        if _looks_like_inference(inference_text):
             return None
         return {
             "terms": sorted(unknown_terms),
@@ -647,7 +671,6 @@ def validate_scene_output(session_id: str, payload: Dict[str, Any]) -> None:
         if storage._card_id(card)
     }
     context_card_map = _context_card_map(context)
-    fallback_memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
 
     present, _, pov_id, _ = _state_sets(context)
     if not pov_id:
@@ -661,8 +684,19 @@ def validate_scene_output(session_id: str, payload: Dict[str, Any]) -> None:
         all_cards,
     )
     units = _scene_units(str(payload.get("scene_output") or ""), all_cards)
+    packet_memory = context.get("character_memory") if isinstance(context.get("character_memory"), dict) else {}
+    needs_fallback_memory = any(
+        str(unit.get("character_id") or "") not in {"", pov_id}
+        and str(unit.get("character_id") or "") not in packet_memory
+        for unit in units
+    )
+    fallback_memory = (
+        storage._normalise_memory(storage._read_json(root / "memory.json", {}))
+        if needs_fallback_memory
+        else {"characters": {}}
+    )
 
-    protected_cache: Dict[str, List[Dict[str, str]]] = {}
+    protected_cache: Dict[str, List[Dict[str, Any]]] = {}
     base_cache: Dict[str, str] = {}
     perception_cache: Dict[str, str] = {}
     earlier_access: Dict[str, List[str]] = {}
@@ -702,6 +736,8 @@ def validate_scene_output(session_id: str, payload: Dict[str, Any]) -> None:
             unsupported: List[Dict[str, Any]] = []
             leaked_terms: set[str] = set()
             leaked_numbers: set[str] = set()
+            used_terms = private_knowledge_runtime._terms(text)
+            used_numbers = _numbers(text)
 
             for row in protected_cache.setdefault(
                 cid,
@@ -709,10 +745,12 @@ def validate_scene_output(session_id: str, payload: Dict[str, Any]) -> None:
             ):
                 protected_text = str(row.get("text") or "").strip()
                 match = _match_protected(
-                    text,
-                    protected_text,
+                    used_terms,
+                    used_numbers,
+                    row,
                     allowed_terms=allowed_terms,
                     allowed_numbers=allowed_numbers,
+                    inference_text=text,
                 )
                 if match is None:
                     continue
