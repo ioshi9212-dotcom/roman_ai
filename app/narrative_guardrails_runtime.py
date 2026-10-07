@@ -68,8 +68,6 @@ def _cast_pressure(context: Dict[str, Any], state: Dict[str, Any], current_turn:
         role = str(row.get("role") or "").casefold()
         important = any(word in role for word in ("main", "major", "important", "глав", "ключ", "central"))
         has_intent = cid in intent_ids
-        if absent < 15 and not (important and absent >= 8) and not has_intent:
-            continue
         score = absent + (30 if has_intent else 0) + (20 if important else 0)
         item = {
             "character_id": cid,
@@ -78,7 +76,8 @@ def _cast_pressure(context: Dict[str, Any], state: Dict[str, Any], current_turn:
             "active_intent": has_intent,
             "important_role": important,
             "must_reconsider": True,
-            "guidance": "Проверь ближайший причинный способ вернуть NPC. Не оставляй pending только ради сохранения текущей сцены; если его цель, роль, состояние, место или открытая линия уже дают повод, создай логичный контакт без запроса POV.",
+            "initiative_eligible": True,
+            "guidance": "NPC уже является действующей фигурой истории. Не жди срока отсутствия, приглашения POV, intent/thread или удобной сцены; если он может действовать из своих целей, отношений, роли или текущих дел, дай ему действовать сейчас.",
         }
         scored.append((score, {k: v for k, v in item.items() if v not in (None, "", False)}))
     scored.sort(key=lambda pair: pair[0], reverse=True)
@@ -244,11 +243,11 @@ def _scene_momentum_rule(context: Dict[str, Any]) -> Dict[str, Any]:
         "mandatory": True,
         "player_input_scope": _player_input_scope(context),
         "rule": (
-            "Рутину веди до естественного конца, вмешательства или следующего значимого выбора. "
+            "Рутину веди до результата, вмешательства или следующего значимого выбора. "
             "Короткое действие доводи до результата и реакции, но не проживай за POV следующий самостоятельный этап. "
             "Важную сцену не проматывай, пока в ней реально меняются действие, контакт, эмоция, риск, информация или цель. "
-            "Но текущая сцена не имеет иммунитета от мира: если вне неё уже наступил причинный следующий шаг NPC, открытой линии, расписания, времени суток или ситуации, "
-            "дай ему войти в кадр, прервать сцену либо естественно перевести её дальше. Не сохраняй одну и ту же бытовую/романтическую сцену только потому, что её приятно или безопасно продолжать."
+            "Текущая сцена не имеет иммунитета от мира: любой active NPC с возможностью действовать в рамках своих целей, отношений, роли или дел может войти в кадр, написать, позвонить или прервать её. "
+            "Не жди отдельного причинного триггера и не сохраняй одну и ту же сцену только потому, что её удобно продолжать."
         ),
     }
 
