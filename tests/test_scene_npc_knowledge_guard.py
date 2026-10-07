@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from fastapi import HTTPException
 
-from app import scene_knowledge_guard, session_runtime, storage
+from app import private_knowledge_runtime, scene_knowledge_guard, session_runtime, storage
 
 
 def _setup(tmp: str) -> None:
@@ -408,6 +408,66 @@ def test_knowledge_dependent_standalone_npc_action_is_checked():
         assert exc.value.detail["code"] == "SCENE_NPC_KNOWLEDGE_LEAK"
         assert exc.value.detail["unit_kind"] == "action"
         assert exc.value.detail["character_id"] == "adrian"
+
+
+
+
+def test_scene_builder_remote_label_format_is_parsed_by_private_knowledge_runtime():
+    cards = _novel()["characters"]
+    units = private_knowledge_runtime._speaker_units(
+        "**Адриан** (сообщение) — Я получил сообщение.",
+        cards,
+    )
+
+    assert len(units) == 1
+    assert units[0]["character_id"] == "adrian"
+    assert "(сообщение)" in units[0]["speaker_label"]
+
+
+def test_broad_director_context_needs_stronger_overlap_to_avoid_normal_dialogue_false_positive():
+    with tempfile.TemporaryDirectory() as tmp:
+        _setup(tmp)
+        sid = storage.create_session(_novel())["session_id"]
+        root = storage.SESSIONS_DIR / sid
+
+        manifest, context = _prepare(sid, "(молчать)")
+        context = deepcopy(context)
+        context["future_guidance"] = {
+            "story_direction": "Адриан должен обсудить красную дверь после семейного разговора."
+        }
+        _rewrite_pending_context(root, context)
+
+        _validate(
+            sid,
+            manifest,
+            "(молчать)",
+            "**Адриан** — Красная дверь закрыта.",
+        )
+
+
+def test_broad_director_context_still_rejects_strong_specific_copy():
+    with tempfile.TemporaryDirectory() as tmp:
+        _setup(tmp)
+        sid = storage.create_session(_novel())["session_id"]
+        root = storage.SESSIONS_DIR / sid
+
+        manifest, context = _prepare(sid, "(молчать)")
+        context = deepcopy(context)
+        context["future_guidance"] = {
+            "story_direction": "Адриан должен открыть красную дверь латунным ключом."
+        }
+        _rewrite_pending_context(root, context)
+
+        with pytest.raises(HTTPException) as exc:
+            _validate(
+                sid,
+                manifest,
+                "(молчать)",
+                "**Адриан** — Я открою красную дверь латунным ключом.",
+            )
+
+        assert exc.value.detail["code"] == "SCENE_NPC_KNOWLEDGE_LEAK"
+        assert any(row["source"] == "future_guidance" for row in exc.value.detail["unsupported_facts"])
 
 
 def test_rejected_commit_keeps_pending_turn_uncommitted():
