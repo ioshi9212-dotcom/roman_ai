@@ -151,15 +151,19 @@ def _can_be_supported_inference(
     return bool(premises & allowed_terms)
 
 
-def _current_input_access(user_input: str, cards: List[Dict[str, Any]]) -> tuple[set[str], Dict[str, set[str]]]:
+def _current_input_access(user_input: str, cards: List[Dict[str, Any]]) -> tuple[str, Dict[str, str]]:
     mapping = writer_first_runtime._parse_player_input(str(user_input or ""))
-    public_terms = private_knowledge_runtime._terms(" ".join(mapping.get("spoken_segments", [])))
-    recipient_terms: Dict[str, set[str]] = {}
+    public_text = " ".join(str(value) for value in mapping.get("spoken_segments", []) if value)
+    recipient_text: Dict[str, List[str]] = {}
     for row in private_knowledge_runtime.extract_private_communications(str(user_input or ""), cards):
         cid = str(row.get("recipient_id") or "")
-        if cid:
-            recipient_terms.setdefault(cid, set()).update(set(row.get("terms") or []))
-    return public_terms, recipient_terms
+        payload = str(row.get("payload") or "").strip()
+        if cid and payload:
+            recipient_text.setdefault(cid, []).append(payload)
+    return public_text, {
+        cid: "\n".join(values)
+        for cid, values in recipient_text.items()
+    }
 
 
 def _can_hear(
@@ -282,7 +286,7 @@ def validate_scene_output(session_id: str, payload: Dict[str, Any]) -> None:
     present = {str(value) for value in storage._present_character_ids(state) if value}
     remote = {str(value) for value in storage._remote_character_ids(state) if value}
 
-    public_input_terms, recipient_terms = _current_input_access(str(payload.get("user_input") or ""), cards)
+    public_input_text, recipient_text = _current_input_access(str(payload.get("user_input") or ""), cards)
     units = private_knowledge_runtime._speaker_units(str(payload.get("scene_output") or ""), cards)
     earlier_speech: List[Dict[str, str]] = []
 
@@ -313,8 +317,8 @@ def validate_scene_output(session_id: str, payload: Dict[str, Any]) -> None:
         ]
         allowed_text = "\n".join([
             base_text,
-            " ".join(public_input_terms),
-            " ".join(recipient_terms.get(cid, set())),
+            public_input_text,
+            recipient_text.get(cid, ""),
             *heard,
         ])
         allowed_terms = private_knowledge_runtime._terms(allowed_text)
