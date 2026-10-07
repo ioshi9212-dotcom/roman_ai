@@ -2356,6 +2356,11 @@ def test_turn_packet_keeps_full_compact_cast_but_scene_scopes_full_cards():
             for row in context["cast_registry"]["characters"]
         }
         assert registry_ids == {"pov", "npc", "away", "off_a", "off_b"}
+        for row in context["cast_registry"]["characters"]:
+            if row["character_id"] != "pov":
+                assert row["story_actor"] is True
+                assert row["initiative_eligible"] is True
+                assert row["offscreen_can_initiate"] is True
 
         full_card_ids = {
             row["character_id"]
