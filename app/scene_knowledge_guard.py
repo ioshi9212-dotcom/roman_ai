@@ -337,22 +337,24 @@ def _current_input_access(
 
 def _named_character_ids(text: str, cards: List[Dict[str, Any]], *, exclude_id: str = "") -> List[str]:
     normalized = private_knowledge_runtime._norm(text)
+    exact, stems, _ = private_knowledge_runtime._alias_maps(cards)
     found: List[str] = []
-    for card in cards:
-        cid = storage._card_id(card)
-        if not cid or cid == exclude_id:
+
+    for alias, cid in exact.items():
+        if not cid or cid == exclude_id or len(alias) < 2:
             continue
-        for name in storage._card_names(card):
-            alias = private_knowledge_runtime._norm(name)
-            if len(alias) < 2:
-                continue
-            if re.search(
-                rf"(?<![a-zа-яё0-9_-]){re.escape(alias)}(?![a-zа-яё0-9_-])",
-                normalized,
-                flags=re.IGNORECASE,
-            ):
-                found.append(cid)
-                break
+        if re.search(
+            rf"(?<![a-zа-яё0-9_-]){re.escape(alias)}(?![a-zа-яё0-9_-])",
+            normalized,
+            flags=re.IGNORECASE,
+        ):
+            found.append(cid)
+
+    for token in re.findall(r"(?iu)[a-zа-яё][a-zа-яё-]+", normalized):
+        cid = private_knowledge_runtime._resolve_recipient(token, exact, stems)
+        if cid and cid != exclude_id:
+            found.append(cid)
+
     return list(dict.fromkeys(found))
 
 
