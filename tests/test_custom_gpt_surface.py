@@ -197,10 +197,11 @@ def test_custom_gpt_instruction_matches_rules_driven_transport():
 
     assert "стартовые знания" in text
     assert "turn=0" in text
-    assert "Появление, частота и поведение NPC — по `scene_builder`" in text
+    assert "Cast registry — активный каст." in text
+    assert "Не жди POV, intent/thread или удобного момента" in text
     assert "Chronology и personal knowledge независимы" in text
     assert "required_audit" in text
-    assert "Intent из bundle принадлежит только его владельцу" in text
+    assert "bundle проверяет знания, не разрешение" in text
     assert "показывай `session_id`" in text
     assert "`packet_id`, `read_id`, chunk-статусы и сверки не показывай" in text
     assert "первый видимый текст = сама сцена" in text
