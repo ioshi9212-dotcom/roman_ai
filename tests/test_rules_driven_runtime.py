@@ -409,16 +409,16 @@ def test_relationship_delta_uses_saved_baseline_and_is_not_double_applied():
         assert relationships["npc_to_pov"]["npc"]["dimensions"]["доверие"]["value"] == 12
 
 
-def test_pending_packet_has_no_mandatory_relationship_review_and_commits():
+def test_public_pending_packet_requires_relationship_review_and_strips_review_after_validation():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         sid = storage.create_session(base_novel())["session_id"]
-        manifest = prepare_turn_request(sid, "(посмотреть на NPC)", request_id="rel-review-lite")
+        manifest = prepare_turn_request(sid, "(посмотреть на NPC)", request_id="rel-review-required")
         read_all(manifest, sid)
         root = storage.SESSIONS_DIR / sid
         packet = storage._read_json(root / "turn_packet.json", {})
-        assert "relationship_review_required" not in packet
-        assert manifest["relationship_review_required"] is False
+        assert packet["relationship_review_required"] is True
+        assert manifest["relationship_review_required"] is True
         for key in (
             "relationship_review_details_required",
             "relationship_footer_scope_required",
@@ -440,7 +440,8 @@ def test_pending_packet_has_no_mandatory_relationship_review_and_commits():
                         {
                             "character_id": "npc",
                             "changed": False,
-                            "reason": "Сцена проверена: отношение NPC к POV не изменилось.",
+                            "reason": "Сцена проверена: устойчивой числовой оси пока не возникло.",
+                            "numeric_result": "no_numeric_dimension_justified",
                         }
                     ],
                 },
