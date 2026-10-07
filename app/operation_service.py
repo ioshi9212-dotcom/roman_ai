@@ -109,22 +109,23 @@ def prepare_turn_request(
             if same_input and not replace_pending:
                 if identity and pending_id and identity != pending_id:
                     raise RuntimeError("TURN_IN_PROGRESS")
-                if identity and not pending_id:
+                result = dict(session_runtime.prepare_turn_packet(session_id, user_input))
+                # prepare_turn_packet may rebuild an old pipeline-version packet.
+                # Apply public gameplay markers to the packet that actually survived.
+                packet = storage._read_json(root / "turn_packet.json", {})
+                if identity:
                     packet["request_id"] = identity
-                # Safe transport flags may be preserved/upgraded on an identical pending turn.
+                    result["request_id"] = identity
                 if scene_archive_capable:
                     packet["scene_archive_capable"] = True
                 if opening_scene:
                     packet["opening_scene"] = True
                 packet["relationship_review_required"] = True
                 storage._write_json(root / "turn_packet.json", packet)
-                result = dict(session_runtime.prepare_turn_packet(session_id, user_input))
-                if identity:
-                    result["request_id"] = identity
                 result["scene_archive_capable"] = bool(packet.get("scene_archive_capable"))
                 result["opening_scene"] = bool(packet.get("opening_scene"))
                 result["writer_review_required"] = bool(packet.get("writer_review_required"))
-                result["relationship_review_required"] = bool(packet.get("relationship_review_required"))
+                result["relationship_review_required"] = True
                 result["pending_turn"] = pending_turn_status(session_id)
                 return result
 
