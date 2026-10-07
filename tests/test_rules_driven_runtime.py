@@ -110,7 +110,7 @@ def test_character_perception_and_scene_quality_stay_causal_without_pacing_modes
     assert "Не выбирай поведение по принципу «как правильно»" in builder
     assert "Не пиши сцену по готовому шаблону жанра." in builder
     assert "Жанр должен ощущаться в событиях, атмосфере, ставках и последствиях" in builder
-    assert "Не своди его автоматически к теням, зеркалам, шёпоту, скрипам и внезапным силуэтам." in builder
+    assert "Не своди его автоматически только к теням, зеркалам, шёпоту, скрипам и внезапным силуэтам." in builder
     assert "Не своди его к одинаковой цепочке удар → уклонение → ещё удар." in builder
     assert "Не своди химию к повторяющимся взглядам, паузам и сбившемуся дыханию." in builder
     assert "Заметное действие POV в сторону NPC получает естественную реакцию NPC" in builder
@@ -119,7 +119,7 @@ def test_character_perception_and_scene_quality_stay_causal_without_pacing_modes
     assert "Не уходи в fade-to-black только потому, что сцена стала сексуальной." in builder
     assert "Не хвали, не оправдывай и не оценивай персонажей через режиссуру." in builder
     assert "Тихая сцена допустима." not in builder
-    assert "Если в ней не меняются отношения, напряжение, информация, цель, риск или сюжет, это рутина" in builder
+    assert "Если ничего не меняется и не накапливается, это рутина." in builder
     assert "Обычно сцена может быть около 1800–3000 непробельных символов, но это не лимит и не цель." in builder
     assert "Объём основной сцены: 1800–3000 непробельных символов." not in builder
     assert "Снижай графичность, но не непрерывность сцены." not in builder
