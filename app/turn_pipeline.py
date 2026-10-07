@@ -970,6 +970,9 @@ def _strip_relationship_review(payload: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    # Preserve the existing specialized private-communication firewall and its
+    # precise error codes before the broader scene provenance check.
+    private_knowledge_runtime.validate_private_knowledge(session_id, payload)
     # Scene text is validated before any persistence transformations or writes.
     # A rejected scene keeps the same pending packet available for a corrected retry.
     scene_knowledge_guard.validate_scene_output(session_id, payload)
