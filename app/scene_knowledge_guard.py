@@ -60,6 +60,16 @@ _PRIVATE_MENTAL_MARKERS = (
     "намерен",
 )
 
+_OBSERVABLE_ACTION_RE = re.compile(
+    r"(?iu)^\\s*(?:"
+    r"встат|сесть|подойт|отойт|пойт|уйт|вернут|взят|достат|убрат|положит|"
+    r"открыт|закрыт|выключ|включ|посмотр|повернут|поднят|опустит|схват|"
+    r"обнят|поцел|поглад|залез|выйт|зайт|пройт|наклон|присест|лечь|"
+    r"смест|перехват|рассмотр|улыб|усмех|отвернут|продолж|остат|окаж|"
+    r"кивнут|махнут|пожат|удар|брос|толк|коснут"
+    r")\\w*"
+)
+
 _GLOBAL_FORBIDDEN_SOURCES = [
     "character_cards[OTHER_CHARACTER_ID]",
     "character_memory[OTHER_CHARACTER_ID]",
@@ -361,16 +371,22 @@ def _observable_stage_text(user_input: str) -> str:
     mapping = writer_first_runtime._parse_player_input(str(user_input or ""))
     visible: List[str] = []
     for stage in mapping.get("stage_directions", []):
-        for part in re.split(r"(?<=[.!?;])\\s+|\n+", str(stage or "")):
+        for part in re.split(r"(?<=[.!?;])\s+|\n+", str(stage or "")):
             clean = part.strip()
-            if not clean or not private_knowledge_runtime._looks_like_action(clean):
+            if not clean:
+                continue
+            if (
+                not private_knowledge_runtime._looks_like_action(clean)
+                and _OBSERVABLE_ACTION_RE.search(clean) is None
+            ):
                 continue
             normalized = private_knowledge_runtime._norm(clean)
             if any(marker in normalized for marker in _PRIVATE_MENTAL_MARKERS):
                 continue
-            if any(
-                stem in private_knowledge_runtime._terms(clean)
-                for stem in private_knowledge_runtime._COMMUNICATION_STEMS
+            if (
+                private_knowledge_runtime._COMMUNICATION_RE.search(clean)
+                or private_knowledge_runtime._CHAT_RE.search(clean)
+                or _WHISPER_RE.search(clean)
             ):
                 continue
             visible.append(clean)
