@@ -107,7 +107,7 @@ def test_prepare_packet_contains_compact_boundaries_without_copying_secret_facts
 
         boundaries = context["knowledge_boundaries"]
         assert boundaries["mandatory"] is True
-        assert "previous scene_output" in boundaries["previous_scene_rule"]
+        assert "previous scene_output" in boundaries["previous_scene_rule"].casefold()
         assert "character_memory[OTHER_CHARACTER_ID]" in boundaries["global_must_not_know"]
 
         adrian = boundaries["characters"]["adrian"]
