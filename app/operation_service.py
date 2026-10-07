@@ -120,6 +120,7 @@ def prepare_turn_request(
                     packet["scene_archive_capable"] = True
                 if opening_scene:
                     packet["opening_scene"] = True
+                packet["writer_review_required"] = True
                 packet["relationship_review_required"] = True
                 storage._write_json(root / "turn_packet.json", packet)
                 result["scene_archive_capable"] = bool(packet.get("scene_archive_capable"))
