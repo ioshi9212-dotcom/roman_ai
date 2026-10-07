@@ -1040,8 +1040,8 @@ paths:
   /sessions/{session_id}/characters/{character_id}/read:
     post:
       operationId: prepareCharacterBundleRead
-      summary: Prepare one bounded offscreen participation dossier
-      description: Returns the character's own card, own factual memory/knowledge, relationship and active intents before real offscreen participation. Chunk 0 is included when first_chunk_included=true.
+      summary: Read one selected offscreen character dossier
+      description: After an offscreen NPC is selected to act from cast_registry, returns that character's own card, factual memory/knowledge, relationship and active intents before substantive dialogue/action. This read is a knowledge check, not permission to appear. Chunk 0 is included when first_chunk_included=true.
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
         - {in: path, name: character_id, required: true, schema: {type: string}}
