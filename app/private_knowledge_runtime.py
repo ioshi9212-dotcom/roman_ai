@@ -10,7 +10,7 @@ from . import personal_memory_transport, storage, writer_first_runtime
 
 
 _SPEECH_RE = re.compile(
-    r"(?m)^\\s*\\*\\*(?P<speaker>[^*\\n]+)\\*\\*\\s*(?P<channel>\\([^\\n)]{1,80}\\))?\\s*[—-]\\s*(?P<text>.*)$"
+    r"(?m)^\s*\*\*(?P<speaker>[^*\n]+)\*\*\s*(?P<channel>\([^\n)]{1,80}\))?\s*[—-]\s*(?P<text>.*)$"
 )
 _COMMUNICATION_RE = re.compile(
     r"(?iu)\b(?:написать|ответить|отправить|переслать|сказать|сообщить|шепнуть|показать|позвонить)\s+([^\s,.;:()—-]+)"
