@@ -239,7 +239,7 @@ def _validate_character_upserts(
             raise RuntimeError("CAST_STORY_FUNCTION_REQUIRED")
 
 
-_SPEAKER_RE = re.compile(r"(?m)^\s*\*\*(?P<speaker>[^*\n]+)\*\*\s*[—-]\s*")
+_SPEAKER_RE = re.compile(r"(?m)^\s*\*\*(?P<speaker>[^*\n]+)\*\*\s*(?:\([^\n)]{1,80}\))?\s*[—-]\s*")
 
 
 def _speaker_labels(text: str) -> List[str]:
