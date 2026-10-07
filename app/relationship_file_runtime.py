@@ -538,8 +538,9 @@ def apply_updates(
                 raise ValueError("RELATIONSHIP_NEW_DIMENSION_VALUE_REQUIRED")
             if float(value) > 100.0:
                 raise ValueError("RELATIONSHIP_VALUE_INVALID")
-            if scale == "ordinary" and float(value) > ORDINARY_DELTA_LIMIT:
-                raise ValueError("RELATIONSHIP_ORDINARY_DELTA_LIMIT")
+            # A newly evidenced dimension is initialized by absolute intensity
+            # (1..100). The +/-3 ordinary limit applies only to deltas on an
+            # already established dimension.
             if len(dimensions) >= MAX_DIMENSIONS_PER_NPC:
                 raise ValueError("RELATIONSHIP_DIMENSION_LIMIT")
             dimensions[label] = {
