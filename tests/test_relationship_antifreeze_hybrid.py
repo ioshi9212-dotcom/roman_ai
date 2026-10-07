@@ -68,6 +68,29 @@ def read_context(session_id: str):
 
 
 def payload(manifest, user_input: str, *, review=None, updates=None):
+    updates = updates or []
+    if review is None:
+        numeric_changed = any(
+            isinstance(row, dict)
+            and isinstance(row.get("dimensions"), list)
+            and bool(row.get("dimensions"))
+            for row in updates
+        )
+        review = [{
+            "character_id": "adrian",
+            "changed": bool(updates),
+            "reason": (
+                "Проверено: сцена изменила отношение Эдриана к Ринате."
+                if updates
+                else "Проверено: сцена не изменила устойчивое отношение Эдриана к Ринате."
+            ),
+            "numeric_result": "updated" if numeric_changed else "unchanged",
+        }]
+    else:
+        review = [dict(row) for row in review]
+        for row in review:
+            if "numeric_result" not in row:
+                row["numeric_result"] = "updated" if row.get("changed") else "unchanged"
     return {
         "packet_id": manifest["packet_id"],
         "user_input": user_input,
@@ -82,30 +105,29 @@ def payload(manifest, user_input: str, *, review=None, updates=None):
             "npc_relationship_updates": [],
             "story_thread_updates": [],
             "presence_updates": [],
-            "relationship_review": review or [],
-            "relationship_updates": updates or [],
+            "relationship_review": review,
+            "relationship_updates": updates,
             "state_patch": {},
             "character_upserts": [],
         },
     }
 
 
-def test_numeric_shift_commits_without_relationship_review():
+def test_numeric_shift_requires_relationship_review():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         sid = storage.create_session(novel())["session_id"]
         manifest = prepare_turn_request(sid, "Спасибо.", request_id="no-review")
         read_all_pending(sid, manifest)
-        assert manifest["relationship_review_required"] is False
+        assert manifest["relationship_review_required"] is True
         data = payload(manifest, "Спасибо.", updates=[{
             "character_id": "adrian", "reason": "Благодарность усилила доверие.",
             "dimensions": [{"label": "доверие", "delta": 1}],
         }])
         data["extracted"].pop("relationship_review")
-        commit_turn_request(sid, data)
-        root = storage.SESSIONS_DIR / sid
-        assert storage._read_json(root / "relationships.json", {})["npc_to_pov"]["adrian"]["dimensions"]["доверие"]["value"] == 41
-        assert "relationship_review" not in storage._read_turns(root)[-1]["extracted"]
+        with pytest.raises(HTTPException) as exc:
+            commit_turn_request(sid, data)
+        assert exc.value.detail["code"] == "RELATIONSHIP_REVIEW_DETAIL_REQUIRED"
 
 
 def test_old_pending_review_marker_and_rows_do_not_block_valid_updates():
@@ -119,7 +141,7 @@ def test_old_pending_review_marker_and_rows_do_not_block_valid_updates():
         packet["relationship_review_required"] = True
         storage._write_json(root / "turn_packet.json", packet)
         result = commit_turn_request(sid, payload(manifest, "Спасибо.",
-            review=[{"character_id": "adrian", "changed": False, "reason": "Старый отчёт"}],
+            review=[{"character_id": "adrian", "changed": True, "reason": "Благодарность усилила доверие.", "numeric_result": "updated"}],
             updates=[{"character_id": "adrian", "reason": "Благодарность усилила доверие.",
                       "dimensions": [{"label": "доверие", "delta": 1}]}]))
         assert result["turn_number"] == 1
@@ -255,8 +277,16 @@ def test_neutral_first_encounter_creates_empty_record_and_rollback_removes_it():
         before = storage._read_json(root / "relationships.json", {})
         manifest = prepare_turn_request(sid, "Здравствуйте.", request_id="first-encounter")
         read_all_pending(sid, manifest)
-        data = payload(manifest, "Здравствуйте.")
-        data["extracted"].pop("relationship_review")
+        data = payload(
+            manifest,
+            "Здравствуйте.",
+            review=[{
+                "character_id": "adrian",
+                "changed": False,
+                "reason": "Первое нейтральное знакомство пока не сформировало устойчивую числовую ось.",
+                "numeric_result": "no_numeric_dimension_justified",
+            }],
+        )
         commit_turn_request(sid, data)
         after = storage._read_json(root / "relationships.json", {})
         assert after["npc_to_pov"]["adrian"] == {"dimensions": {}}
