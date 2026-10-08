@@ -2371,11 +2371,10 @@ def test_turn_packet_keeps_full_compact_cast_but_scene_scopes_full_cards():
         assert full_card_ids == {"pov"}
         assert "return_pressure" not in context["cast_registry"]
         assert "important_cast_return_required" not in context["cast_registry"]
-        focus = context["cast_registry"]["independent_initiative_focus"]
-        assert focus
-        assert any(row["character_id"] in {"off_a", "off_b", "npc", "away"} for row in focus)
-        assert "POV" not in {row.get("character_id") for row in focus}
-        assert "Наличие intent не требуется" in context["cast_registry"]["independent_initiative_instruction"]
+        assert "независимо от упоминаний POV" in context["cast_registry"]["independent_initiative_instruction"]
+        assert "cast:independent" in {
+            row["target_id"] for row in context["progression_contract"]["eligible_targets"]
+        }
 
 
 def test_independent_cast_focus_covers_all_without_intent_or_pov_contact():
