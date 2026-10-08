@@ -14,6 +14,7 @@ SCENE_SUMMARY_MAX_CHARS = 1200
 MEMORY_SUMMARY_MAX_CHARS = 900
 _MEMORY_ID_KEYS = {
     "knowledge": "fact_id",
+    "knowledge_journal": "entry_id",
     "experiences": "event_id",
     "dialogue_memory": "topic_id",
 }
@@ -422,6 +423,16 @@ def _canonical_memory_record(
             "first_learned_turn": first_turn,
             "last_learned_turn": last_turn,
         }
+    if memory_type == "knowledge_journal":
+        first = source_rows[0] if source_rows else {}
+        return {
+            **common,
+            "entry_id": canonical_id,
+            "text": summary,
+            "date": first.get("date"),
+            "period": first.get("period"),
+            "turn": min(ordered_turns) if ordered_turns else int(audit_end_turn),
+        }
     if memory_type == "experiences":
         return {
             **common,
@@ -516,6 +527,13 @@ def _apply_memory_compactions(
 
         if not has_current_audit_evidence:
             raise RuntimeError("MEMORY_COMPACTION_SOURCE_OUT_OF_RANGE")
+        if memory_type == "knowledge_journal" and len({
+            (str(item.get("date") or ""), str(item.get("period") or ""))
+            for item in source_rows
+        }) > 1:
+            # A merged entry cannot claim one date when its constituent facts
+            # were learned on different days. Source evidence stays intact.
+            raise RuntimeError("MEMORY_COMPACTION_CROSS_DATE")
 
         canonical = _canonical_memory_record(
             character_id=character_id,
@@ -626,6 +644,59 @@ def transport_knowledge_records(values: Any) -> List[Dict[str, Any]]:
     result = [*kept, *chosen]
     result.sort(key=lambda row: (_record_turn(row), str(row.get("fact_id") or "")))
     return result
+
+
+def transport_knowledge_journal(values: Any) -> List[Dict[str, Any]]:
+    """Retain all personal journal facts, using compact entries only when safe.
+
+    Reject old/partial summaries and cross-date merges in transport. Originals
+    remain persisted. A missing or incomplete compact record never hides a
+    first-day fact or the time at which it was learned.
+    """
+    if not isinstance(values, list):
+        return []
+    rows = [deepcopy(item) for item in values if isinstance(item, dict)]
+    raw = {
+        str(item.get("entry_id")): item for item in rows
+        if item.get("canonical_compaction") is not True and item.get("entry_id")
+    }
+    replaced: set[str] = set()
+    selected: List[Dict[str, Any]] = []
+    for item in rows:
+        if item.get("canonical_compaction") is not True or item.get("superseded_by"):
+            continue
+        ids = item.get("merged_from")
+        ids = [str(value) for value in ids if value] if isinstance(ids, list) else []
+        if not ids or len(ids) != len(set(ids)) or any(i not in raw or i in replaced for i in ids):
+            continue
+        source = [raw[i] for i in ids]
+        if any(
+            (str(r.get("date") or ""), str(r.get("period") or ""))
+            != (str(item.get("date") or ""), str(item.get("period") or ""))
+            for r in source
+        ):
+            continue
+        summary = " ".join(str(item.get("text") or "").split()).casefold()
+        facts = [" ".join(str(row.get("text") or "").split()).casefold() for row in source]
+        if not summary or any(not fact or fact not in summary for fact in facts):
+            continue
+        import json
+        if len(json.dumps(item, ensure_ascii=False)) >= sum(
+            len(json.dumps(row, ensure_ascii=False)) for row in source
+        ):
+            continue
+        selected.append(item)
+        replaced.update(ids)
+    selected.extend(
+        row for row in rows
+        if row.get("canonical_compaction") is not True
+        and str(row.get("entry_id") or "") not in replaced
+    )
+    # Preserve original journal ordering and date headings.
+    selected.sort(key=lambda item: (
+        _record_turn(item), str(item.get("entry_id") or ""),
+    ))
+    return selected
 
 
 def active_memory_records(values: Any) -> List[Dict[str, Any]]:
