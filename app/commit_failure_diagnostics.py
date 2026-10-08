@@ -67,7 +67,8 @@ def record(session_id: str, *, operation: str, identity: str, status_code: int, 
     }
     try:
         storage._write_json(root / _FILE, report)
-    except OSError:
+    except Exception:
+        # Diagnostic failures must never convert an ordinary 409 into a 500.
         _LOG.exception("Unable to store commit diagnostic session=%s", session_id)
 
 
@@ -86,4 +87,8 @@ def latest(session_id: str) -> dict[str, Any] | None:
 
 
 def clear(session_id: str) -> None:
-    (storage.SESSIONS_DIR / session_id / _FILE).unlink(missing_ok=True)
+    try:
+        (storage.SESSIONS_DIR / session_id / _FILE).unlink(missing_ok=True)
+    except OSError:
+        # Never report a committed turn as failed because cleanup failed.
+        _LOG.exception("Unable to clear commit diagnostic session=%s", session_id)
