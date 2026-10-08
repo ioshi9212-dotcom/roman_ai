@@ -125,6 +125,7 @@ _BROAD_DIRECTOR_SOURCES = {
     "npc_relationship_network",
     "npc_active_intents",
     "starting_state",
+    "progression_contract",
 }
 
 
