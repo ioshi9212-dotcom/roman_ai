@@ -320,13 +320,12 @@ def _independent_cast_focus(rows: List[Dict[str, Any]], current_turn: int) -> Li
         if isinstance(row, dict)
         and row.get("offscreen_can_initiate") is True
         and row.get("character_id")
-        and any(row.get(key) for key in ("goals", "story_function", "work", "habits", "active_intents", "active_threads"))
     ]
     candidates.sort(key=lambda row: (
         {"core": 0, "recurring": 1, "support": 2}.get(str(row.get("importance") or ""), 3),
-        int(row.get("last_contact_turn") or 0),
         str(row.get("character_id")),
     ))
+    # All active offscreen NPCs are included, even without a goal or prior intent.
     # Registry rows already carry the full compact profile; never duplicate
     # their text in the turn packet just to highlight cast agency.
     return [{
