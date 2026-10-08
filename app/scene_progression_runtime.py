@@ -422,9 +422,9 @@ def _collect_evidence(root, payload: Dict[str, Any]) -> Dict[str, Any]:
     # Only accept concrete evidence attributed to that character, never its
     # card/goals or POV knowledge as proof that something actually happened.
     cast_ids = {
-        str(row.get("character_id"))
-        for row in (storage._load_cards(root, storage._read_json(root / "source.json", {})))
-        if isinstance(row, dict) and row.get("character_id")
+        storage._card_id(row)
+        for row in storage._load_cards(root, storage._read_json(root / "source.json", {}))
+        if isinstance(row, dict) and storage._card_id(row)
     }
     for row in extracted.get("npc_intent_updates", []) if isinstance(extracted.get("npc_intent_updates"), list) else []:
         if not isinstance(row, dict):
