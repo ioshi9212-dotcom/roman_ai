@@ -418,6 +418,49 @@ def _source_actor_events_by_date(events: List[Dict[str, Any]]) -> Dict[str, List
     return result
 
 
+def _durable_source_facts_by_date(events: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
+    """Retain each individually significant source fact alongside a dated summary.
+
+    The summary model may omit a promise or revelation while still naming
+    the right date. Store short source-grounded fact rows within the macro,
+    rather than trusting date coverage as proof that every fact survived.
+    This is author chronology, not any character's personal knowledge.
+    """
+    by_date: Dict[str, List[Dict[str, Any]]] = {}
+    seen: set[tuple[str, str]] = set()
+    for row in events:
+        if not isinstance(row, dict):
+            continue
+        date = _story_date(row)
+        importance = str(row.get("importance") or "").casefold().strip()
+        if not date or (importance not in {"major", "anchor", "critical"}
+                        and row.get("anchor") is not True
+                        and row.get("time_critical") is not True):
+            continue
+        text = " ".join(str(row.get("event") or row.get("summary") or "").split())
+        if not text:
+            continue
+        event_id = str(row.get("event_id") or f"turn:{_event_turn(row)}:{text}")
+        key = (date, event_id)
+        if key in seen:
+            continue
+        seen.add(key)
+        row_fact = {
+            "source_event_id": event_id,
+            "turn_number": _event_turn(row),
+            "event": text,
+            "importance": importance or "normal",
+            "actor_character_id": row.get("actor_character_id"),
+            "participants_present": row.get("participants_present") or row.get("participants"),
+            "exact_time": row.get("exact_time") if row.get("time_critical") is True else None,
+        }
+        by_date.setdefault(date, []).append({
+            key: value for key, value in row_fact.items()
+            if value not in (None, "", [], 0)
+        })
+    return by_date
+
+
 def _apply_macro_chronology_compaction_core(
     source: Dict[str, Any],
     turns: List[Dict[str, Any]],
@@ -457,7 +500,9 @@ def _apply_macro_chronology_compaction_core(
     important_dates.discard("")
 
     actor_events_by_date = _source_actor_events_by_date(source_events)
+    durable_facts_by_date = _durable_source_facts_by_date(source_events)
     important_dates.update(actor_events_by_date)
+    important_dates.update(durable_facts_by_date)
     normalized: List[Dict[str, Any]] = []
     represented_dates: set[str] = set()
     attached_actor_dates: set[str] = set()
@@ -511,6 +556,10 @@ def _apply_macro_chronology_compaction_core(
         elif critical_times:
             item["critical_times"] = critical_times
             item["time_critical"] = True
+        # Keep all source-confirmed durable facts, even when the summarizer's
+        # dated paragraph accidentally omits one. Metadata remains author-only.
+        if durable_facts_by_date.get(date):
+            item["source_key_facts"] = deepcopy(durable_facts_by_date[date])
         # Do not ask the summary model to reconstruct actor identities. They
         # come from already saved chronology and attach once per story date.
         if date not in attached_actor_dates and actor_events_by_date.get(date):
