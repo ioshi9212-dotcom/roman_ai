@@ -257,8 +257,11 @@ def build_contract(
         ),
     }
 
-    time_skip = _TIME_SKIP_RE.search(str(user_input or "")) is not None
-    explicit_quiet = _EXPLICIT_UNEVENTFUL_RE.search(str(user_input or "")) is not None
+    mapping = context.get("player_input_map") if isinstance(context.get("player_input_map"), dict) else {}
+    stage_rows = mapping.get("stage_directions") if isinstance(mapping.get("stage_directions"), list) else []
+    stage_text = " ".join(str(value) for value in stage_rows if str(value).strip())
+    time_skip = _TIME_SKIP_RE.search(stage_text) is not None
+    explicit_quiet = _EXPLICIT_UNEVENTFUL_RE.search(stage_text) is not None
     return {
         "version": _VERSION,
         "mandatory": True,
