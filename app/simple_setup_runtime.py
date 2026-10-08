@@ -156,7 +156,10 @@ def _update_intake_mapping(
         intake = sections.get("intake")
         if not isinstance(intake, dict):
             raise ValueError("INTAKE_BLOCK_NOT_FOUND")
-        normalized = draft_intake_runtime._normalise_intake(intake)
+        # v5 stores reviewed RAW in profiles, without legacy fact_ids.
+        normalized = draft_intake_runtime._normalise_intake(
+            intake, allow_profile_review=True,
+        )
         target = next(
             (row for row in normalized.get("blocks", []) if str(row.get("block_id") or "") == str(block_id)),
             None,
