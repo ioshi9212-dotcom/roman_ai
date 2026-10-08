@@ -60,7 +60,12 @@ _DURABLE_DYNAMIC_PATTERNS = (
 )
 
 _POSITIVE_TRUST_RE = re.compile(r"(?iu)\bдоверя(?:ет|ют|ю|ем|ете)\b(?!\s+ли)")
-_NEGATED_PREFIX_RE = re.compile(r"(?iu)(?:\bне|\bнет|\bбольше\s+не)\s*$")
+_NEGATED_PREFIX_RE = re.compile(
+    r"(?iu)(?:\bне|\bнет|\bбольше\s+не|\bперестал\w*(?:\s+быть)?)\s*$"
+)
+_NEGATED_SUFFIX_RE = re.compile(
+    r"(?iu)^\s+(?:больше\s+нет\b|нет\b|исчез\w*|прош\w*|развеял\w*|пропал\w*|закончил\w*)"
+)
 
 
 def _durable_dynamic_evidence(*texts: str) -> List[str]:
@@ -75,7 +80,10 @@ def _durable_dynamic_evidence(*texts: str) -> List[str]:
     for label, pattern in _DURABLE_DYNAMIC_PATTERNS:
         for match in pattern.finditer(normalized):
             prefix = normalized[max(0, match.start() - 18):match.start()]
+            suffix = normalized[match.end():match.end() + 24]
             if label != "недоверие" and _NEGATED_PREFIX_RE.search(prefix):
+                continue
+            if _NEGATED_SUFFIX_RE.search(suffix):
                 continue
             result.append(label)
             break
