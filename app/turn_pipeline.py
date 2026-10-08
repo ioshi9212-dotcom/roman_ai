@@ -30,6 +30,7 @@ from . import (
     runtime_fixes,
     scene_presence_runtime,
     scene_knowledge_guard,
+    scene_engine_hints,
     session_migrations,
     session_recovery,
     session_runtime,
@@ -186,7 +187,7 @@ def _cast_registry_rows(
     pov_id = str(pov.get("character_id") or "")
     present = {str(value) for value in storage._present_character_ids(state) if value}
     remote = {str(value) for value in storage._remote_character_ids(state) if value}
-    def compact(value: Any, limit: int = 520) -> str | None:
+    def compact(value: Any, limit: int = 150) -> str | None:
         if value in (None, "", [], {}):
             return None
         if isinstance(value, str):
@@ -267,7 +268,7 @@ def _cast_registry_rows(
             "character_id": cid,
             "name": raw.get("name") or storage._card_name(card) or cid,
             "role": raw.get("role") or storage._card_role(card),
-            "story_function": compact(story_function, 420),
+            "story_function": compact(story_function, 180),
             "status": raw.get("status") or "active",
             "origin": raw.get("origin"),
             "importance": raw.get("importance"),
@@ -278,14 +279,14 @@ def _cast_registry_rows(
             "initiative_eligible": cid != pov_id and not cast_registry_runtime._is_inactive(raw.get("status") or info.get("status") or card.get("status")),
             "offscreen_can_initiate": cid != pov_id and cid not in present and cid not in remote and not cast_registry_runtime._is_inactive(raw.get("status") or info.get("status") or card.get("status")),
             "goals": compact(goals),
-            "work": compact(card.get("work"), 220),
-            "habits": compact(card.get("habits"), 260),
-            "character": compact(card.get("character") or card.get("personality"), 260),
+            "work": compact(card.get("work"), 110),
+            "habits": compact(card.get("habits"), 140),
+            "character": compact(card.get("character") or card.get("personality"), 160),
             "pov_relationship": pov_relationship or None,
-            "pov_relationship_dynamic": compact(relation.get("dynamic"), 700) if isinstance(relation, dict) else None,
-            "current_location": compact(info.get("location") or info.get("location_id"), 220),
-            "current_zone": compact(info.get("zone") or info.get("zone_id"), 180),
-            "current_activity": compact(info.get("activity"), 320),
+            "pov_relationship_dynamic": compact(relation.get("dynamic"), 280) if isinstance(relation, dict) else None,
+            "current_location": compact(info.get("location") or info.get("location_id"), 120),
+            "current_zone": compact(info.get("zone") or info.get("zone_id"), 90),
+            "current_activity": compact(info.get("activity"), 150),
             "pov_familiarity": deepcopy(info.get("pov_familiarity")) if isinstance(info.get("pov_familiarity"), dict) else None,
             "npc_relation_refs": npc_relationship_runtime.relation_refs_for_character(npc_network, cid),
             "active_intents": active_intents(cid),
@@ -562,6 +563,11 @@ def _prepare_context(
         "characters": _cast_registry_rows(state, cards, source, current_turn, npc_network, relationship_store),
     }
     context["npc_relationship_network"] = npc_network
+    context["scene_engine_cues"] = scene_engine_hints.build(
+        state,
+        context["cast_registry"]["characters"],
+        current_turn,
+    )
     # Legacy intent-only candidate list falsely implied that offscreen NPCs
     # without a pre-existing intent were ineligible to act. The complete
     # cast_registry is now the single offscreen review surface.
