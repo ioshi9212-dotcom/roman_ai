@@ -10,7 +10,7 @@ from contextlib import contextmanager
 from time import perf_counter
 from typing import Iterator
 
-LOG = logging.getLogger("roman_ai.performance")
+LOG = logging.getLogger("uvicorn.error")  # Already configured for Amvera server logs
 
 
 @contextmanager
