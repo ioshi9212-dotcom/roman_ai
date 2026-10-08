@@ -15,6 +15,7 @@ _ORIGINAL_FINALIZE = None
 _ORIGINAL_PREPARE_READ = None
 _VERSION = 5
 _LOSSLESS_DRAFT_VERSION = 4
+_PROFILE_DRAFT_VERSION = 5
 MAX_INTAKE_CHUNK_CHARS = 100000
 
 _PLACEHOLDER_FRAGMENTS = (
@@ -108,7 +109,12 @@ def _lossless_detail_coverage_required(draft: Dict[str, Any]) -> bool:
         return False
 
 
-def _normalise_intake(value: Any, *, reject_placeholders: bool = False) -> Dict[str, Any]:
+def _normalise_intake(
+    value: Any,
+    *,
+    reject_placeholders: bool = False,
+    allow_profile_review: bool = False,
+) -> Dict[str, Any]:
     if not isinstance(value, dict):
         raise TypeError("intake must be a JSON object")
     blocks = value.get("blocks")
@@ -133,7 +139,7 @@ def _normalise_intake(value: Any, *, reject_placeholders: bool = False) -> Dict[
         fact_ids = [str(item).strip() for item in fact_ids if str(item).strip()]
         no_facts = bool(raw.get("contains_no_facts", False))
         # Raw-first chunked intake is allowed to exist unmapped only while it is unreviewed.
-        if reviewed and not fact_ids and not no_facts:
+        if reviewed and not fact_ids and not no_facts and not allow_profile_review:
             raise ValueError("INTAKE_FACT_IDS_REQUIRED")
         if no_facts and fact_ids:
             raise ValueError("INTAKE_FACT_IDS_CONFLICT")
@@ -152,9 +158,22 @@ def _normalise_intake(value: Any, *, reject_placeholders: bool = False) -> Dict[
     return result
 
 
-def _merge_intake(existing: Any, incoming: Any) -> Dict[str, Any]:
-    old = _normalise_intake(existing) if isinstance(existing, dict) else {"version": _VERSION, "blocks": []}
-    new = _normalise_intake(incoming, reject_placeholders=True)
+def _merge_intake(
+    existing: Any,
+    incoming: Any,
+    *,
+    allow_profile_review: bool = False,
+) -> Dict[str, Any]:
+    old = (
+        _normalise_intake(existing, allow_profile_review=allow_profile_review)
+        if isinstance(existing, dict)
+        else {"version": _VERSION, "blocks": []}
+    )
+    new = _normalise_intake(
+        incoming,
+        reject_placeholders=True,
+        allow_profile_review=allow_profile_review,
+    )
     merged = {row["block_id"]: deepcopy(row) for row in old["blocks"]}
     order = [row["block_id"] for row in old["blocks"]]
     for row in new["blocks"]:
@@ -203,6 +222,13 @@ def _intake_upload_status(draft: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _is_profile_draft(draft: Dict[str, Any]) -> bool:
+    try:
+        return int(draft.get("version", 1) or 1) >= _PROFILE_DRAFT_VERSION
+    except (TypeError, ValueError):
+        return False
+
+
 def _coverage(draft: Dict[str, Any]) -> Dict[str, Any]:
     sections = draft.get("sections") if isinstance(draft.get("sections"), dict) else {}
     intake = sections.get("intake")
@@ -222,7 +248,7 @@ def _coverage(draft: Dict[str, Any]) -> Dict[str, Any]:
             "unknown_source_unit_ids": [],
         }
 
-    intake = _normalise_intake(intake)
+    intake = _normalise_intake(intake, allow_profile_review=_is_profile_draft(draft))
     foundation = sections.get("foundation") if isinstance(sections.get("foundation"), dict) else {}
     facts = foundation.get("facts") if isinstance(foundation.get("facts"), list) else []
     fact_rows = {
@@ -370,7 +396,7 @@ def enrich_template_with_source_evidence(draft: Dict[str, Any], template: Dict[s
     intake_raw = sections.get("intake")
     if not isinstance(intake_raw, dict):
         return result
-    intake = _normalise_intake(intake_raw)
+    intake = _normalise_intake(intake_raw, allow_profile_review=_is_profile_draft(draft))
     units = _all_source_units(intake)
     if not units:
         return result
@@ -476,13 +502,14 @@ def append_intake_chunk(
 
     with session_transaction(novel_drafts._drafts_dir()):
         draft = novel_drafts._read(draft_id)
+        profile_review = _is_profile_draft(draft)
         uploads = draft.get("intake_uploads")
         uploads = deepcopy(uploads) if isinstance(uploads, dict) else {}
 
         existing_blocks = {}
         existing_intake = draft.get("sections", {}).get("intake") if isinstance(draft.get("sections"), dict) else None
         if isinstance(existing_intake, dict):
-            normalized = _normalise_intake(existing_intake)
+            normalized = _normalise_intake(existing_intake, allow_profile_review=profile_review)
             existing_blocks = {row["block_id"]: row for row in normalized["blocks"]}
 
         receipt = uploads.get(block_id)
@@ -648,7 +675,9 @@ def append_intake_chunk(
                 "contains_no_facts": False,
             }],
         }
-        draft.setdefault("sections", {})["intake"] = _merge_intake(existing_intake, incoming)
+        draft.setdefault("sections", {})["intake"] = _merge_intake(
+            existing_intake, incoming, allow_profile_review=profile_review,
+        )
         draft["revision"] = int(draft.get("revision", 0) or 0) + 1
         draft["finalized"] = False
         draft.pop("finalized_template", None)
@@ -824,7 +853,11 @@ def _save_section(
             raise ValueError("DRAFT_SECTION_REVISION_MISMATCH")
         was_finalized = bool(draft.get("finalized"))
         parsed = novel_drafts._parse_one_json(section_json)
-        incoming = _normalise_intake(parsed, reject_placeholders=True)
+        incoming = _normalise_intake(
+            parsed,
+            reject_placeholders=True,
+            allow_profile_review=_is_profile_draft(draft),
+        )
 
         uploads = draft.get("intake_uploads") if isinstance(draft.get("intake_uploads"), dict) else {}
         for row in incoming["blocks"]:
@@ -832,7 +865,11 @@ def _save_section(
             if isinstance(upload, dict) and not upload.get("completed"):
                 raise ValueError("INTAKE_UPLOAD_IN_PROGRESS")
 
-        merged = _merge_intake(draft.get("sections", {}).get("intake"), incoming)
+        merged = _merge_intake(
+            draft.get("sections", {}).get("intake"),
+            incoming,
+            allow_profile_review=_is_profile_draft(draft),
+        )
         draft.setdefault("sections", {})["intake"] = merged
         draft["revision"] = current_revision + 1
         draft["finalized"] = False
