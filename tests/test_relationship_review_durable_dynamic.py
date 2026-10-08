@@ -118,6 +118,18 @@ def test_uncertain_qualitative_dynamic_can_explicitly_have_no_numeric_axis():
         assert store(sid)["npc_to_pov"]["mira"]["dimensions"] == {}
 
 
+def test_resolved_attitude_can_end_with_empty_dimensions():
+    with tempfile.TemporaryDirectory() as tmp:
+        sid = setup(tmp, dynamic="Страха больше нет; Мира больше не боится Кайра.")
+        manifest = prepare(sid)
+        data = payload(manifest)
+        data["extracted"]["relationship_review"][0]["reason"] = (
+            "Проверено: прежний страх исчез, другой устойчивой числовой оси нет."
+        )
+        assert commit_turn_request(sid, data)["turn_number"] == 1
+        assert store(sid)["npc_to_pov"]["mira"]["dimensions"] == {}
+
+
 def test_mid_scene_physical_entrant_is_in_review_scope_even_if_absent_at_prepare():
     with tempfile.TemporaryDirectory() as tmp:
         sid = setup(tmp)
