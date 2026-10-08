@@ -91,9 +91,10 @@ def _ranges(row: Dict[str, Any]) -> List[List[int]]:
     return result
 
 
-def covered_turns(root) -> set[int]:
+def covered_turns(root, *, scene_history_override=None) -> set[int]:
     result: set[int] = set()
-    for row in load_scene_history(root):
+    scenes = scene_history_override if scene_history_override is not None else load_scene_history(root)
+    for row in scenes:
         for start, end in _ranges(row):
             result.update(range(start, end + 1))
     return result
