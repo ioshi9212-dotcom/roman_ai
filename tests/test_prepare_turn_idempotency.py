@@ -72,6 +72,62 @@ def test_new_turn_serializes_one_final_packet_without_duplicate_writer_context(m
         assert context["cast_registry"]["registry_index_path"] == "cast_registry.characters"
         assert manifest["chunk_chars_max"] == 16000
 
+
+def test_chunk_reads_update_only_small_progress_sidecar_and_preserve_full_packet():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = make_session()
+        manifest = session_runtime.prepare_turn_packet(sid, "Проверка неизменяемого пакета.")
+        assert manifest["chunk_count"] > 2
+
+        root = storage.SESSIONS_DIR / sid
+        packet_path = root / "turn_packet.json"
+        original_bytes = packet_path.read_bytes()
+        original_packet = json.loads(original_bytes)
+        assert original_packet["read_chunks"] == [0]
+
+        chunks = [manifest["content"]]
+        for index in range(1, manifest["chunk_count"]):
+            row = storage.get_turn_packet_chunk(sid, manifest["packet_id"], index)
+            chunks.append(row["content"])
+            # A read must not serialize or truncate the full story packet.
+            assert packet_path.read_bytes() == original_bytes
+            assert index not in json.loads(packet_path.read_text(encoding="utf-8"))["read_chunks"]
+
+        progress = storage._read_json(root / storage.TURN_PACKET_READ_PROGRESS, {})
+        assert progress["packet_id"] == manifest["packet_id"]
+        assert progress["read_chunks"] == list(range(manifest["chunk_count"]))
+        assert (root / storage.TURN_PACKET_READ_PROGRESS).stat().st_size < len(original_bytes)
+        merged = storage._read_json(packet_path, {})
+        assert merged["read_chunks"] == list(range(manifest["chunk_count"]))
+        assert json.loads("".join(chunks)) == json.loads("".join(merged["chunks"]))
+
+        replay = session_runtime.prepare_turn_packet(sid, "Проверка неизменяемого пакета.")
+        assert replay["packet_id"] == manifest["packet_id"]
+        assert replay["all_chunks_read"] is True
+        assert replay["reused_pending_packet"] is True
+        assert packet_path.read_bytes() == original_bytes
+
+
+def test_old_chunk_progress_is_not_applied_to_replaced_packet():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = make_session()
+        first = session_runtime.prepare_turn_packet(sid, "Первый пакет.")
+        for index in range(1, first["chunk_count"]):
+            storage.get_turn_packet_chunk(sid, first["packet_id"], index)
+
+        second = session_runtime.prepare_turn_packet(sid, "Другой пакет.")
+        assert second["packet_id"] != first["packet_id"]
+        root = storage.SESSIONS_DIR / sid
+        fresh = storage._read_json(root / "turn_packet.json", {})
+        assert fresh["read_chunks"] == [0]
+        assert second["all_chunks_read"] is False
+        assert storage._read_json(root / storage.TURN_PACKET_READ_PROGRESS, {})["packet_id"] == first["packet_id"]
+        with pytest.raises(PermissionError):
+            storage.get_turn_packet_chunk(sid, first["packet_id"], 1)
+
+
 def test_same_pending_prepare_reuses_packet_and_keeps_read_progress():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
