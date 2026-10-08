@@ -7,7 +7,7 @@ from typing import Any, Dict, List
 
 from .character_access import get_character_bundle
 from . import personal_memory_transport, relationship_file_runtime, storage, session_runtime
-from .scene_compaction_runtime import active_memory_records, complete_knowledge_records
+from .scene_compaction_runtime import active_memory_records, transport_knowledge_records
 from .transactional_storage import session_transaction
 
 
@@ -129,7 +129,7 @@ def _working_memory(
     cards: List[Dict[str, Any]],
 ) -> Dict[str, Any]:
     memory = bundle.get("personal_memory") if isinstance(bundle.get("personal_memory"), dict) else {}
-    all_knowledge = complete_knowledge_records(memory.get("knowledge"))
+    all_knowledge = transport_knowledge_records(memory.get("knowledge"))
 
     # Knowledge is factual authority for this character. Do not replace old facts
     # with a tiny historical catalog: the bundle is chunked, so all active facts can
