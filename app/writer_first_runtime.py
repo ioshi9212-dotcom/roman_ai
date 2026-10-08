@@ -209,6 +209,18 @@ def _event_participants(event: Dict[str, Any]) -> set[str]:
     return result
 
 
+def _event_actor_ids(event: Dict[str, Any]) -> set[str]:
+    """Actor is objective provenance, not an additional present witness."""
+    actors = set()
+    if event.get("actor_character_id"):
+        actors.add(str(event["actor_character_id"]))
+    for collection in ("actor_events", "source_key_facts"):
+        for row in event.get(collection, []) if isinstance(event.get(collection), list) else []:
+            if isinstance(row, dict) and row.get("actor_character_id"):
+                actors.add(str(row["actor_character_id"]))
+    return actors
+
+
 def _event_location(event: Dict[str, Any]) -> str:
     return str(event.get("location") or event.get("location_id") or event.get("place") or "").casefold().strip()
 
@@ -250,7 +262,11 @@ def _compact_chronology(value: Any, character_ids: List[str], location: Any) -> 
     for index, event in list(enumerate(events))[-MAX_RECENT_CHRONOLOGY:]:
         keep(event, index)
     for character_id in character_ids:
-        for index, event in [(i, e) for i, e in enumerate(events) if character_id in _event_participants(e)][-MAX_CHARACTER_CHRONOLOGY:]:
+        matches = [
+            (i, event) for i, event in enumerate(events)
+            if character_id in _event_participants(event) or character_id in _event_actor_ids(event)
+        ]
+        for index, event in ([matches[0]] if matches and matches[0] not in matches[-MAX_CHARACTER_CHRONOLOGY:] else []) + matches[-MAX_CHARACTER_CHRONOLOGY:]:
             keep(event, index)
     needle = str(location or "").casefold().strip()
     if needle:
@@ -259,6 +275,28 @@ def _compact_chronology(value: Any, character_ids: List[str], location: Any) -> 
     full_anchors = [(i, e) for i, e in enumerate(events) if _is_anchor(e)][-MAX_FULL_ANCHOR_CHRONOLOGY:]
     for index, event in full_anchors:
         keep(event, index)
+    # The backend keeps all objective source facts. The writer gets only the
+    # on-scene actors' facts, plus truly global facts, to avoid giant packets.
+    relevant = {str(cid) for cid in character_ids}
+    for event in selected.values():
+        for field in ("actor_events", "source_key_facts"):
+            records = event.get(field)
+            if not isinstance(records, list):
+                continue
+            scoped = [
+                row for row in records
+                if isinstance(row, dict) and (
+                    str(row.get("actor_character_id") or "") in relevant
+                    or (not row.get("actor_character_id") and (
+                        not row.get("participants_present")
+                        or any(str(cid) in relevant for cid in row.get("participants_present", []))
+                    ))
+                )
+            ]
+            if scoped:
+                event[field] = scoped
+            else:
+                event.pop(field, None)
     return sorted(selected.values(), key=lambda event: (_event_turn(event), str(event.get("event_id", ""))))
 
 
