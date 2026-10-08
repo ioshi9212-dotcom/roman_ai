@@ -249,6 +249,7 @@ def test_scene_transition_retry_and_rollback_preserve_exact_state(tmp_path, monk
     }, presence_updates=[{"character_id": "silas", "action": "leave"}])
     before = storage._read_json(root / "state.json", {})
     payload["scene_output"] += " POV вошла в кабинет. Сайлас остался на кухне."
+    payload["extracted"]["scene_progression"]["ending_evidence_text"] = "Сайлас остался на кухне."
     commit_turn_request(sid, payload)
     after = storage._read_json(root / "state.json", {})
     assert after["current"]["location"] == "кабинет"
