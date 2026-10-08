@@ -448,3 +448,141 @@ def test_offscreen_npc_can_appear_without_pov_prompt_or_preexisting_intent():
         }]
         result = commit_turn_request(sid, data)
         assert result["turn_number"] == 1
+
+
+def test_http_commit_preserves_independent_cast_actor_through_pydantic():
+    from fastapi.testclient import TestClient
+    from app.main import app
+    from app.models import CommitTurnRequest
+
+    with tempfile.TemporaryDirectory() as tmp:
+        sid = _setup(tmp, with_offscreen=True)
+        raw = "(читать книгу)"
+        manifest, _ = _prepare(sid, raw)
+        ending = "Дарен вошёл и сообщил об обнаруженном повреждении перехода."
+        data = _payload(
+            manifest,
+            raw,
+            "Кайр читал книгу. " + ending,
+            scene_progressed=True,
+            proof={
+                "target": "cast:independent",
+                "character_id": "daren",
+                "kind": "npc_action",
+                "action": "Дарен самостоятельно пришёл из-за расследования.",
+                "end_state_change": "Дарен встретился с Кайром, чтобы сообщить о повреждении.",
+                "ending_kind": "incoming_contact",
+                "ending_evidence_text": ending,
+            },
+            presence_updates=[{"character_id": "daren", "action": "enter"}],
+        )
+        data["extracted"]["relationship_review"] = [{
+            "character_id": "daren",
+            "changed": False,
+            "reason": "Новая встреча, устойчивый числовой сдвиг пока не доказан.",
+            "numeric_result": "no_numeric_dimension_justified",
+        }]
+        # Both the public Pydantic request model and the real HTTP endpoint
+        # must preserve the actor; a direct commit helper alone missed this bug.
+        request = CommitTurnRequest.model_validate(data)
+        assert request.extracted.scene_progression.character_id == "daren"
+        with TestClient(app) as client:
+            result = client.post(f"/sessions/{sid}/turns", json=data)
+        assert result.status_code == 200, result.text
+        assert result.json()["turn_number"] == 1
+
+
+def test_offscreen_major_action_advances_cast_without_intent_or_pov_presence():
+    from app.models import CommitTurnRequest
+
+    with tempfile.TemporaryDirectory() as tmp:
+        sid = _setup(tmp, with_offscreen=True)
+        raw = "(читать книгу)"
+        manifest, context = _prepare(sid, raw)
+        assert "cast:independent" in {
+            target["target_id"]
+            for target in context["progression_contract"]["eligible_targets"]
+        }
+        ending = "В заброшенном здании Дарен обнаружил новое повреждение перехода."
+        data = _payload(
+            manifest,
+            raw,
+            "Кайр продолжал читать дома. " + ending,
+            scene_progressed=True,
+            proof={
+                "target": "cast:independent",
+                "character_id": "daren",
+                "kind": "npc_action",
+                "action": "Дарен самостоятельно обследовал переход.",
+                "end_state_change": "Дарен получил новое доказательство повреждения.",
+                "ending_kind": "concrete_next_pressure",
+                "ending_evidence_text": ending,
+            },
+            chronology=[{
+                "event": ending,
+                "actor_character_id": "daren",
+                "location": "заброшенное здание",
+                "importance": "major",
+                "consequences": ["Дарен продолжит собственное расследование."],
+            }],
+        )
+        model_data = CommitTurnRequest.model_validate(data).model_dump()
+        result = commit_turn_request(sid, model_data)
+        assert result["turn_number"] == 1
+        root = storage.SESSIONS_DIR / sid
+        saved_chronology = storage._read_json(root / "chronology.json", [])
+        assert any(row.get("actor_character_id") == "daren" for row in saved_chronology)
+        entry = next(row for row in saved_chronology if row.get("actor_character_id") == "daren")
+        assert entry.get("location") == "заброшенное здание"
+        assert "kair" not in entry.get("participants_present", [])
+        state = storage._read_json(root / "state.json", {})
+        assert "daren" not in state.get("current", {}).get("present_characters", [])
+        assert not state.get("npc_intents")
+
+
+def test_offscreen_actor_does_not_inherit_pov_location_or_witnesses():
+    from app.session_runtime import _normalise_chronology_events
+
+    cards = [
+        {"character_id": "kair", "name": "Кайр", "is_pov": True},
+        {"character_id": "daren", "name": "Дарен"},
+    ]
+    state = {"current": {
+        "location": "дом Кайра",
+        "present_characters": ["kair"],
+        "date": "08.10.2026",
+    }}
+    rows = _normalise_chronology_events(
+        [{"event": "Дарен нашёл след.", "actor_character_id": "daren", "importance": "major"}],
+        turn_number=3, state=state, cards=cards,
+    )
+    assert rows[0]["actor_character_id"] == "daren"
+    assert "location" not in rows[0]
+    assert "participants_present" not in rows[0]
+
+
+def test_independent_actor_proof_without_real_action_is_rejected():
+    from app.models import CommitTurnRequest
+
+    with tempfile.TemporaryDirectory() as tmp:
+        sid = _setup(tmp, with_offscreen=True)
+        raw = "(читать книгу)"
+        manifest, _ = _prepare(sid, raw)
+        ending = "Кайр заметил свежую трещину на стене."
+        data = _payload(
+            manifest, raw, ending,
+            scene_progressed=True,
+            proof={
+                "target": "cast:independent",
+                "character_id": "daren",
+                "kind": "npc_action",
+                "action": "Дарен якобы изучал переход.",
+                "end_state_change": "Трещина обнаружена.",
+                "ending_kind": "concrete_next_pressure",
+                "ending_evidence_text": ending,
+            },
+            chronology=[{"event": ending, "importance": "major"}],
+        )
+        with pytest.raises(HTTPException) as exc:
+            commit_turn_request(sid, CommitTurnRequest.model_validate(data).model_dump())
+        assert exc.value.detail["code"] == "SCENE_NO_MEANINGFUL_PROGRESSION"
