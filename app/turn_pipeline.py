@@ -647,20 +647,22 @@ def prepare_turn_packet(
     if not root.exists():
         raise FileNotFoundError(session_id)
 
-    stability_runtime._recover_session(session_id)
-    if not prevalidated:
-        session_migrations.ensure_current_session_data(session_id, invalidate_pending=True)
-    _current_pointer_guard(session_id)
+    with timed("prepareTurn", "session_recovery"):
+        stability_runtime._recover_session(session_id)
+        if not prevalidated:
+            session_migrations.ensure_current_session_data(session_id, invalidate_pending=True)
+        _current_pointer_guard(session_id)
     # Preflight and context construction share one canonical file snapshot.
-    source = _strip_legacy_pov_rule_from_session_source(root)
-    state = storage._read_json(root / "state.json", {})
-    synced_state = game_day.sync_game_day(state, source)
-    if synced_state != state:
-        storage._write_json(root / "state.json", synced_state)
-    memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
-    knowledge_persistence_runtime.dedupe_persisted_knowledge_journal(
-        session_id, memory_override=memory,
-    )
+    with timed("prepareTurn", "preflight_files"):
+        source = _strip_legacy_pov_rule_from_session_source(root)
+        state = storage._read_json(root / "state.json", {})
+        synced_state = game_day.sync_game_day(state, source)
+        if synced_state != state:
+            storage._write_json(root / "state.json", synced_state)
+        memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
+        knowledge_persistence_runtime.dedupe_persisted_knowledge_journal(
+            session_id, memory_override=memory,
+        )
 
     with session_transaction(root):
         meta = storage._read_json(root / "meta.json", {})
@@ -681,14 +683,15 @@ def prepare_turn_packet(
 
     # Build once in memory, then serialize only the final writer packet.
     # This avoids storage -> packet -> read -> rewrite -> packet round-trips.
-    context, snapshot = session_runtime.build_turn_context(
-        session_id,
-        user_input,
-        return_snapshot=True,
-        preloaded_source=source,
-        preloaded_state=synced_state,
-        preloaded_memory=memory,
-    )
+    with timed("prepareTurn", "build_context"):
+        context, snapshot = session_runtime.build_turn_context(
+            session_id,
+            user_input,
+            return_snapshot=True,
+            preloaded_source=source,
+            preloaded_state=synced_state,
+            preloaded_memory=memory,
+        )
     packet = {
         "packet_id": secrets.token_urlsafe(12),
         "prepared_for_turn": expected_turn,
@@ -713,13 +716,14 @@ def prepare_turn_packet(
         "chunk_count": 0,
         "relevant_character_ids": packet["relevant_character_ids"],
     }
-    return _prepare_context(
-        session_id,
-        base,
-        packet_override=packet,
-        context_override=context,
-        snapshot_override=snapshot,
-    )
+    with timed("prepareTurn", "assemble_writer_packet"):
+        return _prepare_context(
+            session_id,
+            base,
+            packet_override=packet,
+            context_override=context,
+            snapshot_override=snapshot,
+        )
 
 
 def _validate_technical_state_patch(payload: Dict[str, Any]) -> None:
