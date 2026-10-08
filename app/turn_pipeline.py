@@ -189,7 +189,7 @@ def _cast_registry_rows(
     pov_id = str(pov.get("character_id") or "")
     present = {str(value) for value in storage._present_character_ids(state) if value}
     remote = {str(value) for value in storage._remote_character_ids(state) if value}
-    def compact(value: Any, limit: int = 260) -> str | None:
+    def compact(value: Any, limit: int = 140) -> str | None:
         if value in (None, "", [], {}):
             return None
         if isinstance(value, str):
@@ -270,7 +270,7 @@ def _cast_registry_rows(
             "character_id": cid,
             "name": raw.get("name") or storage._card_name(card) or cid,
             "role": raw.get("role") or storage._card_role(card),
-            "story_function": compact(story_function, 240),
+            "story_function": compact(story_function, 180),
             "status": raw.get("status") or "active",
             "origin": raw.get("origin"),
             "importance": raw.get("importance"),
@@ -281,9 +281,9 @@ def _cast_registry_rows(
             "initiative_eligible": cid != pov_id and not cast_registry_runtime._is_inactive(raw.get("status") or info.get("status") or card.get("status")),
             "offscreen_can_initiate": cid != pov_id and cid not in present and cid not in remote and not cast_registry_runtime._is_inactive(raw.get("status") or info.get("status") or card.get("status")),
             "goals": compact(goals),
-            "work": compact(card.get("work"), 150),
-            "habits": compact(card.get("habits"), 180),
-            "character": compact(card.get("character") or card.get("personality"), 180),
+            "work": compact(card.get("work"), 120),
+            "habits": compact(card.get("habits"), 150),
+            "character": compact(card.get("character") or card.get("personality"), 150),
             "pov_relationship": pov_relationship or None,
             "pov_relationship_dynamic": compact(relation.get("dynamic"), 320) if isinstance(relation, dict) else None,
             "current_location": compact(info.get("location") or info.get("location_id"), 140),
