@@ -570,6 +570,64 @@ def complete_knowledge_records(values: Any) -> List[Dict[str, Any]]:
     return result
 
 
+def transport_knowledge_records(values: Any) -> List[Dict[str, Any]]:
+    """Use compacted factual knowledge only when nothing can be forgotten.
+
+    Older audit summaries may omit independent facts. Never trust
+    superseded_by alone. For each proposed canonical record verify that
+    every underlying raw fact is still literally present in its summary
+    (ignoring only whitespace), and that source uncertainty is uniform.
+    Otherwise send the exact raw facts. Originals remain unchanged.
+    """
+    complete = complete_knowledge_records(values)
+    if not isinstance(values, list):
+        return complete
+    raw_by_id = {
+        str(row.get("fact_id")): row
+        for row in complete
+        if isinstance(row, dict)
+        and row.get("canonical_compaction") is not True
+        and row.get("fact_id") not in (None, "")
+    }
+    chosen: List[Dict[str, Any]] = []
+    replaced: set[str] = set()
+    for item in values:
+        if not isinstance(item, dict) or item.get("canonical_compaction") is not True:
+            continue
+        if item.get("superseded_by"):
+            continue
+        ids = item.get("merged_from")
+        ids = [str(value) for value in ids if value] if isinstance(ids, list) else []
+        if not ids or len(set(ids)) != len(ids) or any(i in replaced or i not in raw_by_id for i in ids):
+            continue
+        sources = [raw_by_id[i] for i in ids]
+        summary = " ".join(str(item.get("fact") or "").split()).casefold()
+        facts = [" ".join(str(row.get("fact") or "").split()).casefold() for row in sources]
+        if not summary or any(not fact or fact not in summary for fact in facts):
+            continue
+        confidences = [
+            str(row.get("confidence") or "").casefold().strip()
+            for row in sources
+        ]
+        if len(set(confidences)) > 1:
+            continue
+        import json
+        raw_size = sum(len(json.dumps(row, ensure_ascii=False)) for row in sources)
+        compact_size = len(json.dumps(item, ensure_ascii=False))
+        if compact_size >= raw_size:
+            continue
+        chosen.append(deepcopy(item))
+        replaced.update(ids)
+
+    kept = [
+        row for row in complete
+        if not (row.get("canonical_compaction") is not True and str(row.get("fact_id") or "") in replaced)
+    ]
+    result = [*kept, *chosen]
+    result.sort(key=lambda row: (_record_turn(row), str(row.get("fact_id") or "")))
+    return result
+
+
 def active_memory_records(values: Any) -> List[Dict[str, Any]]:
     if not isinstance(values, list):
         return []
