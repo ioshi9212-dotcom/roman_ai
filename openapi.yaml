@@ -720,6 +720,9 @@ components:
         target:
           type: string
           description: One target_id from progression_contract.eligible_targets.
+        character_id:
+          type: string
+          description: Required when target is cast:independent; the character_id of the NPC who actually acted, verified against the eligible offscreen cast and persisted evidence.
         kind:
           type: string
           enum: [new_information, external_event, npc_action, thread_state_change, relationship_shift, new_constraint, new_opportunity, new_threat, unfinished_action_specific]
