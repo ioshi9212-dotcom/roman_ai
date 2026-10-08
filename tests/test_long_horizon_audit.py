@@ -618,3 +618,111 @@ def test_writer_gets_personal_day_one_source_facts_but_not_unrelated_offscreen_e
         macro, ["daren"], "другое место",
     )
     assert [f["source_event_id"] for f in selected[0]["source_key_facts"]] == ["offscreen-daren"]
+
+
+
+def test_day_one_macro_remains_retrievable_after_many_later_character_events():
+    from app import session_runtime, writer_first_runtime
+    early = {
+        "event_id": "macro_day1", "turn_number": 60,
+        "story_date": "01.09.1206", "importance": "major",
+        "participants_present": [],
+        "event": "Первый день: начало истории.",
+        "source_key_facts": [{
+            "source_event_id": "day1-promise", "turn_number": 1,
+            "importance": "major", "participants_present": ["pov"],
+            "event": "На первом дне POV обещал сохранить секрет Миры.",
+        }],
+    }
+    # Many later events with the same character should not evict earliest
+    # confirmed evidence from the working context.
+    later = [
+        {
+            "event_id": f"macro_later_{i}", "turn_number": i + 60,
+            "importance": "major", "event": f"День {i}: очередное событие.",
+            "participants_present": ["pov"],
+        }
+        for i in range(1, 160)
+    ]
+    source = [early, *later]
+    selected = session_runtime._select_chronology_context(
+        source, relevant_character_ids=["pov"], location=None,
+    )
+    assert any(row["event_id"] == "macro_day1" for row in selected)
+    result = writer_first_runtime._compact_chronology(selected, ["pov"], "дом")
+    first = next(row for row in result if row["event_id"] == "macro_day1")
+    assert first["source_key_facts"][0]["source_event_id"] == "day1-promise"
+    assert "pov" not in early["participants_present"]
+    assert len(result) < 35  # selected old evidence without unlimited archive
+
+
+def test_normal_event_with_saved_consequence_survives_sixty_turn_macro():
+    with tempfile.TemporaryDirectory() as tmp:
+        _setup(tmp)
+        root = storage.SESSIONS_DIR / "normal-important"
+        root.mkdir(parents=True)
+        storage._write_json(root / "source.json", {
+            "version": 5, "profile_schema": {"version": 1},
+        })
+        turns = [_turn(i, "24.09.2026") for i in range(1, 61)]
+        (root / "turns.jsonl").write_text(
+            "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in turns),
+            encoding="utf-8",
+        )
+        rows = [
+            {"event_id": "mislabelled-promise", "turn_number": 1,
+             "story_date": "24.09.2026", "importance": "normal",
+             "event": "POV заключил обещание, повлиявшее на дальнейший сюжет.",
+             "consequences": ["Не может выдавать чужой секрет."]},
+            {"event_id": "tea", "turn_number": 2, "story_date": "24.09.2026",
+             "importance": "normal", "event": "POV выпил чай."},
+        ]
+        result = apply_macro_chronology_compaction(
+            root, rows,
+            {"chronology_compactions": [{
+                "date": "24.09.2026",
+                "summary": "Первый день, начало дальнейших важных событий.",
+                "importance": "normal",
+            }]}, end_turn=60,
+        )
+        saved = result[0]["source_key_facts"]
+        assert [row["source_event_id"] for row in saved] == ["mislabelled-promise"]
+        assert saved[0]["consequences"] == ["Не может выдавать чужой секрет."]
+
+
+def test_continuation_preserves_nested_macro_provenance_even_when_summary_omits_day():
+    from app.continuation_runtime import _normalized_chronology
+    original = [
+        {"event_id": "macro_day1", "story_date": "01.09.1206",
+         "turn_number": 60, "importance": "anchor",
+         "event": "Первый день содержит обещание.",
+         "source_key_facts": [
+             {"source_event_id": "promise-1", "turn_number": 1,
+              "participants_present": ["pov"],
+              "importance": "anchor", "event": "POV обещал Мире не раскрывать секрет."},
+             {"source_event_id": "secret-1", "turn_number": 2,
+              "participants_present": ["pov"],
+              "importance": "major", "event": "POV увидел тайный вход."},
+         ]},
+    ]
+    package = {"chronology": [
+        {"date": "03.09.1206", "summary": "Более поздние события.",
+         "importance": "normal"},
+    ]}
+    first = _normalized_chronology(package, source_chronology=original)
+    carried = next(x for x in first if x.get("story_date") == "01.09.1206")
+    assert {f["source_event_id"] for f in carried["source_key_facts"]} == {
+        "promise-1", "secret-1",
+    }
+    assert carried["importance"] == "anchor"
+    assert not carried.get("participants_present")
+    second = _normalized_chronology({
+        "chronology": [{"date": "01.09.1206",
+                        "summary": "Второй перенос вспомнил только обещание.",
+                        "importance": "normal"}],
+    }, source_chronology=first)
+    latest = next(x for x in second if x.get("story_date") == "01.09.1206")
+    assert {f["source_event_id"] for f in latest["source_key_facts"]} == {
+        "promise-1", "secret-1",
+    }
+    assert latest["importance"] == "anchor"
