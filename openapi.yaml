@@ -13,6 +13,9 @@ components:
       properties:
         event:
           type: string
+        actor_character_id:
+          type: string
+          description: Optional registered NPC whose action caused the event. For offscreen events, set the real actor and location; do not invent POV awareness or present witnesses.
         summary:
           type: string
         story_date:
