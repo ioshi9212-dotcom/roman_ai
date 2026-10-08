@@ -159,4 +159,7 @@ def test_append_transaction_rollback_on_write_failure(monkeypatch):
         assert triggered
         assert journal.read_text(encoding="utf-8") == old
         assert state.read_text(encoding="utf-8") == '{"turn": 1}\n'
+        # Failed transactions may leave an empty staging parent for the next
+        # recovery pass, but never an uncommitted child or corrupted file.
+        recover(root)
         assert not (root / ".transactions").exists()
