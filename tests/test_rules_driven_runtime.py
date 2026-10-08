@@ -1372,6 +1372,43 @@ def test_opening_scene_uses_empty_gameplay_input_not_service_command():
 
 
 
+def test_scene_dossiers_are_scoped_but_the_entire_cast_index_is_short():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        novel = base_novel()
+        novel["characters"] = [novel["characters"][0]] + [
+            {
+                "character_id": f"support_{n}",
+                "name": f"Support {n}",
+                "story_function": "самостоятельное расследование",
+                "work": "работает в отделе расследований " + ("W" * 800),
+                "habits": "встречается с друзьями " + ("H" * 800),
+                "character": "упрямый, занят своими делами " + ("C" * 800),
+                "goals": "вести своё дело " + ("G" * 800),
+            }
+            for n in range(52)
+        ]
+        novel["starting_state"]["current"]["present_characters"] = ["pov"]
+        sid = storage.create_session(novel)["session_id"]
+        _, context = read_context(sid, "(остаться дома)")
+        rows = context["cast_registry"]["characters"]
+        assert len(rows) == 53
+        assert {row["character_id"] for row in rows} == {
+            "pov", *[f"support_{n}" for n in range(52)]
+        }
+        assert [row["character_id"] for row in context["character_cards"]] == ["pov"]
+        assert set(context["character_memory"]) == {"pov"}
+        assert "offscreen_intent_candidates" not in context
+        # Always-read cast cue list is a directory, not a duplicate dossier.
+        assert all("card" not in row and "personal_memory" not in row for row in rows)
+        assert len(json.dumps(rows, ensure_ascii=False)) < 48000
+        for row in rows:
+            if row["character_id"] == "pov":
+                continue
+            assert row["offscreen_can_initiate"] is True
+            assert row["goals"].startswith("вести своё дело")
+
+
 def test_secondary_cast_cues_are_bounded_and_readable_before_selection():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
