@@ -34,7 +34,7 @@ Backend = канон. Actions молча. В игровом ходе до сце
 
 ## Игровой ход
 
-Новый игровой ход → новый `request_id`; технический повтор → тот же. `prepareTurn`: exact raw пользователя, `replace_pending=false`; сохрани `packet_id`. Если chunk 0 включён, не читай его повторно; остальные → `getTurnPacketChunk`.
+Новый игровой ход → новый `request_id`; технический повтор → тот же. `prepareTurn`: exact raw пользователя, `replace_pending=false`; сохрани `packet_id`. Если chunk 0 включён, не читай повторно. Остальные: `getTurnPacketChunk` с `max_chunks=3`, начиная с `next_chunk_index`; читай все `chunks[].content` по порядку и повторяй по `next_chunk_index` до `null`. Ничего не пропускай.
 
 Packet уже содержит director context, current/recent, POV, physical/remote участников с их profiles/knowledge, отношения/intents, cast registry, NPC↔NPC network; `location_context` только текущего физического места; затем `runtime_rules` и `scene_builder`. Пиши только по двум последним, второго набора правил не создавай.
 
@@ -60,7 +60,7 @@ Cast registry — активный каст. Смотри всех active NPC к
 
 ## Audit
 
-После каждого 15-го `commitTurn` ответ содержит `required_audit` и chunk 0. Остальные chunks читай через `getTurnPacketChunk`, передавая `audit_id` как `packet_id`, затем вызови `commitTurn` с audit payload: `audit_id`, `start_turn`, `end_turn`, `repairs`, `notes`. Если `prepareTurn` вернул `audit_required=true`, сначала закончи этот audit, потом повтори тот же raw input/request_id.
+После каждого 15-го `commitTurn` ответ содержит `required_audit` и chunk 0. Остальные chunks читай через `getTurnPacketChunk` с `max_chunks=3`, `audit_id` как `packet_id`; прочитай всё по `next_chunk_index`, затем `commitTurn` с audit payload: `audit_id`, `start_turn`, `end_turn`, `repairs`, `notes`. Если `prepareTurn` вернул `audit_required=true`, сначала закончи этот audit, потом повтори тот же raw input/request_id.
 
 Audit сверяет exact 15 raw turns с persistence и дописывает только доказанные пропуски с исходным номером хода. Knowledge восстанавливай только по фактическому восприятию персонажа. Каждый 60-й audit дополнительно сжимает chronology по датам и создаёт `repairs.character_upserts`, если named one-off доказанно стал повторяющимся/важным.
 
