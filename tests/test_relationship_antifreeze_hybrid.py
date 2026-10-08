@@ -97,25 +97,41 @@ def payload(manifest, user_input: str, *, review=None, updates=None):
         for row in review:
             if "numeric_result" not in row:
                 row["numeric_result"] = "updated" if numeric_changed else "unchanged"
+    ending = (
+        "Отношение Эдриана к Ринате реально изменилось."
+        if updates
+        else "Эдриан остаётся рядом и реагирует на Ринату."
+    )
+    extracted = {
+        "scene_builder_reviewed": True,
+        "persistence_reviewed": True,
+        "knowledge_reviewed": True,
+        "chronology": [],
+        "knowledge_journal_add": [],
+        "npc_intent_updates": [],
+        "npc_relationship_updates": [],
+        "story_thread_updates": [],
+        "presence_updates": [],
+        "relationship_review": review,
+        "relationship_updates": updates,
+        "state_patch": {},
+        "character_upserts": [],
+        "scene_progressed": bool(updates),
+    }
+    if updates:
+        extracted["scene_progression"] = {
+            "target": "relationship:adrian",
+            "kind": "relationship_shift",
+            "action": "Сцена реально изменила отношение Эдриана к Ринате.",
+            "end_state_change": "К финалу сохранена новая числовая или qualitative динамика отношений.",
+            "ending_kind": "relationship_shift",
+            "ending_evidence_text": ending,
+        }
     return {
         "packet_id": manifest["packet_id"],
         "user_input": user_input,
-        "scene_output": "Эдриан остаётся рядом и реагирует на Ринату.",
-        "extracted": {
-            "scene_builder_reviewed": True,
-            "persistence_reviewed": True,
-            "knowledge_reviewed": True,
-            "chronology": [],
-            "knowledge_journal_add": [],
-            "npc_intent_updates": [],
-            "npc_relationship_updates": [],
-            "story_thread_updates": [],
-            "presence_updates": [],
-            "relationship_review": review,
-            "relationship_updates": updates,
-            "state_patch": {},
-            "character_upserts": [],
-        },
+        "scene_output": ending,
+        "extracted": extracted,
     }
 
 
@@ -282,11 +298,11 @@ def test_neutral_first_encounter_creates_empty_record_and_rollback_removes_it():
         sid = storage.create_session(n)["session_id"]
         root = storage.SESSIONS_DIR / sid
         before = storage._read_json(root / "relationships.json", {})
-        manifest = prepare_turn_request(sid, "Здравствуйте.", request_id="first-encounter")
+        manifest = prepare_turn_request(sid, "Здравствуйте. Без событий.", request_id="first-encounter")
         read_all_pending(sid, manifest)
         data = payload(
             manifest,
-            "Здравствуйте.",
+            "Здравствуйте. Без событий.",
             review=[{
                 "character_id": "adrian",
                 "changed": False,
