@@ -345,13 +345,13 @@ def test_new_public_packet_requires_scene_and_persistence_review_before_commit()
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         sid = storage.create_session(base_novel())["session_id"]
-        manifest = prepare_turn_request(sid, "(посмотреть на NPC)", request_id="writer-review")
+        manifest = prepare_turn_request(sid, "(посмотреть на NPC без событий)", request_id="writer-review")
         read_all(manifest, sid)
 
         payload = {
             "packet_id": manifest["packet_id"],
-            "user_input": "(посмотреть на NPC)",
-            "scene_output": "Сцена продолжается.",
+            "user_input": "(посмотреть на NPC без событий)",
+            "scene_output": "Сцена продолжается без событий.",
             "extracted": {},
         }
         with pytest.raises(RuntimeError, match="SCENE_BUILDER_REVIEW_REQUIRED"):
@@ -414,7 +414,7 @@ def test_public_pending_packet_requires_relationship_review_and_strips_review_af
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         sid = storage.create_session(base_novel())["session_id"]
-        manifest = prepare_turn_request(sid, "(посмотреть на NPC)", request_id="rel-review-required")
+        manifest = prepare_turn_request(sid, "(посмотреть на NPC без событий)", request_id="rel-review-required")
         read_all(manifest, sid)
         root = storage.SESSIONS_DIR / sid
         packet = storage._read_json(root / "turn_packet.json", {})
@@ -431,8 +431,8 @@ def test_public_pending_packet_requires_relationship_review_and_strips_review_af
             sid,
             {
                 "packet_id": manifest["packet_id"],
-                "user_input": "(посмотреть на NPC)",
-                "scene_output": "Сцена продолжается.",
+                "user_input": "(посмотреть на NPC без событий)",
+                "scene_output": "Сцена продолжается без событий.",
                 "extracted": {
                     "scene_builder_reviewed": True,
                     "persistence_reviewed": True,

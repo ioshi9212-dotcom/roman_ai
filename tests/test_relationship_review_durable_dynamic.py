@@ -34,25 +34,42 @@ def setup(tmp, dims=None, dynamic=""):
 
 
 def prepare(sid):
-    manifest = prepare_turn_request(sid, "(молчать)", request_id="rel-review")
+    manifest = prepare_turn_request(sid, "(молчать без событий)", request_id="rel-review")
     for index in range(1, manifest["chunk_count"]):
         storage.get_turn_packet_chunk(sid, manifest["packet_id"], index)
     return manifest
 
 
 def payload(manifest, updates=None, result="no_numeric_dimension_justified", changed=False):
+    updates = updates or []
+    ending = (
+        "Отношение Миры к Кайру реально изменилось."
+        if updates
+        else "**Мира** — Я тебя услышала."
+    )
+    extracted = {
+        "scene_builder_reviewed": True, "persistence_reviewed": True,
+        "knowledge_reviewed": True, "relationship_updates": updates,
+        "relationship_review": [{
+            "character_id": "mira", "changed": changed,
+            "reason": "Проверено устойчивое отношение Миры к Кайру.",
+            "numeric_result": result,
+        }],
+        "scene_progressed": bool(updates),
+    }
+    if updates:
+        extracted["scene_progression"] = {
+            "target": "relationship:mira",
+            "kind": "relationship_shift",
+            "action": "Сцена реально изменила отношение Миры к Кайру.",
+            "end_state_change": "К финалу сохранена новая числовая или qualitative динамика отношений.",
+            "ending_kind": "relationship_shift",
+            "ending_evidence_text": ending,
+        }
     return {
-        "packet_id": manifest["packet_id"], "user_input": "(молчать)",
-        "scene_output": "**Мира** — Я тебя услышала.",
-        "extracted": {
-            "scene_builder_reviewed": True, "persistence_reviewed": True,
-            "knowledge_reviewed": True, "relationship_updates": updates or [],
-            "relationship_review": [{
-                "character_id": "mira", "changed": changed,
-                "reason": "Проверено устойчивое отношение Миры к Кайру.",
-                "numeric_result": result,
-            }],
-        },
+        "packet_id": manifest["packet_id"], "user_input": "(молчать без событий)",
+        "scene_output": ending,
+        "extracted": extracted,
     }
 
 
@@ -82,13 +99,13 @@ def test_stale_pending_packet_rebuild_keeps_public_review_marker():
         packet.pop("relationship_review_required", None)
         storage._write_json(root / "turn_packet.json", packet)
 
-        second = prepare_turn_request(sid, "(молчать)", request_id="rel-review")
+        second = prepare_turn_request(sid, "(молчать без событий)", request_id="rel-review")
         rebuilt = storage._read_json(root / "turn_packet.json", {})
 
         assert second["packet_id"] != first["packet_id"]
         assert second["relationship_review_required"] is True
         assert second["writer_review_required"] is True
-        assert rebuilt["turn_pipeline_version"] == 20
+        assert rebuilt["turn_pipeline_version"] == 21
         assert rebuilt["writer_review_required"] is True
         assert rebuilt["relationship_review_required"] is True
 
@@ -146,13 +163,23 @@ def test_mid_scene_physical_entrant_is_in_review_scope_even_if_absent_at_prepare
         assert "not exhaustive" in lens["review_scope"]
 
         data = payload(manifest)
-        data["scene_output"] = "**Мира** — Я зашла ненадолго."
+        ending = "**Мира** — Я зашла ненадолго."
+        data["scene_output"] = ending
         data["extracted"]["presence_updates"] = [
             {"character_id": "mira", "action": "enter"}
         ]
         data["extracted"]["relationship_review"][0]["reason"] = (
             "Мира вошла в сцену; устойчивого числового отношения пока не проявилось."
         )
+        data["extracted"]["scene_progressed"] = True
+        data["extracted"]["scene_progression"] = {
+            "target": "world:emergent",
+            "kind": "npc_action",
+            "action": "Мира физически вошла в текущую сцену.",
+            "end_state_change": "К финалу в сцене появился новый физический участник.",
+            "ending_kind": "incoming_contact",
+            "ending_evidence_text": ending,
+        }
         assert commit_turn_request(sid, data)["turn_number"] == 1
 
 

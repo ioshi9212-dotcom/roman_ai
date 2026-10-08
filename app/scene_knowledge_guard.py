@@ -86,6 +86,7 @@ _GLOBAL_FORBIDDEN_SOURCES = [
     "cast_registry",
     "npc_relationship_network",
     "npc_active_intents",
+    "progression_contract",
 ]
 
 _PROTECTED_CONTEXT_PATHS = (
@@ -108,6 +109,7 @@ _PROTECTED_CONTEXT_PATHS = (
     "npc_relationship_network",
     "npc_active_intents",
     "starting_state",
+    "progression_contract",
 )
 
 _BROAD_DIRECTOR_SOURCES = {
@@ -123,6 +125,7 @@ _BROAD_DIRECTOR_SOURCES = {
     "npc_relationship_network",
     "npc_active_intents",
     "starting_state",
+    "progression_contract",
 }
 
 

@@ -50,6 +50,7 @@ jobs:
           tests/test_scene_density_starting_relationships.py
           tests/test_relationship_antifreeze_hybrid.py
           tests/test_relationship_review_durable_dynamic.py
+          tests/test_scene_progression_contract.py
           tests/test_session_schema_migrations.py
           tests/test_persistent_story_npc_registration.py
           tests/test_personal_memory_identity_boundary.py

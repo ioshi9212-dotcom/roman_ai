@@ -51,6 +51,7 @@ def _packet_status(packet: Any) -> Dict[str, Any] | None:
         "scene_archive_capable": bool(packet.get("scene_archive_capable")),
         "writer_review_required": bool(packet.get("writer_review_required")),
         "relationship_review_required": bool(packet.get("relationship_review_required")),
+        "progression_review_required": bool(packet.get("progression_review_required")),
     }
 
 
@@ -122,11 +123,13 @@ def prepare_turn_request(
                     packet["opening_scene"] = True
                 packet["writer_review_required"] = True
                 packet["relationship_review_required"] = True
+                packet["progression_review_required"] = True
                 storage._write_json(root / "turn_packet.json", packet)
                 result["scene_archive_capable"] = bool(packet.get("scene_archive_capable"))
                 result["opening_scene"] = bool(packet.get("opening_scene"))
                 result["writer_review_required"] = bool(packet.get("writer_review_required"))
                 result["relationship_review_required"] = True
+                result["progression_review_required"] = True
                 result["pending_turn"] = pending_turn_status(session_id)
                 return result
 
@@ -156,6 +159,7 @@ def prepare_turn_request(
             packet["opening_scene"] = bool(opening_scene)
             packet["writer_review_required"] = True
             packet["relationship_review_required"] = True
+            packet["progression_review_required"] = True
             for key in (
                 "relationship_review_details_required",
                 "relationship_footer_scope_required",
@@ -173,6 +177,7 @@ def prepare_turn_request(
         result["opening_scene"] = bool(opening_scene)
         result["writer_review_required"] = bool(packet.get("writer_review_required"))
         result["relationship_review_required"] = bool(packet.get("relationship_review_required"))
+        result["progression_review_required"] = bool(packet.get("progression_review_required"))
         result["pending_turn"] = pending_turn_status(session_id)
         return result
 
