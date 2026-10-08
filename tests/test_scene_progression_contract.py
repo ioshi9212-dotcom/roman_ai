@@ -299,3 +299,79 @@ def test_relationship_line_can_be_the_meaningful_progression_target():
         assert result["turn_number"] == 1
         rel = storage._read_json(storage.SESSIONS_DIR / sid / "relationships.json", {})["npc_to_pov"]["mira"]
         assert rel["dimensions"]["настороженность"]["value"] == 44
+
+
+def test_desire_not_to_be_disturbed_is_not_explicit_uneventful_downtime():
+    with tempfile.TemporaryDirectory() as tmp:
+        sid = _setup(tmp, with_thread=True)
+        _, context = _prepare(sid, "(лечь спать, чтобы никто не мешал)")
+
+        contract = context["progression_contract"]
+        assert contract["time_skip_requested"] is True
+        assert contract["explicit_uneventful_downtime"] is False
+        assert contract["required_target_count"] == 1
+
+
+def test_normal_chronology_without_consequence_cannot_fake_progression():
+    with tempfile.TemporaryDirectory() as tmp:
+        sid = _setup(tmp)
+        raw = "(осмотреть комнату)"
+        manifest, _ = _prepare(sid, raw)
+        ending = "Кайр заметил, что чашка стоит на столе."
+        data = _payload(
+            manifest,
+            raw,
+            ending,
+            scene_progressed=True,
+            proof={
+                "target": "world:emergent",
+                "kind": "new_information",
+                "action": ending,
+                "end_state_change": "Кайр увидел обычную чашку.",
+                "ending_kind": "new_fact",
+                "ending_evidence_text": ending,
+            },
+            chronology=[{
+                "event": ending,
+                "importance": "normal",
+            }],
+        )
+
+        with pytest.raises(HTTPException) as exc:
+            commit_turn_request(sid, data)
+
+        assert exc.value.detail["code"] == "SCENE_NO_MEANINGFUL_PROGRESSION"
+
+
+def test_continuing_existing_remote_chat_is_not_progression_by_itself():
+    with tempfile.TemporaryDirectory() as tmp:
+        sid = _setup(tmp, with_mira=True)
+        root = storage.SESSIONS_DIR / sid
+        state = storage._read_json(root / "state.json", {})
+        state["current"]["present_characters"] = ["kair"]
+        state["current"]["remote_characters"] = ["mira"]
+        state["current"]["remote_channels"] = {"mira": "messages"}
+        storage._write_json(root / "state.json", state)
+
+        raw = "Ответить Мире."
+        manifest, _ = _prepare(sid, raw)
+        ending = "**Мира** (сообщение) — Привет."
+        data = _payload(
+            manifest,
+            raw,
+            ending,
+            scene_progressed=True,
+            proof={
+                "target": "world:emergent",
+                "kind": "npc_action",
+                "action": "Мира продолжила уже идущую переписку.",
+                "end_state_change": "В текущем чате появилась ещё одна обычная реплика.",
+                "ending_kind": "incoming_contact",
+                "ending_evidence_text": ending,
+            },
+        )
+
+        with pytest.raises(HTTPException) as exc:
+            commit_turn_request(sid, data)
+
+        assert exc.value.detail["code"] == "SCENE_NO_MEANINGFUL_PROGRESSION"
