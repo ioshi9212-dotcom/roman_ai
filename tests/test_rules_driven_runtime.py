@@ -2371,4 +2371,41 @@ def test_turn_packet_keeps_full_compact_cast_but_scene_scopes_full_cards():
         assert full_card_ids == {"pov"}
         assert "return_pressure" not in context["cast_registry"]
         assert "important_cast_return_required" not in context["cast_registry"]
+        focus = context["cast_registry"]["independent_initiative_focus"]
+        assert focus
+        assert any(row["character_id"] in {"off_a", "off_b", "npc", "away"} for row in focus)
+        assert "POV" not in {row.get("character_id") for row in focus}
+        assert "Наличие intent не требуется" in context["cast_registry"]["independent_initiative_instruction"]
+
+
+def test_independent_cast_focus_rotates_without_intent_or_pov_contact():
+    from app.turn_pipeline import _independent_cast_focus
+
+    rows = [
+        {
+            "character_id": f"off_{index}",
+            "name": f"NPC {index}",
+            "importance": "core",
+            "offscreen_can_initiate": True,
+            "story_function": "independent story line",
+        }
+        for index in range(7)
+    ]
+    rows.append({
+        "character_id": "pov",
+        "is_pov": True,
+        "offscreen_can_initiate": False,
+        "story_function": "main character",
+    })
+    focus1 = _independent_cast_focus(rows, 1)
+    focus2 = _independent_cast_focus(rows, 2)
+    focus3 = _independent_cast_focus(rows, 3)
+    assert len(focus1) == len(focus2) == len(focus3) == 3
+    assert {row["character_id"] for row in focus1}.isdisjoint(
+        {row["character_id"] for row in focus2}
+    )
+    assert {row["character_id"] for row in focus1 + focus2 + focus3} == {
+        f"off_{index}" for index in range(7)
+    }
+    assert all(not row.get("active_intents") for row in focus1 + focus2 + focus3)
 
