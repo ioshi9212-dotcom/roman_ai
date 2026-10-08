@@ -8,7 +8,7 @@ from typing import Any, Dict, List
 
 from . import relationship_file_runtime, storage
 from .long_horizon_audit import _source_actor_events_by_date
-from .scene_compaction_runtime import active_memory_records, load_scene_history
+from .scene_compaction_runtime import active_memory_records, complete_knowledge_records, complete_knowledge_journal_records, load_scene_history
 from .transactional_storage import json_text, write_batch
 
 BLOCK_SIZE = 100
@@ -206,7 +206,12 @@ def _memory_for_range(memory: Dict[str, Any], start: int, end: int) -> Dict[str,
         bucket: Dict[str, Any] = {}
         for key in ("knowledge_journal", "knowledge", "experiences", "dialogue_memory"):
             values = raw.get(key) if isinstance(raw.get(key), list) else []
-            values = active_memory_records(values)
+            if key == "knowledge":
+                values = complete_knowledge_records(values)
+            elif key == "knowledge_journal":
+                values = complete_knowledge_journal_records(values)
+            else:
+                values = active_memory_records(values)
             rows = [
                 _compact_memory_row(x, key) for x in values
                 if isinstance(x, dict)
