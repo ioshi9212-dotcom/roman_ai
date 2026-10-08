@@ -279,6 +279,13 @@ def build_contract(
             "ending_kind",
             "ending_evidence_text",
         ],
+        "independent_cast_proof_rule": (
+            "For target=cast:independent include scene_progression.character_id of the offscreen NPC. "
+            "The saved changes must independently attribute a real action to that NPC: pursued_now intent, "
+            "physical entrance, or consequential chronology with actor_character_id. "
+            "No prior intent, POV mention, forced meeting or offscreen dossier read is needed merely to choose initiative. "
+            "Do not claim the POV knows an unseen offscreen event."
+        ),
         "meaningful_progress_rule": (
             "Every gameplay turn must produce at least one meaningful world/story/relationship state change unless the user explicitly requests uneventful downtime. "
             "Movement, sleeping, eating, checking devices, weather or passage of time alone do not count."
@@ -461,7 +468,13 @@ def _collect_evidence(root, payload: Dict[str, Any]) -> Dict[str, Any]:
         if text and evidenced and not _routine_only(text):
             refs.add("world:emergent")
             kinds.update({"external_event", "new_information"})
-            break
+            # A named, consequential action can advance a registered NPC's own
+            # offscreen line without inventing an npc_intent or bringing that
+            # character into POV's scene.
+            actor = str(row.get("actor_character_id") or "").strip()
+            if actor in cast_ids and actor != pov_id:
+                refs.add(f"cast:{actor}")
+                kinds.update({"npc_action", "external_event"})
 
     # Personal-memory writes are persistence of what was learned, not proof that
     # the learned fact was story-significant. Meaningful discoveries must also
