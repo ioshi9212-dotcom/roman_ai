@@ -80,6 +80,7 @@ _TARGET_KIND_PREFIXES = {
     "relationship:": {"relationship_shift"},
     "unfinished:": {"unfinished_action_specific"},
     "world:": {"new_information", "external_event", "npc_action", "new_constraint", "new_opportunity", "new_threat"},
+    "cast:": {"npc_action", "external_event"},
 }
 
 
@@ -205,6 +206,17 @@ def _relationship_candidates(
     return [{k: v for k, v in row.items() if v not in (None, "", {}, [])} for row in result[:6]]
 
 
+def _cast_candidates(context: Dict[str, Any]) -> List[Dict[str, Any]]:
+    registry = context.get("cast_registry") if isinstance(context.get("cast_registry"), dict) else {}
+    cast = registry.get("independent_initiative_focus")
+    cast = cast if isinstance(cast, list) else []
+    return [
+        {"target_id": f"cast:{row['character_id']}", "source": "independent_cast_goal",
+         "character_id": str(row["character_id"])}
+        for row in cast if isinstance(row, dict) and row.get("character_id")
+    ]
+
+
 def build_contract(
     *,
     state: Dict[str, Any],
@@ -229,6 +241,7 @@ def build_contract(
     # Current-scene relationships stay near the front so a large backlog of
     # threads/intents cannot crowd out a legitimate social progression target.
     targets.extend(_relationship_candidates(context, pov_id=pov_id))
+    targets.extend(_cast_candidates(context))
     targets.extend(_intent_candidates(state, cards, current_turn))
     targets.extend(_thread_candidates(state, current_turn))
     world_target = {
@@ -251,12 +264,13 @@ def build_contract(
         "required_target_count": 0 if explicit_quiet else 1,
         "time_skip_requested": time_skip,
         "explicit_uneventful_downtime": explicit_quiet,
-        "eligible_targets": [*targets[:17], world_target],
+        "eligible_targets": [*targets, world_target],
         "selection_sources": [
             "scene_state.current.unfinished_actions",
             "relationship_lens",
             "npc_active_intents/cast_registry.active_intents",
             "active_threads",
+            "cast_registry.independent_initiative_focus",
         ],
         "proof_required_in_commit": not explicit_quiet,
         "proof_fields": [
@@ -402,6 +416,26 @@ def _collect_evidence(root, payload: Dict[str, Any]) -> Dict[str, Any]:
                 refs.add(f"intent:{cid}:{intent_id}")
                 if (cid, intent_id) not in existing_intent_ids:
                     refs.add("world:emergent")
+            kinds.update({"npc_action", "external_event"})
+
+    # Cast agency may create its first real action without a pre-existing intent.
+    # Only accept concrete evidence attributed to that character, never its
+    # card/goals or POV knowledge as proof that something actually happened.
+    cast_ids = {
+        str(row.get("character_id"))
+        for row in (storage._load_cards(root, storage._read_json(root / "source.json", {})))
+        if isinstance(row, dict) and row.get("character_id")
+    }
+    for row in extracted.get("npc_intent_updates", []) if isinstance(extracted.get("npc_intent_updates"), list) else []:
+        if not isinstance(row, dict):
+            continue
+        cid = str(row.get("character_id") or "")
+        if cid in cast_ids and row.get("pursued_now") is True:
+            refs.add(f"cast:{cid}")
+            kinds.update({"npc_action", "external_event"})
+    for row in extracted.get("presence_updates", []) if isinstance(extracted.get("presence_updates"), list) else []:
+        if isinstance(row, dict) and str(row.get("character_id") or "") in cast_ids and _norm(row.get("action")) == "enter":
+            refs.add(f"cast:{row['character_id']}")
             kinds.update({"npc_action", "external_event"})
 
     before_unfinished, after_unfinished = _post_unfinished_actions(root, payload)
