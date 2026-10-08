@@ -169,28 +169,42 @@ def _continuity_session(tmp_path, monkeypatch):
 
 
 def _continuity_payload(sid, current_patch, *, header=True, presence_updates=None):
-    user_input = "(продолжить)"
+    user_input = "(продолжить без событий)"
     manifest = prepare_turn_request(sid, user_input, request_id="continuity-1")
     for index in range(manifest["chunk_count"]):
         storage.get_turn_packet_chunk(sid, manifest["packet_id"], index)
-    scene = "POV продолжает сцену."
+    presence_updates = presence_updates or []
+    progressed = bool(presence_updates)
+    ending = "Сайлас покинул текущую сцену." if progressed else "POV продолжает сцену без событий."
+    scene = ending
     if header:
         scene = "🎭 Continuity · осень\n🕒 День 1 · вторник, 01.09.2026, 10:05 · 📍 кухня 🌦️ Погода: ясно\n" + scene
+    extracted = {
+        "scene_builder_reviewed": True, "persistence_reviewed": True,
+        "knowledge_reviewed": True,
+        "relationship_review": [{
+            "character_id": "silas",
+            "changed": False,
+            "reason": "Continuity-only test: no relational event occurred.",
+            "numeric_result": "no_numeric_dimension_justified",
+        }],
+        "state_patch": {"current": current_patch},
+        "presence_updates": presence_updates,
+        "scene_progressed": progressed,
+    }
+    if progressed:
+        extracted["scene_progression"] = {
+            "target": "world:emergent",
+            "kind": "npc_action",
+            "action": "Сайлас физически покинул текущую сцену.",
+            "end_state_change": "Физический состав сцены изменился.",
+            "ending_kind": "conflict_change",
+            "ending_evidence_text": ending,
+        }
     return {
         "packet_id": manifest["packet_id"], "user_input": user_input,
         "scene_output": scene,
-        "extracted": {
-            "scene_builder_reviewed": True, "persistence_reviewed": True,
-            "knowledge_reviewed": True,
-            "relationship_review": [{
-                "character_id": "silas",
-                "changed": False,
-                "reason": "Continuity-only test: no relational event occurred.",
-                "numeric_result": "no_numeric_dimension_justified",
-            }],
-            "state_patch": {"current": current_patch},
-            "presence_updates": presence_updates or [],
-        },
+        "extracted": extracted,
     }
 
 
