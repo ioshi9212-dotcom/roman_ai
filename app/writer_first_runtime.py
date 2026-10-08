@@ -240,7 +240,10 @@ def _anchor_catalog(value: Any) -> List[Dict[str, Any]]:
 def _compact_chronology(value: Any, character_ids: List[str], location: Any) -> List[Dict[str, Any]]:
     events = [
         deepcopy(item) for item in value
-        if isinstance(item, dict) and not item.get("compacted_scene_id")
+        if isinstance(item, dict) and (
+            not item.get("compacted_scene_id")
+            or session_runtime._event_actor_ids(item)
+        )
     ] if isinstance(value, list) else []
     selected: Dict[str, Dict[str, Any]] = {}
 
