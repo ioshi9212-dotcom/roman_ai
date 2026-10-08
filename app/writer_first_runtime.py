@@ -271,17 +271,35 @@ def _compact_chronology(value: Any, character_ids: List[str], location: Any) -> 
     relevant = {str(cid) for cid in character_ids if cid}
     for event in selected.values():
         actor_events = event.get("actor_events")
-        if not isinstance(actor_events, list):
-            continue
-        scoped = [
-            action for action in actor_events
-            if isinstance(action, dict)
-            and str(action.get("actor_character_id") or "") in relevant
-        ]
-        if scoped:
-            event["actor_events"] = scoped
-        else:
-            event.pop("actor_events", None)
+        if isinstance(actor_events, list):
+            scoped = [
+                action for action in actor_events
+                if isinstance(action, dict)
+                and str(action.get("actor_character_id") or "") in relevant
+            ]
+            if scoped:
+                event["actor_events"] = scoped
+            else:
+                event.pop("actor_events", None)
+        # The full macro is persistent, but only source-proven facts tied to
+        # scene participants should expand the writer packet. Global events
+        # without an actor or participant remain visible as objective canon.
+        source_facts = event.get("source_key_facts")
+        if isinstance(source_facts, list):
+            scoped_facts = []
+            for fact in source_facts:
+                if not isinstance(fact, dict):
+                    continue
+                owners = _event_participants(fact)
+                actor = str(fact.get("actor_character_id") or "")
+                if actor:
+                    owners.add(actor)
+                if not owners or owners.intersection(relevant):
+                    scoped_facts.append(fact)
+            if scoped_facts:
+                event["source_key_facts"] = scoped_facts
+            else:
+                event.pop("source_key_facts", None)
     return sorted(selected.values(), key=lambda event: (_event_turn(event), str(event.get("event_id", ""))))
 
 
