@@ -225,7 +225,7 @@ def test_request_id_allows_identical_text_as_two_real_gameplay_turns():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         sid = make_session()
-        text = "Ещё раз. Без событий."
+        text = "(Ещё раз без событий.)"
 
         first = _commit_request_turn(sid, text, "req-repeat-1", 1)
         second = _commit_request_turn(sid, text, "req-repeat-2", 2)
@@ -241,7 +241,7 @@ def test_same_committed_request_id_replays_saved_scene_without_new_turn():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         sid = make_session()
-        text = "Один сетевой запрос. Без событий."
+        text = "(Один сетевой запрос без событий.)"
         _commit_request_turn(sid, text, "req-retry", 1)
 
         response = prepare_turn_request(sid, text, "req-retry")
@@ -347,7 +347,7 @@ def test_retry_of_old_committed_request_does_not_disturb_newer_pending_turn():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         sid = make_session()
-        old_text = "Уже сохранённый ход. Без событий."
+        old_text = "(Уже сохранённый ход без событий.)"
         _commit_request_turn(sid, old_text, "req-old-committed", 1)
 
         pending = prepare_turn_request(sid, "Новый незаписанный ход.", "req-new-pending")
