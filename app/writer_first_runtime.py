@@ -266,7 +266,8 @@ def _compact_chronology(value: Any, character_ids: List[str], location: Any) -> 
             None,
         )
         if first_source_macro is not None:
-            keep(*first_source_macro)
+            index, event = first_source_macro
+            keep(event, index)
     needle = str(location or "").casefold().strip()
     if needle:
         for index, event in [(i, e) for i, e in enumerate(events) if _event_location(e) == needle][-MAX_LOCATION_CHRONOLOGY:]:
