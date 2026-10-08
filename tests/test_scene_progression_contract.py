@@ -377,3 +377,14 @@ def test_continuing_existing_remote_chat_is_not_progression_by_itself():
             commit_turn_request(sid, data)
 
         assert exc.value.detail["code"] == "SCENE_NO_MEANINGFUL_PROGRESSION"
+
+
+def test_spoken_wish_for_a_quiet_night_does_not_disable_progression():
+    with tempfile.TemporaryDirectory() as tmp:
+        sid = _setup(tmp, with_thread=True)
+        _, context = _prepare(sid, "Надеюсь, ночь пройдёт без событий.")
+
+        contract = context["progression_contract"]
+        assert contract["time_skip_requested"] is False
+        assert contract["explicit_uneventful_downtime"] is False
+        assert contract["required_target_count"] == 1
