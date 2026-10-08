@@ -585,19 +585,10 @@ def _prepare_context(
         ),
         "characters": _cast_registry_rows(state, cards, source, current_turn, npc_network, relationship_store),
     }
-    context["cast_registry"]["independent_initiative_focus"] = _independent_cast_focus(
-        context["cast_registry"]["characters"], current_turn
-    )
     context["cast_registry"]["independent_initiative_instruction"] = (
-        "Это полный независимый от POV обзор активных offscreen NPC, а не список разрешённых к появлению. "
-        "Каждый ход оцени возможность самостоятельного действия каждого offscreen NPC из его целей, работы, характера, "
-        "собственных связей и известных им фактов, даже если POV их не упоминал. "
-        "Если NPC может самостоятельно предпринять значимое действие, не оставляй его без действия только из-за отсутствия POV. Продвинь его линию через "
-        "контакт, событие, видимое последствие или сохраняемый незавершённый шаг. "
-        "Не придумывай знание POV или скрытых фактов; не телепортируй NPC и не "
-        "вводи его в сцену искусственно. Наличие intent не требуется. "
-        "Если прямого пересечения пока нет, NPC продолжает свою жизнь offscreen; "
-        "не подменяй самостоятельное действие бесконечным ожиданием приглашения POV."
+        "Каждый ход анализируй весь active offscreen cast независимо от упоминаний POV и наличия intents. "
+        "Самостоятельные действия следуют из доступных NPC знаний, характера, работы, целей и обстоятельств. "
+        "Дай им влиять на мир, когда причинно возможно, без искусственного появления и без обязательной ротации."
     )
     context["npc_relationship_network"] = npc_network
     # Legacy intent-only candidate list falsely implied that offscreen NPCs
