@@ -211,7 +211,13 @@ def _build_fast_payload(session_id: str) -> Dict[str, Any]:
             "npc_relationship_updates": "Repair canonical qualitative NPC-to-NPC relations only from audited evidence and include the original turn.",
             "character_upserts": "Create a missing card only when the audited turns prove that a named one-off NPC became recurring or durably important.",
             "scene_compactions": "REQUIRED: cover every audited turn exactly once by real scenes; one dense factual summary per scene.",
-            "memory_compactions": "Optional: merge duplicates only if every distinct fact survives.",
+            "memory_compactions": (
+                "Optional: merge duplicates or overlapping records for one character only; "
+                "memory_type can be knowledge, knowledge_journal, experiences or dialogue_memory. "
+                "Use source_ids of existing records and a concise summary preserving each distinct fact. "
+                "For knowledge_journal, never merge different dates/periods. "
+                "Unverified/lossy knowledge summaries will not replace raw factual transport."
+            ),
         },
         "audit_contract": {
             "exact_range": [start_turn, end_turn],
