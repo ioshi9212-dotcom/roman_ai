@@ -433,9 +433,18 @@ def _durable_source_facts_by_date(events: List[Dict[str, Any]]) -> Dict[str, Lis
             continue
         date = _story_date(row)
         importance = str(row.get("importance") or "").casefold().strip()
-        if not date or (importance not in {"major", "anchor", "critical"}
-                        and row.get("anchor") is not True
-                        and row.get("time_critical") is not True):
+        consequences = row.get("consequences")
+        has_consequence = (
+            isinstance(consequences, list)
+            and any(str(value).strip() for value in consequences)
+        )
+        if not date or not (
+            importance in {"major", "anchor", "critical"}
+            or row.get("anchor") is True
+            or row.get("time_critical") is True
+            or has_consequence
+            or any(row.get(key) is True for key in ("durable", "pinned", "permanent"))
+        ):
             continue
         text = " ".join(str(row.get("event") or row.get("summary") or "").split())
         if not text:
@@ -453,6 +462,7 @@ def _durable_source_facts_by_date(events: List[Dict[str, Any]]) -> Dict[str, Lis
             "actor_character_id": row.get("actor_character_id"),
             "participants_present": row.get("participants_present") or row.get("participants"),
             "exact_time": row.get("exact_time") if row.get("time_critical") is True else None,
+            "consequences": deepcopy(consequences) if has_consequence else None,
         }
         by_date.setdefault(date, []).append({
             key: value for key, value in row_fact.items()
