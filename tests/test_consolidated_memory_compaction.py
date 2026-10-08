@@ -360,3 +360,79 @@ def test_other_npc_does_not_inherit_pov_day_one_secret():
     selected = _selected_memory(storage._normalise_memory(memory), ["pov", "npc"], 100, [])
     assert any("пароль" in r["fact"] for r in selected["pov"]["knowledge"])
     assert not any("пароль" in r["fact"] for r in selected["npc"]["knowledge"])
+
+
+
+def test_v5_day_one_journal_compacts_without_losing_facts_or_date():
+    from app.scene_compaction_runtime import transport_knowledge_journal
+    from app.profile_templates import render_knowledge_journal
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(novel())["session_id"]
+        root = storage.SESSIONS_DIR / sid
+        memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
+        bucket = storage._memory_bucket(memory, "pov")
+        first = "На первом дне POV увидел надпись с координатами. " + "Координаты сохранились. " * 9
+        second = first + "На обороте надписи была печать, которую POV тоже заметил."
+        bucket["knowledge_journal"] = [
+            {"entry_id": "day1-a", "date": "01.09.1206", "period": "день",
+             "turn": 1, "text": first},
+            {"entry_id": "day1-b", "date": "01.09.1206", "period": "день",
+             "turn": 2, "text": second},
+        ]
+        compacted, _, _, _ = apply_audit_compactions(
+            root, {
+                "scene_compactions": [scene(1, 15)],
+                "memory_compactions": [{
+                    "character_id": "pov", "memory_type": "knowledge_journal",
+                    "source_ids": ["day1-a", "day1-b"], "summary": second,
+                }],
+            },
+            start_turn=1, end_turn=15, memory=memory, chronology=[],
+        )
+        persisted = compacted["characters"]["pov"]["knowledge_journal"]
+        assert {r["entry_id"] for r in persisted if r["entry_id"] in {"day1-a", "day1-b"}} == {"day1-a", "day1-b"}
+        working = transport_knowledge_journal(persisted)
+        assert len(working) == 1
+        assert working[0]["text"] == second
+        assert working[0]["merged_from"] == ["day1-a", "day1-b"]
+        assert working[0]["source_turns"] == [1, 2]
+        rendered = render_knowledge_journal(working)
+        assert "01.09.1206" in rendered and "печать" in rendered
+        assert rendered.count(first) == 1
+
+
+def test_v5_journal_summary_cannot_hide_day_one_secret_or_shift_date():
+    from app.scene_compaction_runtime import transport_knowledge_journal
+    from app.profile_templates import render_knowledge_journal
+    raw = [
+        {"entry_id": "secret", "date": "01.09.1206", "period": "ночь",
+         "turn": 1, "text": "В первый день POV узнал код 8761.", "superseded_by": "cmp"},
+        {"entry_id": "promise", "date": "01.09.1206", "period": "ночь",
+         "turn": 1, "text": "POV пообещал не выдавать код.", "superseded_by": "cmp"},
+        {"entry_id": "cmp", "date": "01.09.1206", "period": "ночь",
+         "turn": 1, "text": "POV узнал некий код.", "canonical_compaction": True,
+         "merged_from": ["secret", "promise"]},
+    ]
+    working = transport_knowledge_journal(raw)
+    assert {r["entry_id"] for r in working} == {"secret", "promise"}
+    text = render_knowledge_journal(working)
+    assert "8761" in text and "не выдавать" in text and "01.09.1206" in text
+    wrong_date = [dict(item) for item in raw]
+    wrong_date[-1]["text"] = raw[0]["text"] + " " + raw[1]["text"]
+    wrong_date[-1]["date"] = "02.09.1206"
+    assert {r["entry_id"] for r in transport_knowledge_journal(wrong_date)} == {"secret", "promise"}
+
+
+def test_v5_journal_compaction_rejects_cross_date_source_facts():
+    from app.scene_compaction_runtime import _apply_memory_compactions
+    import pytest
+    memory = {"characters": {"pov": {"knowledge_journal": [
+        {"entry_id": "a", "date": "01.09.1206", "period": "день", "text": "Факт первого дня.", "turn": 1},
+        {"entry_id": "b", "date": "02.09.1206", "period": "день", "text": "Факт второго дня.", "turn": 2},
+    ]}}}
+    with pytest.raises(RuntimeError, match="MEMORY_COMPACTION_CROSS_DATE"):
+        _apply_memory_compactions(memory, [{
+            "character_id": "pov", "memory_type": "knowledge_journal",
+            "source_ids": ["a", "b"], "summary": "Факт первого дня. Факт второго дня.",
+        }], start_turn=1, end_turn=15)
