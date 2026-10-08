@@ -132,10 +132,10 @@ def _current_pointer_guard(session_id: str) -> None:
     )
 
 
-def _strip_legacy_pov_rule_from_session_source(root) -> None:
+def _strip_legacy_pov_rule_from_session_source(root) -> Dict[str, Any]:
     source = storage._read_json(root / "source.json", {})
     if not isinstance(source, dict) or not source:
-        return
+        return {}
     # The archived author input must remain verbatim, including whitespace and
     # old wording. Only the working canon receives the legacy-rule cleanup.
     working_source = {key: value for key, value in source.items() if key != "source_intake"}
@@ -144,6 +144,7 @@ def _strip_legacy_pov_rule_from_session_source(root) -> None:
         cleaned["source_intake"] = deepcopy(source["source_intake"])
     if cleaned != source:
         storage._write_json(root / "source.json", cleaned)
+    return cleaned
 
 
 def _scene_ids(state: Dict[str, Any], cards: List[Dict[str, Any]]) -> List[str]:
@@ -471,7 +472,13 @@ def _prepare_context(
     context = writer_first_runtime._rewrite_context(
         session_id, context, snapshot_override=snapshot,
     )
-    context = private_knowledge_runtime.redact_private_history(context, root=root, cards=cards)
+    context = private_knowledge_runtime.redact_private_history(
+        context,
+        root=root,
+        cards=cards,
+        state_override=state,
+        turns_override=snapshot.get("turns") if snapshot else None,
+    )
     context = _clean_director_layers(context)
     # cast_registry below is the single always-read cast index. Remove the older
     # writer-facing cast_index so recency metadata cannot compete with causal selection.
@@ -632,9 +639,16 @@ def prepare_turn_packet(session_id: str, user_input: str) -> Dict[str, Any]:
     stability_runtime._recover_session(session_id)
     session_migrations.ensure_current_session_data(session_id, invalidate_pending=True)
     _current_pointer_guard(session_id)
-    _strip_legacy_pov_rule_from_session_source(root)
-    game_day._sync_session_game_day(session_id)
-    knowledge_persistence_runtime.dedupe_persisted_knowledge_journal(session_id)
+    # Preflight and context construction share one canonical file snapshot.
+    source = _strip_legacy_pov_rule_from_session_source(root)
+    state = storage._read_json(root / "state.json", {})
+    synced_state = game_day.sync_game_day(state, source)
+    if synced_state != state:
+        storage._write_json(root / "state.json", synced_state)
+    memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
+    knowledge_persistence_runtime.dedupe_persisted_knowledge_journal(
+        session_id, memory_override=memory,
+    )
 
     with session_transaction(root):
         meta = storage._read_json(root / "meta.json", {})
@@ -656,7 +670,12 @@ def prepare_turn_packet(session_id: str, user_input: str) -> Dict[str, Any]:
     # Build once in memory, then serialize only the final writer packet.
     # This avoids storage -> packet -> read -> rewrite -> packet round-trips.
     context, snapshot = session_runtime.build_turn_context(
-        session_id, user_input, return_snapshot=True,
+        session_id,
+        user_input,
+        return_snapshot=True,
+        preloaded_source=source,
+        preloaded_state=synced_state,
+        preloaded_memory=memory,
     )
     packet = {
         "packet_id": secrets.token_urlsafe(12),
