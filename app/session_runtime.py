@@ -300,6 +300,15 @@ def _normalise_chronology_events(
     location = _current_value(state, "location", "place", "area")
     period = _period_from_time(story_time)
     result: List[Dict[str, Any]] = []
+    seen_same_turn: set[str] = set()
+    # Only discard objectively content-free placeholders. Do not attempt
+    # semantic/fuzzy dedupe: similar descriptions may describe distinct acts.
+    empty_filler = {
+        "ничего не произошло", "ничего не случилось",
+        "все было спокойно", "всё было спокойно",
+        "прошло время", "время прошло",
+        "день прошёл без событий", "день прошел без событий",
+    }
 
     for index, raw in enumerate(raw_events):
         if not isinstance(raw, dict):
@@ -319,6 +328,15 @@ def _normalise_chronology_events(
 
         actor_raw = raw.get("actor_character_id")
         actor_id = _resolve_character_id(cards, actor_raw) if actor_raw else None
+        if (
+            importance == "normal"
+            and not actor_id
+            and raw.get("time_critical") is not True
+            and not any(str(value).strip() for value in raw.get("consequences", [])
+                        if isinstance(raw.get("consequences"), list))
+            and text.casefold().rstrip(".!?… ") in empty_filler
+        ):
+            continue
         offscreen_action = bool(actor_id and actor_id not in current_present)
 
         item: Dict[str, Any] = {
@@ -351,6 +369,14 @@ def _normalise_chronology_events(
                 item["consequences"] = compact[:4]
 
         item = {key: value for key, value in item.items() if value not in (None, "", [])}
+        signature = json.dumps(
+            {key: value for key, value in item.items()
+             if key not in {"event_id", "turn_number"}},
+            ensure_ascii=False, sort_keys=True, default=str,
+        )
+        if signature in seen_same_turn:
+            continue
+        seen_same_turn.add(signature)
         result.append(item)
 
     return result
