@@ -304,7 +304,30 @@ def test_offscreen_actor_events_survive_60_and_120_turns_and_writer_retrieval():
             "event": f"Другое событие номер {n}.",
             "importance": "normal",
         } for n in range(61, 121)]
-        full = [*after_60, *later]
+        turns_120 = [*turns, *[_turn(i, "26.09.2026") for i in range(61, 121)]]
+        (root / "turns.jsonl").write_text(
+            "".join(json.dumps(t, ensure_ascii=False) + "\n" for t in turns_120),
+            encoding="utf-8",
+        )
+        after_120 = apply_macro_chronology_compaction(
+            root,
+            [*after_60, *later],
+            {"chronology_compactions": [{
+                "date": "26.09.2026",
+                "summary": "За следующие шестьдесят ходов произошли различные события, не изменившие старые расследования.",
+                "importance": "normal",
+            }]},
+            end_turn=120,
+        )
+        assert any(x["event_id"] == "macro_60_1" for x in after_120)
+        full = [
+            *after_120,
+            *[{
+                "event_id": f"later-{turn}", "turn_number": turn,
+                "story_date": "27.09.2026", "event": f"Позднее событие {turn}.",
+                "importance": "normal",
+            } for turn in range(121, 181)],
+        ]
         selected = session_runtime._select_chronology_context(
             full, relevant_character_ids=["daren"], location=None,
         )
