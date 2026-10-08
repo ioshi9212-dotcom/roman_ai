@@ -621,7 +621,10 @@ def transport_knowledge_records(values: Any) -> List[Dict[str, Any]]:
         sources = [raw_by_id[i] for i in ids]
         summary = " ".join(str(item.get("fact") or "").split()).casefold()
         facts = [" ".join(str(row.get("fact") or "").split()).casefold() for row in sources]
-        if not summary or any(not fact or fact not in summary for fact in facts):
+        # Literal coverage alone is insufficient: "не [old fact]" still
+        # contains the original words but reverses their meaning. Only use
+        # an existing source fact verbatim (possibly containing shorter facts).
+        if not summary or summary not in facts or any(not fact or fact not in summary for fact in facts):
             continue
         confidences = [
             str(row.get("confidence") or "").casefold().strip()
@@ -683,7 +686,10 @@ def transport_knowledge_journal(values: Any) -> List[Dict[str, Any]]:
             continue
         summary = " ".join(str(item.get("text") or "").split()).casefold()
         facts = [" ".join(str(row.get("text") or "").split()).casefold() for row in source]
-        if not summary or any(not fact or fact not in summary for fact in facts):
+        # Literal coverage alone is insufficient: "не [old fact]" still
+        # contains the original words but reverses their meaning. Only use
+        # an existing source fact verbatim (possibly containing shorter facts).
+        if not summary or summary not in facts or any(not fact or fact not in summary for fact in facts):
             continue
         import json
         if len(json.dumps(item, ensure_ascii=False)) >= sum(
