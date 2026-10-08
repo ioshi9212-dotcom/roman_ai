@@ -70,7 +70,7 @@ def startup_session_migration():
 
 @app.get("/health", operation_id="health", include_in_schema=False)
 def health():
-    return {"ok": True}
+    return {"ok": True, "resume_checkpoint_version": session_checkpoint.CHECKPOINT_VERSION}
 
 
 @app.get("/migration-status", operation_id="getMigrationStatus", include_in_schema=False)
