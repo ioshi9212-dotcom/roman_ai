@@ -57,6 +57,7 @@ jobs:
           tests/test_scene_npc_knowledge_guard.py
           tests/test_commit_idempotency.py
           tests/test_commit_conflict_diagnostics.py
+          tests/test_commit_failure_resume_diagnostics.py
           tests/test_61_turn_cycle.py
           tests/test_300_turn_longevity.py
           tests/test_audit_snapshot_compact.py
