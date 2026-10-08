@@ -2371,4 +2371,34 @@ def test_turn_packet_keeps_full_compact_cast_but_scene_scopes_full_cards():
         assert full_card_ids == {"pov"}
         assert "return_pressure" not in context["cast_registry"]
         assert "important_cast_return_required" not in context["cast_registry"]
+        assert "независимо от упоминаний POV" in context["cast_registry"]["independent_initiative_instruction"]
+        assert "cast:independent" in {
+            row["target_id"] for row in context["progression_contract"]["eligible_targets"]
+        }
 
+
+def test_independent_cast_focus_covers_all_without_intent_or_pov_contact():
+    from app.turn_pipeline import _independent_cast_focus
+
+    rows = [
+        {
+            "character_id": f"off_{index}",
+            "name": f"NPC {index}",
+            "importance": "core",
+            "offscreen_can_initiate": True,
+            "story_function": "independent story line",
+        }
+        for index in range(30)
+    ]
+    rows.append({
+        "character_id": "pov",
+        "is_pov": True,
+        "offscreen_can_initiate": False,
+        "story_function": "main character",
+    })
+    focus = _independent_cast_focus(rows, 1)
+    assert len(focus) == 30
+    assert {row["character_id"] for row in focus} == {
+        f"off_{index}" for index in range(30)
+    }
+    assert all(not row.get("active_intents") for row in focus)

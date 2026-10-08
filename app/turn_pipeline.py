@@ -313,6 +313,27 @@ def _cast_registry_rows(
     return rows
 
 
+def _independent_cast_focus(rows: List[Dict[str, Any]], current_turn: int) -> List[Dict[str, Any]]:
+    """Expose every independent active NPC, regardless of POV attention or intents."""
+    candidates = [
+        row for row in rows
+        if isinstance(row, dict)
+        and row.get("offscreen_can_initiate") is True
+        and row.get("character_id")
+    ]
+    candidates.sort(key=lambda row: (
+        {"core": 0, "recurring": 1, "support": 2}.get(str(row.get("importance") or ""), 3),
+        str(row.get("character_id")),
+    ))
+    # All active offscreen NPCs are included, even without a goal or prior intent.
+    # Registry rows already carry the full compact profile; never duplicate
+    # their text in the turn packet just to highlight cast agency.
+    return [{
+        "character_id": row["character_id"],
+        "name": row.get("name"),
+    } for row in candidates]
+
+
 def _clean_relationship_lens(context: Dict[str, Any]) -> None:
     lens = context.get("relationship_lens")
     if not isinstance(lens, dict):
@@ -564,6 +585,11 @@ def _prepare_context(
         ),
         "characters": _cast_registry_rows(state, cards, source, current_turn, npc_network, relationship_store),
     }
+    context["cast_registry"]["independent_initiative_instruction"] = (
+        "Каждый ход анализируй весь active offscreen cast независимо от упоминаний POV и наличия intents. "
+        "Самостоятельные действия следуют из доступных NPC знаний, характера, работы, целей и обстоятельств. "
+        "Дай им влиять на мир, когда причинно возможно, без искусственного появления и без обязательной ротации."
+    )
     context["npc_relationship_network"] = npc_network
     # Legacy intent-only candidate list falsely implied that offscreen NPCs
     # without a pre-existing intent were ineligible to act. The complete
