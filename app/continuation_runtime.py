@@ -7,6 +7,7 @@ from copy import deepcopy
 from typing import Any, Dict, List
 
 from . import relationship_file_runtime, storage
+from .long_horizon_audit import _source_actor_events_by_date
 from .scene_compaction_runtime import active_memory_records, load_scene_history
 from .transactional_storage import json_text, write_batch
 
@@ -266,7 +267,7 @@ def prepare_continuation_block_read(session_id: str, migration_id: str, block_in
             evidence["chronology"] = [
                 {
                     k: deepcopy(row[k])
-                    for k in ("event_id", "turn_number", "turn", "date", "story_date", "event", "summary", "importance", "participants_present", "participants", "location")
+                    for k in ("event_id", "turn_number", "turn", "date", "story_date", "event", "summary", "importance", "participants_present", "participants", "location", "actor_character_id", "actor_events")
                     if isinstance(row, dict) and k in row and row[k] not in (None, "", [], {})
                 }
                 for row in chronology_updates if isinstance(row, dict)
@@ -325,7 +326,7 @@ def prepare_continuation_block_read(session_id: str, migration_id: str, block_in
         "chronology_records": chronology,
         "personal_memory_records": _memory_for_range(p["memory"], start, end),
         "output_contract": {
-            "chronology": "Short dated durable events only; merge repetitions; preserve causality and unresolved consequences.",
+            "chronology": "Short dated durable events only; preserve actual actors of offscreen actions; backend retains source-proven actor_events without making them POV knowledge.",
             "characters": "For EACH character present in personal_memory_records, summarize only that character's own knowledge/experiences/dialogue memory. Never import chronology or another character's memory as personal knowledge.",
             "relationship_events": "Only durable relationship changes evidenced by relationship_updates/scene summaries.",
             "thread_events": "Only plot-thread changes evidenced by thread updates/scene summaries.",
@@ -465,6 +466,7 @@ def prepare_continuation_final_read(session_id: str, migration_id: str) -> Dict[
         "final_rules": [
             "Merge block summaries globally; remove repetition but preserve distinct facts and causal order.",
             "Character memory remains strictly per-character. Never add a fact merely because chronology or another character knows it.",
+            "The backend preserves source-verified offscreen NPC action provenance separately from POV perception.",
             "Reconstruct current from the latest exact turns, not stale current_state_raw fields.",
             "Close or update stale threads according to actual later events; preserve genuinely unresolved questions.",
             "Do not rewrite relationships_file here; it is copied exactly as the relationship canon.",
@@ -543,7 +545,9 @@ def _normalized_compact_memory(source: Dict[str, Any], cards: List[Dict[str, Any
     return result
 
 
-def _normalized_chronology(package: Dict[str, Any]) -> List[Dict[str, Any]]:
+def _normalized_chronology(
+    package: Dict[str, Any], *, source_chronology: Any = None,
+) -> List[Dict[str, Any]]:
     result = []
     values = package.get("chronology") if isinstance(package.get("chronology"), list) else []
     for i, raw in enumerate(values, 1):
@@ -566,6 +570,33 @@ def _normalized_chronology(package: Dict[str, Any]) -> List[Dict[str, Any]]:
             "compacted_from_prior_session": True,
         }
         result.append({k: v for k, v in row.items() if v not in (None, "", [])})
+
+    # The writer may summarize dates, but it may not silently erase the
+    # independently verified actions of NPCs who were absent from POV scenes.
+    # Attach actor-specific evidence once per date, without reclassifying
+    # actors as physically present or granting any character extra knowledge.
+    source_rows = source_chronology if isinstance(source_chronology, list) else []
+    by_date = _source_actor_events_by_date(source_rows)
+    attached: set[str] = set()
+    for row in result:
+        date = str(row.get("story_date") or "").strip()
+        if date in by_date and date not in attached:
+            row["actor_events"] = deepcopy(by_date[date])
+            attached.add(date)
+    for date, events in by_date.items():
+        if date in attached:
+            continue
+        # No author summary covered the date; preserve the original event
+        # rather than inventing a new POV-visible summary.
+        result.append({
+            "event_id": f"continuation_actor_{len(result) + 1}",
+            "turn_number": 0,
+            "story_date": date,
+            "event": events[0]["event"],
+            "importance": "major",
+            "actor_events": deepcopy(events),
+            "compacted_from_prior_session": True,
+        })
     return result
 
 
@@ -701,7 +732,9 @@ def commit_continuation_final(session_id: str, migration_id: str, package: Dict[
         package["current"] = storage._deep_merge(package["current"], exact_current)
     normalized = deepcopy(package)
     normalized["memory_normalized"] = _normalized_compact_memory(p["source"], p["cards"], package)
-    normalized["chronology_normalized"] = _normalized_chronology(package)
+    normalized["chronology_normalized"] = _normalized_chronology(
+        package, source_chronology=p["chronology"],
+    )
     migration["final_package"] = normalized
     migration["active_read"] = None
     _save_migration(session_id, migration)
