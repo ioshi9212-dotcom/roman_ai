@@ -34,6 +34,7 @@ from .scene_knowledge_read import (
     prepare_character_knowledge_read,
     scene_knowledge_read_status,
 )
+from .performance_metrics import timed
 from .operation_service import (
     OperationReceiptConflict,
     commit_audit_request,
@@ -537,14 +538,15 @@ def audit_snapshot_chunk_get(session_id: str, audit_id: str, chunk_index: int):
 @app.post("/sessions/{session_id}/turn-packet", operation_id="prepareTurn")
 def turn_packet_prepare(session_id: str, body: TurnPrepare):
     try:
-        return prepare_turn_request(
-            session_id,
-            body.user_input,
-            body.request_id,
-            opening_scene=bool(body.opening_scene),
-            scene_archive_capable=bool(body.scene_archive_capable),
-            replace_pending=bool(body.replace_pending),
-        )
+        with timed("prepareTurn", "api_total"):
+            return prepare_turn_request(
+                session_id,
+                body.user_input,
+                body.request_id,
+                opening_scene=bool(body.opening_scene),
+                scene_archive_capable=bool(body.scene_archive_capable),
+                replace_pending=bool(body.replace_pending),
+            )
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Session not found")
     except RuntimeError as exc:
@@ -586,7 +588,8 @@ def turn_packet_prepare(session_id: str, body: TurnPrepare):
 @app.get("/sessions/{session_id}/turn-packet/{packet_id}/{chunk_index}", operation_id="getTurnPacketChunk")
 def turn_packet_chunk_get(session_id: str, packet_id: str, chunk_index: int):
     try:
-        return get_turn_packet_chunk(session_id, packet_id, chunk_index)
+        with timed("getTurnPacketChunk", "api_total"):
+            return get_turn_packet_chunk(session_id, packet_id, chunk_index)
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Session not found")
     except PermissionError:
