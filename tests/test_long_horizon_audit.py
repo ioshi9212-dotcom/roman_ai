@@ -726,3 +726,40 @@ def test_continuation_preserves_nested_macro_provenance_even_when_summary_omits_
         "promise-1", "secret-1",
     }
     assert latest["importance"] == "anchor"
+
+
+
+def test_continuation_keeps_uncompacted_late_major_fact_after_turn_60():
+    from app.continuation_runtime import _normalized_chronology
+    source = [
+        {"event_id": "macro_60_1", "turn_number": 60,
+         "story_date": "01.09.1206", "importance": "anchor",
+         "canonical_macro_compaction": True,
+         "event": "Краткая сводка первых событий.",
+         "source_key_facts": [{
+             "source_event_id": "first-day-promise",
+             "turn_number": 1, "importance": "anchor",
+             "event": "POV пообещал никому не раскрывать старую тайну.",
+             "participants_present": ["pov"],
+         }]},
+        {"event_id": "turn-86", "turn_number": 86,
+         "story_date": "03.09.1206", "importance": "major",
+         "event": "Мира призналась, где спрятала документ.",
+         "participants_present": ["pov", "mira"]},
+        {"event_id": "tea-87", "turn_number": 87,
+         "story_date": "03.09.1206", "importance": "normal",
+         "event": "POV выпил чай."},
+    ]
+    # Deliberately omitting the date with the turn-86 revelation must not
+    # discard its original source-backed independent significance.
+    result = _normalized_chronology({
+        "chronology": [{"date": "01.09.1206",
+                        "summary": "Краткая сводка первых событий.",
+                        "importance": "normal"}],
+    }, source_chronology=source)
+    date_one = next(x for x in result if x["story_date"] == "01.09.1206")
+    date_three = next(x for x in result if x["story_date"] == "03.09.1206")
+    assert {x["source_event_id"] for x in date_one["source_key_facts"]} == {"first-day-promise"}
+    assert {x["source_event_id"] for x in date_three["source_key_facts"]} == {"turn-86"}
+    assert "Мира призналась" in date_three["source_key_facts"][0]["event"]
+    assert not any(x.get("source_event_id") == "tea-87" for x in date_three["source_key_facts"])
