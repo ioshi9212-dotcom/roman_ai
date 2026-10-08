@@ -557,7 +557,30 @@ def _source_key_facts_by_date(source_rows: List[Dict[str, Any]]) -> Dict[str, Li
             continue
         facts = row.get("source_key_facts")
         if not isinstance(facts, list):
-            continue
+            # Current 60-turn block may not be compacted yet. Individual
+            # significant events from turns 61-100 are still authoritative.
+            # Do not trust the final migration summary to list each one.
+            importance = str(row.get("importance") or "normal").casefold()
+            consequences = row.get("consequences")
+            is_durable = (
+                importance in {"major", "anchor", "critical"}
+                or row.get("anchor") is True
+                or row.get("time_critical") is True
+                or any(row.get(flag) is True for flag in ("durable", "pinned", "permanent"))
+                or (isinstance(consequences, list)
+                    and any(str(value).strip() for value in consequences))
+            )
+            if not is_durable or row.get("canonical_macro_compaction") is True:
+                continue
+            facts = [{
+                "source_event_id": row.get("event_id"),
+                "turn_number": row.get("turn_number"),
+                "event": row.get("event") or row.get("summary"),
+                "importance": importance,
+                "actor_character_id": row.get("actor_character_id"),
+                "participants_present": row.get("participants_present") or row.get("participants"),
+                "consequences": consequences,
+            }]
         for fact in facts:
             if not isinstance(fact, dict):
                 continue
