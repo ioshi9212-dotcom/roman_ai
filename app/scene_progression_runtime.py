@@ -79,6 +79,15 @@ _ALLOWED_KINDS = set(_KIND_TO_ENDINGS)
 _ALLOWED_ENDINGS = set().union(*_KIND_TO_ENDINGS.values())
 
 
+_TARGET_KIND_PREFIXES = {
+    "thread:": {"thread_state_change", "external_event"},
+    "intent:": {"npc_action", "external_event"},
+    "relationship:": {"relationship_shift"},
+    "unfinished:": {"unfinished_action_specific"},
+    "world:": {"new_information", "external_event", "npc_action", "new_constraint", "new_opportunity", "new_threat"},
+}
+
+
 def _norm(value: Any) -> str:
     return " ".join(str(value or "").casefold().replace("ё", "е").split())
 
@@ -527,12 +536,26 @@ def validate_scene_progression(session_id: str, payload: Dict[str, Any]) -> None
             eligible_target_ids=sorted(allowed_targets),
         )
 
-    if target != "world:emergent" and target not in refs:
+    if target not in refs:
         _error(
             "SCENE_NO_MEANINGFUL_PROGRESSION",
             "The selected progression_target did not actually change in persistence.",
             progression_target=target,
             evidence_refs=sorted(refs),
+        )
+
+    allowed_for_target: set[str] = set()
+    for prefix, allowed in _TARGET_KIND_PREFIXES.items():
+        if target.startswith(prefix):
+            allowed_for_target = allowed
+            break
+    if allowed_for_target and kind not in allowed_for_target:
+        _error(
+            "SCENE_NO_MEANINGFUL_PROGRESSION",
+            "The declared progression kind does not match the selected target type.",
+            progression_target=target,
+            progression_kind=kind,
+            allowed_kinds=sorted(allowed_for_target),
         )
     if kind not in kinds:
         _error(
