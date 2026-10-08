@@ -442,7 +442,7 @@ def _collect_evidence(root, payload: Dict[str, Any]) -> Dict[str, Any]:
     if any(
         isinstance(row, dict)
         and str(row.get("character_id") or "") != pov_id
-        and _norm(row.get("action")) in {"enter", "leave"}
+        and _norm(row.get("action")) == "enter"
         for row in presence_rows
     ):
         refs.add("world:emergent")
