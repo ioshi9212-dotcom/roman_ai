@@ -9,7 +9,7 @@ from app import storage
 from app.operation_service import commit_turn_request, prepare_turn_request
 
 
-def _setup(tmp: str, *, with_thread: bool = False, with_mira: bool = False) -> str:
+def _setup(tmp: str, *, with_thread: bool = False, with_mira: bool = False, with_offscreen: bool = False) -> str:
     storage.DATA_DIR = Path(tmp)
     storage.LIBRARY_DIR = storage.DATA_DIR / "library"
     storage.SESSIONS_DIR = storage.DATA_DIR / "sessions"
@@ -17,6 +17,8 @@ def _setup(tmp: str, *, with_thread: bool = False, with_mira: bool = False) -> s
 
     characters = [{"character_id": "kair", "name": "Кайр", "is_pov": True}]
     present = ["kair"]
+    if with_offscreen:
+        characters.append({"character_id": "daren", "name": "Дарен", "story_function": "Ищет повреждённый переход"})
     if with_mira:
         characters.append({
             "character_id": "mira",
@@ -88,6 +90,7 @@ def _payload(
     thread_updates=None,
     relationship_updates=None,
     relationship_review=None,
+    presence_updates=None,
 ):
     extracted = {
         "scene_builder_reviewed": True,
@@ -99,7 +102,7 @@ def _payload(
         "npc_relationship_updates": [],
         "story_thread_updates": thread_updates or [],
         "scene_progressed": scene_progressed,
-        "presence_updates": [],
+        "presence_updates": presence_updates or [],
         "relationship_updates": relationship_updates or [],
         "relationship_review": relationship_review or [],
         "state_patch": {},
@@ -410,3 +413,37 @@ def test_independent_cast_goals_are_progression_targets_without_intent():
     ids = {row["target_id"] for row in targets}
     assert {"cast:daren", "cast:var", "world:emergent"} <= ids
     assert not state.get("npc_intents")
+
+
+def test_offscreen_npc_can_appear_without_pov_prompt_or_preexisting_intent():
+    with tempfile.TemporaryDirectory() as tmp:
+        sid = _setup(tmp, with_offscreen=True)
+        raw = "(читать книгу)"
+        manifest, context = _prepare(sid, raw)
+        ids = {row["target_id"] for row in context["progression_contract"]["eligible_targets"]}
+        assert "cast:daren" in ids
+        assert not storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {}).get("npc_intents")
+
+        ending = "Дарен появился в дверях и спросил о повреждённом переходе."
+        data = _payload(
+            manifest, raw, "Кайр читал книгу. " + ending,
+            scene_progressed=True,
+            proof={
+                "target": "cast:daren",
+                "kind": "npc_action",
+                "action": "Дарен пришёл по собственному расследованию.",
+                "end_state_change": "Дарен физически вошёл в комнату и задал вопрос.",
+                "ending_kind": "incoming_contact",
+                "ending_evidence_text": ending,
+            },
+            presence_updates=[{"character_id": "daren", "action": "enter"}],
+        )
+        # New physical participants require a relationship review even if no
+        # numeric dimension changed; the character's entrance is not a POV command.
+        data["extracted"]["relationship_review"] = [{
+            "character_id": "daren", "changed": False,
+            "reason": "Первое появление без устойчивого сдвига отношений.",
+            "numeric_result": "no_numeric_dimension_justified",
+        }]
+        result = commit_turn_request(sid, data)
+        assert result["turn_number"] == 1
