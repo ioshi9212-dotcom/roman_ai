@@ -126,3 +126,37 @@ def test_append_transaction_rejects_duplicate_target_without_touching_files():
             write_batch(root, {"turns.jsonl": "replacement\n"},
                         append_values={"turns.jsonl": "append\n"})
         assert path.read_text(encoding="utf-8") == "original\n"
+
+
+def test_append_transaction_rollback_on_write_failure(monkeypatch):
+    from app import transactional_storage
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp).resolve()
+        journal = root / "turns.jsonl"
+        old = '{"turn": 1}\n' * 200
+        journal.write_text(old, encoding="utf-8")
+        state = root / "state.json"
+        state.write_text('{"turn": 1}\n', encoding="utf-8")
+        original_fsync_dir = transactional_storage._fsync_dir
+        triggered = []
+
+        def fail_after_append(path):
+            # Replacement files are already staged/installed here; ensure
+            # failure triggers full rollback of both kinds of writes.
+            if Path(path) == root and journal.stat().st_size > len(old.encode("utf-8")):
+                triggered.append(True)
+                raise OSError("simulated fsync failure after journal append")
+            return original_fsync_dir(path)
+
+        monkeypatch.setattr(transactional_storage, "_fsync_dir", fail_after_append)
+        import pytest
+        with pytest.raises(OSError, match="simulated fsync"):
+            write_batch(
+                root, {"state.json": '{"turn": 2}\n'},
+                append_values={"turns.jsonl": '{"turn": 2}\n'},
+            )
+        assert triggered
+        assert journal.read_text(encoding="utf-8") == old
+        assert state.read_text(encoding="utf-8") == '{"turn": 1}\n'
+        assert not (root / ".transactions").exists()
