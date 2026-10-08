@@ -224,30 +224,55 @@ def _record_pending_bundle_read(
     if not root.exists():
         return
     with session_transaction(root):
-        packet = storage._read_json(root / "turn_packet.json", {})
-        if not isinstance(packet, dict) or not packet.get("packet_id") or not packet.get("chunks"):
-            return
-        reads = packet.get("character_bundle_reads")
-        if not isinstance(reads, dict):
-            reads = {}
+        # The same compact packet index used for scene chunks also identifies
+        # bundle-read progress. Do not reserialize the full turn packet here.
+        index = storage._fast_packet_index(root)
+        if index:
+            packet_id = str(index["packet_id"])
+            packet_count = int(index["chunk_count"])
+            digest = str(index["content_digest"])
+            fallback_reads = {}
+        else:
+            packet = storage._read_json(root / "turn_packet.json", {})
+            if not isinstance(packet, dict) or not packet.get("packet_id") or not packet.get("chunks"):
+                return
+            packet_id = str(packet["packet_id"])
+            packet_count = len(packet["chunks"])
+            digest = storage._packet_content_digest(packet)
+            fallback_reads = packet.get("character_bundle_reads", {})
+
+        path = root / storage.TURN_PACKET_BUNDLE_PROGRESS
+        progress = storage._read_optional_dict(path)
+        if (
+            progress.get("packet_id") == packet_id
+            and progress.get("chunk_count") == packet_count
+            and progress.get("content_digest") == digest
+        ):
+            reads = progress.get("character_bundle_reads")
+            reads = deepcopy(reads) if isinstance(reads, dict) else {}
+        else:
+            reads = deepcopy(fallback_reads) if isinstance(fallback_reads, dict) else {}
+
         row = reads.get(character_id)
         if not isinstance(row, dict) or str(row.get("read_id") or "") != read_id:
-            row = {
-                "read_id": read_id,
-                "chunk_count": int(chunk_count),
-                "read_chunks": [],
-            }
+            row = {"read_id": read_id, "chunk_count": int(chunk_count), "read_chunks": []}
         seen = {
             int(value)
             for value in row.get("read_chunks", [])
-            if isinstance(value, int)
+            if isinstance(value, int) and 0 <= value < int(chunk_count)
         }
+        if int(chunk_index) in seen and row.get("chunk_count") == int(chunk_count):
+            return
         seen.add(int(chunk_index))
         row["read_chunks"] = sorted(seen)
         row["chunk_count"] = int(chunk_count)
         reads[str(character_id)] = row
-        packet["character_bundle_reads"] = reads
-        storage._write_json(root / "turn_packet.json", packet)
+        storage._write_json(path, {
+            "packet_id": packet_id,
+            "chunk_count": packet_count,
+            "content_digest": digest,
+            "character_bundle_reads": reads,
+        })
 
 
 def prepare_character_bundle_read(session_id: str, character_id: str) -> Dict[str, Any]:

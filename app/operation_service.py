@@ -109,14 +109,19 @@ def prepare_turn_request(
             if same_input and not replace_pending:
                 if identity and pending_id and identity != pending_id:
                     raise RuntimeError("TURN_IN_PROGRESS")
+                changed = False
                 if identity and not pending_id:
                     packet["request_id"] = identity
-                # Safe transport flags may be preserved/upgraded on an identical pending turn.
-                if scene_archive_capable:
+                    changed = True
+                # Preserve validated progress without rewriting the packet for no-op replays.
+                if scene_archive_capable and not packet.get("scene_archive_capable"):
                     packet["scene_archive_capable"] = True
-                if opening_scene:
+                    changed = True
+                if opening_scene and not packet.get("opening_scene"):
                     packet["opening_scene"] = True
-                storage._write_json(root / "turn_packet.json", packet)
+                    changed = True
+                if changed:
+                    storage._write_json(root / "turn_packet.json", packet)
                 result = dict(session_runtime.prepare_turn_packet(session_id, user_input))
                 if identity:
                     result["request_id"] = identity
@@ -144,22 +149,17 @@ def prepare_turn_request(
             if duplicate is not None:
                 return duplicate_prepare_response(duplicate)
 
-        result = dict(session_runtime.prepare_turn_packet(session_id, user_input))
+        # Create the complete packet once, with its request flags already set.
+        result = dict(session_runtime.prepare_turn_packet(
+            session_id,
+            user_input,
+            request_id=identity or None,
+            opening_scene=opening_scene,
+            scene_archive_capable=scene_archive_capable,
+            writer_review_required=True,
+            prevalidated=True,
+        ))
         packet = storage._read_json(root / "turn_packet.json", {})
-        if isinstance(packet, dict) and packet.get("packet_id"):
-            if identity:
-                packet["request_id"] = identity
-            packet["scene_archive_capable"] = bool(scene_archive_capable)
-            packet["opening_scene"] = bool(opening_scene)
-            packet["writer_review_required"] = True
-            for key in (
-                "relationship_review_required",
-                "relationship_review_details_required",
-                "relationship_footer_scope_required",
-                "relationship_review_v3_required",
-            ):
-                packet.pop(key, None)
-            storage._write_json(root / "turn_packet.json", packet)
 
         if scene_archive_capable:
             result = apply_bounded_scene_history(session_id, result)
@@ -170,7 +170,10 @@ def prepare_turn_request(
         result["opening_scene"] = bool(opening_scene)
         result["writer_review_required"] = bool(packet.get("writer_review_required"))
         result["relationship_review_required"] = False
-        result["pending_turn"] = pending_turn_status(session_id)
+        result["pending_turn"] = (
+            pending_turn_status(session_id)
+            if scene_archive_capable else _packet_status(packet)
+        )
         return result
 
 

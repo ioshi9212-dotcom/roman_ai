@@ -341,7 +341,7 @@ def _historical_remote_records(
     return result
 
 
-def _history_turns(root) -> List[Dict[str, Any]]:
+def _history_turns(root, *, turns_override: List[Dict[str, Any]] | None = None) -> List[Dict[str, Any]]:
     result: List[Dict[str, Any]] = []
     seen: set[tuple[int, str, str]] = set()
     handoff = storage._read_json(root / "handoff_tail.json", [])
@@ -349,7 +349,7 @@ def _history_turns(root) -> List[Dict[str, Any]]:
         handoff = handoff.get("turns") or handoff.get("recent_turns") or []
     sources = [
         handoff if isinstance(handoff, list) else [],
-        storage._read_turns(root),
+        turns_override if turns_override is not None else storage._read_turns(root),
     ]
     for source in sources:
         for turn in source:
@@ -995,12 +995,19 @@ def _redact_text(text: str, records: List[Dict[str, Any]]) -> str:
     return result
 
 
-def redact_private_history(context: Dict[str, Any], *, root, cards: List[Dict[str, Any]]) -> Dict[str, Any]:
+def redact_private_history(
+    context: Dict[str, Any],
+    *,
+    root,
+    cards: List[Dict[str, Any]],
+    state_override: Dict[str, Any] | None = None,
+    turns_override: List[Dict[str, Any]] | None = None,
+) -> Dict[str, Any]:
     result = deepcopy(context)
-    state = storage._read_json(root / "state.json", {})
+    state = state_override if state_override is not None else storage._read_json(root / "state.json", {})
     pov_id = _pov_id(state)
     stored_turns: Dict[int, List[Dict[str, Any]]] = {}
-    for turn in _history_turns(root):
+    for turn in _history_turns(root, turns_override=turns_override):
         number = int(turn.get("turn_number", 0) or 0)
         if number > 0:
             stored_turns.setdefault(number, []).append(turn)

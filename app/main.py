@@ -541,6 +541,7 @@ def turn_packet_prepare(session_id: str, body: TurnPrepare):
             session_id,
             body.user_input,
             body.request_id,
+            opening_scene=bool(body.opening_scene),
             scene_archive_capable=bool(body.scene_archive_capable),
             replace_pending=bool(body.replace_pending),
         )

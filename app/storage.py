@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 import secrets
@@ -8,7 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List
 
-from .transactional_storage import json_text, write_batch
+from .transactional_storage import json_text, session_transaction, write_batch
 
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
@@ -17,6 +18,10 @@ DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
 LIBRARY_DIR = DATA_DIR / "library"
 SESSIONS_DIR = DATA_DIR / "sessions"
 MAX_PACKET_CHARS = 12000
+TURN_PACKET_READ_PROGRESS = "turn_packet_read_progress.json"
+TURN_PACKET_BUNDLE_PROGRESS = "turn_packet_bundle_progress.json"
+TURN_PACKET_CHUNKS = "turn_packet_chunks.bin"
+TURN_PACKET_INDEX = "turn_packet_chunk_index.json"
 
 
 def ensure_dirs() -> None:
@@ -24,10 +29,155 @@ def ensure_dirs() -> None:
     SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
 
 
+def _packet_content_digest(packet: Dict[str, Any]) -> str:
+    # Include byte lengths to distinguish different boundaries in identical joined text.
+    digest = hashlib.sha256()
+    chunks = packet.get("chunks", [])
+    for chunk in chunks if isinstance(chunks, list) else []:
+        encoded = str(chunk).encode("utf-8")
+        digest.update(len(encoded).to_bytes(8, "big"))
+        digest.update(encoded)
+    return digest.hexdigest()
+
+
+def _read_optional_dict(path: Path) -> Dict[str, Any]:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, ValueError):
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def _valid_packet_overlay(packet: Dict[str, Any], overlay: Dict[str, Any]) -> bool:
+    return bool(
+        overlay.get("packet_id") == packet.get("packet_id")
+        and overlay.get("chunk_count") == len(packet.get("chunks", []))
+        and overlay.get("content_digest") == _packet_content_digest(packet)
+    )
+
+
+def _merge_packet_read_progress(path: Path, packet: Any) -> Any:
+    if not isinstance(packet, dict) or not packet.get("packet_id"):
+        return packet
+    chunks = packet.get("chunks")
+    if not isinstance(chunks, list) or not chunks:
+        return packet
+    progress = _read_optional_dict(path.parent / TURN_PACKET_READ_PROGRESS)
+    if _valid_packet_overlay(packet, progress):
+        seen = {
+            int(value)
+            for value in [*(packet.get("read_chunks") or []), *(progress.get("read_chunks") or [])]
+            if isinstance(value, int) and 0 <= value < len(chunks)
+        }
+        packet["read_chunks"] = sorted(seen)
+    bundle_progress = _read_optional_dict(path.parent / TURN_PACKET_BUNDLE_PROGRESS)
+    if _valid_packet_overlay(packet, bundle_progress):
+        bundle_rows = bundle_progress.get("character_bundle_reads")
+        if isinstance(bundle_rows, dict):
+            original = packet.get("character_bundle_reads")
+            merged = deepcopy(original) if isinstance(original, dict) else {}
+            merged.update(deepcopy(bundle_rows))
+            packet["character_bundle_reads"] = merged
+    return packet
+
+
+def _packet_file_signature(path: Path) -> List[int]:
+    st = path.stat()
+    return [st.st_size, st.st_mtime_ns, st.st_ino]
+
+
+def _write_packet_chunk_index(path: Path, packet: Dict[str, Any]) -> None:
+    chunks = packet.get("chunks")
+    if not isinstance(chunks, list) or not packet.get("packet_id"):
+        return
+    folder = path.parent
+    digest = _packet_content_digest(packet)
+    cache_path = folder / TURN_PACKET_CHUNKS
+    index_path = folder / TURN_PACKET_INDEX
+    old = _read_optional_dict(index_path)
+    offsets: List[List[int]]
+    if old.get("content_digest") == digest and cache_path.exists():
+        offsets = old.get("offsets", [])
+        valid = (
+            isinstance(offsets, list) and len(offsets) == len(chunks)
+            and all(isinstance(row, list) and len(row) == 2 for row in offsets)
+            and isinstance(old.get("chunk_hashes"), list)
+            and len(old["chunk_hashes"]) == len(chunks)
+            and old.get("total_bytes") == cache_path.stat().st_size
+        )
+    else:
+        valid = False
+    if not valid:
+        offsets = []
+        parts: List[bytes] = []
+        chunk_hashes: List[str] = []
+        cursor = 0
+        for chunk in chunks:
+            data = str(chunk).encode("utf-8")
+            offsets.append([cursor, len(data)])
+            chunk_hashes.append(hashlib.sha256(data).hexdigest())
+            parts.append(data)
+            cursor += len(data)
+        temporary = cache_path.with_suffix(".tmp")
+        temporary.write_bytes(b"".join(parts))
+        temporary.replace(cache_path)
+    else:
+        chunk_hashes = old["chunk_hashes"]
+    _write_json(index_path, {
+        "packet_id": packet["packet_id"],
+        "chunk_count": len(chunks),
+        "content_digest": digest,
+        "read_chunks": [
+            index for index in packet.get("read_chunks", [])
+            if isinstance(index, int) and 0 <= index < len(chunks)
+        ],
+        "offsets": offsets,
+        "chunk_hashes": chunk_hashes,
+        "total_bytes": cache_path.stat().st_size,
+        "packet_file_signature": _packet_file_signature(path),
+    })
+
+
+def _fast_packet_index(root: Path) -> Dict[str, Any]:
+    packet_path = root / "turn_packet.json"
+    if not packet_path.exists():
+        return {}
+    index = _read_optional_dict(root / TURN_PACKET_INDEX)
+    if not index or not (root / TURN_PACKET_CHUNKS).is_file():
+        return {}
+    try:
+        if index.get("packet_file_signature") != _packet_file_signature(packet_path):
+            return {}
+        if index.get("total_bytes") != (root / TURN_PACKET_CHUNKS).stat().st_size:
+            return {}
+    except OSError:
+        return {}
+    offsets = index.get("offsets")
+    hashes = index.get("chunk_hashes")
+    if (
+        not isinstance(offsets, list)
+        or not isinstance(hashes, list)
+        or len(offsets) != index.get("chunk_count")
+        or len(hashes) != len(offsets)
+        or any(
+            not isinstance(row, list)
+            or len(row) != 2
+            or any(not isinstance(value, int) or value < 0 for value in row)
+            or row[0] + row[1] > index["total_bytes"]
+            for row in offsets
+        )
+    ):
+        return {}
+    return index
+
+
 def _read_json(path: Path, default: Any) -> Any:
     if not path.exists():
         return deepcopy(default)
-    return json.loads(path.read_text(encoding="utf-8"))
+    value = json.loads(path.read_text(encoding="utf-8"))
+    if path.name == "turn_packet.json":
+        return _merge_packet_read_progress(path, value)
+    return value
 
 
 def _write_json(path: Path, data: Any) -> None:
@@ -35,6 +185,8 @@ def _write_json(path: Path, data: Any) -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     tmp.replace(path)
+    if path.name == "turn_packet.json" and isinstance(data, dict):
+        _write_packet_chunk_index(path, data)
 
 
 def _template(name: str, default: Any) -> Any:
@@ -680,17 +832,69 @@ def get_turn_packet_chunk(session_id: str, packet_id: str, chunk_index: int) -> 
     root = SESSIONS_DIR / session_id
     if not root.exists():
         raise FileNotFoundError(session_id)
-    packet = _read_json(root / "turn_packet.json", {})
-    if not packet or packet.get("packet_id") != packet_id:
-        raise PermissionError("INVALID_PACKET")
-    chunks = packet.get("chunks", [])
-    if chunk_index < 0 or chunk_index >= len(chunks):
-        raise IndexError("CHUNK_OUT_OF_RANGE")
-    read_chunks = set(packet.get("read_chunks", []))
-    read_chunks.add(chunk_index)
-    packet["read_chunks"] = sorted(read_chunks)
-    _write_json(root / "turn_packet.json", packet)
-    return {"packet_id": packet_id, "chunk_index": chunk_index, "chunk_count": len(chunks), "content": chunks[chunk_index], "all_chunks_read": len(read_chunks) == len(chunks)}
+    with session_transaction(root):
+        index = _fast_packet_index(root)
+        if index:
+            if index["packet_id"] != packet_id:
+                raise PermissionError("INVALID_PACKET")
+            if chunk_index < 0 or chunk_index >= index["chunk_count"]:
+                raise IndexError("CHUNK_OUT_OF_RANGE")
+            offset, length = index["offsets"][chunk_index]
+            try:
+                with (root / TURN_PACKET_CHUNKS).open("rb") as handle:
+                    handle.seek(offset)
+                    blob = handle.read(length)
+                if hashlib.sha256(blob).hexdigest() != index["chunk_hashes"][chunk_index]:
+                    index = {}
+                else:
+                    content = blob.decode("utf-8")
+            except (OSError, UnicodeError):
+                index = {}
+        if index:
+            count = index["chunk_count"]
+            digest = index["content_digest"]
+            seen = {
+                v for v in index.get("read_chunks", [])
+                if isinstance(v, int) and 0 <= v < count
+            }
+        else:
+            # Compatibility with existing packets and files written outside storage helpers.
+            packet = _read_json(root / "turn_packet.json", {})
+            if not packet or packet.get("packet_id") != packet_id:
+                raise PermissionError("INVALID_PACKET")
+            chunks = packet.get("chunks", [])
+            if chunk_index < 0 or chunk_index >= len(chunks):
+                raise IndexError("CHUNK_OUT_OF_RANGE")
+            content = chunks[chunk_index]
+            count = len(chunks)
+            digest = _packet_content_digest(packet)
+            seen = {
+                v for v in packet.get("read_chunks", [])
+                if isinstance(v, int) and 0 <= v < count
+            }
+        progress = _read_optional_dict(root / TURN_PACKET_READ_PROGRESS)
+        if (
+            progress.get("packet_id") == packet_id
+            and progress.get("chunk_count") == count
+            and progress.get("content_digest") == digest
+        ):
+            seen.update(v for v in progress.get("read_chunks", []) if isinstance(v, int) and 0 <= v < count)
+        if chunk_index not in seen:
+            seen.add(chunk_index)
+            _write_json(root / TURN_PACKET_READ_PROGRESS, {
+                "packet_id": packet_id,
+                "chunk_count": count,
+                "content_digest": digest,
+                "read_chunks": sorted(seen),
+            })
+        return {
+            "packet_id": packet_id,
+            "chunk_index": chunk_index,
+            "chunk_count": count,
+            "content": content,
+            "all_chunks_read": len(seen) == count,
+        }
+
 
 
 def commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:

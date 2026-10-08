@@ -109,15 +109,24 @@ def _finalize_persisted_state(
     )
 
 
-def _refresh_session_familiarity(session_id: str) -> Dict[str, Any]:
+def _refresh_session_familiarity(
+    session_id: str,
+    *,
+    source_override: Dict[str, Any] | None = None,
+    state_override: Dict[str, Any] | None = None,
+    memory_override: Dict[str, Any] | None = None,
+) -> Dict[str, Any]:
     root = storage.SESSIONS_DIR / session_id
     if not root.exists():
         raise FileNotFoundError(session_id)
-    source = storage._read_json(root / "source.json", {})
+    source = source_override if source_override is not None else storage._read_json(root / "source.json", {})
     cards = storage._load_cards(root, source)
-    original_state = storage._read_json(root / "state.json", {})
+    original_state = state_override if state_override is not None else storage._read_json(root / "state.json", {})
     state = _canonicalize_state_character_refs(cards, original_state)
-    memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
+    memory = storage._normalise_memory(
+        memory_override if memory_override is not None
+        else storage._read_json(root / "memory.json", {})
+    )
     chronology = storage._read_json(root / "chronology.json", [])
     turns = storage._read_turns(root)
     meta = storage._read_json(root / "meta.json", {})
@@ -453,7 +462,13 @@ def _prepare_extracted_for_commit(
 
 
 def build_turn_context(
-    session_id: str, user_input: str, *, return_snapshot: bool = False,
+    session_id: str,
+    user_input: str,
+    *,
+    return_snapshot: bool = False,
+    preloaded_source: Dict[str, Any] | None = None,
+    preloaded_state: Dict[str, Any] | None = None,
+    preloaded_memory: Dict[str, Any] | None = None,
 ) -> Dict[str, Any] | tuple[Dict[str, Any], Dict[str, Any]]:
     """Build the complete pre-writer turn context in memory without packet round-trips."""
     root = storage.SESSIONS_DIR / session_id
@@ -468,7 +483,12 @@ def build_turn_context(
         raise RuntimeError("HANDOFF_REQUIRED")
 
     # One canonical snapshot for this preparation pass.
-    snapshot = _refresh_session_familiarity(session_id)
+    snapshot = _refresh_session_familiarity(
+        session_id,
+        source_override=preloaded_source,
+        state_override=preloaded_state,
+        memory_override=preloaded_memory,
+    )
     source = snapshot["source"]
     cards = snapshot["cards"]
     state = snapshot["state"]
