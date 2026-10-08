@@ -93,3 +93,47 @@ def test_offscreen_character_read_chunks_complete_knowledge_and_keeps_intent_sou
         assert len(payload["personal_memory"]["dialogue_memory"]) <= 12
         assert payload["personal_memory"]["historical_knowledge_catalog"] == []
         assert payload["personal_memory"]["persistent_counts"]["knowledge"] == 300
+
+
+
+def test_on_demand_npc_bundle_restores_private_v5_first_day_journal():
+    from app.character_chunk_read import prepare_character_bundle_read, get_character_bundle_chunk
+    import json
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        novel = {
+            "novel_id": "npc-v5-knowledge",
+            "title": "NPC V5 Knowledge",
+            "novel": {"pov_character": "pov"},
+            "characters": [
+                {"character_id": "pov", "name": "POV", "is_pov": True},
+                {"character_id": "ren", "name": "Ren"},
+            ],
+            "starting_state": {
+                "pov": {"character_id": "pov"},
+                "current": {"present_characters": ["pov"], "game_day": 15},
+            },
+        }
+        sid = storage.create_session(novel)["session_id"]
+        root = storage.SESSIONS_DIR / sid
+        memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
+        storage._memory_bucket(memory, "ren")["knowledge_journal"].append({
+            "entry_id": "ren-day1", "turn": 1, "date": "01.09.1206",
+            "period": "утро", "text": "Рен знает, что пароль — серебро.",
+        })
+        storage._memory_bucket(memory, "pov")["knowledge_journal"].append({
+            "entry_id": "pov-only", "turn": 1, "date": "01.09.1206",
+            "period": "утро", "text": "POV знает имя тайного агента.",
+        })
+        storage._write_json(root / "memory.json", memory)
+        manifest = prepare_character_bundle_read(sid, "ren")
+        parts = [manifest["content"]]
+        for i in range(1, manifest["chunk_count"]):
+            parts.append(get_character_bundle_chunk(
+                sid, "ren", manifest["read_id"], i,
+            )["content"])
+        payload = json.loads("".join(parts))
+        npc = payload["personal_memory"]
+        assert any("серебро" in r["text"] for r in npc["knowledge_journal"])
+        assert all("имя тайного агента" not in r["text"] for r in npc["knowledge_journal"])
+        assert npc["persistent_counts"]["knowledge_journal"] == 1
