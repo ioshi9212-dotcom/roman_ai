@@ -229,6 +229,7 @@ def _anchor_catalog(value: Any) -> List[Dict[str, Any]]:
             "turn_number": _event_turn(event),
             "summary": " ".join(str(text).split())[:MAX_ANCHOR_SUMMARY],
             "participants_present": list(_event_participants(event))[:8],
+            "actor_character_ids": session_runtime._event_actor_ids(event)[:16],
             "location": event.get("location") or event.get("location_id") or event.get("place"),
             "compacted_scene_id": event.get("compacted_scene_id"),
         }
@@ -250,7 +251,7 @@ def _compact_chronology(value: Any, character_ids: List[str], location: Any) -> 
     for index, event in list(enumerate(events))[-MAX_RECENT_CHRONOLOGY:]:
         keep(event, index)
     for character_id in character_ids:
-        for index, event in [(i, e) for i, e in enumerate(events) if character_id in _event_participants(e)][-MAX_CHARACTER_CHRONOLOGY:]:
+        for index, event in [(i, e) for i, e in enumerate(events) if character_id in _event_participants(e) or character_id in session_runtime._event_actor_ids(e)][-MAX_CHARACTER_CHRONOLOGY:]:
             keep(event, index)
     needle = str(location or "").casefold().strip()
     if needle:
