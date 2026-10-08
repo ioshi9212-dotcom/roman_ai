@@ -208,8 +208,6 @@ def _relationship_candidates(
             relation = {}
         dims = relation.get("dimensions") if isinstance(relation.get("dimensions"), dict) else {}
         dynamic = str(relation.get("dynamic") or "").strip()
-        if not dims and not dynamic:
-            continue
         result.append({
             "target_id": f"relationship:{cid}",
             "source": "relationship",
@@ -376,6 +374,7 @@ def _collect_evidence(root, payload: Dict[str, Any]) -> Dict[str, Any]:
     kinds: set[str] = set()
     refs: set[str] = set()
 
+    active_thread_ids = set(story_thread.active_threads(state))
     for row in extracted.get("story_thread_updates", []) if isinstance(extracted.get("story_thread_updates"), list) else []:
         if not isinstance(row, dict):
             continue
@@ -384,8 +383,16 @@ def _collect_evidence(root, payload: Dict[str, Any]) -> Dict[str, Any]:
             thread_id = str(row.get("thread_id") or "").strip()
             if thread_id:
                 refs.add(f"thread:{thread_id}")
+                if thread_id not in active_thread_ids:
+                    refs.add("world:emergent")
             kinds.update({"thread_state_change", "external_event"})
 
+    existing_intents = npc_intent.normalise_store(state)
+    existing_intent_ids = {
+        (str(cid), str(item.get("intent_id") or ""))
+        for cid, rows in existing_intents.items()
+        for item in rows if isinstance(item, dict) and item.get("intent_id")
+    }
     for row in extracted.get("npc_intent_updates", []) if isinstance(extracted.get("npc_intent_updates"), list) else []:
         if not isinstance(row, dict):
             continue
@@ -395,6 +402,8 @@ def _collect_evidence(root, payload: Dict[str, Any]) -> Dict[str, Any]:
             intent_id = str(row.get("intent_id") or "").strip()
             if cid and intent_id:
                 refs.add(f"intent:{cid}:{intent_id}")
+                if (cid, intent_id) not in existing_intent_ids:
+                    refs.add("world:emergent")
             kinds.update({"npc_action", "external_event"})
 
     before_unfinished, after_unfinished = _post_unfinished_actions(root, payload)
@@ -416,7 +425,12 @@ def _collect_evidence(root, payload: Dict[str, Any]) -> Dict[str, Any]:
             break
 
     journal_rows = extracted.get("knowledge_journal_add") if isinstance(extracted.get("knowledge_journal_add"), list) else []
-    if any(isinstance(row, dict) and _text_from_row(row) for row in journal_rows):
+    if any(
+        isinstance(row, dict)
+        and str(row.get("character_id") or "") == pov_id
+        and _text_from_row(row)
+        for row in journal_rows
+    ):
         refs.add("world:emergent")
         kinds.add("new_information")
 
