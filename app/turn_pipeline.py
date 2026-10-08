@@ -314,32 +314,23 @@ def _cast_registry_rows(
 
 
 def _independent_cast_focus(rows: List[Dict[str, Any]], current_turn: int) -> List[Dict[str, Any]]:
-    """Rotate actionable offscreen cast independently of POV mentions and intents."""
+    """Expose every independent active NPC, regardless of POV attention or intents."""
     candidates = [
         row for row in rows
         if isinstance(row, dict)
         and row.get("offscreen_can_initiate") is True
         and row.get("character_id")
-    ]
-    # Only story-bearing cast needs focused review; every active NPC remains
-    # available in cast_registry.characters even if not in this short focus.
-    candidates = [
-        row for row in candidates
-        if any(row.get(key) for key in ("goals", "story_function", "work", "habits", "active_intents", "active_threads"))
+        and any(row.get(key) for key in ("goals", "story_function", "work", "habits", "active_intents", "active_threads"))
     ]
     candidates.sort(key=lambda row: (
         {"core": 0, "recurring": 1, "support": 2}.get(str(row.get("importance") or ""), 3),
+        int(row.get("last_contact_turn") or 0),
         str(row.get("character_id")),
     ))
-    if not candidates:
-        return []
-    # Three rotating candidates per turn: lack of existing intent or POV
-    # familiarity never removes an NPC from the initiative pool.
-    start = (max(0, current_turn - 1) * 3) % len(candidates)
-    selected = [candidates[(start + offset) % len(candidates)] for offset in range(min(3, len(candidates)))]
     return [{
         "character_id": row["character_id"],
         "name": row.get("name"),
+        "importance": row.get("importance"),
         "story_function": row.get("story_function"),
         "goals": row.get("goals"),
         "work": row.get("work"),
@@ -348,7 +339,7 @@ def _independent_cast_focus(rows: List[Dict[str, Any]], current_turn: int) -> Li
         "active_intents": row.get("active_intents"),
         "active_threads": row.get("active_threads"),
         "pov_familiarity": row.get("pov_familiarity"),
-    } for row in selected]
+    } for row in candidates]
 
 
 def _clean_relationship_lens(context: Dict[str, Any]) -> None:
@@ -606,10 +597,10 @@ def _prepare_context(
         context["cast_registry"]["characters"], current_turn
     )
     context["cast_registry"]["independent_initiative_instruction"] = (
-        "Это независимый от POV обзор персонажей, а не список разрешённых к появлению NPC. "
-        "Каждый ход проверь действия выделенных offscreen NPC из их целей, работы, характера, "
+        "Это полный независимый от POV обзор активных offscreen NPC, а не список разрешённых к появлению. "
+        "Каждый ход оцени возможность самостоятельного действия каждого offscreen NPC из его целей, работы, характера, "
         "собственных связей и известных им фактов, даже если POV их не упоминал. "
-        "Если NPC уже мог самостоятельно предпринять действие, продвинь его линию: "
+        "Если NPC может самостоятельно предпринять значимое действие, не оставляй его без действия только из-за отсутствия POV. Продвинь его линию через "
         "контакт, событие, видимое последствие или сохраняемый незавершённый шаг. "
         "Не придумывай знание POV или скрытых фактов; не телепортируй NPC и не "
         "вводи его в сцену искусственно. Наличие intent не требуется. "
