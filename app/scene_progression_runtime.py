@@ -208,13 +208,10 @@ def _relationship_candidates(
 
 def _cast_candidates(context: Dict[str, Any]) -> List[Dict[str, Any]]:
     registry = context.get("cast_registry") if isinstance(context.get("cast_registry"), dict) else {}
-    cast = registry.get("independent_initiative_focus")
-    cast = cast if isinstance(cast, list) else []
-    return [
-        {"target_id": f"cast:{row['character_id']}", "source": "independent_cast_goal",
-         "character_id": str(row["character_id"])}
-        for row in cast if isinstance(row, dict) and row.get("character_id")
-    ]
+    rows = registry.get("characters") if isinstance(registry.get("characters"), list) else []
+    if not any(isinstance(row, dict) and row.get("offscreen_can_initiate") is True for row in rows):
+        return []
+    return [{"target_id": "cast:independent", "source": "independent_cast_goal"}]
 
 
 def build_contract(
@@ -264,13 +261,14 @@ def build_contract(
         "required_target_count": 0 if explicit_quiet else 1,
         "time_skip_requested": time_skip,
         "explicit_uneventful_downtime": explicit_quiet,
-        "eligible_targets": [*targets, world_target],
+        "eligible_targets": [*targets[:17], world_target],
+        "cast_character_ids": [str(row["character_id"]) for row in context.get("cast_registry", {}).get("characters", []) if isinstance(row, dict) and row.get("offscreen_can_initiate") is True and row.get("character_id")],
         "selection_sources": [
             "scene_state.current.unfinished_actions",
             "relationship_lens",
             "npc_active_intents/cast_registry.active_intents",
             "active_threads",
-            "cast_registry.independent_initiative_focus",
+            "cast_registry.characters",
         ],
         "proof_required_in_commit": not explicit_quiet,
         "proof_fields": [
@@ -430,7 +428,7 @@ def _collect_evidence(root, payload: Dict[str, Any]) -> Dict[str, Any]:
         if not isinstance(row, dict):
             continue
         cid = str(row.get("character_id") or "")
-        if cid in cast_ids and row.get("pursued_now") is True:
+        if cid in cast_ids and row.get("pursued_now") is True and row.get("intent_id"):
             refs.add(f"cast:{cid}")
             kinds.update({"npc_action", "external_event"})
     for row in extracted.get("presence_updates", []) if isinstance(extracted.get("presence_updates"), list) else []:
@@ -590,7 +588,13 @@ def validate_scene_progression(session_id: str, payload: Dict[str, Any]) -> None
             eligible_target_ids=sorted(allowed_targets),
         )
 
-    if target not in refs:
+    cast_rows = contract.get("cast_character_ids") if isinstance(contract.get("cast_character_ids"), list) else []
+    allowed_cast_refs = {f"cast:{cid}" for cid in cast_rows}
+    if target == "cast:independent":
+        actor = str(proof.get("character_id") or "").strip()
+        if not actor or f"cast:{actor}" not in refs or f"cast:{actor}" not in allowed_cast_refs:
+            _error("SCENE_NO_MEANINGFUL_PROGRESSION", "Independent cast proof must name an eligible offscreen NPC who actually acted.", character_id=actor)
+    elif target not in refs:
         _error(
             "SCENE_NO_MEANINGFUL_PROGRESSION",
             "The selected progression_target did not actually change in persistence.",
