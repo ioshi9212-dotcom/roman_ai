@@ -192,6 +192,22 @@ def _event_participants(event: Dict[str, Any]) -> List[str]:
     return list(dict.fromkeys(result))
 
 
+def _event_actor_ids(event: Dict[str, Any]) -> List[str]:
+    """Index actual actors separately from physical witnesses/participants."""
+    result: List[str] = []
+    actor = event.get("actor_character_id")
+    if actor:
+        result.append(str(actor))
+    rows = event.get("actor_events")
+    for row in rows if isinstance(rows, list) else []:
+        if not isinstance(row, dict):
+            continue
+        nested_actor = row.get("actor_character_id")
+        if nested_actor:
+            result.append(str(nested_actor))
+    return list(dict.fromkeys(result))
+
+
 def _event_location(event: Dict[str, Any]) -> str | None:
     value = event.get("location") or event.get("location_id") or event.get("place")
     return str(value) if value not in (None, "") else None
@@ -222,7 +238,7 @@ def _select_chronology_context(
         matches = [
             (index, event)
             for index, event in enumerate(events)
-            if str(character_id) in _event_participants(event)
+            if str(character_id) in _event_participants(event) or str(character_id) in _event_actor_ids(event)
         ][-CHARACTER_CHRONOLOGY_EVENTS:]
         for index, event in matches:
             remember(event, index)

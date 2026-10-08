@@ -301,6 +301,7 @@ def build_macro_payload(
             "date": _story_date(event),
             "event": event.get("event") or event.get("summary") or event.get("text") or event.get("description"),
             "importance": event.get("importance"),
+            "actor_character_id": event.get("actor_character_id"),
             "time_critical": event.get("time_critical") is True,
             "exact_time": event.get("exact_time"),
             "participants": deepcopy(
@@ -365,6 +366,58 @@ def build_macro_payload(
     }
 
 
+def _source_actor_events_by_date(events: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
+    """Index source-confirmed actions, including actions from older macro rows.
+
+    Compact provenance remains author-only, not POV perception or NPC knowledge.
+    """
+    result: Dict[str, List[Dict[str, Any]]] = {}
+    seen: set[tuple[str, str, str, str]] = set()
+    for source in events:
+        if not isinstance(source, dict):
+            continue
+        date = _story_date(source)
+        if not date:
+            continue
+        originals = source.get("actor_events")
+        rows = originals if isinstance(originals, list) and originals else [source]
+        for raw in rows:
+            if not isinstance(raw, dict):
+                continue
+            actor = str(raw.get("actor_character_id") or "").strip()
+            event = " ".join(str(raw.get("event") or raw.get("summary") or "").split())
+            if not actor or not event:
+                continue
+            importance = str(raw.get("importance") or source.get("importance") or "normal").casefold()
+            consequences = raw.get("consequences") or source.get("consequences")
+            if (
+                not (isinstance(originals, list) and originals)
+                and importance not in {"major", "anchor", "critical"}
+                and raw.get("time_critical") is not True
+                and not (isinstance(consequences, list) and any(str(c).strip() for c in consequences))
+            ):
+                continue
+            event_id = str(raw.get("source_event_id") or raw.get("event_id") or "")
+            number = _event_turn(raw)
+            key = (date, event_id or str(number), actor, event)
+            if key in seen:
+                continue
+            seen.add(key)
+            compact = {
+                "actor_character_id": actor,
+                "event": event[:260],
+                "turn_number": number,
+                "source_event_id": event_id,
+            }
+            location = str(raw.get("location") or "").strip()
+            if location:
+                compact["location"] = location[:150]
+            result.setdefault(date, []).append({
+                k: v for k, v in compact.items() if v not in (None, "", [], 0)
+            })
+    return result
+
+
 def _apply_macro_chronology_compaction_core(
     source: Dict[str, Any],
     turns: List[Dict[str, Any]],
@@ -403,8 +456,11 @@ def _apply_macro_chronology_compaction_core(
     }
     important_dates.discard("")
 
+    actor_events_by_date = _source_actor_events_by_date(source_events)
+    important_dates.update(actor_events_by_date)
     normalized: List[Dict[str, Any]] = []
     represented_dates: set[str] = set()
+    attached_actor_dates: set[str] = set()
     for index, raw in enumerate(raw_rows, 1):
         if not isinstance(raw, dict):
             raise RuntimeError("MACRO_CHRONOLOGY_COMPACTION_INVALID")
@@ -455,6 +511,11 @@ def _apply_macro_chronology_compaction_core(
         elif critical_times:
             item["critical_times"] = critical_times
             item["time_critical"] = True
+        # Do not ask the summary model to reconstruct actor identities. They
+        # come from already saved chronology and attach once per story date.
+        if date not in attached_actor_dates and actor_events_by_date.get(date):
+            item["actor_events"] = deepcopy(actor_events_by_date[date])
+            attached_actor_dates.add(date)
         normalized.append({k: v for k, v in item.items() if v not in (None, "", [], {})})
 
     if important_dates - represented_dates:

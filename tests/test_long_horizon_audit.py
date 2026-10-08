@@ -223,3 +223,190 @@ def test_second_macro_boundary_at_120_also_requires_compaction():
                 {},
                 end_turn=120,
             )
+
+
+
+def test_offscreen_actor_events_survive_60_and_120_turns_and_writer_retrieval():
+    """Real macro compaction must not turn NPC agency into anonymous background."""
+    from app import session_runtime, writer_first_runtime
+    from app.continuation_runtime import _normalized_chronology
+
+    with tempfile.TemporaryDirectory() as tmp:
+        _setup(tmp)
+        root = storage.SESSIONS_DIR / "actor-history"
+        root.mkdir(parents=True)
+        storage._write_json(root / "source.json", {
+            "version": 5, "profile_schema": {"version": 1},
+        })
+        turns = [_turn(i, "24.09.2026" if i <= 30 else "25.09.2026") for i in range(1, 61)]
+        (root / "turns.jsonl").write_text(
+            "".join(json.dumps(t, ensure_ascii=False) + "\n" for t in turns),
+            encoding="utf-8",
+        )
+        first_events = [
+            {
+                "event_id": "daren-investigation",
+                "turn_number": 4,
+                "story_date": "24.09.2026",
+                "event": "Дарен нашёл важный след в заброшенном переходе.",
+                "location": "заброшенный переход",
+                "actor_character_id": "daren",
+                "participants_present": [],
+                "importance": "major",
+            },
+            {
+                "event_id": "var-search",
+                "turn_number": 8,
+                "story_date": "24.09.2026",
+                "event": "Вар независимо обнаружил архив с доказательствами.",
+                "actor_character_id": "var",
+                "participants_present": [],
+                "importance": "major",
+            },
+            {
+                "event_id": "pov-decision",
+                "turn_number": 39,
+                "story_date": "25.09.2026",
+                "event": "POV заключил важное соглашение.",
+                "participants_present": ["pov"],
+                "importance": "major",
+            },
+        ]
+        repairs = {"chronology_compactions": [
+            {
+                "date": "24.09.2026",
+                "summary": "Дарен исследовал заброшенный переход, а Вар нашёл дополнительные доказательства.",
+                "importance": "major",
+                "participants": [],
+            },
+            {
+                "date": "25.09.2026",
+                "summary": "POV заключил важное соглашение, имеющее последствия для остальных.",
+                "importance": "major",
+                "participants": ["pov"],
+            },
+        ]}
+        after_60 = apply_macro_chronology_compaction(
+            root, first_events, repairs, end_turn=60,
+        )
+        row = next(x for x in after_60 if x["story_date"] == "24.09.2026")
+        assert row.get("participants_present", []) == []
+        assert {e["actor_character_id"] for e in row["actor_events"]} == {"daren", "var"}
+        assert {e["source_event_id"] for e in row["actor_events"]} == {
+            "daren-investigation", "var-search",
+        }
+
+        # 60 later unrelated turns must not make actor-linked history unfindable.
+        later = [{
+            "event_id": f"unrelated-{n}",
+            "turn_number": n,
+            "story_date": "26.09.2026",
+            "event": f"Другое событие номер {n}.",
+            "importance": "normal",
+        } for n in range(61, 121)]
+        turns_120 = [*turns, *[_turn(i, "26.09.2026") for i in range(61, 121)]]
+        (root / "turns.jsonl").write_text(
+            "".join(json.dumps(t, ensure_ascii=False) + "\n" for t in turns_120),
+            encoding="utf-8",
+        )
+        after_120 = apply_macro_chronology_compaction(
+            root,
+            [*after_60, *later],
+            {"chronology_compactions": [{
+                "date": "26.09.2026",
+                "summary": "За следующие шестьдесят ходов произошли различные события, не изменившие старые расследования.",
+                "importance": "normal",
+            }]},
+            end_turn=120,
+        )
+        assert any(x["event_id"] == "macro_60_1" for x in after_120)
+        full = [
+            *after_120,
+            *[{
+                "event_id": f"later-{turn}", "turn_number": turn,
+                "story_date": "27.09.2026", "event": f"Позднее событие {turn}.",
+                "importance": "normal",
+            } for turn in range(121, 181)],
+        ]
+        selected = session_runtime._select_chronology_context(
+            full, relevant_character_ids=["daren"], location=None,
+        )
+        assert "macro_60_1" in {e["event_id"] for e in selected}
+        compact = writer_first_runtime._compact_chronology(
+            full, ["var"], "другое место",
+        )
+        assert "macro_60_1" in {e["event_id"] for e in compact}
+
+        continuation = _normalized_chronology(
+            {"chronology": [{
+                "date": "24.09.2026",
+                "summary": "Старое расследование позднее повлияло на развитие истории.",
+                "importance": "normal",
+                "participants": [],
+            }]},
+            source_chronology=full,
+        )
+        carried = next(e for e in continuation if e.get("story_date") == "24.09.2026")
+        assert {a["actor_character_id"] for a in carried["actor_events"]} == {"daren", "var"}
+        assert not carried.get("participants_present")
+        # A second continuation must also preserve the same original evidence.
+        again = _normalized_chronology(
+            {"chronology": [{
+                "date": "24.09.2026",
+                "summary": "История расследования по-прежнему важна.",
+                "importance": "normal",
+            }]},
+            source_chronology=continuation,
+        )
+        again_row = next(x for x in again if x.get("story_date") == "24.09.2026")
+        assert {a["actor_character_id"] for a in again_row["actor_events"]} == {"daren", "var"}
+        assert "actor_character_id" not in again_row
+        assert not again_row.get("participants_present")
+        # Even if a final summarizer omits the entire date, the backend must
+        # preserve source-verified NPC actions instead of discarding them.
+        missing_date = _normalized_chronology(
+            {"chronology": [{
+                "date": "25.09.2026",
+                "summary": "Другая дата без сведений о расследованиях.",
+                "importance": "normal",
+            }]},
+            source_chronology=full,
+        )
+        recovery = next(x for x in missing_date if x.get("story_date") == "24.09.2026")
+        assert {a["actor_character_id"] for a in recovery["actor_events"]} == {"daren", "var"}
+        assert not recovery.get("participants_present")
+
+
+
+def test_fifteen_turn_scene_compaction_does_not_hide_independent_actor_event():
+    from app import session_runtime, writer_first_runtime
+
+    source_event = {
+        "event_id": "actor-before-15",
+        "turn_number": 4,
+        "story_date": "24.09.2026",
+        "event": "Дарен нашёл след, о котором POV ничего не знает.",
+        "actor_character_id": "daren",
+        "importance": "major",
+        "compacted_scene_id": "scene_t1_t15",
+        "participants_present": [],
+    }
+    later = [{
+        "event_id": f"other-{turn}",
+        "turn_number": turn,
+        "story_date": "25.09.2026",
+        "event": f"Постороннее событие {turn}.",
+        "importance": "normal",
+        "participants_present": ["pov"],
+    } for turn in range(16, 101)]
+    events = [source_event, *later]
+    selected = session_runtime._select_chronology_context(
+        events, relevant_character_ids=["daren"], location=None,
+    )
+    assert source_event in selected
+    compact = writer_first_runtime._compact_chronology(
+        selected, ["daren"], "другое место",
+    )
+    assert source_event in compact
+    # Indexing an action must not imply that POV witnessed or learned about it.
+    assert not source_event["participants_present"]
