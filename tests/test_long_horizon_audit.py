@@ -362,6 +362,19 @@ def test_offscreen_actor_events_survive_60_and_120_turns_and_writer_retrieval():
         assert {a["actor_character_id"] for a in again_row["actor_events"]} == {"daren", "var"}
         assert "actor_character_id" not in again_row
         assert not again_row.get("participants_present")
+        # Even if a final summarizer omits the entire date, the backend must
+        # preserve source-verified NPC actions instead of discarding them.
+        missing_date = _normalized_chronology(
+            {"chronology": [{
+                "date": "25.09.2026",
+                "summary": "Другая дата без сведений о расследованиях.",
+                "importance": "normal",
+            }]},
+            source_chronology=full,
+        )
+        recovery = next(x for x in missing_date if x.get("story_date") == "24.09.2026")
+        assert {a["actor_character_id"] for a in recovery["actor_events"]} == {"daren", "var"}
+        assert not recovery.get("participants_present")
 
 
 
