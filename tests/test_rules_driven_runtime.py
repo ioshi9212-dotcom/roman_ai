@@ -99,6 +99,28 @@ def test_active_runtime_is_author_rules_plus_scene_builder():
         assert removed not in rules + "\n" + builder
 
 
+
+def test_scene_builder_uses_real_progression_sources_on_the_first_turn():
+    builder = runtime_access.runtime_documents()["scene_builder"]
+    assert "progression_contract.eligible_targets[]" not in builder
+    assert "active_threads" in builder
+    assert "npc_active_intents" in builder
+    assert "scene_engine_cues" in builder
+    assert "cast_registry" in builder
+    assert "На первом ходе" in builder
+    assert "scene_progressed=true" in builder
+
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(base_novel())["session_id"]
+        manifest, context = read_context(sid, "")
+        assert context["opening_scene"]["active"] is True
+        assert "cast_registry" in context
+        assert "scene_engine_cues" in context
+        assert "progression_contract" not in context
+        assert context["scene_builder"] == builder
+
+
 def test_character_perception_and_scene_quality_stay_causal_without_pacing_modes():
     docs = runtime_access.runtime_documents()
     rules = docs["rules"]
