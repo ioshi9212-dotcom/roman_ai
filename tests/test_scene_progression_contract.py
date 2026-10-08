@@ -397,9 +397,9 @@ def test_independent_cast_goals_are_progression_targets_without_intent():
     from app.scene_progression_runtime import _cast_candidates, build_contract
     context = {
         "cast_registry": {
-            "independent_initiative_focus": [
-                {"character_id": "daren", "story_function": "Investigate the breach"},
-                {"character_id": "var", "story_function": "Seek freedom"},
+            "characters": [
+                {"character_id": "daren", "offscreen_can_initiate": True},
+                {"character_id": "var", "offscreen_can_initiate": True},
             ]
         },
         "scene_presence": {"present_character_ids": ["kair"], "remote_character_ids": []},
@@ -411,7 +411,7 @@ def test_independent_cast_goals_are_progression_targets_without_intent():
         cards=[{"character_id": "kair"}], current_turn=6,
     )["eligible_targets"]
     ids = {row["target_id"] for row in targets}
-    assert {"cast:daren", "cast:var", "world:emergent"} <= ids
+    assert {"cast:independent", "world:emergent"} <= ids
     assert not state.get("npc_intents")
 
 
@@ -421,7 +421,7 @@ def test_offscreen_npc_can_appear_without_pov_prompt_or_preexisting_intent():
         raw = "(читать книгу)"
         manifest, context = _prepare(sid, raw)
         ids = {row["target_id"] for row in context["progression_contract"]["eligible_targets"]}
-        assert "cast:daren" in ids
+        assert "cast:independent" in ids
         assert not storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {}).get("npc_intents")
 
         ending = "Дарен появился в дверях и спросил о повреждённом переходе."
@@ -429,7 +429,8 @@ def test_offscreen_npc_can_appear_without_pov_prompt_or_preexisting_intent():
             manifest, raw, "Кайр читал книгу. " + ending,
             scene_progressed=True,
             proof={
-                "target": "cast:daren",
+                "target": "cast:independent",
+                "character_id": "daren",
                 "kind": "npc_action",
                 "action": "Дарен пришёл по собственному расследованию.",
                 "end_state_change": "Дарен физически вошёл в комнату и задал вопрос.",
