@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from typing import Any, Dict, Iterable, List
+import re
+from typing import Any, Dict, List
 
 from fastapi import HTTPException
 
@@ -25,53 +26,6 @@ def _norm(value: Any) -> str:
     return " ".join(str(value or "").casefold().replace("ё", "е").split())
 
 
-def _resolve_character_id(cards: Iterable[Dict[str, Any]], raw: Any) -> str | None:
-    needle = _norm(raw)
-    if not needle:
-        return None
-    for card in cards:
-        cid = storage._card_id(card)
-        if cid and _norm(cid) == needle:
-            return cid
-        if any(_norm(name) == needle for name in storage._card_names(card)):
-            return cid
-    return None
-
-
-def _physical_participant_ids(
-    state_before: Dict[str, Any],
-    extracted: Dict[str, Any],
-    cards: List[Dict[str, Any]],
-) -> List[str]:
-    result: List[str] = []
-
-    def add(raw: Any) -> None:
-        if isinstance(raw, dict):
-            raw = raw.get("character_id") or raw.get("id") or raw.get("name")
-        cid = _resolve_character_id(cards, raw)
-        if cid and cid not in result:
-            result.append(cid)
-
-    for raw in storage._present_character_ids(state_before):
-        add(raw)
-
-    patch = extracted.get("state_patch") if isinstance(extracted.get("state_patch"), dict) else {}
-    state_after = storage._deep_merge(state_before, patch)
-    for raw in storage._present_character_ids(state_after):
-        add(raw)
-
-    for row in extracted.get("presence_updates", []) if isinstance(extracted.get("presence_updates"), list) else []:
-        if not isinstance(row, dict):
-            continue
-        action = str(row.get("action") or "").casefold().strip()
-        if action in {"enter", "leave", "move"}:
-            add(row.get("character_id") or row.get("id") or row.get("name"))
-
-    pov = state_after.get("pov") if isinstance(state_after.get("pov"), dict) else {}
-    pov_id = str(pov.get("character_id") or "")
-    return [cid for cid in result if cid and cid != pov_id]
-
-
 def _dimensions(relation: Dict[str, Any] | None) -> Dict[str, float]:
     if not isinstance(relation, dict):
         return {}
@@ -90,6 +44,52 @@ def _dynamic(relation: Dict[str, Any] | None) -> str:
     if not isinstance(relation, dict):
         return ""
     return " ".join(str(relation.get("dynamic") or "").split())
+
+
+_DURABLE_DYNAMIC_PATTERNS = (
+    ("настороженность", re.compile(r"(?iu)\bнасторож\w*")),
+    ("недоверие", re.compile(r"(?iu)\bнедовери\w*|\bне\s+доверя\w*")),
+    ("подозрение", re.compile(r"(?iu)\bподозрева\w*|\bподозрен\w*")),
+    ("страх", re.compile(r"(?iu)\bбо(?:итс|юсь|ятся)\w*|\bстрах\w*")),
+    ("ревность", re.compile(r"(?iu)\bревну\w*|\bревност\w*")),
+    ("привязанность", re.compile(r"(?iu)\bпривязан\w*")),
+    ("уважение", re.compile(r"(?iu)\bуважа\w*|\bуважен\w*")),
+    ("симпатия", re.compile(r"(?iu)\bсимпат\w*")),
+    ("влечение", re.compile(r"(?iu)\bвлечен\w*|\bвлечение\w*")),
+    ("соперничество", re.compile(r"(?iu)\bсопернич\w*")),
+)
+
+_POSITIVE_TRUST_RE = re.compile(r"(?iu)\bдоверя(?:ет|ют|ю|ем|ете)\b(?!\s+ли)")
+_NEGATED_PREFIX_RE = re.compile(r"(?iu)(?:\bне|\bнет|\bбольше\s+не)\s*$")
+
+
+def _durable_dynamic_evidence(*texts: str) -> List[str]:
+    """Return explicit durable relational attitudes that make an empty numeric store suspicious."""
+    text = " ".join(str(value or "") for value in texts if str(value or "").strip())
+    normalized = _norm(text)
+    if not normalized:
+        return []
+
+    result: List[str] = []
+
+    for label, pattern in _DURABLE_DYNAMIC_PATTERNS:
+        for match in pattern.finditer(normalized):
+            prefix = normalized[max(0, match.start() - 18):match.start()]
+            if label != "недоверие" and _NEGATED_PREFIX_RE.search(prefix):
+                continue
+            result.append(label)
+            break
+
+    for match in _POSITIVE_TRUST_RE.finditer(normalized):
+        prefix = normalized[max(0, match.start() - 40):match.start()]
+        if _NEGATED_PREFIX_RE.search(prefix):
+            continue
+        if re.search(r"(?iu)(?:не\s+решил\w*|не\s+зна\w*|не\s+уверен\w*|сомнева\w*)[^.!?]{0,35}$", prefix):
+            continue
+        result.append("доверие")
+        break
+
+    return list(dict.fromkeys(result))
 
 
 def validate_relationship_review(
@@ -121,7 +121,14 @@ def validate_relationship_review(
     if not isinstance(after_store, dict):
         after_store = deepcopy(before_store)
 
-    required_ids = _physical_participant_ids(state_before, extracted, cards)
+    patch = extracted.get("state_patch") if isinstance(extracted.get("state_patch"), dict) else {}
+    state_after = storage._deep_merge(state_before, patch)
+    required_ids = relationship_file_runtime.physical_participant_ids(
+        state_before,
+        state_after,
+        extracted,
+        cards=cards,
+    )
     review_rows = extracted.get("relationship_review")
 
     if not required_ids and (not isinstance(review_rows, list) or not review_rows):
@@ -130,12 +137,14 @@ def validate_relationship_review(
     if not isinstance(review_rows, list):
         for cid in required_ids:
             relation = relationship_file_runtime.character_relation(after_store, cid) or {}
-            if not _dimensions(relation) and _dynamic(relation):
+            evidence = _durable_dynamic_evidence(_dynamic(relation))
+            if not _dimensions(relation) and evidence:
                 _error(
                     "RELATIONSHIP_DIMENSIONS_EMPTY_WITH_DURABLE_DYNAMIC",
-                    "NPC has durable relationship dynamic but empty numeric dimensions; explicitly review whether a new dimension is justified.",
+                    "NPC has an explicitly evidenced durable relational attitude but empty numeric dimensions.",
                     character_id=cid,
                     dynamic=_dynamic(relation),
+                    evidenced_dimensions=evidence,
                 )
         _error(
             "RELATIONSHIP_REVIEW_DETAIL_REQUIRED",
@@ -147,7 +156,7 @@ def validate_relationship_review(
     for raw in review_rows:
         if not isinstance(raw, dict):
             _error("RELATIONSHIP_REVIEW_DETAIL_INVALID", "Each relationship_review row must be an object.")
-        owner_id = _resolve_character_id(cards, raw.get("character_id"))
+        owner_id = relationship_file_runtime._resolve_character_id(cards, raw.get("character_id"))
         if not owner_id or owner_id == pov_id:
             _error(
                 "RELATIONSHIP_REVIEW_DETAIL_INVALID",
@@ -166,12 +175,14 @@ def validate_relationship_review(
     if missing:
         for cid in missing:
             relation = relationship_file_runtime.character_relation(after_store, cid) or {}
-            if not _dimensions(relation) and _dynamic(relation):
+            evidence = _durable_dynamic_evidence(_dynamic(relation))
+            if not _dimensions(relation) and evidence:
                 _error(
                     "RELATIONSHIP_DIMENSIONS_EMPTY_WITH_DURABLE_DYNAMIC",
-                    "NPC has durable relationship dynamic but empty numeric dimensions; explicitly review whether a new dimension is justified.",
+                    "NPC has an explicitly evidenced durable relational attitude but empty numeric dimensions.",
                     character_id=cid,
                     dynamic=_dynamic(relation),
+                    evidenced_dimensions=evidence,
                 )
         _error(
             "RELATIONSHIP_REVIEW_DETAIL_REQUIRED",
@@ -193,7 +204,7 @@ def validate_relationship_review(
     for raw in update_rows:
         if not isinstance(raw, dict):
             continue
-        owner_id = _resolve_character_id(cards, raw.get("character_id"))
+        owner_id = relationship_file_runtime._resolve_character_id(cards, raw.get("character_id"))
         if owner_id:
             updates_by_owner[str(owner_id)] = raw
 
@@ -253,17 +264,22 @@ def validate_relationship_review(
             )
 
         if not after_dims:
+            durable_evidence = _durable_dynamic_evidence(
+                _dynamic(after_relation),
+                reason,
+            )
+            if durable_evidence:
+                _error(
+                    "RELATIONSHIP_DIMENSIONS_EMPTY_WITH_DURABLE_DYNAMIC",
+                    "NPC has an explicitly evidenced durable relational attitude but empty numeric dimensions. Initialize the supported dimension instead of waiving numeric persistence.",
+                    character_id=owner_id,
+                    dynamic=_dynamic(after_relation),
+                    evidenced_dimensions=durable_evidence,
+                )
             if numeric_result != "no_numeric_dimension_justified":
-                if _dynamic(after_relation):
-                    _error(
-                        "RELATIONSHIP_DIMENSIONS_EMPTY_WITH_DURABLE_DYNAMIC",
-                        "NPC has durable relationship dynamic but empty numeric dimensions. Initialize a supported dimension or explicitly record no_numeric_dimension_justified.",
-                        character_id=owner_id,
-                        dynamic=_dynamic(after_relation),
-                    )
                 _error(
                     "RELATIONSHIP_REVIEW_NUMERIC_RESULT_INVALID",
-                    "An empty dimension store is valid only after explicit no_numeric_dimension_justified review.",
+                    "An empty dimension store is valid only after explicit no_numeric_dimension_justified review when no durable numeric relational attitude is evidenced.",
                     character_id=owner_id,
                 )
             continue
