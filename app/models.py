@@ -154,6 +154,8 @@ class StoryThreadUpdate(BaseModel):
 
 class SceneProgressionProof(BaseModel):
     target: str
+    # Required by cast:independent so the validator can verify which NPC acted.
+    character_id: Optional[str] = None
     kind: Literal[
         "new_information",
         "external_event",

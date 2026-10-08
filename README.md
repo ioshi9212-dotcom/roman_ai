@@ -1,18 +1,12 @@
 # roman_ai
 
-Backend for a persistent interactive novel generator using Railway Volume + Custom GPT Actions.
+Backend for a persistent interactive novel generator using a persistent volume and Custom GPT Actions.
 
-## Railway
+## Deployment (Amvera or Railway)
 
-Deploy this repository as a Railway service.
+The current static OpenAPI Action server is configured for Amvera in `openapi.yaml`; `amvera.yaml` starts Uvicorn on port 8080 with persistent storage at `/data`. Railway remains supported via `railway.json`; mount a persistent volume at `/data`. The backend uses `DATA_DIR=/data` by default.
 
-Attach a Railway Volume mounted at:
-
-`/data`
-
-The app uses `DATA_DIR=/data` by default.
-
-Start command is defined in `railway.json`.
+For a public deployment, set a strong random `ROMAN_API_TOKEN` as a **hosting environment variable** and configure the same token as **Bearer API key authentication** for ChatGPT Actions. The middleware rejects private API requests without that token only when the variable is set. **Without it, application-level API authentication is disabled.** Do not commit credentials. After configuring authentication, check that `GET /health` remains public and private `/sessions/...` endpoints reject unauthenticated requests.
 
 Health check:
 
@@ -46,11 +40,11 @@ Each session keeps:
 
 ## Turn cycle
 
-Every gameplay turn uses a lossless chunked turn packet and is written back to the same Railway session.
+Every gameplay turn uses a lossless chunked turn packet and is written back to the same persistent session.
 
-Technical audits are optional and do not block gameplay every 15 turns. Use them only when the client exposes the corresponding actions.
+A technical audit is mandatory after every 15th committed turn and blocks the next gameplay turn until completed. Every 60th turn includes a macro-chronology compaction. The public client uses `required_audit` and the existing chunk / `commitTurn` actions.
 
-There is no 60-turn transfer package and no copied handoff session. A session remains the same persistent object across chats.
+The 60-turn macro-audit is not a mandatory session transfer. A session remains persistent across chats; the separate continuation workflow is available when a new session is explicitly needed.
 
 Continuation text:
 

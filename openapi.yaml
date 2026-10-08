@@ -13,6 +13,9 @@ components:
       properties:
         event:
           type: string
+        actor_character_id:
+          type: string
+          description: Optional registered NPC whose action caused the event. For offscreen events, set the real actor and location; do not invent POV awareness or present witnesses.
         summary:
           type: string
         story_date:
@@ -720,6 +723,9 @@ components:
         target:
           type: string
           description: One target_id from progression_contract.eligible_targets.
+        character_id:
+          type: string
+          description: Required when target is cast:independent; the character_id of the NPC who actually acted, verified against the eligible offscreen cast and persisted evidence.
         kind:
           type: string
           enum: [new_information, external_event, npc_action, thread_state_change, relationship_shift, new_constraint, new_opportunity, new_threat, unfinished_action_specific]

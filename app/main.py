@@ -1,8 +1,10 @@
 import json
 import os
+import secrets
 from threading import Thread
 
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import JSONResponse
 
 from .audit_runtime import get_audit_snapshot, get_audit_snapshot_chunk
 from .character_access import get_character_bundle
@@ -58,6 +60,27 @@ app = FastAPI(
     version="1.17.0",
     description="Persistent interactive-novel sessions with rules-driven scenes, character-scoped knowledge, dynamic relationships, cast continuity, recovery, rollback and lossless setup intake.",
 )
+
+
+# Optional deployment-side access control. To protect a public deployment,
+# configure ROMAN_API_TOKEN in the hosting environment and the same bearer
+# secret in the GPT Action configuration. No credentials are stored in Git.
+@app.middleware("http")
+async def roman_api_access_guard(request, call_next):
+    expected = str(os.getenv("ROMAN_API_TOKEN") or "").strip()
+    if expected and request.url.path not in {
+        "/health", "/openapi.json", "/docs", "/redoc", "/docs/oauth2-redirect",
+    }:
+        authorization = str(request.headers.get("authorization") or "")
+        bearer = authorization[7:].strip() if authorization.lower().startswith("bearer ") else ""
+        provided = bearer or str(request.headers.get("x-roman-token") or "")
+        if not secrets.compare_digest(provided, expected):
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "API authentication required"},
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+    return await call_next(request)
 
 
 @app.on_event("startup")
