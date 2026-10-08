@@ -629,6 +629,11 @@ def transport_knowledge_records(values: Any) -> List[Dict[str, Any]]:
         ]
         if len(set(confidences)) > 1:
             continue
+        # A stale or malformed compact record must never upgrade uncertain
+        # source knowledge to a certain statement.
+        canonical_confidence = str(item.get("confidence") or "").casefold().strip()
+        if canonical_confidence != confidences[0]:
+            continue
         import json
         raw_size = sum(len(json.dumps(row, ensure_ascii=False)) for row in sources)
         compact_size = len(json.dumps(item, ensure_ascii=False))
