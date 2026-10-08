@@ -22,10 +22,9 @@ _TIME_SKIP_RE = re.compile(
 )
 _EXPLICIT_UNEVENTFUL_RE = re.compile(
     r"(?iu)(?:"
-    r"\bбез\s+(?:событий|происшествий|приключений|помех)\b|"
+    r"\bбез\s+(?:событий|происшествий|приключений)\b|"
     r"\bпусть\s+ничего\s+не\s+(?:происходит|случается|случится)\b|"
     r"\bничего\s+не\s+(?:должно\s+)?(?:происходить|случаться)\b|"
-    r"\bчтобы\s+никто\s+не\s+(?:беспокоил|мешал|будил)\b|"
     r"\bбез\s+каких[- ]либо\s+событий\b"
     r")"
 )
@@ -314,6 +313,8 @@ def _relationship_changed_refs(root, payload: Dict[str, Any]) -> set[str]:
     if not isinstance(after_store, dict):
         return set()
     extracted = payload.get("extracted") if isinstance(payload.get("extracted"), dict) else {}
+    source = storage._read_json(root / "source.json", {})
+    cards = storage._apply_character_upserts(storage._load_cards(root, source), extracted)
     state = storage._read_json(root / "state.json", {})
     pov = state.get("pov") if isinstance(state.get("pov"), dict) else {}
     before_store = relationship_file_runtime.load(
@@ -372,8 +373,6 @@ def _new_remote_contact(state: Dict[str, Any], extracted: Dict[str, Any], pov_id
 
 def _collect_evidence(root, payload: Dict[str, Any]) -> Dict[str, Any]:
     extracted = payload.get("extracted") if isinstance(payload.get("extracted"), dict) else {}
-    source = storage._read_json(root / "source.json", {})
-    cards = storage._apply_character_upserts(storage._load_cards(root, source), extracted)
     state = storage._read_json(root / "state.json", {})
     pov = state.get("pov") if isinstance(state.get("pov"), dict) else {}
     pov_id = str(pov.get("character_id") or "")
