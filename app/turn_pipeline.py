@@ -313,6 +313,44 @@ def _cast_registry_rows(
     return rows
 
 
+def _independent_cast_focus(rows: List[Dict[str, Any]], current_turn: int) -> List[Dict[str, Any]]:
+    """Rotate actionable offscreen cast independently of POV mentions and intents."""
+    candidates = [
+        row for row in rows
+        if isinstance(row, dict)
+        and row.get("offscreen_can_initiate") is True
+        and row.get("character_id")
+    ]
+    # Only story-bearing cast needs focused review; every active NPC remains
+    # available in cast_registry.characters even if not in this short focus.
+    candidates = [
+        row for row in candidates
+        if any(row.get(key) for key in ("goals", "story_function", "work", "habits", "active_intents", "active_threads"))
+    ]
+    candidates.sort(key=lambda row: (
+        {"core": 0, "recurring": 1, "support": 2}.get(str(row.get("importance") or ""), 3),
+        str(row.get("character_id")),
+    ))
+    if not candidates:
+        return []
+    # Three rotating candidates per turn: lack of existing intent or POV
+    # familiarity never removes an NPC from the initiative pool.
+    start = (max(0, current_turn - 1) * 3) % len(candidates)
+    selected = [candidates[(start + offset) % len(candidates)] for offset in range(min(3, len(candidates)))]
+    return [{
+        "character_id": row["character_id"],
+        "name": row.get("name"),
+        "story_function": row.get("story_function"),
+        "goals": row.get("goals"),
+        "work": row.get("work"),
+        "current_activity": row.get("current_activity"),
+        "current_location": row.get("current_location"),
+        "active_intents": row.get("active_intents"),
+        "active_threads": row.get("active_threads"),
+        "pov_familiarity": row.get("pov_familiarity"),
+    } for row in selected]
+
+
 def _clean_relationship_lens(context: Dict[str, Any]) -> None:
     lens = context.get("relationship_lens")
     if not isinstance(lens, dict):
@@ -564,6 +602,20 @@ def _prepare_context(
         ),
         "characters": _cast_registry_rows(state, cards, source, current_turn, npc_network, relationship_store),
     }
+    context["cast_registry"]["independent_initiative_focus"] = _independent_cast_focus(
+        context["cast_registry"]["characters"], current_turn
+    )
+    context["cast_registry"]["independent_initiative_instruction"] = (
+        "Это независимый от POV обзор персонажей, а не список разрешённых к появлению NPC. "
+        "Каждый ход проверь действия выделенных offscreen NPC из их целей, работы, характера, "
+        "собственных связей и известных им фактов, даже если POV их не упоминал. "
+        "Если NPC уже мог самостоятельно предпринять действие, продвинь его линию: "
+        "контакт, событие, видимое последствие или сохраняемый незавершённый шаг. "
+        "Не придумывай знание POV или скрытых фактов; не телепортируй NPC и не "
+        "вводи его в сцену искусственно. Наличие intent не требуется. "
+        "Если прямого пересечения пока нет, NPC продолжает свою жизнь offscreen; "
+        "не подменяй самостоятельное действие бесконечным ожиданием приглашения POV."
+    )
     context["npc_relationship_network"] = npc_network
     # Legacy intent-only candidate list falsely implied that offscreen NPCs
     # without a pre-existing intent were ineligible to act. The complete
