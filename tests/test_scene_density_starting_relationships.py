@@ -203,7 +203,9 @@ def test_scene_builder_keeps_pov_visible_without_forcing_speech():
     assert "ПОВЕДЕНИЕ ПОВ БЕЗ УЧАСТИЯ ИГРОКА: пов может сам задать вопросы, вести диалог, пошутить, ответить, ответить уклончиво" in builder
     assert "Камера направлена на всю сцену." in builder
     assert "В сцене так же видно как выглядит пов, его мимика, жесты, обычные бытовые действия." in builder
-    assert "Обычная реплика POV не считается новым решением игрока." in builder
+    # The actual POV rule reserves consequential choices for the player while
+    # allowing ordinary spontaneous replies without a new player turn.
+    assert "Значимые решения, которые меняют позицию POV, отношения или сюжет, оставить игроку." in builder
     assert "Не заставлять игрока тратить ход на бессмысленные действия, вопросы или фразы." in builder
     assert "Если действие или направление уже выбрано, доведи его до следующего содержательного момента." in builder
     assert "Остановись там, где игрок действительно нужен" in builder
