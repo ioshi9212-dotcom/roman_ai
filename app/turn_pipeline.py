@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 import secrets
+from time import perf_counter
 from copy import deepcopy
 from typing import Any, Dict, List
 
@@ -674,6 +675,7 @@ def _prepare_context(
 
 
 def prepare_turn_packet(session_id: str, user_input: str) -> Dict[str, Any]:
+    started = perf_counter()
     root = storage.SESSIONS_DIR / session_id
     if not root.exists():
         raise FileNotFoundError(session_id)
@@ -698,7 +700,9 @@ def prepare_turn_packet(session_id: str, user_input: str) -> Dict[str, Any]:
             and pending.get("chunks")
         ):
             if int(pending.get("turn_pipeline_version", 0) or 0) == PIPELINE_VERSION:
-                return _packet_manifest(pending, reused=True)
+                result = _packet_manifest(pending, reused=True)
+                result["backend_prepare_ms"] = round((perf_counter() - started) * 1000, 1)
+                return result
             (root / "turn_packet.json").unlink(missing_ok=True)
             pending = {}
 
@@ -726,13 +730,17 @@ def prepare_turn_packet(session_id: str, user_input: str) -> Dict[str, Any]:
         "chunk_count": 0,
         "relevant_character_ids": packet["relevant_character_ids"],
     }
-    return _prepare_context(
+    result = _prepare_context(
         session_id,
         base,
         packet_override=packet,
         context_override=context,
         snapshot_override=snapshot,
     )
+    # Wall-clock on the server only: model generation and Action transport
+    # are not included. This distinguishes backend I/O from LLM latency.
+    result["backend_prepare_ms"] = round((perf_counter() - started) * 1000, 1)
+    return result
 
 
 def _validate_technical_state_patch(payload: Dict[str, Any]) -> None:
@@ -1035,6 +1043,7 @@ def _strip_relationship_review(payload: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    started = perf_counter()
     _validate_technical_state_patch(payload)
     prepared = _prepare_profile_persistence(session_id, payload)
     prepared = private_knowledge_runtime.add_direct_communication_memory(session_id, prepared)
@@ -1077,6 +1086,7 @@ def commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     if saved.get("audit_due") is True:
         saved["required_audit"] = fast_audit_runtime.get_audit_snapshot(session_id)
     saved["turn_pipeline_version"] = PIPELINE_VERSION
+    saved["backend_commit_ms"] = round((perf_counter() - started) * 1000, 1)
     return saved
 
 
