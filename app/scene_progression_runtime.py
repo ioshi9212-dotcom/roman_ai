@@ -137,8 +137,6 @@ def _thread_candidates(state: Dict[str, Any], current_turn: int) -> List[Dict[st
             "target_id": f"thread:{thread_id}",
             "source": "story_thread",
             "thread_id": str(thread_id),
-            "summary": row.get("summary") or row.get("title") or row.get("premise") or row.get("current_goal"),
-            "current_goal": row.get("current_goal"),
             "priority": row.get("priority"),
             "turns_since_progress": age,
         }
@@ -171,8 +169,6 @@ def _intent_candidates(state: Dict[str, Any], cards: List[Dict[str, Any]], curre
                 "source": "npc_intent",
                 "character_id": str(cid),
                 "intent_id": intent_id,
-                "summary": row.get("summary") or row.get("planned_action") or row.get("intent") or row.get("goal"),
-                "planned_action": row.get("planned_action"),
                 "priority": row.get("priority"),
                 "turns_since_pursued": row.get("turns_since_pursued"),
             }
@@ -189,7 +185,6 @@ def _intent_candidates(state: Dict[str, Any], cards: List[Dict[str, Any]], curre
 
 def _relationship_candidates(
     context: Dict[str, Any],
-    relationship_store: Dict[str, Any],
     *,
     pov_id: str,
 ) -> List[Dict[str, Any]]:
@@ -202,21 +197,10 @@ def _relationship_candidates(
     for cid in dict.fromkeys(ids):
         if not cid or cid == pov_id:
             continue
-        relation = relationship_file_runtime.character_relation(relationship_store, cid)
-        if not isinstance(relation, dict):
-            relation = {}
-        dims = relation.get("dimensions") if isinstance(relation.get("dimensions"), dict) else {}
-        dynamic = str(relation.get("dynamic") or "").strip()
         result.append({
             "target_id": f"relationship:{cid}",
             "source": "relationship",
             "character_id": cid,
-            "active_dimensions": {
-                str(label): row.get("value")
-                for label, row in dims.items()
-                if isinstance(row, dict) and row.get("value") not in (None, 0)
-            },
-            "dynamic": dynamic[:300] if dynamic else None,
         })
     return [{k: v for k, v in row.items() if v not in (None, "", {}, [])} for row in result[:6]]
 
@@ -227,7 +211,6 @@ def build_contract(
     context: Dict[str, Any],
     user_input: str,
     cards: List[Dict[str, Any]],
-    relationship_store: Dict[str, Any],
     current_turn: int,
 ) -> Dict[str, Any]:
     current = state.get("current") if isinstance(state.get("current"), dict) else {}
@@ -239,13 +222,13 @@ def build_contract(
         targets.append({
             "target_id": "unfinished:current",
             "source": "unfinished_actions",
-            "items": [" ".join(str(value).split())[:220] for value in unfinished[:5] if str(value).strip()],
+            "item_count": len([value for value in unfinished if str(value).strip()]),
         })
     pov = state.get("pov") if isinstance(state.get("pov"), dict) else {}
     pov_id = str(pov.get("character_id") or "")
     # Current-scene relationships stay near the front so a large backlog of
     # threads/intents cannot crowd out a legitimate social progression target.
-    targets.extend(_relationship_candidates(context, relationship_store, pov_id=pov_id))
+    targets.extend(_relationship_candidates(context, pov_id=pov_id))
     targets.extend(_intent_candidates(state, cards, current_turn))
     targets.extend(_thread_candidates(state, current_turn))
     world_target = {
@@ -269,6 +252,12 @@ def build_contract(
         "time_skip_requested": time_skip,
         "explicit_uneventful_downtime": explicit_quiet,
         "eligible_targets": [*targets[:17], world_target],
+        "selection_sources": [
+            "scene_state.current.unfinished_actions",
+            "relationship_lens",
+            "npc_active_intents/cast_registry.active_intents",
+            "active_threads",
+        ],
         "proof_required_in_commit": not explicit_quiet,
         "proof_fields": [
             "target",
