@@ -655,27 +655,40 @@ def transport_knowledge_records(values: Any) -> List[Dict[str, Any]]:
 
 
 def transport_knowledge_journal(values: Any) -> List[Dict[str, Any]]:
-    """Retain all personal journal facts, using compact entries only when safe.
+    """Preserve every available personal journal fact, including legacy forms.
 
-    Reject old/partial summaries and cross-date merges in transport. Originals
-    remain persisted. A missing or incomplete compact record never hides a
-    first-day fact or the time at which it was learned.
+    An active canonical summary is a transport replacement only when its
+    original entries are all available, from the same date/period, literally
+    covered by one original source text, and it costs fewer bytes. When
+    sources have disappeared from an old session, keep the canonical summary
+    as a fallback alongside any available originals. Do not discard strings.
     """
     if not isinstance(values, list):
         return []
-    rows = [deepcopy(item) for item in values if isinstance(item, dict)]
+    rows = [
+        deepcopy(item) if isinstance(item, dict) else {"text": item.strip()}
+        for item in values
+        if isinstance(item, dict) or (isinstance(item, str) and item.strip())
+    ]
     raw = {
         str(item.get("entry_id")): item for item in rows
         if item.get("canonical_compaction") is not True and item.get("entry_id")
     }
     replaced: set[str] = set()
     selected: List[Dict[str, Any]] = []
+    import json
+
     for item in rows:
         if item.get("canonical_compaction") is not True or item.get("superseded_by"):
             continue
         ids = item.get("merged_from")
         ids = [str(value) for value in ids if value] if isinstance(ids, list) else []
-        if not ids or len(ids) != len(set(ids)) or any(i not in raw or i in replaced for i in ids):
+        if not ids or len(ids) != len(set(ids)) or any(i not in raw for i in ids):
+            # Prior-session summaries may be all that survives a migration.
+            # Retain these records rather than replacing them with nothing.
+            selected.append(item)
+            continue
+        if any(i in replaced for i in ids):
             continue
         source = [raw[i] for i in ids]
         if any(
@@ -686,12 +699,9 @@ def transport_knowledge_journal(values: Any) -> List[Dict[str, Any]]:
             continue
         summary = " ".join(str(item.get("text") or "").split()).casefold()
         facts = [" ".join(str(row.get("text") or "").split()).casefold() for row in source]
-        # Literal coverage alone is insufficient: "не [old fact]" still
-        # contains the original words but reverses their meaning. Only use
-        # an existing source fact verbatim (possibly containing shorter facts).
+        # Paraphrases and negations are never accepted as lossless proof.
         if not summary or summary not in facts or any(not fact or fact not in summary for fact in facts):
             continue
-        import json
         if len(json.dumps(item, ensure_ascii=False)) >= sum(
             len(json.dumps(row, ensure_ascii=False)) for row in source
         ):
@@ -703,12 +713,12 @@ def transport_knowledge_journal(values: Any) -> List[Dict[str, Any]]:
         if row.get("canonical_compaction") is not True
         and str(row.get("entry_id") or "") not in replaced
     )
-    # Preserve original journal ordering and date headings.
+    # Keep canonical fallback entries with no original sources and preserve
+    # the earlier learned time for old records that have one.
     selected.sort(key=lambda item: (
         _record_turn(item), str(item.get("entry_id") or ""),
     ))
     return selected
-
 
 def active_memory_records(values: Any) -> List[Dict[str, Any]]:
     if not isinstance(values, list):
