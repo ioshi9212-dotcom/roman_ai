@@ -191,6 +191,8 @@ def _intent_candidates(state: Dict[str, Any], cards: List[Dict[str, Any]], curre
 def _relationship_candidates(
     context: Dict[str, Any],
     relationship_store: Dict[str, Any],
+    *,
+    pov_id: str,
 ) -> List[Dict[str, Any]]:
     scene = context.get("scene_presence") if isinstance(context.get("scene_presence"), dict) else {}
     ids = [
@@ -199,6 +201,8 @@ def _relationship_candidates(
     ]
     result: List[Dict[str, Any]] = []
     for cid in dict.fromkeys(ids):
+        if not cid or cid == pov_id:
+            continue
         relation = relationship_file_runtime.character_relation(relationship_store, cid)
         if not isinstance(relation, dict):
             relation = {}
@@ -238,17 +242,21 @@ def build_contract(
             "source": "unfinished_actions",
             "items": [" ".join(str(value).split())[:220] for value in unfinished[:5] if str(value).strip()],
         })
+    pov = state.get("pov") if isinstance(state.get("pov"), dict) else {}
+    pov_id = str(pov.get("character_id") or "")
+    # Current-scene relationships stay near the front so a large backlog of
+    # threads/intents cannot crowd out a legitimate social progression target.
+    targets.extend(_relationship_candidates(context, relationship_store, pov_id=pov_id))
     targets.extend(_intent_candidates(state, cards, current_turn))
     targets.extend(_thread_candidates(state, current_turn))
-    targets.extend(_relationship_candidates(context, relationship_store))
-    targets.append({
+    world_target = {
         "target_id": "world:emergent",
         "source": "causal_world_consequence",
         "guidance": (
             "Fallback only when no existing thread/intent/unfinished action/relationship can naturally advance. "
             "Do not manufacture a genre anomaly merely to satisfy progression."
         ),
-    })
+    }
 
     time_skip = _TIME_SKIP_RE.search(str(user_input or "")) is not None
     explicit_quiet = _EXPLICIT_UNEVENTFUL_RE.search(str(user_input or "")) is not None
@@ -258,7 +266,7 @@ def build_contract(
         "required_target_count": 0 if explicit_quiet else 1,
         "time_skip_requested": time_skip,
         "explicit_uneventful_downtime": explicit_quiet,
-        "eligible_targets": targets[:18],
+        "eligible_targets": [*targets[:17], world_target],
         "proof_required_in_commit": not explicit_quiet,
         "proof_fields": [
             "target",
@@ -306,8 +314,6 @@ def _relationship_changed_refs(root, payload: Dict[str, Any]) -> set[str]:
     if not isinstance(after_store, dict):
         return set()
     extracted = payload.get("extracted") if isinstance(payload.get("extracted"), dict) else {}
-    source = storage._read_json(root / "source.json", {})
-    cards = storage._apply_character_upserts(storage._load_cards(root, source), extracted)
     state = storage._read_json(root / "state.json", {})
     pov = state.get("pov") if isinstance(state.get("pov"), dict) else {}
     before_store = relationship_file_runtime.load(
