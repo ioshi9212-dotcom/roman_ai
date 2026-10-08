@@ -586,3 +586,32 @@ def test_independent_actor_proof_without_real_action_is_rejected():
         with pytest.raises(HTTPException) as exc:
             commit_turn_request(sid, CommitTurnRequest.model_validate(data).model_dump())
         assert exc.value.detail["code"] == "SCENE_NO_MEANINGFUL_PROGRESSION"
+
+
+def test_optional_api_token_protects_private_session_routes(monkeypatch):
+    from fastapi.testclient import TestClient
+    from app.main import app
+
+    with tempfile.TemporaryDirectory() as tmp:
+        sid = _setup(tmp)
+        with TestClient(app) as client:
+            monkeypatch.delenv("ROMAN_API_TOKEN", raising=False)
+            assert client.get(f"/sessions/{sid}").status_code == 200
+
+            monkeypatch.setenv("ROMAN_API_TOKEN", "integration-test-secret")
+            assert client.get("/health").status_code == 200
+            assert client.get("/openapi.json").status_code == 200
+            assert client.get(f"/sessions/{sid}").status_code == 401
+            assert client.post(f"/sessions/{sid}/turn-packet", json={"user_input": "(читать)"}).status_code == 401
+            assert client.get(
+                f"/sessions/{sid}",
+                headers={"Authorization": "Bearer integration-test-secret"},
+            ).status_code == 200
+            assert client.get(
+                f"/sessions/{sid}",
+                headers={"X-Roman-Token": "integration-test-secret"},
+            ).status_code == 200
+            assert client.get(
+                f"/sessions/{sid}",
+                headers={"Authorization": "Bearer wrong-key"},
+            ).status_code == 401
