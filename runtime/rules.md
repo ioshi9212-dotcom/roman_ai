@@ -516,7 +516,7 @@ Chronology — режиссёрская история. Она никогда а
 Соответствие:
 
 важное объективное событие → `chronology`
-важное самостоятельное offscreen-действие NPC → `chronology` с `actor_character_id`, фактическим местом (если известно) и последствием; не приписывай ему присутствие рядом с POV или знания POV
+важное offscreen-действие NPC → `chronology` с `actor_character_id`; не переноси место и знания POV
 
 новое factual knowledge → `knowledge_journal_add`
 
