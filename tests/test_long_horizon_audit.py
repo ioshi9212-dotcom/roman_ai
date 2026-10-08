@@ -529,3 +529,92 @@ def test_day_one_significant_facts_survive_day_sixty_even_when_summary_omits_the
         )
         chosen_writer = next(row for row in writer if row["event_id"] == macro[0]["event_id"])
         assert any("обещал" in v["event"] for v in chosen_writer["source_key_facts"])
+
+
+
+def test_macro_keeps_first_day_anchor_even_when_model_labels_date_normal():
+    with tempfile.TemporaryDirectory() as tmp:
+        _setup(tmp)
+        root = storage.SESSIONS_DIR / "anchor-day"
+        root.mkdir(parents=True)
+        storage._write_json(root / "source.json", {
+            "version": 5, "profile_schema": {"version": 1},
+        })
+        turns = [_turn(i, "24.09.2026") for i in range(1, 61)]
+        (root / "turns.jsonl").write_text(
+            "".join(json.dumps(turn, ensure_ascii=False) + "\n" for turn in turns),
+            encoding="utf-8",
+        )
+        source_events = [{
+            "event_id": "day1-injury", "turn_number": 1,
+            "story_date": "24.09.2026",
+            "importance": "anchor", "participants_present": ["pov"],
+            "event": "В первый день POV получил необратимую травму правой руки.",
+        }]
+        result = apply_macro_chronology_compaction(
+            root, source_events,
+            {"chronology_compactions": [{
+                "date": "24.09.2026",
+                "importance": "normal",
+                "summary": "В первый день POV попал в неожиданную ситуацию.",
+            }]}, end_turn=60,
+        )
+        assert result[0]["importance"] == "anchor"
+        assert result[0]["source_key_facts"][0]["source_event_id"] == "day1-injury"
+
+
+def test_macro_recovers_date_from_source_turn_for_important_undated_event():
+    with tempfile.TemporaryDirectory() as tmp:
+        _setup(tmp)
+        root = storage.SESSIONS_DIR / "restore-date"
+        root.mkdir(parents=True)
+        storage._write_json(root / "source.json", {
+            "version": 5, "profile_schema": {"version": 1},
+        })
+        turns = [_turn(i, "24.09.2026") for i in range(1, 61)]
+        (root / "turns.jsonl").write_text(
+            "".join(json.dumps(turn, ensure_ascii=False) + "\n" for turn in turns),
+            encoding="utf-8",
+        )
+        events = [{
+            "event_id": "day1-undated", "turn_number": 1,
+            "importance": "major",
+            "event": "Первый день: POV узнал расположение запертой комнаты.",
+        }]
+        result = apply_macro_chronology_compaction(
+            root, events, {"chronology_compactions": [{
+                "date": "24.09.2026",
+                "importance": "normal",
+                "summary": "В первый день POV нашёл ранее неизвестную комнату.",
+            }]}, end_turn=60,
+        )
+        assert len(result) == 1
+        assert result[0]["source_key_facts"][0]["source_event_id"] == "day1-undated"
+        assert result[0]["importance"] == "major"
+
+
+def test_writer_gets_personal_day_one_source_facts_but_not_unrelated_offscreen_events():
+    from app import writer_first_runtime
+    macro = [{
+        "event_id": "macro_60_1", "turn_number": 60,
+        "importance": "anchor", "event": "В первый день произошли важные события.",
+        "source_key_facts": [
+            {"source_event_id": "pov-secret", "turn_number": 1,
+             "participants_present": ["pov"], "event": "POV знает тайный проход."},
+            {"source_event_id": "offscreen-daren", "turn_number": 2,
+             "actor_character_id": "daren", "participants_present": [],
+             "event": "Дарен нашёл независимую зацепку."},
+        ],
+    }]
+    projected = writer_first_runtime._compact_chronology(
+        macro, ["pov"], "комната",
+    )
+    assert len(projected) == 1
+    assert [f["source_event_id"] for f in projected[0]["source_key_facts"]] == ["pov-secret"]
+    # The persisted macro stays untouched. When Daren actually participates,
+    # his own source fact must become visible without granting it to POV.
+    assert len(macro[0]["source_key_facts"]) == 2
+    selected = writer_first_runtime._compact_chronology(
+        macro, ["daren"], "другое место",
+    )
+    assert [f["source_event_id"] for f in selected[0]["source_key_facts"]] == ["offscreen-daren"]
