@@ -170,6 +170,8 @@ def test_prepare_reuses_canonical_snapshot_without_second_memory_and_turn_read(m
         manifest, packet = read_context(sid, "(читать книгу)")
         assert observed and isinstance(observed[0][0], list)
         assert manifest["chunk_count"] >= 1
+        assert isinstance(manifest["backend_prepare_ms"], (int, float))
+        assert manifest["backend_prepare_ms"] >= 0
         assert {x["character_id"] for x in packet["character_cards"]} == {"pov", "npc"}
         assert set(packet["character_memory"]) == {"pov", "npc"}
         assert "scene_builder" in packet and "runtime_rules" in packet
