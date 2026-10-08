@@ -263,6 +263,8 @@ def test_relationship_line_can_be_the_meaningful_progression_target():
         manifest, context = _prepare(sid, raw)
         ids = {row["target_id"] for row in context["progression_contract"]["eligible_targets"]}
         assert "relationship:mira" in ids
+        assert "relationship:kair" not in ids
+        assert "world:emergent" in ids
 
         ending = "Мира впервые сама задержала его ладонь в своей."
         proof = {
