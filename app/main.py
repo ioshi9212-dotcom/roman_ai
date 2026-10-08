@@ -6,6 +6,7 @@ from threading import Thread
 from fastapi import FastAPI, HTTPException
 
 from .audit_runtime import get_audit_snapshot, get_audit_snapshot_chunk
+from . import commit_failure_diagnostics, session_checkpoint
 from .character_access import get_character_bundle
 from .character_chunk_read import get_character_bundle_chunk, prepare_character_bundle_read
 from .context_stats import session_context_stats
@@ -69,7 +70,7 @@ def startup_session_migration():
 
 @app.get("/health", operation_id="health", include_in_schema=False)
 def health():
-    return {"ok": True}
+    return {"ok": True, "resume_checkpoint_version": session_checkpoint.CHECKPOINT_VERSION}
 
 
 @app.get("/migration-status", operation_id="getMigrationStatus", include_in_schema=False)
@@ -729,11 +730,17 @@ def turns_commit(session_id: str, body: CommitTurnRequest):
         extracted=body.extracted,
     )
     try:
-        return commit_turn_request(session_id, turn_body.model_dump())
+        saved = commit_turn_request(session_id, turn_body.model_dump())
+        commit_failure_diagnostics.clear(session_id)
+        return saved
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Session not found")
     except HTTPException as exc:
         if exc.status_code == 409:
+            commit_failure_diagnostics.record(
+                session_id, operation="commitTurn", identity=turn_body.packet_id,
+                status_code=409, detail=exc.detail,
+            )
             detail = exc.detail if isinstance(exc.detail, dict) else {}
             logging.getLogger(__name__).warning(
                 "commitTurn 409 session=%s packet=%s code=%s",
@@ -741,10 +748,18 @@ def turns_commit(session_id: str, body: CommitTurnRequest):
             )
         raise
     except OperationReceiptConflict:
+        commit_failure_diagnostics.record(
+            session_id, operation="commitTurn", identity=turn_body.packet_id,
+            status_code=409, detail="OPERATION_RECEIPT_CONFLICT",
+        )
         logging.getLogger(__name__).warning("commitTurn receipt conflict session=%s packet=%s", session_id, turn_body.packet_id)
         raise HTTPException(status_code=409, detail="The packet_id was already used with a different commit payload. Prepare a fresh turn packet; no mutation was performed.")
     except RuntimeError as exc:
         code = str(exc)
+        commit_failure_diagnostics.record(
+            session_id, operation="commitTurn", identity=turn_body.packet_id,
+            status_code=409, detail=code,
+        )
         logging.getLogger(__name__).warning(
             "commitTurn runtime reject session=%s packet=%s code=%s",
             session_id, turn_body.packet_id,
@@ -808,6 +823,10 @@ def turns_commit(session_id: str, body: CommitTurnRequest):
             raise HTTPException(status_code=409, detail=errors[code])
         raise
     except Exception:
+        commit_failure_diagnostics.record(
+            session_id, operation="commitTurn", identity=turn_body.packet_id,
+            status_code=500, detail="COMMIT_INTERNAL_ERROR",
+        )
         logging.getLogger(__name__).exception(
             "commitTurn unexpected error session=%s packet=%s", session_id, turn_body.packet_id,
         )
@@ -817,11 +836,17 @@ def turns_commit(session_id: str, body: CommitTurnRequest):
 @app.post("/sessions/{session_id}/audit", operation_id="commitAudit", include_in_schema=False)
 def audit_commit(session_id: str, body: AuditCommit):
     try:
-        return commit_audit_request(session_id, body.model_dump())
+        saved = commit_audit_request(session_id, body.model_dump())
+        commit_failure_diagnostics.clear(session_id)
+        return saved
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Session not found")
     except HTTPException as exc:
         if exc.status_code == 409:
+            commit_failure_diagnostics.record(
+                session_id, operation="commitAudit", identity=body.audit_id,
+                status_code=409, detail=exc.detail,
+            )
             detail = exc.detail if isinstance(exc.detail, dict) else {}
             logging.getLogger(__name__).warning(
                 "commitAudit 409 session=%s audit=%s code=%s",
@@ -829,9 +854,17 @@ def audit_commit(session_id: str, body: AuditCommit):
             )
         raise
     except OperationReceiptConflict:
+        commit_failure_diagnostics.record(
+            session_id, operation="commitAudit", identity=body.audit_id,
+            status_code=409, detail="OPERATION_RECEIPT_CONFLICT",
+        )
         logging.getLogger(__name__).warning("commitAudit receipt conflict session=%s audit=%s", session_id, body.audit_id)
         raise HTTPException(status_code=409, detail="The audit_id was already used with different audit data. Read a fresh audit snapshot; no mutation was performed.")
     except RuntimeError as exc:
+        commit_failure_diagnostics.record(
+            session_id, operation="commitAudit", identity=body.audit_id,
+            status_code=409, detail=str(exc),
+        )
         logging.getLogger(__name__).warning(
             "commitAudit runtime reject session=%s audit=%s code=%s",
             session_id, body.audit_id,
@@ -864,8 +897,16 @@ def audit_commit(session_id: str, body: AuditCommit):
             raise HTTPException(status_code=409, detail=errors[str(exc)])
         raise
     except ValueError:
+        commit_failure_diagnostics.record(
+            session_id, operation="commitAudit", identity=body.audit_id,
+            status_code=409, detail="AUDIT_RANGE_MISMATCH",
+        )
         raise HTTPException(status_code=409, detail="Audit range does not match the current turn")
     except Exception:
+        commit_failure_diagnostics.record(
+            session_id, operation="commitAudit", identity=body.audit_id,
+            status_code=500, detail="COMMIT_INTERNAL_ERROR",
+        )
         logging.getLogger(__name__).exception(
             "commitAudit unexpected error session=%s audit=%s", session_id, body.audit_id,
         )
@@ -875,6 +916,17 @@ def audit_commit(session_id: str, body: AuditCommit):
 @app.post("/sessions/{session_id}/resume", operation_id="resumeSession")
 def session_resume(session_id: str):
     try:
-        return continue_session(session_id)
+        # Long or pending sessions need a cheap status probe, not a replay of
+        # 100+ saved turns or destructive packet/schema migrations.
+        result = (
+            session_checkpoint.resume_checkpoint(session_id)
+            if session_checkpoint.should_use_checkpoint(session_id)
+            else continue_session(session_id)
+        )
+        diagnostic = commit_failure_diagnostics.latest(session_id)
+        if diagnostic:
+            result = dict(result)
+            result["last_commit_rejection"] = diagnostic
+        return result
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Session not found")
