@@ -301,17 +301,23 @@ def _normalise_chronology_events(
         if importance not in {"normal", "major", "anchor", "critical"}:
             importance = "normal"
 
+        actor_raw = raw.get("actor_character_id")
+        actor_id = _resolve_character_id(cards, actor_raw) if actor_raw else None
+        offscreen_action = bool(actor_id and actor_id not in current_present)
+
         item: Dict[str, Any] = {
             "event_id": str(raw.get("event_id") or f"chrono_t{turn_number}_{index + 1}"),
             "turn_number": turn_number,
             "story_date": raw.get("story_date") or raw.get("date") or story_date,
             "period": raw.get("period") or raw.get("time_of_day") or period,
-            "location": raw.get("location") or raw.get("location_id") or raw.get("place") or location,
+            # Do not misattribute an offscreen NPC's location or witnesses to POV.
+            "location": raw.get("location") or raw.get("location_id") or raw.get("place") or (None if offscreen_action else location),
             "participants_present": _normalise_participants(
                 cards,
                 raw.get("participants_present") or raw.get("participants"),
-                current_present,
+                [] if offscreen_action else current_present,
             ),
+            "actor_character_id": actor_id,
             "event": text,
             "importance": importance,
         }
