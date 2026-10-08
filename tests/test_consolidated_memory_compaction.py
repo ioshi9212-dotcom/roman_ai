@@ -436,3 +436,62 @@ def test_v5_journal_compaction_rejects_cross_date_source_facts():
             "character_id": "pov", "memory_type": "knowledge_journal",
             "source_ids": ["a", "b"], "summary": "Факт первого дня. Факт второго дня.",
         }], start_turn=1, end_turn=15)
+
+
+
+def test_transport_legacy_journal_formats_and_canonical_only_fallback():
+    from app.scene_compaction_runtime import transport_knowledge_journal
+    from app.profile_templates import render_knowledge_journal
+    records = [
+        "Старинная строка: первый день, пароль 1234.",
+        {"entry_id": "compact-only", "canonical_compaction": True,
+         "merged_from": ["missing-raw-1", "missing-raw-2"],
+         "date": "01.09.1206", "turn": 1,
+         "text": "POV сохранил важное обещание с первого дня."},
+        {"entry_id": "normal", "date": "02.09.1206", "turn": 2,
+         "text": "Обычная старая запись."},
+    ]
+    projected = transport_knowledge_journal(records)
+    assert len(projected) == 3
+    rendered = render_knowledge_journal(projected)
+    assert "пароль 1234" in rendered
+    assert "важное обещание" in rendered
+    assert "02.09.1206" in rendered
+
+
+def test_compact_journal_fallback_keeps_missing_fact_and_surviving_raw():
+    from app.scene_compaction_runtime import transport_knowledge_journal
+    records = [
+        {"entry_id": "known", "turn": 1, "date": "01.09.1206",
+         "text": "POV узнал номер архива.", "superseded_by": "cmp"},
+        {"entry_id": "cmp", "turn": 1, "date": "01.09.1206",
+         "text": "POV также узнал секретный вход.",
+         "canonical_compaction": True, "merged_from": ["known", "absent"]},
+    ]
+    projected = transport_knowledge_journal(records)
+    assert {x["entry_id"] for x in projected} == {"known", "cmp"}
+
+
+def test_proven_compaction_reduces_actual_writer_memory_payload_size():
+    import json
+    from app.scene_compaction_runtime import transport_knowledge_records
+    from app.turn_context import _working_memory_bucket
+    fact = "На первом дне Рината получила код секретного архива. " + "Код подтвержден. " * 20
+    records = [
+        {"fact_id": f"repeat-{i}", "learned_turn": i,
+         "fact": fact, "confidence": "certain", "superseded_by": "cmp"}
+        for i in range(1, 21)
+    ] + [{
+        "fact_id": "cmp", "fact": fact, "canonical_compaction": True,
+        "confidence": "certain", "learned_turn": 1,
+        "source_turns": list(range(1, 21)),
+        "merged_from": [f"repeat-{i}" for i in range(1, 21)],
+    }]
+    projected = transport_knowledge_records(records)
+    original_size = len(json.dumps(records[:-1], ensure_ascii=False))
+    packet = _working_memory_bucket({"knowledge": records}, 100, character_id="pov", cards=[])
+    compressed_size = len(json.dumps(packet["knowledge"], ensure_ascii=False))
+    assert len(projected) == len(packet["knowledge"]) == 1
+    assert compressed_size < original_size * 0.4
+    assert packet["knowledge"][0]["fact"] == fact
+    assert packet["knowledge"][0]["source_turns"] == list(range(1, 21))
