@@ -152,6 +152,35 @@ class StoryThreadUpdate(BaseModel):
         return normalized
 
 
+class SceneProgressionProof(BaseModel):
+    target: str
+    kind: Literal[
+        "new_information",
+        "external_event",
+        "npc_action",
+        "thread_state_change",
+        "relationship_shift",
+        "new_constraint",
+        "new_opportunity",
+        "new_threat",
+        "unfinished_action_specific",
+    ]
+    action: str
+    end_state_change: str
+    ending_kind: Literal[
+        "new_fact",
+        "intent_action",
+        "incoming_contact",
+        "relationship_shift",
+        "conflict_change",
+        "new_constraint",
+        "new_opportunity",
+        "new_threat",
+        "concrete_next_pressure",
+    ]
+    ending_evidence_text: str
+
+
 class TurnExtracted(BaseModel):
     model_config = ConfigDict(extra="allow")
 
@@ -167,6 +196,7 @@ class TurnExtracted(BaseModel):
     npc_relationship_updates: List[NPCRelationshipUpdate] = Field(default_factory=list)
     story_thread_updates: List[StoryThreadUpdate] = Field(default_factory=list)
     scene_progressed: Optional[bool] = None
+    scene_progression: Optional[SceneProgressionProof] = None
     presence_updates: Optional[List[Dict[str, Any]]] = Field(default_factory=list)
     relationship_updates: Optional[List[RelationshipUpdate]] = Field(default_factory=list)
     relationship_review: Optional[List[RelationshipReviewItem]] = Field(
