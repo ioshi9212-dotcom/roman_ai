@@ -1,3 +1,4 @@
+import json
 import tempfile
 from pathlib import Path
 
@@ -92,12 +93,81 @@ def test_stale_pending_packet_rebuild_keeps_public_review_marker():
         assert rebuilt["relationship_review_required"] is True
 
 
-def test_empty_durable_dynamic_can_explicitly_have_no_numeric_axis():
+def test_empty_durable_dynamic_cannot_be_waived_with_no_numeric_result():
     with tempfile.TemporaryDirectory() as tmp:
         sid = setup(tmp, dynamic="Мира пока насторожена к Кайру.")
         manifest = prepare(sid)
-        assert commit_turn_request(sid, payload(manifest))["turn_number"] == 1
+        with pytest.raises(HTTPException) as exc:
+            commit_turn_request(sid, payload(manifest))
+        assert exc.value.detail["code"] == "RELATIONSHIP_DIMENSIONS_EMPTY_WITH_DURABLE_DYNAMIC"
+        assert "настороженность" in exc.value.detail["evidenced_dimensions"]
+
+
+def test_uncertain_qualitative_dynamic_can_explicitly_have_no_numeric_axis():
+    with tempfile.TemporaryDirectory() as tmp:
+        sid = setup(
+            tmp,
+            dynamic="Мира пока присматривается к Кайру и не решила, доверяет ли ему.",
+        )
+        manifest = prepare(sid)
+        data = payload(manifest)
+        data["extracted"]["relationship_review"][0]["reason"] = (
+            "Проверено: пока нет устойчивого числового отношения."
+        )
+        assert commit_turn_request(sid, data)["turn_number"] == 1
         assert store(sid)["npc_to_pov"]["mira"]["dimensions"] == {}
+
+
+def test_mid_scene_physical_entrant_is_in_review_scope_even_if_absent_at_prepare():
+    with tempfile.TemporaryDirectory() as tmp:
+        sid = setup(tmp)
+        root = storage.SESSIONS_DIR / sid
+        state = storage._read_json(root / "state.json", {})
+        state["current"]["present_characters"] = ["kair"]
+        storage._write_json(root / "state.json", state)
+
+        manifest = prepare(sid)
+        packet = storage._read_json(root / "turn_packet.json", {})
+        context = json.loads("".join(packet["chunks"]))
+        lens = context["relationship_lens"]
+        assert "mira" not in lens["review_required_character_ids_at_scene_start"]
+        assert "not exhaustive" in lens["review_scope"]
+
+        data = payload(manifest)
+        data["scene_output"] = "**Мира** — Я зашла ненадолго."
+        data["extracted"]["presence_updates"] = [
+            {"character_id": "mira", "action": "enter"}
+        ]
+        data["extracted"]["relationship_review"][0]["reason"] = (
+            "Мира вошла в сцену; устойчивого числового отношения пока не проявилось."
+        )
+        assert commit_turn_request(sid, data)["turn_number"] == 1
+
+
+def test_historical_new_dimension_value_does_not_become_critical_event():
+    n = {
+        "novel_id": "replay-scale",
+        "title": "Replay Scale",
+        "novel": {"pov_character": "kair"},
+        "characters": [
+            {"character_id": "kair", "name": "Кайр", "is_pov": True},
+            {"character_id": "mira", "name": "Мира"},
+        ],
+        "starting_state": {"pov": {"character_id": "kair"}},
+    }
+    cards = n["characters"]
+    base = relationship_file_runtime.build_initial_store(cards, n["starting_state"], "kair")
+    replay = relationship_file_runtime._historical_updates_for_replay(
+        base,
+        [{
+            "character_id": "mira",
+            "reason": "Исторически уже сформировалась выраженная настороженность.",
+            "dimensions": [{"label": "настороженность", "value": 50}],
+        }],
+        cards=cards,
+    )
+    assert replay[0]["dimensions"] == [{"label": "настороженность", "value": 50}]
+    assert replay[0]["change_scale"] == "ordinary"
 
 
 def test_new_dimension_initializes_above_three_without_critical_event():
