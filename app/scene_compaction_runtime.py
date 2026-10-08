@@ -588,6 +588,37 @@ def complete_knowledge_records(values: Any) -> List[Dict[str, Any]]:
     return result
 
 
+def complete_knowledge_journal_records(values: Any) -> List[Dict[str, Any]]:
+    """Lossless journal evidence for 100-turn continuation block reads.
+
+    Unlike the ordinary writer packet, migration uses individual original
+    entries with their own learned dates/turns. Summaries replace originals
+    only when those originals are no longer available in older sessions.
+    """
+    if not isinstance(values, list):
+        return []
+    rows = [
+        deepcopy(item) if isinstance(item, dict) else {"text": item.strip()}
+        for item in values
+        if isinstance(item, dict) or (isinstance(item, str) and item.strip())
+    ]
+    raw = [item for item in rows if item.get("canonical_compaction") is not True]
+    raw_ids = {
+        str(item["entry_id"]) for item in raw if item.get("entry_id") not in (None, "")
+    }
+    fallback = []
+    for item in rows:
+        if item.get("canonical_compaction") is not True or item.get("superseded_by"):
+            continue
+        sources = item.get("merged_from")
+        sources = [str(s) for s in sources if s] if isinstance(sources, list) else []
+        if not sources or not all(source in raw_ids for source in sources):
+            fallback.append(item)
+    result = [*raw, *fallback]
+    result.sort(key=lambda row: (_record_turn(row), str(row.get("entry_id") or "")))
+    return result
+
+
 def transport_knowledge_records(values: Any) -> List[Dict[str, Any]]:
     """Use compacted factual knowledge only when nothing can be forgotten.
 
