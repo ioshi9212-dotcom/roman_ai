@@ -332,8 +332,9 @@ def _normalise_chronology_events(
             importance == "normal"
             and not actor_id
             and raw.get("time_critical") is not True
-            and not any(str(value).strip() for value in raw.get("consequences", [])
-                        if isinstance(raw.get("consequences"), list))
+            and not (isinstance(raw.get("consequences"), list) and any(
+                str(value).strip() for value in raw["consequences"]
+            ))
             and text.casefold().rstrip(".!?… ") in empty_filler
         ):
             continue
