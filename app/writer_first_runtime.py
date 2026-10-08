@@ -263,6 +263,25 @@ def _compact_chronology(value: Any, character_ids: List[str], location: Any) -> 
     full_anchors = [(i, e) for i, e in enumerate(events) if _is_anchor(e)][-MAX_FULL_ANCHOR_CHRONOLOGY:]
     for index, event in full_anchors:
         keep(event, index)
+    # Macro chronology can contain dozens of independent NPC actions from a
+    # whole date. Keep the source-verified detail in persistent chronology;
+    # normal POV packets need actor-specific details only for scene actors.
+    # Without this projection one unrelated macro row can add many thousands
+    # of characters to *every* subsequent turn packet.
+    relevant = {str(cid) for cid in character_ids if cid}
+    for event in selected.values():
+        actor_events = event.get("actor_events")
+        if not isinstance(actor_events, list):
+            continue
+        scoped = [
+            action for action in actor_events
+            if isinstance(action, dict)
+            and str(action.get("actor_character_id") or "") in relevant
+        ]
+        if scoped:
+            event["actor_events"] = scoped
+        else:
+            event.pop("actor_events", None)
     return sorted(selected.values(), key=lambda event: (_event_turn(event), str(event.get("event_id", ""))))
 
 

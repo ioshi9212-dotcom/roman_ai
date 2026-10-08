@@ -410,3 +410,51 @@ def test_fifteen_turn_scene_compaction_does_not_hide_independent_actor_event():
     assert source_event in compact
     # Indexing an action must not imply that POV witnessed or learned about it.
     assert not source_event["participants_present"]
+
+
+
+def test_large_offscreen_actor_catalog_is_not_repeated_in_every_pov_packet():
+    from copy import deepcopy
+    from app import writer_first_runtime, session_runtime
+
+    actors = [f"offscreen_{number}" for number in range(70)]
+    rows = [{
+        "event_id": f"macro_{i}",
+        "turn_number": i * 60,
+        "story_date": f"0{i}.10.2026",
+        "event": f"Сводка по самостоятельным действиям NPC в день {i}.",
+        "importance": "major",
+        "participants_present": [],
+        "actor_events": [{
+            "actor_character_id": actor,
+            "source_event_id": f"e_{i}_{number}",
+            "turn_number": i * 60 - 1,
+            "event": ("Самостоятельное расследование с подтверждёнными последствиями. " * 4),
+        } for number, actor in enumerate(actors)],
+    } for i in range(1, 7)]
+    raw_size = len(json.dumps(rows, ensure_ascii=False))
+    saved_copy = deepcopy(rows)
+    # Only the POV participates. Keep compact dated summaries without sending
+    # the full life history of seventy absent actors with every new scene.
+    current = writer_first_runtime._compact_chronology(rows, ["pov"], "дом POV")
+    current_size = len(json.dumps(current, ensure_ascii=False))
+    assert current_size < raw_size // 8
+    assert all("actor_events" not in row for row in current)
+
+    # Once an NPC becomes a scene actor, their provenance is retrievable,
+    # but unrelated characters' full histories are still not in the packet.
+    selected = session_runtime._select_chronology_context(
+        rows, relevant_character_ids=["offscreen_17"], location=None,
+    )
+    result = writer_first_runtime._compact_chronology(
+        selected, ["pov", "offscreen_17"], "другое место",
+    )
+    assert result
+    assert all(
+        action["actor_character_id"] == "offscreen_17"
+        for row in result
+        for action in row.get("actor_events", [])
+    )
+    assert sum(len(row.get("actor_events", [])) for row in result) == len(rows)
+    # Never mutate the canonical actor history.
+    assert rows == saved_copy
