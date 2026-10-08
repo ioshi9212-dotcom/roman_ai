@@ -218,7 +218,7 @@ def _bundle_signature(root) -> Dict[str, Any]:
     # Stat-only validation avoids rebuilding character dossiers on every chunk.
     # Source of truth remains the canonical files, never this derived cache.
     return {
-        name: storage._file_identity(root / name)
+        name: list(identity) if (identity := storage._file_identity(root / name)) is not None else None
         for name in _BUNDLE_DEPENDENCIES
     }
 
