@@ -8,7 +8,7 @@ from typing import Any, Dict, List
 from . import personal_memory_transport, relationship_file_runtime, storage
 from .profile_templates import render_knowledge_journal
 from .runtime_access import runtime_documents
-from .scene_compaction_runtime import active_memory_records, complete_knowledge_records
+from .scene_compaction_runtime import active_memory_records, transport_knowledge_records
 
 
 RECENT_MEMORY_TURNS = 30
@@ -203,7 +203,7 @@ def _working_memory_bucket(
     # Knowledge is factual authority for dialogue. Every active knowledge record for
     # a scene participant must therefore reach the model; a recency cap can make a
     # character "forget" an older fact even though it is still persisted.
-    knowledge = complete_knowledge_records(source.get("knowledge", []))
+    knowledge = transport_knowledge_records(source.get("knowledge", []))
     journal_rows = (
         source.get("knowledge_journal", [])
         if isinstance(source.get("knowledge_journal"), list)
