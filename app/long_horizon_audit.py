@@ -391,7 +391,8 @@ def _source_actor_events_by_date(events: List[Dict[str, Any]]) -> Dict[str, List
             importance = str(raw.get("importance") or source.get("importance") or "normal").casefold()
             consequences = raw.get("consequences") or source.get("consequences")
             if (
-                importance not in {"major", "anchor", "critical"}
+                not (isinstance(originals, list) and originals)
+                and importance not in {"major", "anchor", "critical"}
                 and raw.get("time_critical") is not True
                 and not (isinstance(consequences, list) and any(str(c).strip() for c in consequences))
             ):
