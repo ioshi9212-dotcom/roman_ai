@@ -367,10 +367,9 @@ def build_macro_payload(
 
 
 def _source_actor_events_by_date(events: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
-    """Preserve independently proven actor/event pairs when raw history is compacted.
+    """Index source-confirmed actions, including actions from older macro rows.
 
-    This is director-only chronology provenance, never NPC personal knowledge
-    and never a claim that the POV witnessed an offscreen event.
+    Compact provenance remains author-only, not POV perception or NPC knowledge.
     """
     result: Dict[str, List[Dict[str, Any]]] = {}
     seen: set[tuple[str, str, str]] = set()
@@ -378,37 +377,43 @@ def _source_actor_events_by_date(events: List[Dict[str, Any]]) -> Dict[str, List
         if not isinstance(source, dict):
             continue
         date = _story_date(source)
-        actor = str(source.get("actor_character_id") or "").strip()
-        event = " ".join(str(
-            source.get("event") or source.get("summary") or ""
-        ).split())
-        if not date or not actor or not event:
+        if not date:
             continue
-        importance = str(source.get("importance") or "normal").casefold()
-        consequences = source.get("consequences")
-        if (
-            importance not in {"major", "anchor", "critical"}
-            and source.get("time_critical") is not True
-            and not (isinstance(consequences, list) and any(str(c).strip() for c in consequences))
-        ):
-            continue
-        event_id = str(source.get("event_id") or "")
-        key = (event_id or str(_event_turn(source)), actor, event)
-        if key in seen:
-            continue
-        seen.add(key)
-        compact = {
-            "actor_character_id": actor,
-            "event": event[:260],
-            "turn_number": _event_turn(source),
-            "source_event_id": event_id,
-        }
-        location = str(source.get("location") or "").strip()
-        if location:
-            compact["location"] = location[:150]
-        result.setdefault(date, []).append({
-            k: v for k, v in compact.items() if v not in (None, "", [], 0)
-        })
+        originals = source.get("actor_events")
+        rows = originals if isinstance(originals, list) and originals else [source]
+        for raw in rows:
+            if not isinstance(raw, dict):
+                continue
+            actor = str(raw.get("actor_character_id") or "").strip()
+            event = " ".join(str(raw.get("event") or raw.get("summary") or "").split())
+            if not actor or not event:
+                continue
+            importance = str(raw.get("importance") or source.get("importance") or "normal").casefold()
+            consequences = raw.get("consequences") or source.get("consequences")
+            if (
+                importance not in {"major", "anchor", "critical"}
+                and raw.get("time_critical") is not True
+                and not (isinstance(consequences, list) and any(str(c).strip() for c in consequences))
+            ):
+                continue
+            event_id = str(raw.get("source_event_id") or raw.get("event_id") or "")
+            number = _event_turn(raw)
+            key = (event_id or str(number), actor, event)
+            if key in seen:
+                continue
+            seen.add(key)
+            compact = {
+                "actor_character_id": actor,
+                "event": event[:260],
+                "turn_number": number,
+                "source_event_id": event_id,
+            }
+            location = str(raw.get("location") or "").strip()
+            if location:
+                compact["location"] = location[:150]
+            result.setdefault(date, []).append({
+                k: v for k, v in compact.items() if v not in (None, "", [], 0)
+            })
     return result
 
 
@@ -451,6 +456,7 @@ def _apply_macro_chronology_compaction_core(
     important_dates.discard("")
 
     actor_events_by_date = _source_actor_events_by_date(source_events)
+    important_dates.update(actor_events_by_date)
     normalized: List[Dict[str, Any]] = []
     represented_dates: set[str] = set()
     attached_actor_dates: set[str] = set()
