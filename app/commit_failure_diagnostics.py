@@ -83,6 +83,14 @@ def latest(session_id: str) -> dict[str, Any] | None:
         return None
     if report.get("operation") == "commitAudit" and not meta.get("audit_required"):
         return None
+    if report.get("code") in {"TURN_PACKET_REQUIRED", "TURN_PACKET_RUNTIME_STALE", "TURN_PACKET_INCOMPLETE"}:
+        report = dict(report)
+        report["instruction"] = (
+            "The old packet may be stale or absent. Inspect pending_turn via resumeSession. "
+            "If runtime_stale=true or there is no pending packet, prepareTurn again for the "
+            "same unfinished user_input and request_id, then read all chunks and commit once. "
+            "Never reuse an invalidated packet_id."
+        )
     return report
 
 
