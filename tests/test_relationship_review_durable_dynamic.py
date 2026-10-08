@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 from fastapi import HTTPException
 
-from app import storage
+from app import relationship_file_runtime, storage, turn_pipeline
 from app.operation_service import commit_turn_request, prepare_turn_request
 
 
@@ -147,3 +147,95 @@ def test_dynamic_only_change_keeps_numeric_result_unchanged_and_review_is_not_pe
         assert "меньше подозревает" in rel["dynamic"]
         turn = storage._read_turns(storage.SESSIONS_DIR / sid)[-1]
         assert "relationship_review" not in turn.get("extracted", {})
+
+
+def test_historical_persistence_repair_initializes_caution_on_original_turn():
+    with tempfile.TemporaryDirectory() as tmp:
+        sid = setup(tmp)
+        root = storage.SESSIONS_DIR / sid
+
+        relationships = relationship_file_runtime.normalize_store(
+            storage._read_json(root / "relationships.json", {}),
+            "kair",
+        )
+        relationships.setdefault("npc_to_pov", {})["mira"] = {
+            "dimensions": {},
+            "dynamic": (
+                "Насторожена к Кайру и не доверяет ему; прямые ответы немного "
+                "снизили подозрение, что он изначально действовал вместе с Адрианом."
+            ),
+        }
+        storage._write_json(root / "relationships.json", relationships)
+
+        turns = [
+            {
+                "turn_number": number,
+                "user_input": f"Ход {number}.",
+                "scene_output": (
+                    "Мира сталкивается с очередным доказанным основанием насторожиться к Кайру."
+                    if number == 6
+                    else f"Сохранённый ход {number}."
+                ),
+                "extracted": {},
+            }
+            for number in range(1, 16)
+        ]
+        (root / "turns.jsonl").write_text(
+            "".join(__import__("json").dumps(row, ensure_ascii=False) + "\n" for row in turns),
+            encoding="utf-8",
+        )
+        meta = storage._read_json(root / "meta.json", {})
+        meta["turn_number"] = 15
+        meta["last_audit_turn"] = 0
+        meta["audit_required"] = True
+        storage._write_json(root / "meta.json", meta)
+
+        result = turn_pipeline.commit_audit(
+            sid,
+            {
+                "audit_id": "mira-persistence-repair",
+                "start_turn": 1,
+                "end_turn": 15,
+                "repairs": {
+                    "relationship_updates": [
+                        {
+                            "turn": 6,
+                            "character_id": "mira",
+                            "reason": (
+                                "Уже сыгранные сцены закрепили выраженную настороженность; "
+                                "раньше numeric dimension не была сохранена."
+                            ),
+                            "dimensions": [
+                                {"label": "настороженность", "value": 50}
+                            ],
+                            "dynamic": (
+                                "Насторожена к Кайру и не доверяет ему; прямые ответы немного "
+                                "снизили подозрение, что он изначально действовал вместе с Адрианом."
+                            ),
+                        }
+                    ],
+                    "scene_compactions": [
+                        {
+                            "start_turn": 1,
+                            "end_turn": 15,
+                            "summary": (
+                                "Пятнадцать проверенных ходов сохранены; на шестом ходе уже "
+                                "доказанно закрепилась настороженность Миры к Кайру."
+                            ),
+                            "status": "open",
+                            "participants": ["kair", "mira"],
+                            "location": "flat",
+                        }
+                    ],
+                },
+                "notes": [],
+            },
+        )
+
+        assert result["audited_through"] == 15
+        relation = storage._read_json(root / "relationships.json", {})["npc_to_pov"]["mira"]
+        caution = relation["dimensions"]["настороженность"]
+        assert caution["value"] == 50
+        assert caution["last_change"]["turn"] == 6
+        assert "насторожена" in relation["dynamic"].casefold()
+        assert relation["dynamic_last_change"]["turn"] == 6
