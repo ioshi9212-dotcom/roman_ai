@@ -56,6 +56,8 @@ Cast registry — активный каст. Смотри всех active NPC к
 
 ## Persistence
 
+Если `chronology` описывает самостоятельное offscreen-действие NPC, укажи `actor_character_id`. В `knowledge_journal_add` этого NPC отдельно сохрани только то, что он сам при действии узнал; POV из-за такой записи ничего автоматически не узнаёт.
+
 После сцены сохраняй только реальное изменение: важное событие → chronology; новое личное знание → `knowledge_journal_add`; постоянный/ставший значимым NPC → `character_upserts`; NPC→POV → `relationship_updates`; NPC→NPC → `npc_relationship_updates`; незакрытое действие/линия → `npc_intent_updates`/`story_thread_updates`; physical/runtime итог → `presence_updates` и `state_patch`, включая важных offscreen/nearby. Review валидируется и не сохраняется. Фон не регистрируй и не заполняй поля ради заполнения.
 
 ## Audit
