@@ -101,6 +101,8 @@ def _write_packet_chunk_index(path: Path, packet: Dict[str, Any]) -> None:
         valid = (
             isinstance(offsets, list) and len(offsets) == len(chunks)
             and all(isinstance(row, list) and len(row) == 2 for row in offsets)
+            and isinstance(old.get("chunk_hashes"), list)
+            and len(old["chunk_hashes"]) == len(chunks)
             and old.get("total_bytes") == cache_path.stat().st_size
         )
     else:
@@ -108,15 +110,19 @@ def _write_packet_chunk_index(path: Path, packet: Dict[str, Any]) -> None:
     if not valid:
         offsets = []
         parts: List[bytes] = []
+        chunk_hashes: List[str] = []
         cursor = 0
         for chunk in chunks:
             data = str(chunk).encode("utf-8")
             offsets.append([cursor, len(data)])
+            chunk_hashes.append(hashlib.sha256(data).hexdigest())
             parts.append(data)
             cursor += len(data)
         temporary = cache_path.with_suffix(".tmp")
         temporary.write_bytes(b"".join(parts))
         temporary.replace(cache_path)
+    else:
+        chunk_hashes = old["chunk_hashes"]
     _write_json(index_path, {
         "packet_id": packet["packet_id"],
         "chunk_count": len(chunks),
@@ -126,6 +132,7 @@ def _write_packet_chunk_index(path: Path, packet: Dict[str, Any]) -> None:
             if isinstance(index, int) and 0 <= index < len(chunks)
         ],
         "offsets": offsets,
+        "chunk_hashes": chunk_hashes,
         "total_bytes": cache_path.stat().st_size,
         "packet_file_signature": _packet_file_signature(path),
     })
@@ -145,7 +152,21 @@ def _fast_packet_index(root: Path) -> Dict[str, Any]:
             return {}
     except OSError:
         return {}
-    if not isinstance(index.get("offsets"), list) or len(index["offsets"]) != index.get("chunk_count"):
+    offsets = index.get("offsets")
+    hashes = index.get("chunk_hashes")
+    if (
+        not isinstance(offsets, list)
+        or not isinstance(hashes, list)
+        or len(offsets) != index.get("chunk_count")
+        or len(hashes) != len(offsets)
+        or any(
+            not isinstance(row, list)
+            or len(row) != 2
+            or any(not isinstance(value, int) or value < 0 for value in row)
+            or row[0] + row[1] > index["total_bytes"]
+            for row in offsets
+        )
+    ):
         return {}
     return index
 
@@ -819,13 +840,17 @@ def get_turn_packet_chunk(session_id: str, packet_id: str, chunk_index: int) -> 
             if chunk_index < 0 or chunk_index >= index["chunk_count"]:
                 raise IndexError("CHUNK_OUT_OF_RANGE")
             offset, length = index["offsets"][chunk_index]
-            if not all(isinstance(x, int) and x >= 0 for x in (offset, length)):
-                raise RuntimeError("INVALID_PACKET_CHUNK_INDEX")
-            if offset + length > index["total_bytes"]:
-                raise RuntimeError("INVALID_PACKET_CHUNK_INDEX")
-            with (root / TURN_PACKET_CHUNKS).open("rb") as handle:
-                handle.seek(offset)
-                content = handle.read(length).decode("utf-8")
+            try:
+                with (root / TURN_PACKET_CHUNKS).open("rb") as handle:
+                    handle.seek(offset)
+                    blob = handle.read(length)
+                if hashlib.sha256(blob).hexdigest() != index["chunk_hashes"][chunk_index]:
+                    index = {}
+                else:
+                    content = blob.decode("utf-8")
+            except (OSError, UnicodeError):
+                index = {}
+        if index:
             count = index["chunk_count"]
             digest = index["content_digest"]
             seen = {
