@@ -452,7 +452,9 @@ def _prepare_extracted_for_commit(
 
 
 
-def build_turn_context(session_id: str, user_input: str) -> Dict[str, Any]:
+def build_turn_context(
+    session_id: str, user_input: str, *, return_snapshot: bool = False,
+) -> Dict[str, Any] | tuple[Dict[str, Any], Dict[str, Any]]:
     """Build the complete pre-writer turn context in memory without packet round-trips."""
     root = storage.SESSIONS_DIR / session_id
     if not root.exists():
@@ -639,7 +641,7 @@ def build_turn_context(session_id: str, user_input: str) -> Dict[str, Any]:
         if key in context.get("author_context", {}):
             context[key] = context["author_context"][key]
 
-    return context
+    return (context, snapshot) if return_snapshot else context
 
 def _augment_packet(session_id: str, manifest: Dict[str, Any]) -> Dict[str, Any]:
     root = storage.SESSIONS_DIR / session_id
