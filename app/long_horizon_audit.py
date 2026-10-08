@@ -372,7 +372,7 @@ def _source_actor_events_by_date(events: List[Dict[str, Any]]) -> Dict[str, List
     Compact provenance remains author-only, not POV perception or NPC knowledge.
     """
     result: Dict[str, List[Dict[str, Any]]] = {}
-    seen: set[tuple[str, str, str]] = set()
+    seen: set[tuple[str, str, str, str]] = set()
     for source in events:
         if not isinstance(source, dict):
             continue
@@ -399,7 +399,7 @@ def _source_actor_events_by_date(events: List[Dict[str, Any]]) -> Dict[str, List
                 continue
             event_id = str(raw.get("source_event_id") or raw.get("event_id") or "")
             number = _event_turn(raw)
-            key = (event_id or str(number), actor, event)
+            key = (date, event_id or str(number), actor, event)
             if key in seen:
                 continue
             seen.add(key)
