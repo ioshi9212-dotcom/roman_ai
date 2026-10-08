@@ -339,3 +339,38 @@ def test_offscreen_actor_events_survive_60_and_120_turns_and_writer_retrieval():
         assert {a["actor_character_id"] for a in again_row["actor_events"]} == {"daren", "var"}
         assert "actor_character_id" not in again_row
         assert not again_row.get("participants_present")
+
+
+
+def test_fifteen_turn_scene_compaction_does_not_hide_independent_actor_event():
+    from app import session_runtime, writer_first_runtime
+
+    source_event = {
+        "event_id": "actor-before-15",
+        "turn_number": 4,
+        "story_date": "24.09.2026",
+        "event": "Дарен нашёл след, о котором POV ничего не знает.",
+        "actor_character_id": "daren",
+        "importance": "major",
+        "compacted_scene_id": "scene_t1_t15",
+        "participants_present": [],
+    }
+    later = [{
+        "event_id": f"other-{turn}",
+        "turn_number": turn,
+        "story_date": "25.09.2026",
+        "event": f"Постороннее событие {turn}.",
+        "importance": "normal",
+        "participants_present": ["pov"],
+    } for turn in range(16, 101)]
+    events = [source_event, *later]
+    selected = session_runtime._select_chronology_context(
+        events, relevant_character_ids=["daren"], location=None,
+    )
+    assert source_event in selected
+    compact = writer_first_runtime._compact_chronology(
+        selected, ["daren"], "другое место",
+    )
+    assert source_event in compact
+    # Indexing an action must not imply that POV witnessed or learned about it.
+    assert not source_event["participants_present"]
