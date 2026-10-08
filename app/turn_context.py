@@ -8,7 +8,7 @@ from typing import Any, Dict, List
 from . import personal_memory_transport, relationship_file_runtime, storage
 from .profile_templates import render_knowledge_journal
 from .runtime_access import runtime_documents
-from .scene_compaction_runtime import active_memory_records, transport_knowledge_records
+from .scene_compaction_runtime import active_memory_records, transport_knowledge_records, transport_knowledge_journal
 
 
 RECENT_MEMORY_TURNS = 30
@@ -209,7 +209,7 @@ def _working_memory_bucket(
         if isinstance(source.get("knowledge_journal"), list)
         else []
     )
-    knowledge_journal = render_knowledge_journal(journal_rows)
+    knowledge_journal = render_knowledge_journal(transport_knowledge_journal(journal_rows))
 
     # Experiences and dialogue recollection are supporting context rather than the
     # factual knowledge authority, so they can stay bounded for packet size.
