@@ -269,7 +269,8 @@ def _select_chronology_context(
             None,
         )
         if first_source_macro is not None:
-            remember(*first_source_macro)
+            index, event = first_source_macro
+            remember(event, index)
 
     if location not in (None, ""):
         needle = normalize_name(location)
