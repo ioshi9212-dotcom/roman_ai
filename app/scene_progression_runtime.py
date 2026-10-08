@@ -467,7 +467,16 @@ def _final_segment(scene_output: str) -> str:
     scene = _main_scene_text(scene_output)
     if not scene:
         return ""
-    start = max(0, int(len(scene) * 0.55))
+    # Never cut the proof phrase in the middle of a short final beat.
+    # Long scenes use a bounded final portion; short scenes are already one beat.
+    if len(scene) <= 900:
+        return scene
+    tail_chars = max(900, int(len(scene) * 0.45))
+    start = max(0, len(scene) - tail_chars)
+    for marker in ("\n\n", "\n", ". ", "? ", "! "):
+        boundary = scene.find(marker, start)
+        if boundary >= 0:
+            return scene[boundary + len(marker):]
     return scene[start:]
 
 
