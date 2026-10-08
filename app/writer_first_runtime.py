@@ -370,8 +370,10 @@ def _compact_continuity_turn(turn: Dict[str, Any]) -> Dict[str, Any]:
     return result
 
 
-def _rolling_turn_context(root) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
-    turns = storage._read_turns(root)
+def _rolling_turn_context(
+    root, *, turns_override: List[Dict[str, Any]] | None = None,
+) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    turns = turns_override if turns_override is not None else storage._read_turns(root)
     compacted = covered_turns(root)
     working_turns = [
         turn for turn in turns
@@ -437,11 +439,14 @@ def _strip_instruction_noise(context: Dict[str, Any]) -> None:
         context["working_context_contract"] = contract
 
 
-def _rewrite_context(session_id: str, context: Dict[str, Any]) -> Dict[str, Any]:
+def _rewrite_context(
+    session_id: str, context: Dict[str, Any], *, snapshot_override: Dict[str, Any] | None = None,
+) -> Dict[str, Any]:
     root = storage.SESSIONS_DIR / session_id
     result = deepcopy(context)
-    state = storage._read_json(root / "state.json", {})
-    meta = storage._read_json(root / "meta.json", {})
+    snapshot = snapshot_override if isinstance(snapshot_override, dict) else {}
+    state = snapshot["state"] if "state" in snapshot else storage._read_json(root / "state.json", {})
+    meta = snapshot["meta"] if "meta" in snapshot else storage._read_json(root / "meta.json", {})
 
     for key in _RUNTIME_DROP_KEYS:
         result.pop(key, None)
@@ -452,7 +457,7 @@ def _rewrite_context(session_id: str, context: Dict[str, Any]) -> Dict[str, Any]
 
     result["scene_state"] = _compact_scene_state(result.get("scene_state"))
     result["starting_state"] = _compact_starting_state(result.get("starting_state"))
-    recent, continuity = _rolling_turn_context(root)
+    recent, continuity = _rolling_turn_context(root, turns_override=snapshot.get("turns"))
     result["recent_turns"] = recent
     result["continuity_turns"] = continuity
     result["scene_history"] = load_scene_history(root)
