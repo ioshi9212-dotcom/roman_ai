@@ -335,9 +335,17 @@ def _atomic_commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, A
             )
             values[RECEIPTS_FILE] = json_text(ledger_with_receipt(root, receipt))
 
+        # Older/imported journals may end without a final newline. Preserve
+        # their bytes and insert a separator so the new turn stays valid JSONL.
+        turns_path = root / "turns.jsonl"
+        separator = ""
+        if turns_path.exists() and turns_path.stat().st_size:
+            with turns_path.open("rb") as handle:
+                handle.seek(-1, 2)
+                separator = "" if handle.read(1) == b"\n" else "\n"
         write_batch(
             root, values,
-            append_values={"turns.jsonl": json.dumps(entry, ensure_ascii=False) + "\n"},
+            append_values={"turns.jsonl": separator + json.dumps(entry, ensure_ascii=False) + "\n"},
         )
         if not prior_snapshot_valid:
             (root / PREVIOUS_SNAPSHOT_FILE).unlink(missing_ok=True)
