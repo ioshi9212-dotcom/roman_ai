@@ -10,13 +10,19 @@ def _norm(value: Any) -> str:
     return " ".join(str(value or "").casefold().replace("ё", "е").split())
 
 
-def dedupe_persisted_knowledge_journal(session_id: str) -> int:
+def dedupe_persisted_knowledge_journal(
+    session_id: str, *, memory_override: Dict[str, Any] | None = None,
+) -> int:
     """Remove only exact normalized duplicate durable facts already stored for one character."""
     root = storage.SESSIONS_DIR / session_id
     if not root.exists():
         raise FileNotFoundError(session_id)
 
-    memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
+    # The caller can share the same mutable snapshot with scene preparation.
+    memory = storage._normalise_memory(
+        memory_override if memory_override is not None
+        else storage._read_json(root / "memory.json", {})
+    )
     characters = memory.get("characters") if isinstance(memory.get("characters"), dict) else {}
     removed = 0
 
