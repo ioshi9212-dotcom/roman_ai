@@ -282,3 +282,81 @@ def test_complete_knowledge_records_restores_raw_facts_hidden_by_old_compaction(
             "Первый точный факт.",
             "Второй отдельный факт.",
         ]
+
+
+
+def test_transport_keeps_independent_first_day_facts_when_old_summary_omitted_secret():
+    from app.scene_compaction_runtime import transport_knowledge_records
+    from app.turn_context import _working_memory_bucket
+    secret = "В первый день POV узнал, что ключ находится под лестницей."
+    promise = "В первый день POV пообещал никому не рассказывать о ключе."
+    records = [
+        {"fact_id": "day1-secret", "learned_turn": 1, "fact": secret,
+         "superseded_by": "summary", "raw_evidence_preserved": True},
+        {"fact_id": "day1-promise", "learned_turn": 1, "fact": promise,
+         "superseded_by": "summary", "raw_evidence_preserved": True},
+        {"fact_id": "summary", "fact": "POV узнал про ключ.",
+         "learned_turn": 1, "canonical_compaction": True,
+         "merged_from": ["day1-secret", "day1-promise"]},
+    ]
+    projected = transport_knowledge_records(records)
+    assert {row["fact_id"] for row in projected} == {"day1-secret", "day1-promise"}
+    working = _working_memory_bucket(
+        {"knowledge": records}, 100, character_id="pov", cards=[],
+    )
+    assert {row["fact"] for row in working["knowledge"]} == {secret, promise}
+    assert all(row["learned_turn"] == 1 for row in working["knowledge"])
+
+
+def test_transport_uses_proven_cheap_compaction_but_preserves_provenance():
+    from app.scene_compaction_runtime import transport_knowledge_records
+    repeated = "Рината узнала, где находится вход в убежище. " + "Достоверный факт. " * 25
+    records = [
+        {"fact_id": f"f{i}", "learned_turn": i, "fact": repeated,
+         "confidence": "certain", "superseded_by": "cmp"}
+        for i in (1, 7, 14)
+    ] + [{
+        "fact_id": "cmp", "fact": repeated,
+        "learned_turn": 1, "last_learned_turn": 14,
+        "confidence": "certain", "canonical_compaction": True,
+        "merged_from": ["f1", "f7", "f14"], "source_turns": [1, 7, 14],
+    }]
+    compact = transport_knowledge_records(records)
+    assert len(compact) == 1
+    assert compact[0]["fact_id"] == "cmp"
+    assert compact[0]["fact"] == repeated
+    assert compact[0]["source_turns"] == [1, 7, 14]
+    assert compact[0]["merged_from"] == ["f1", "f7", "f14"]
+
+
+def test_transport_does_not_merge_conflicting_certainty():
+    from app.scene_compaction_runtime import transport_knowledge_records
+    fact = "Возможный пароль находится в архиве. " + "Сведения требуют проверки. " * 18
+    rows = [
+        {"fact_id": "rumor", "learned_turn": 1, "fact": fact,
+         "confidence": "uncertain", "superseded_by": "cmp"},
+        {"fact_id": "certain", "learned_turn": 8, "fact": fact,
+         "confidence": "certain", "superseded_by": "cmp"},
+        {"fact_id": "cmp", "learned_turn": 1, "fact": fact,
+         "canonical_compaction": True, "merged_from": ["rumor", "certain"],
+         "confidence": "mixed"},
+    ]
+    assert {r["fact_id"] for r in transport_knowledge_records(rows)} == {"rumor", "certain"}
+
+
+def test_other_npc_does_not_inherit_pov_day_one_secret():
+    from app.turn_context import _selected_memory
+    from app import storage
+    memory = {
+        "characters": {
+            "pov": {"knowledge": [
+                {"fact_id": "pov-secret", "learned_turn": 1, "fact": "POV знает тайный пароль."}
+            ]},
+            "npc": {"knowledge": [
+                {"fact_id": "npc-fact", "learned_turn": 45, "fact": "NPC видит закрытую дверь."}
+            ]},
+        }
+    }
+    selected = _selected_memory(storage._normalise_memory(memory), ["pov", "npc"], 100, [])
+    assert any("пароль" in r["fact"] for r in selected["pov"]["knowledge"])
+    assert not any("пароль" in r["fact"] for r in selected["npc"]["knowledge"])
