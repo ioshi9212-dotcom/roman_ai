@@ -41,6 +41,8 @@ jobs:
           tests/test_setup_lossless_v4.py
           tests/test_profile_templates.py
           tests/test_simple_profile_flow.py::test_finalized_source_keeps_verbatim_trigger_without_bloating_gameplay
+          tests/test_simple_profile_flow.py::test_v5_reviewed_raw_can_accept_more_blocks_and_finalize
+          tests/test_simple_profile_flow.py::test_legacy_raw_validation_stays_strict_without_profile_mode
           tests/test_location_profiles_runtime.py
           tests/test_npc_intent_runtime.py
           tests/test_custom_gpt_surface.py

@@ -126,6 +126,101 @@ def _build_simple_draft(*, raw_text=None, silas_notes=None) -> str:
 
 
 
+
+def test_v5_reviewed_raw_can_accept_more_blocks_and_finalize():
+    with tempfile.TemporaryDirectory() as tmp:
+        _setup(tmp)
+        draft_id = _build_simple_draft()
+        raw_parts = [
+            "Новый блок: Рината пока ничего не знает о тайне Сайласа.",
+            "Дополнение: Сайлас сам ещё не понимает происхождение воспоминаний.",
+        ]
+        for index, raw_text in enumerate(raw_parts, start=1):
+            block_id = f"later_raw_{index}"
+            appended = draft_intake_runtime.append_intake_chunk(
+                draft_id,
+                block_id=block_id,
+                stage="setup",
+                chunk_index=0,
+                raw_text=raw_text,
+                is_last=True,
+            )
+            assert appended["complete"] is True
+            assert appended["already_completed"] is False
+
+            # Retrying an already-complete block must not corrupt reviewed RAW.
+            retry = draft_intake_runtime.append_intake_chunk(
+                draft_id,
+                block_id=block_id,
+                stage="setup",
+                chunk_index=0,
+                raw_text=raw_text,
+                is_last=True,
+            )
+            assert retry["already_completed"] is True
+
+            revision = novel_drafts.draft_status(draft_id)["revision"]
+            mapped = draft_intake_runtime.update_intake_mapping(
+                draft_id,
+                block_id,
+                fact_ids=[],
+                reviewed_against_raw=True,
+                contains_no_facts=False,
+                expected_revision=revision,
+            )
+            assert mapped["mapping_changed"] is True
+            assert mapped["intake_coverage"]["unreviewed_blocks"] == []
+
+            unchanged = draft_intake_runtime.update_intake_mapping(
+                draft_id,
+                block_id,
+                fact_ids=[],
+                reviewed_against_raw=True,
+                contains_no_facts=False,
+                expected_revision=mapped["revision"],
+            )
+            assert unchanged["mapping_changed"] is False
+            assert unchanged["revision"] == mapped["revision"]
+
+        status = novel_drafts.draft_status(draft_id)
+        assert status["finalize_blocker"] == "INTAKE_FINAL_READ_REQUIRED"
+        _read_working_draft(draft_id)
+        status = novel_drafts.draft_status(draft_id)
+        setup_draft_v3_runtime.confirm_reconciliation(
+            draft_id,
+            expected_revision=status["revision"],
+            confirmed_against_raw=True,
+            unresolved_conflicts=[],
+        )
+        finalized = novel_drafts.finalize_draft(draft_id)
+        assert finalized["ok"] is True
+        template = novel_drafts._read(draft_id)["finalized_template"]
+        blocks = template["source_intake"]
+        assert len(blocks) == 3
+        assert [block["raw_text"] for block in blocks[1:]] == raw_parts
+
+
+def test_legacy_raw_validation_stays_strict_without_profile_mode():
+    legacy = {
+        "version": 5,  # Intake format version is independent of draft version.
+        "blocks": [{
+            "block_id": "raw",
+            "stage": "setup",
+            "raw_text": "Сюжетный факт для карточки персонажа.",
+            "fact_ids": [],
+            "reviewed_against_raw": True,
+            "contains_no_facts": False,
+        }],
+    }
+    assert draft_intake_runtime._is_profile_draft({"version": 4}) is False
+    assert draft_intake_runtime._is_profile_draft({"version": 5}) is True
+    with pytest.raises(ValueError, match="INTAKE_FACT_IDS_REQUIRED"):
+        draft_intake_runtime._normalise_intake(legacy)
+    assert draft_intake_runtime._normalise_intake(
+        legacy, allow_profile_review=True,
+    )["blocks"][0]["reviewed_against_raw"] is True
+
+
 def test_identical_v5_section_resave_does_not_invalidate_completed_full_read():
     with tempfile.TemporaryDirectory() as tmp:
         _setup(tmp)
