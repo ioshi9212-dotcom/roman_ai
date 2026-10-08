@@ -774,8 +774,9 @@ def turns_commit(session_id: str, body: CommitTurnRequest):
                 session_id, operation="commitTurn", identity=turn_body.packet_id,
                 status_code=409, detail=exc.detail,
             )
-            logger.warning("commitTurn rejected session=%s packet=%s reason=%s", session_id, turn_body.packet_id,
-                           commit_failure_diagnostics.latest(session_id))
+            detail = exc.detail if isinstance(exc.detail, dict) else {}
+            logger.warning("commitTurn rejected session=%s packet=%s code=%s", session_id, turn_body.packet_id,
+                           detail.get("code", "HTTP_409"))
         raise
     except OperationReceiptConflict:
         commit_failure_diagnostics.record(
@@ -865,8 +866,9 @@ def audit_commit(session_id: str, body: AuditCommit):
                 session_id, operation="commitAudit", identity=body.audit_id,
                 status_code=409, detail=exc.detail,
             )
-            logger.warning("commitAudit rejected session=%s audit=%s reason=%s", session_id, body.audit_id,
-                           commit_failure_diagnostics.latest(session_id))
+            detail = exc.detail if isinstance(exc.detail, dict) else {}
+            logger.warning("commitAudit rejected session=%s audit=%s code=%s", session_id, body.audit_id,
+                           detail.get("code", "HTTP_409"))
         raise
     except OperationReceiptConflict:
         commit_failure_diagnostics.record(
