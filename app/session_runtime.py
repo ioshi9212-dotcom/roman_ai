@@ -208,6 +208,25 @@ def _event_actor_ids(event: Dict[str, Any]) -> List[str]:
     return list(dict.fromkeys(result))
 
 
+def _event_indexed_character_ids(event: Dict[str, Any]) -> List[str]:
+    """Index macro source-fact owners for retrieval, NOT physical presence.
+
+    Author chronology is not NPC factual memory. Never put these inferred
+    indexes into participants_present, contact logs, or character knowledge.
+    """
+    ids = set(_event_participants(event))
+    ids.update(_event_actor_ids(event))
+    facts = event.get("source_key_facts")
+    for fact in facts if isinstance(facts, list) else []:
+        if not isinstance(fact, dict):
+            continue
+        ids.update(_event_participants(fact))
+        actor = fact.get("actor_character_id")
+        if actor:
+            ids.add(str(actor))
+    return sorted(ids)
+
+
 def _event_location(event: Dict[str, Any]) -> str | None:
     value = event.get("location") or event.get("location_id") or event.get("place")
     return str(value) if value not in (None, "") else None
@@ -238,10 +257,19 @@ def _select_chronology_context(
         matches = [
             (index, event)
             for index, event in enumerate(events)
-            if str(character_id) in _event_participants(event) or str(character_id) in _event_actor_ids(event)
-        ][-CHARACTER_CHRONOLOGY_EVENTS:]
-        for index, event in matches:
+            if str(character_id) in _event_indexed_character_ids(event)
+        ]
+        # Most recent evidence plus the earliest source-backed interaction:
+        # the first day cannot be displaced by dozens of later macro records.
+        for index, event in matches[-CHARACTER_CHRONOLOGY_EVENTS:]:
             remember(event, index)
+        first_source_macro = next(
+            ((index, event) for index, event in matches
+             if isinstance(event.get("source_key_facts"), list) and event["source_key_facts"]),
+            None,
+        )
+        if first_source_macro is not None:
+            remember(*first_source_macro)
 
     if location not in (None, ""):
         needle = normalize_name(location)
