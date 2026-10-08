@@ -174,8 +174,11 @@ def _continuity_payload(sid, current_patch, *, header=True, presence_updates=Non
     for index in range(manifest["chunk_count"]):
         storage.get_turn_packet_chunk(sid, manifest["packet_id"], index)
     presence_updates = presence_updates or []
-    progressed = bool(presence_updates)
-    ending = "Сайлас покинул текущую сцену." if progressed else "POV продолжает сцену без событий."
+    progressed = any(
+        isinstance(row, dict) and str(row.get("action") or "").casefold() == "enter"
+        for row in presence_updates
+    )
+    ending = "В текущую сцену вошёл новый участник." if progressed else "POV продолжает сцену без событий."
     scene = ending
     if header:
         scene = "🎭 Continuity · осень\n🕒 День 1 · вторник, 01.09.2026, 10:05 · 📍 кухня 🌦️ Погода: ясно\n" + scene
@@ -249,7 +252,6 @@ def test_scene_transition_retry_and_rollback_preserve_exact_state(tmp_path, monk
     }, presence_updates=[{"character_id": "silas", "action": "leave"}])
     before = storage._read_json(root / "state.json", {})
     payload["scene_output"] += " POV вошла в кабинет. Сайлас остался на кухне."
-    payload["extracted"]["scene_progression"]["ending_evidence_text"] = "Сайлас остался на кухне."
     commit_turn_request(sid, payload)
     after = storage._read_json(root / "state.json", {})
     assert after["current"]["location"] == "кабинет"
