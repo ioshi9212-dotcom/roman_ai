@@ -31,6 +31,7 @@ from . import (
     runtime_fixes,
     scene_presence_runtime,
     scene_knowledge_guard,
+    scene_progression_runtime,
     session_migrations,
     session_recovery,
     session_runtime,
@@ -52,7 +53,7 @@ _BASE_PARTICIPATION_BUNDLE = character_chunk_read._participation_bundle
 _BASE_CREATE_SESSION = storage.create_session
 _BASE_RECOVER_CURRENT = session_recovery.recover_session_current
 
-PIPELINE_VERSION = 20
+PIPELINE_VERSION = 21
 
 def _packet_manifest(packet: Dict[str, Any], *, reused: bool) -> Dict[str, Any]:
     chunks = packet.get("chunks", []) if isinstance(packet.get("chunks"), list) else []
@@ -68,6 +69,7 @@ def _packet_manifest(packet: Dict[str, Any], *, reused: bool) -> Dict[str, Any]:
         "writer_first": True,
         "writer_first_version": writer_first_runtime.WRITER_FIRST_VERSION,
         "relationship_review_required": bool(packet.get("relationship_review_required")),
+        "progression_review_required": bool(packet.get("progression_review_required")),
         "chunk_chars_max": writer_first_runtime.WRITER_PACKET_CHARS,
         "first_chunk_included": bool(chunks),
         "reused_pending_packet": reused,
@@ -573,6 +575,14 @@ def _prepare_context(
         "remote_character_ids": [str(value) for value in storage._remote_character_ids(state) if value],
     }
     context["scene_presence"] = scene_presence
+    context["progression_contract"] = scene_progression_runtime.build_contract(
+        state=state,
+        context=context,
+        user_input=str(packet.get("user_input") or ""),
+        cards=cards,
+        relationship_store=relationship_store,
+        current_turn=current_turn,
+    )
 
     lens = context.get("relationship_lens")
     if isinstance(lens, dict):
@@ -1011,7 +1021,9 @@ def commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     prepared = _apply_npc_relationship_updates(session_id, prepared)
     prepared = _apply_relationship_changes(session_id, prepared)
     relationship_review_runtime.validate_relationship_review(session_id, prepared)
+    scene_progression_runtime.validate_scene_progression(session_id, prepared)
     prepared = _strip_relationship_review(prepared)
+    prepared = scene_progression_runtime.strip_progression_proof(prepared)
     prepared = cast_registry_runtime._with_registry_patch(session_id, prepared)
     prepared = _normalise_chronology_for_save(session_id, prepared)
     prepared = knowledge_persistence_runtime.dedupe_new_journal_against_persisted(
