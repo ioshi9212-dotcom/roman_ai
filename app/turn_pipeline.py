@@ -440,6 +440,7 @@ def _prepare_context(
     *,
     packet_override: Dict[str, Any] | None = None,
     context_override: Dict[str, Any] | None = None,
+    snapshot_override: Dict[str, Any] | None = None,
 ) -> Dict[str, Any]:
     root = storage.SESSIONS_DIR / session_id
     if packet_override is None or context_override is None:
@@ -450,10 +451,11 @@ def _prepare_context(
     if not context:
         return base
 
-    source = storage._read_json(root / "source.json", {})
-    cards = storage._load_cards(root, source)
-    state = storage._read_json(root / "state.json", {})
-    meta = storage._read_json(root / "meta.json", {})
+    snapshot = snapshot_override if isinstance(snapshot_override, dict) else {}
+    source = snapshot["source"] if "source" in snapshot else storage._read_json(root / "source.json", {})
+    cards = snapshot["cards"] if "cards" in snapshot else storage._load_cards(root, source)
+    state = snapshot["state"] if "state" in snapshot else storage._read_json(root / "state.json", {})
+    meta = snapshot["meta"] if "meta" in snapshot else storage._read_json(root / "meta.json", {})
     current_turn = int(meta.get("turn_number", 0) or 0)
     opening_scene = current_turn == 0 and str(packet.get("user_input") or "") == ""
     if opening_scene:
@@ -466,7 +468,9 @@ def _prepare_context(
         context,
         persistent_state=state,
     )
-    context = writer_first_runtime._rewrite_context(session_id, context)
+    context = writer_first_runtime._rewrite_context(
+        session_id, context, snapshot_override=snapshot,
+    )
     context = private_knowledge_runtime.redact_private_history(context, root=root, cards=cards)
     context = _clean_director_layers(context)
     # cast_registry below is the single always-read cast index. Remove the older
@@ -509,7 +513,7 @@ def _prepare_context(
     # character_cards is the single lossless active-card representation.
     # Do not render the same cards a second time into character_profiles.
 
-    memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
+    memory = snapshot["memory"] if "memory" in snapshot else storage._normalise_memory(storage._read_json(root / "memory.json", {}))
     memory_buckets = memory.get("characters", {}) if isinstance(memory.get("characters"), dict) else {}
     context["character_memory"] = {
         cid: turn_context._working_memory_bucket(
@@ -651,7 +655,9 @@ def prepare_turn_packet(session_id: str, user_input: str) -> Dict[str, Any]:
 
     # Build once in memory, then serialize only the final writer packet.
     # This avoids storage -> packet -> read -> rewrite -> packet round-trips.
-    context = session_runtime.build_turn_context(session_id, user_input)
+    context, snapshot = session_runtime.build_turn_context(
+        session_id, user_input, return_snapshot=True,
+    )
     packet = {
         "packet_id": secrets.token_urlsafe(12),
         "prepared_for_turn": expected_turn,
@@ -676,6 +682,7 @@ def prepare_turn_packet(session_id: str, user_input: str) -> Dict[str, Any]:
         base,
         packet_override=packet,
         context_override=context,
+        snapshot_override=snapshot,
     )
 
 
