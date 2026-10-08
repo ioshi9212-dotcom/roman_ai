@@ -135,6 +135,12 @@ def _working_memory(
     # with a tiny historical catalog: the bundle is chunked, so all active facts can
     # be transported safely.
     knowledge = deepcopy(all_knowledge)
+    # V5 journals are personal knowledge too. Only this owner's bundle may
+    # transport these records; other cast members never receive them.
+    journal = deepcopy(memory.get("knowledge_journal", []))
+    if not isinstance(journal, list):
+        journal = []
+    journal = [row for row in journal if isinstance(row, (dict, str))]
 
     experiences = _tail(memory.get("experiences"), CHARACTER_WORKING_EXPERIENCES)
     dialogue = personal_memory_transport.personal_dialogue_rows(
@@ -144,6 +150,7 @@ def _working_memory(
     )
     return {
         "knowledge": knowledge,
+        "knowledge_journal": journal,
         "experiences": _bound_memory_value(experiences),
         "dialogue_memory": _bound_memory_value(dialogue),
         "historical_knowledge_catalog": [],
@@ -151,6 +158,7 @@ def _working_memory(
         "knowledge_text_not_truncated_in_transport": True,
         "persistent_counts": {
             "knowledge": len(memory.get("knowledge", [])) if isinstance(memory.get("knowledge"), list) else 0,
+            "knowledge_journal": len(journal),
             "experiences": len(memory.get("experiences", [])) if isinstance(memory.get("experiences"), list) else 0,
             "dialogue_memory": len(memory.get("dialogue_memory", [])) if isinstance(memory.get("dialogue_memory"), list) else 0,
         },
