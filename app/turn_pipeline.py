@@ -189,7 +189,7 @@ def _cast_registry_rows(
     pov_id = str(pov.get("character_id") or "")
     present = {str(value) for value in storage._present_character_ids(state) if value}
     remote = {str(value) for value in storage._remote_character_ids(state) if value}
-    def compact(value: Any, limit: int = 140) -> str | None:
+    def compact(value: Any, limit: int = 130) -> str | None:
         if value in (None, "", [], {}):
             return None
         if isinstance(value, str):
@@ -281,7 +281,7 @@ def _cast_registry_rows(
             "initiative_eligible": cid != pov_id and not cast_registry_runtime._is_inactive(raw.get("status") or info.get("status") or card.get("status")),
             "offscreen_can_initiate": cid != pov_id and cid not in present and cid not in remote and not cast_registry_runtime._is_inactive(raw.get("status") or info.get("status") or card.get("status")),
             "goals": compact(goals),
-            "work": compact(card.get("work"), 120),
+            "work": compact(card.get("work"), 100),
             "habits": compact(card.get("habits"), 150),
             "character": compact(card.get("character") or card.get("personality"), 150),
             "pov_relationship": pov_relationship or None,
