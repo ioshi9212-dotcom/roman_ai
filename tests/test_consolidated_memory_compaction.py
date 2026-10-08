@@ -495,3 +495,54 @@ def test_proven_compaction_reduces_actual_writer_memory_payload_size():
     assert compressed_size < original_size * 0.4
     assert packet["knowledge"][0]["fact"] == fact
     assert packet["knowledge"][0]["source_turns"] == list(range(1, 21))
+
+
+def test_continuation_block_uses_raw_first_day_facts_not_lossy_active_summary():
+    from app.continuation_runtime import _memory_for_range
+    memory = {"characters": {"pov": {
+        "knowledge": [
+            {"fact_id": "secret", "fact": "На первом ходу POV узнал точный код 8901.",
+             "learned_turn": 1, "superseded_by": "knowledge-summary"},
+            {"fact_id": "promise", "fact": "POV обещал сохранить код в тайне.",
+             "learned_turn": 2, "superseded_by": "knowledge-summary"},
+            {"fact_id": "knowledge-summary", "fact": "POV знает код.",
+             "learned_turn": 1, "canonical_compaction": True,
+             "merged_from": ["secret", "promise"]},
+        ],
+        "knowledge_journal": [
+            {"entry_id": "journal-secret", "text": "В первый день Мира сказала: «Серебро».",
+             "date": "01.09.1206", "turn": 1, "superseded_by": "journal-summary"},
+            {"entry_id": "journal-promise", "text": "POV обещал не раскрывать имя Миры.",
+             "date": "01.09.1206", "turn": 2, "superseded_by": "journal-summary"},
+            {"entry_id": "journal-summary", "text": "POV и Мира поговорили.",
+             "date": "01.09.1206", "turn": 1, "canonical_compaction": True,
+             "merged_from": ["journal-secret", "journal-promise"]},
+        ],
+    }}}
+    first = _memory_for_range(memory, 1, 100)["pov"]
+    knowledge = [row["text"] for row in first["knowledge"]]
+    journal = [row["text"] for row in first["knowledge_journal"]]
+    assert "На первом ходу POV узнал точный код 8901." in knowledge
+    assert "POV обещал сохранить код в тайне." in knowledge
+    assert "В первый день Мира сказала: «Серебро»." in journal
+    assert "POV обещал не раскрывать имя Миры." in journal
+    assert all("поговорили" not in item for item in journal)
+    assert all("знает код." not in item for item in knowledge)
+    assert _memory_for_range(memory, 101, 200) == {}
+
+
+def test_continuation_block_preserves_string_journal_and_source_turn_boundaries():
+    from app.continuation_runtime import _memory_for_range
+    memory = {"characters": {"mira": {"knowledge_journal": [
+        {"entry_id": "first", "turn": 1, "text": "Первый день, важный факт.",
+         "date": "01.09.1206"},
+        "Старая строка без времени.",
+        {"entry_id": "later", "turn": 110, "text": "Сто десятый ход, новый факт.",
+         "date": "04.09.1206"},
+    ]}}}
+    first = _memory_for_range(memory, 1, 100)["mira"]["knowledge_journal"]
+    second = _memory_for_range(memory, 101, 200)["mira"]["knowledge_journal"]
+    assert {row["text"] for row in first} == {
+        "Первый день, важный факт.", "Старая строка без времени.",
+    }
+    assert [row["text"] for row in second] == ["Сто десятый ход, новый факт."]
