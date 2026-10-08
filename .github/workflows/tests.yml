@@ -63,6 +63,7 @@ jobs:
           tests/test_consolidated_chronology_anchors.py
           tests/test_character_read_longevity.py
           tests/test_lightweight_engine_mechanics.py
+          tests/test_session_checkpoint_failure_recovery.py
           tests/test_last_turn_rollback.py
           --junitxml=pytest-current-report.xml
       - name: upload current report
