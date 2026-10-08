@@ -371,8 +371,13 @@ def _normalise_chronology_events(
 
         item = {key: value for key, value in item.items() if value not in (None, "", [])}
         signature = json.dumps(
-            {key: value for key, value in item.items()
-             if key not in {"event_id", "turn_number"}},
+            {
+                **{key: value for key, value in item.items()
+                   if key not in {"event_id", "turn_number"}},
+                # Explicitly different event IDs may represent separate
+                # occurrences with identical wording. Never merge them.
+                "_dedupe_event_id": str(raw.get("event_id") or ""),
+            },
             ensure_ascii=False, sort_keys=True, default=str,
         )
         if signature in seen_same_turn:
