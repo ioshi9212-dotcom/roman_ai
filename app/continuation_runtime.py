@@ -545,6 +545,33 @@ def _normalized_compact_memory(source: Dict[str, Any], cards: List[Dict[str, Any
     return result
 
 
+def _source_key_facts_by_date(source_rows: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
+    """Carry evidence through a continuation even if its prose omits facts."""
+    by_date: Dict[str, List[Dict[str, Any]]] = {}
+    seen: set[tuple[str, str]] = set()
+    for row in source_rows:
+        if not isinstance(row, dict):
+            continue
+        date = str(row.get("story_date") or row.get("date") or "").strip()
+        if not date:
+            continue
+        facts = row.get("source_key_facts")
+        if not isinstance(facts, list):
+            continue
+        for fact in facts:
+            if not isinstance(fact, dict):
+                continue
+            identifier = str(fact.get("source_event_id") or fact.get("event_id") or "")
+            if not identifier:
+                identifier = f'{fact.get("turn_number") or 0}:{fact.get("event") or ""}'
+            key = (date, identifier)
+            if key in seen:
+                continue
+            seen.add(key)
+            by_date.setdefault(date, []).append(deepcopy(fact))
+    return by_date
+
+
 def _normalized_chronology(
     package: Dict[str, Any], *, source_chronology: Any = None,
 ) -> List[Dict[str, Any]]:
@@ -577,24 +604,42 @@ def _normalized_chronology(
     # actors as physically present or granting any character extra knowledge.
     source_rows = source_chronology if isinstance(source_chronology, list) else []
     by_date = _source_actor_events_by_date(source_rows)
+    source_facts = _source_key_facts_by_date(source_rows)
     attached: set[str] = set()
     for row in result:
         date = str(row.get("story_date") or "").strip()
-        if date in by_date and date not in attached:
-            row["actor_events"] = deepcopy(by_date[date])
-            attached.add(date)
-    for date, events in by_date.items():
         if date in attached:
             continue
-        # No author summary covered the date; preserve the original event
-        # rather than inventing a new POV-visible summary.
+        if date in by_date:
+            row["actor_events"] = deepcopy(by_date[date])
+        if date in source_facts:
+            row["source_key_facts"] = deepcopy(source_facts[date])
+            if any(
+                str(fact.get("importance") or "").casefold() in {"anchor", "critical"}
+                for fact in source_facts[date]
+            ):
+                row["importance"] = "anchor"
+        if date in by_date or date in source_facts:
+            attached.add(date)
+    for date in dict.fromkeys([*by_date, *source_facts]):
+        if date in attached:
+            continue
+        # The model omitted this entire date; retain its original author
+        # evidence without attributing it to an unwitnessing character.
+        actors = by_date.get(date, [])
+        facts = source_facts.get(date, [])
+        first = (facts or actors)[0]
         result.append({
-            "event_id": f"continuation_actor_{len(result) + 1}",
+            "event_id": f"continuation_evidence_{len(result) + 1}",
             "turn_number": 0,
             "story_date": date,
-            "event": events[0]["event"],
-            "importance": "major",
-            "actor_events": deepcopy(events),
+            "event": first.get("event") or "",
+            "importance": "anchor" if any(
+                str(fact.get("importance") or "").casefold() in {"anchor", "critical"}
+                for fact in facts
+            ) else "major",
+            **({"actor_events": deepcopy(actors)} if actors else {}),
+            **({"source_key_facts": deepcopy(facts)} if facts else {}),
             "compacted_from_prior_session": True,
         })
     return result
