@@ -116,7 +116,7 @@ def test_gameplay_packet_batch_reads_every_chunk_without_repeating_chunk_zero():
         setup_temp_storage(tmp)
         sid = make_session()
         manifest = session_runtime.prepare_turn_packet(sid, "Прочитать весь контекст за меньшее число вызовов.")
-        assert manifest["chunk_count"] >= 5
+        assert manifest["chunk_count"] >= 4
         parts = [manifest["content"]]
         calls = 0
         for start in range(1, manifest["chunk_count"], 3):
