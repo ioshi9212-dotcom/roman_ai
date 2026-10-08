@@ -8,6 +8,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 
 from .audit_runtime import get_audit_snapshot, get_audit_snapshot_chunk
+from . import commit_failure_diagnostics
 from .character_access import get_character_bundle
 from .character_chunk_read import get_character_bundle_chunk, prepare_character_bundle_read
 from .context_stats import session_context_stats
@@ -562,13 +563,19 @@ def audit_snapshot_chunk_get(session_id: str, audit_id: str, chunk_index: int):
 @app.post("/sessions/{session_id}/turn-packet", operation_id="prepareTurn")
 def turn_packet_prepare(session_id: str, body: TurnPrepare):
     try:
-        return prepare_turn_request(
+        result = prepare_turn_request(
             session_id,
             body.user_input,
             body.request_id,
             scene_archive_capable=bool(body.scene_archive_capable),
             replace_pending=bool(body.replace_pending),
         )
+        failure = commit_failure_diagnostics.latest(session_id)
+        if failure and isinstance(result, dict):
+            pending = result.get("pending_turn") if isinstance(result.get("pending_turn"), dict) else {}
+            if pending.get("packet_id") == failure.get("identity"):
+                result["last_commit_rejection"] = failure
+        return result
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Session not found")
     except RuntimeError as exc:
@@ -597,6 +604,7 @@ def turn_packet_prepare(session_id: str, body: TurnPrepare):
                     "code": code,
                     "message": "Another user turn is already prepared but not committed. It was NOT deleted or replaced.",
                     "pending_turn": pending_turn_status(session_id),
+                    "last_commit_rejection": commit_failure_diagnostics.latest(session_id),
                     "instruction": (
                         "Resume the existing packet: read only its unread_chunk_indices and commit that same packet once. "
                         "Do not call recoverSessionCurrent for a turn-packet error. If the user explicitly asks to rebuild a stuck uncommitted turn, "
@@ -755,15 +763,35 @@ def turns_commit(session_id: str, body: CommitTurnRequest):
         extracted=body.extracted,
     )
     try:
-        return commit_turn_request(session_id, turn_body.model_dump())
+        result = commit_turn_request(session_id, turn_body.model_dump())
+        commit_failure_diagnostics.clear(session_id)
+        return result
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Session not found")
+    except HTTPException as exc:
+        if exc.status_code == 409:
+            commit_failure_diagnostics.record(
+                session_id, operation="commitTurn", identity=turn_body.packet_id,
+                status_code=409, detail=exc.detail,
+            )
+            detail = exc.detail if isinstance(exc.detail, dict) else {}
+            logger.warning("commitTurn rejected session=%s packet=%s code=%s", session_id, turn_body.packet_id,
+                           detail.get("code", "HTTP_409"))
+        raise
     except OperationReceiptConflict:
+        commit_failure_diagnostics.record(
+            session_id, operation="commitTurn", identity=turn_body.packet_id,
+            status_code=409, detail="OPERATION_RECEIPT_CONFLICT",
+        )
         logger.warning("commitTurn rejected session=%s packet=%s code=OPERATION_RECEIPT_CONFLICT", session_id, turn_body.packet_id)
         raise HTTPException(status_code=409, detail="The packet_id was already used with a different commit payload. Prepare a fresh turn packet; no mutation was performed.")
     except RuntimeError as exc:
         code = str(exc)
         diagnostic_code = code if code.isidentifier() and code.isupper() and len(code) <= 100 else "UNCLASSIFIED_RUNTIME_ERROR"
+        commit_failure_diagnostics.record(
+            session_id, operation="commitTurn", identity=turn_body.packet_id,
+            status_code=409, detail=code,
+        )
         logger.warning("commitTurn rejected session=%s packet=%s code=%s", session_id, turn_body.packet_id, diagnostic_code)
         if code == "TURN_PACKET_RUNTIME_STALE":
             raise HTTPException(
@@ -827,15 +855,35 @@ def turns_commit(session_id: str, body: CommitTurnRequest):
 @app.post("/sessions/{session_id}/audit", operation_id="commitAudit", include_in_schema=False)
 def audit_commit(session_id: str, body: AuditCommit):
     try:
-        return commit_audit_request(session_id, body.model_dump())
+        result = commit_audit_request(session_id, body.model_dump())
+        commit_failure_diagnostics.clear(session_id)
+        return result
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Session not found")
+    except HTTPException as exc:
+        if exc.status_code == 409:
+            commit_failure_diagnostics.record(
+                session_id, operation="commitAudit", identity=body.audit_id,
+                status_code=409, detail=exc.detail,
+            )
+            detail = exc.detail if isinstance(exc.detail, dict) else {}
+            logger.warning("commitAudit rejected session=%s audit=%s code=%s", session_id, body.audit_id,
+                           detail.get("code", "HTTP_409"))
+        raise
     except OperationReceiptConflict:
+        commit_failure_diagnostics.record(
+            session_id, operation="commitAudit", identity=body.audit_id,
+            status_code=409, detail="OPERATION_RECEIPT_CONFLICT",
+        )
         logger.warning("commitAudit rejected session=%s audit=%s code=OPERATION_RECEIPT_CONFLICT", session_id, body.audit_id)
         raise HTTPException(status_code=409, detail="The audit_id was already used with different audit data. Read a fresh audit snapshot; no mutation was performed.")
     except RuntimeError as exc:
         code = str(exc)
         diagnostic_code = code if code.isidentifier() and code.isupper() and len(code) <= 100 else "UNCLASSIFIED_RUNTIME_ERROR"
+        commit_failure_diagnostics.record(
+            session_id, operation="commitAudit", identity=body.audit_id,
+            status_code=409, detail=code,
+        )
         logger.warning("commitAudit rejected session=%s audit=%s code=%s", session_id, body.audit_id, diagnostic_code)
         errors = {
             "AUDIT_NOT_REQUIRED": "Audit is not currently required",
@@ -864,6 +912,10 @@ def audit_commit(session_id: str, body: AuditCommit):
             raise HTTPException(status_code=409, detail=errors[code])
         raise
     except ValueError:
+        commit_failure_diagnostics.record(
+            session_id, operation="commitAudit", identity=body.audit_id,
+            status_code=409, detail="AUDIT_RANGE_MISMATCH",
+        )
         logger.warning("commitAudit rejected session=%s audit=%s code=AUDIT_RANGE_MISMATCH", session_id, body.audit_id)
         raise HTTPException(status_code=409, detail="Audit range does not match the current turn")
 
@@ -871,6 +923,10 @@ def audit_commit(session_id: str, body: AuditCommit):
 @app.post("/sessions/{session_id}/resume", operation_id="resumeSession")
 def session_resume(session_id: str):
     try:
-        return continue_session(session_id)
+        result = dict(continue_session(session_id))
+        failure = commit_failure_diagnostics.latest(session_id)
+        if failure:
+            result["last_commit_rejection"] = failure
+        return result
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Session not found")
