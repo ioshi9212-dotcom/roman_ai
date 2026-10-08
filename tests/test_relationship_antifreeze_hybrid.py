@@ -298,11 +298,11 @@ def test_neutral_first_encounter_creates_empty_record_and_rollback_removes_it():
         sid = storage.create_session(n)["session_id"]
         root = storage.SESSIONS_DIR / sid
         before = storage._read_json(root / "relationships.json", {})
-        manifest = prepare_turn_request(sid, "Здравствуйте. Без событий.", request_id="first-encounter")
+        manifest = prepare_turn_request(sid, "Здравствуйте. (без событий)", request_id="first-encounter")
         read_all_pending(sid, manifest)
         data = payload(
             manifest,
-            "Здравствуйте. Без событий.",
+            "Здравствуйте. (без событий)",
             review=[{
                 "character_id": "adrian",
                 "changed": False,
