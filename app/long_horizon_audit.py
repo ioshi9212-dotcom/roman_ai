@@ -365,6 +365,58 @@ def build_macro_payload(
     }
 
 
+def _durable_facts_by_date(events: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
+    """Keep original causal evidence through prose-only 60-turn macro summaries.
+
+    This is objective chronology, never personal knowledge. Routine facts are
+    deliberately omitted. Sources are preserved with their actor and turn.
+    """
+    result: Dict[str, List[Dict[str, Any]]] = {}
+    seen: set[str] = set()
+
+    def add(event: Dict[str, Any], date: str) -> None:
+        text = str(event.get("event") or event.get("summary") or "").strip()
+        if not date or not text:
+            return
+        importance = str(event.get("importance") or "normal").casefold()
+        has_cause = bool(event.get("actor_character_id") or event.get("consequences") or
+                         event.get("time_critical") or event.get("anchor") or
+                         importance in {"anchor", "major", "critical"})
+        if not has_cause:
+            return
+        source_key = str(event.get("event_id") or (date, _event_turn(event), text))
+        if source_key in seen:
+            return
+        seen.add(source_key)
+        fact: Dict[str, Any] = {
+            "event_id": event.get("event_id"),
+            "turn_number": _event_turn(event),
+            "story_date": date,
+            "event": text,
+            "importance": importance,
+            "actor_character_id": event.get("actor_character_id"),
+            "location": event.get("location"),
+            "participants_present": deepcopy(event.get("participants_present", [])),
+            "consequences": deepcopy(event.get("consequences", [])),
+        }
+        result.setdefault(date, []).append({
+            k: v for k, v in fact.items() if v not in (None, "", [])
+        })
+
+    for event in events:
+        if not isinstance(event, dict):
+            continue
+        date = _story_date(event)
+        nested = event.get("source_key_facts")
+        if isinstance(nested, list) and nested:
+            for child in nested:
+                if isinstance(child, dict):
+                    add(child, _story_date(child) or date)
+        else:
+            add(event, date)
+    return result
+
+
 def _apply_macro_chronology_compaction_core(
     source: Dict[str, Any],
     turns: List[Dict[str, Any]],
@@ -402,6 +454,7 @@ def _apply_macro_chronology_compaction_core(
         or row.get("anchor") is True
     }
     important_dates.discard("")
+    durable_facts = _durable_facts_by_date(source_events)
 
     normalized: List[Dict[str, Any]] = []
     represented_dates: set[str] = set()
@@ -455,6 +508,8 @@ def _apply_macro_chronology_compaction_core(
         elif critical_times:
             item["critical_times"] = critical_times
             item["time_critical"] = True
+        if durable_facts.get(date):
+            item["source_key_facts"] = deepcopy(durable_facts[date])
         normalized.append({k: v for k, v in item.items() if v not in (None, "", [], {})})
 
     if important_dates - represented_dates:
@@ -464,8 +519,14 @@ def _apply_macro_chronology_compaction_core(
         row for row in values
         if not (start_turn <= _event_turn(row) <= end_turn)
     ]
+    # Model summaries can omit a normal-but-causal date. Keep those source
+    # records rather than forcing another rejection or silently deleting them.
+    unresolved_source = [
+        deepcopy(row) for row in source_events
+        if _story_date(row) in durable_facts and _story_date(row) not in represented_dates
+    ]
     return sorted(
-        [*kept, *normalized],
+        [*kept, *normalized, *unresolved_source],
         key=lambda row: (_event_turn(row), str(row.get("event_id") or "")),
     )
 

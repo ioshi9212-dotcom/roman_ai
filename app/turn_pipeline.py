@@ -30,6 +30,7 @@ from . import (
     runtime_fixes,
     scene_presence_runtime,
     scene_knowledge_guard,
+    scene_engine_hints,
     session_migrations,
     session_recovery,
     session_runtime,
@@ -186,7 +187,7 @@ def _cast_registry_rows(
     pov_id = str(pov.get("character_id") or "")
     present = {str(value) for value in storage._present_character_ids(state) if value}
     remote = {str(value) for value in storage._remote_character_ids(state) if value}
-    def compact(value: Any, limit: int = 520) -> str | None:
+    def compact(value: Any, limit: int = 150) -> str | None:
         if value in (None, "", [], {}):
             return None
         if isinstance(value, str):
@@ -267,7 +268,7 @@ def _cast_registry_rows(
             "character_id": cid,
             "name": raw.get("name") or storage._card_name(card) or cid,
             "role": raw.get("role") or storage._card_role(card),
-            "story_function": compact(story_function, 420),
+            "story_function": compact(story_function, 180),
             "status": raw.get("status") or "active",
             "origin": raw.get("origin"),
             "importance": raw.get("importance"),
@@ -278,14 +279,14 @@ def _cast_registry_rows(
             "initiative_eligible": cid != pov_id and not cast_registry_runtime._is_inactive(raw.get("status") or info.get("status") or card.get("status")),
             "offscreen_can_initiate": cid != pov_id and cid not in present and cid not in remote and not cast_registry_runtime._is_inactive(raw.get("status") or info.get("status") or card.get("status")),
             "goals": compact(goals),
-            "work": compact(card.get("work"), 220),
-            "habits": compact(card.get("habits"), 260),
-            "character": compact(card.get("character") or card.get("personality"), 260),
+            "work": compact(card.get("work"), 110),
+            "habits": compact(card.get("habits"), 140),
+            "character": compact(card.get("character") or card.get("personality"), 160),
             "pov_relationship": pov_relationship or None,
-            "pov_relationship_dynamic": compact(relation.get("dynamic"), 700) if isinstance(relation, dict) else None,
-            "current_location": compact(info.get("location") or info.get("location_id"), 220),
-            "current_zone": compact(info.get("zone") or info.get("zone_id"), 180),
-            "current_activity": compact(info.get("activity"), 320),
+            "pov_relationship_dynamic": compact(relation.get("dynamic"), 280) if isinstance(relation, dict) else None,
+            "current_location": compact(info.get("location") or info.get("location_id"), 120),
+            "current_zone": compact(info.get("zone") or info.get("zone_id"), 90),
+            "current_activity": compact(info.get("activity"), 150),
             "pov_familiarity": deepcopy(info.get("pov_familiarity")) if isinstance(info.get("pov_familiarity"), dict) else None,
             "npc_relation_refs": npc_relationship_runtime.relation_refs_for_character(npc_network, cid),
             "active_intents": active_intents(cid),
@@ -439,6 +440,7 @@ def _prepare_context(
     *,
     packet_override: Dict[str, Any] | None = None,
     context_override: Dict[str, Any] | None = None,
+    snapshot_override: Dict[str, Any] | None = None,
 ) -> Dict[str, Any]:
     root = storage.SESSIONS_DIR / session_id
     if packet_override is None or context_override is None:
@@ -449,10 +451,11 @@ def _prepare_context(
     if not context:
         return base
 
-    source = storage._read_json(root / "source.json", {})
-    cards = storage._load_cards(root, source)
-    state = storage._read_json(root / "state.json", {})
-    meta = storage._read_json(root / "meta.json", {})
+    snapshot = snapshot_override if isinstance(snapshot_override, dict) else {}
+    source = snapshot["source"] if "source" in snapshot else storage._read_json(root / "source.json", {})
+    cards = snapshot["cards"] if "cards" in snapshot else storage._load_cards(root, source)
+    state = snapshot["state"] if "state" in snapshot else storage._read_json(root / "state.json", {})
+    meta = snapshot["meta"] if "meta" in snapshot else storage._read_json(root / "meta.json", {})
     current_turn = int(meta.get("turn_number", 0) or 0)
     opening_scene = current_turn == 0 and str(packet.get("user_input") or "") == ""
     if opening_scene:
@@ -465,7 +468,9 @@ def _prepare_context(
         context,
         persistent_state=state,
     )
-    context = writer_first_runtime._rewrite_context(session_id, context)
+    context = writer_first_runtime._rewrite_context(
+        session_id, context, snapshot_override=snapshot,
+    )
     context = private_knowledge_runtime.redact_private_history(context, root=root, cards=cards)
     context = _clean_director_layers(context)
     # cast_registry below is the single always-read cast index. Remove the older
@@ -508,7 +513,7 @@ def _prepare_context(
     # character_cards is the single lossless active-card representation.
     # Do not render the same cards a second time into character_profiles.
 
-    memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
+    memory = snapshot["memory"] if "memory" in snapshot else storage._normalise_memory(storage._read_json(root / "memory.json", {}))
     memory_buckets = memory.get("characters", {}) if isinstance(memory.get("characters"), dict) else {}
     context["character_memory"] = {
         cid: turn_context._working_memory_bucket(
@@ -562,6 +567,11 @@ def _prepare_context(
         "characters": _cast_registry_rows(state, cards, source, current_turn, npc_network, relationship_store),
     }
     context["npc_relationship_network"] = npc_network
+    context["scene_engine_cues"] = scene_engine_hints.build(
+        state,
+        context["cast_registry"]["characters"],
+        current_turn,
+    )
     # Legacy intent-only candidate list falsely implied that offscreen NPCs
     # without a pre-existing intent were ineligible to act. The complete
     # cast_registry is now the single offscreen review surface.
@@ -645,7 +655,9 @@ def prepare_turn_packet(session_id: str, user_input: str) -> Dict[str, Any]:
 
     # Build once in memory, then serialize only the final writer packet.
     # This avoids storage -> packet -> read -> rewrite -> packet round-trips.
-    context = session_runtime.build_turn_context(session_id, user_input)
+    context, snapshot = session_runtime.build_turn_context(
+        session_id, user_input, return_snapshot=True,
+    )
     packet = {
         "packet_id": secrets.token_urlsafe(12),
         "prepared_for_turn": expected_turn,
@@ -670,6 +682,7 @@ def prepare_turn_packet(session_id: str, user_input: str) -> Dict[str, Any]:
         base,
         packet_override=packet,
         context_override=context,
+        snapshot_override=snapshot,
     )
 
 

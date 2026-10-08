@@ -209,6 +209,18 @@ def _event_participants(event: Dict[str, Any]) -> set[str]:
     return result
 
 
+def _event_actor_ids(event: Dict[str, Any]) -> set[str]:
+    """Actor is objective provenance, not an additional present witness."""
+    actors = set()
+    if event.get("actor_character_id"):
+        actors.add(str(event["actor_character_id"]))
+    for collection in ("actor_events", "source_key_facts"):
+        for row in event.get(collection, []) if isinstance(event.get(collection), list) else []:
+            if isinstance(row, dict) and row.get("actor_character_id"):
+                actors.add(str(row["actor_character_id"]))
+    return actors
+
+
 def _event_location(event: Dict[str, Any]) -> str:
     return str(event.get("location") or event.get("location_id") or event.get("place") or "").casefold().strip()
 
@@ -250,7 +262,11 @@ def _compact_chronology(value: Any, character_ids: List[str], location: Any) -> 
     for index, event in list(enumerate(events))[-MAX_RECENT_CHRONOLOGY:]:
         keep(event, index)
     for character_id in character_ids:
-        for index, event in [(i, e) for i, e in enumerate(events) if character_id in _event_participants(e)][-MAX_CHARACTER_CHRONOLOGY:]:
+        matches = [
+            (i, event) for i, event in enumerate(events)
+            if character_id in _event_participants(event) or character_id in _event_actor_ids(event)
+        ]
+        for index, event in ([matches[0]] if matches and matches[0] not in matches[-MAX_CHARACTER_CHRONOLOGY:] else []) + matches[-MAX_CHARACTER_CHRONOLOGY:]:
             keep(event, index)
     needle = str(location or "").casefold().strip()
     if needle:
@@ -259,6 +275,28 @@ def _compact_chronology(value: Any, character_ids: List[str], location: Any) -> 
     full_anchors = [(i, e) for i, e in enumerate(events) if _is_anchor(e)][-MAX_FULL_ANCHOR_CHRONOLOGY:]
     for index, event in full_anchors:
         keep(event, index)
+    # The backend keeps all objective source facts. The writer gets only the
+    # on-scene actors' facts, plus truly global facts, to avoid giant packets.
+    relevant = {str(cid) for cid in character_ids}
+    for event in selected.values():
+        for field in ("actor_events", "source_key_facts"):
+            records = event.get(field)
+            if not isinstance(records, list):
+                continue
+            scoped = [
+                row for row in records
+                if isinstance(row, dict) and (
+                    str(row.get("actor_character_id") or "") in relevant
+                    or (not row.get("actor_character_id") and (
+                        not row.get("participants_present")
+                        or any(str(cid) in relevant for cid in row.get("participants_present", []))
+                    ))
+                )
+            ]
+            if scoped:
+                event[field] = scoped
+            else:
+                event.pop(field, None)
     return sorted(selected.values(), key=lambda event: (_event_turn(event), str(event.get("event_id", ""))))
 
 
@@ -332,8 +370,10 @@ def _compact_continuity_turn(turn: Dict[str, Any]) -> Dict[str, Any]:
     return result
 
 
-def _rolling_turn_context(root) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
-    turns = storage._read_turns(root)
+def _rolling_turn_context(
+    root, *, turns_override: List[Dict[str, Any]] | None = None,
+) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    turns = turns_override if turns_override is not None else storage._read_turns(root)
     compacted = covered_turns(root)
     working_turns = [
         turn for turn in turns
@@ -399,11 +439,14 @@ def _strip_instruction_noise(context: Dict[str, Any]) -> None:
         context["working_context_contract"] = contract
 
 
-def _rewrite_context(session_id: str, context: Dict[str, Any]) -> Dict[str, Any]:
+def _rewrite_context(
+    session_id: str, context: Dict[str, Any], *, snapshot_override: Dict[str, Any] | None = None,
+) -> Dict[str, Any]:
     root = storage.SESSIONS_DIR / session_id
     result = deepcopy(context)
-    state = storage._read_json(root / "state.json", {})
-    meta = storage._read_json(root / "meta.json", {})
+    snapshot = snapshot_override if isinstance(snapshot_override, dict) else {}
+    state = snapshot["state"] if "state" in snapshot else storage._read_json(root / "state.json", {})
+    meta = snapshot["meta"] if "meta" in snapshot else storage._read_json(root / "meta.json", {})
 
     for key in _RUNTIME_DROP_KEYS:
         result.pop(key, None)
@@ -414,7 +457,7 @@ def _rewrite_context(session_id: str, context: Dict[str, Any]) -> Dict[str, Any]
 
     result["scene_state"] = _compact_scene_state(result.get("scene_state"))
     result["starting_state"] = _compact_starting_state(result.get("starting_state"))
-    recent, continuity = _rolling_turn_context(root)
+    recent, continuity = _rolling_turn_context(root, turns_override=snapshot.get("turns"))
     result["recent_turns"] = recent
     result["continuity_turns"] = continuity
     result["scene_history"] = load_scene_history(root)

@@ -192,6 +192,21 @@ def _event_participants(event: Dict[str, Any]) -> List[str]:
     return list(dict.fromkeys(result))
 
 
+def _event_actor_ids(event: Dict[str, Any]) -> List[str]:
+    """Objective event actors, separate from witnesses and personal knowledge."""
+    result = []
+    actor = event.get("actor_character_id")
+    if actor:
+        result.append(str(actor))
+    for row in event.get("actor_events", []) if isinstance(event.get("actor_events"), list) else []:
+        if isinstance(row, dict) and row.get("actor_character_id"):
+            result.append(str(row["actor_character_id"]))
+    for row in event.get("source_key_facts", []) if isinstance(event.get("source_key_facts"), list) else []:
+        if isinstance(row, dict) and row.get("actor_character_id"):
+            result.append(str(row["actor_character_id"]))
+    return list(dict.fromkeys(result))
+
+
 def _event_location(event: Dict[str, Any]) -> str | None:
     value = event.get("location") or event.get("location_id") or event.get("place")
     return str(value) if value not in (None, "") else None
@@ -222,9 +237,13 @@ def _select_chronology_context(
         matches = [
             (index, event)
             for index, event in enumerate(events)
-            if str(character_id) in _event_participants(event)
-        ][-CHARACTER_CHRONOLOGY_EVENTS:]
-        for index, event in matches:
+            if str(character_id) in _event_participants(event) or str(character_id) in _event_actor_ids(event)
+        ]
+        # Keep one earliest source-backed actor fact even after a long later history.
+        selected_matches = matches[-CHARACTER_CHRONOLOGY_EVENTS:]
+        if matches and matches[0] not in selected_matches:
+            selected_matches = [matches[0], *selected_matches]
+        for index, event in selected_matches:
             remember(event, index)
 
     if location not in (None, ""):
@@ -301,17 +320,28 @@ def _normalise_chronology_events(
         if importance not in {"normal", "major", "anchor", "critical"}:
             importance = "normal"
 
+        raw_actor = raw.get("actor_character_id")
+        actor_id = _resolve_character_id(cards, raw_actor) if raw_actor else None
+        # A remote/offscreen actor must not inherit POV witnesses or POV location.
+        actor_offscreen = bool(actor_id and actor_id not in current_present)
+        participants = _normalise_participants(
+            cards,
+            raw.get("participants_present") if "participants_present" in raw else raw.get("participants"),
+            [] if actor_offscreen else current_present,
+        )
+        actor_location = None
+        if actor_offscreen:
+            runtime_characters = state.get("characters") if isinstance(state.get("characters"), dict) else {}
+            actor_state = runtime_characters.get(actor_id, {}) if isinstance(runtime_characters.get(actor_id), dict) else {}
+            actor_location = actor_state.get("location") or actor_state.get("location_id")
         item: Dict[str, Any] = {
             "event_id": str(raw.get("event_id") or f"chrono_t{turn_number}_{index + 1}"),
             "turn_number": turn_number,
             "story_date": raw.get("story_date") or raw.get("date") or story_date,
             "period": raw.get("period") or raw.get("time_of_day") or period,
-            "location": raw.get("location") or raw.get("location_id") or raw.get("place") or location,
-            "participants_present": _normalise_participants(
-                cards,
-                raw.get("participants_present") or raw.get("participants"),
-                current_present,
-            ),
+            "location": raw.get("location") or raw.get("location_id") or raw.get("place") or (actor_location if actor_offscreen else location),
+            "participants_present": participants,
+            "actor_character_id": actor_id,
             "event": text,
             "importance": importance,
         }
@@ -422,7 +452,9 @@ def _prepare_extracted_for_commit(
 
 
 
-def build_turn_context(session_id: str, user_input: str) -> Dict[str, Any]:
+def build_turn_context(
+    session_id: str, user_input: str, *, return_snapshot: bool = False,
+) -> Dict[str, Any] | tuple[Dict[str, Any], Dict[str, Any]]:
     """Build the complete pre-writer turn context in memory without packet round-trips."""
     root = storage.SESSIONS_DIR / session_id
     if not root.exists():
@@ -609,7 +641,7 @@ def build_turn_context(session_id: str, user_input: str) -> Dict[str, Any]:
         if key in context.get("author_context", {}):
             context[key] = context["author_context"][key]
 
-    return context
+    return (context, snapshot) if return_snapshot else context
 
 def _augment_packet(session_id: str, manifest: Dict[str, Any]) -> Dict[str, Any]:
     root = storage.SESSIONS_DIR / session_id

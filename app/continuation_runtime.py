@@ -7,6 +7,8 @@ from copy import deepcopy
 from typing import Any, Dict, List
 
 from . import relationship_file_runtime, storage
+from .long_horizon_audit import _durable_facts_by_date
+from .scene_compaction_runtime import complete_knowledge_records
 from .scene_compaction_runtime import active_memory_records, load_scene_history
 from .transactional_storage import json_text, write_batch
 
@@ -690,6 +692,67 @@ def _latest_exact_current_patch(turns: List[Dict[str, Any]]) -> Dict[str, Any]:
     return current
 
 
+def _preserve_personal_facts(
+    normalized: Dict[str, Any], source_memory: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Compaction can shorten dialogue, but may not delete an NPC's known facts."""
+    result = deepcopy(normalized)
+    new_buckets = result.get("characters") if isinstance(result.get("characters"), dict) else {}
+    old_buckets = source_memory.get("characters") if isinstance(source_memory.get("characters"), dict) else {}
+    for cid, old in old_buckets.items():
+        if not isinstance(old, dict) or cid not in new_buckets:
+            continue
+        new = new_buckets[cid]
+        if not isinstance(new, dict):
+            continue
+        knowledge = complete_knowledge_records(old.get("knowledge"))
+        if knowledge:
+            new["knowledge"] = deepcopy(knowledge)
+        journal = old.get("knowledge_journal")
+        if isinstance(journal, list) and journal:
+            new["knowledge_journal"] = deepcopy(journal)
+    return result
+
+
+def _preserve_chronology_evidence(
+    compacted: List[Dict[str, Any]], source_rows: Any,
+) -> List[Dict[str, Any]]:
+    result = deepcopy(compacted)
+    facts_by_date = _durable_facts_by_date(
+        source_rows if isinstance(source_rows, list) else []
+    )
+    by_date = {
+        str(row.get("story_date") or row.get("date") or ""): row
+        for row in result if isinstance(row, dict)
+    }
+    for date, facts in facts_by_date.items():
+        row = by_date.get(date)
+        if row is None:
+            # Preserve actual source evidence if the summary entirely skipped a
+            # date. The heading is factual source text, not model invention.
+            first = facts[0]
+            row = {
+                "event_id": f"continuation_source_{len(result) + 1}",
+                "turn_number": 0,
+                "story_date": date,
+                "event": str(first.get("event") or ""),
+                "importance": "anchor",
+                "compacted_from_prior_session": True,
+            }
+            result.append(row)
+            by_date[date] = row
+        existing = row.get("source_key_facts") if isinstance(row.get("source_key_facts"), list) else []
+        seen = {str(item.get("event_id") or "") for item in existing if isinstance(item, dict)}
+        for fact in facts:
+            key = str(fact.get("event_id") or "")
+            if not key or key not in seen:
+                existing.append(deepcopy(fact))
+                if key:
+                    seen.add(key)
+        row["source_key_facts"] = existing
+    return result
+
+
 def commit_continuation_final(session_id: str, migration_id: str, package: Dict[str, Any]) -> Dict[str, Any]:
     migration = _load_migration(session_id)
     _validate_migration(migration, migration_id)
@@ -700,8 +763,12 @@ def commit_continuation_final(session_id: str, migration_id: str, package: Dict[
     if exact_current:
         package["current"] = storage._deep_merge(package["current"], exact_current)
     normalized = deepcopy(package)
-    normalized["memory_normalized"] = _normalized_compact_memory(p["source"], p["cards"], package)
-    normalized["chronology_normalized"] = _normalized_chronology(package)
+    normalized["memory_normalized"] = _preserve_personal_facts(
+        _normalized_compact_memory(p["source"], p["cards"], package), p["memory"],
+    )
+    normalized["chronology_normalized"] = _preserve_chronology_evidence(
+        _normalized_chronology(package), p["chronology"],
+    )
     migration["final_package"] = normalized
     migration["active_read"] = None
     _save_migration(session_id, migration)

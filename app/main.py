@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 from threading import Thread
 
@@ -731,10 +732,24 @@ def turns_commit(session_id: str, body: CommitTurnRequest):
         return commit_turn_request(session_id, turn_body.model_dump())
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Session not found")
+    except HTTPException as exc:
+        if exc.status_code == 409:
+            detail = exc.detail if isinstance(exc.detail, dict) else {}
+            logging.getLogger(__name__).warning(
+                "commitTurn 409 session=%s packet=%s code=%s",
+                session_id, turn_body.packet_id, detail.get("code", "VALIDATION_REJECTED"),
+            )
+        raise
     except OperationReceiptConflict:
+        logging.getLogger(__name__).warning("commitTurn receipt conflict session=%s packet=%s", session_id, turn_body.packet_id)
         raise HTTPException(status_code=409, detail="The packet_id was already used with a different commit payload. Prepare a fresh turn packet; no mutation was performed.")
     except RuntimeError as exc:
         code = str(exc)
+        logging.getLogger(__name__).warning(
+            "commitTurn runtime reject session=%s packet=%s code=%s",
+            session_id, turn_body.packet_id,
+            code if code.isupper() and code.isidentifier() and len(code) <= 90 else "INTERNAL_RUNTIME_ERROR",
+        )
         if code == "TURN_PACKET_RUNTIME_STALE":
             raise HTTPException(
                 status_code=409,
@@ -792,6 +807,11 @@ def turns_commit(session_id: str, body: CommitTurnRequest):
         if code in errors:
             raise HTTPException(status_code=409, detail=errors[code])
         raise
+    except Exception:
+        logging.getLogger(__name__).exception(
+            "commitTurn unexpected error session=%s packet=%s", session_id, turn_body.packet_id,
+        )
+        raise
 
 
 @app.post("/sessions/{session_id}/audit", operation_id="commitAudit", include_in_schema=False)
@@ -800,9 +820,23 @@ def audit_commit(session_id: str, body: AuditCommit):
         return commit_audit_request(session_id, body.model_dump())
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Session not found")
+    except HTTPException as exc:
+        if exc.status_code == 409:
+            detail = exc.detail if isinstance(exc.detail, dict) else {}
+            logging.getLogger(__name__).warning(
+                "commitAudit 409 session=%s audit=%s code=%s",
+                session_id, body.audit_id, detail.get("code", "VALIDATION_REJECTED"),
+            )
+        raise
     except OperationReceiptConflict:
+        logging.getLogger(__name__).warning("commitAudit receipt conflict session=%s audit=%s", session_id, body.audit_id)
         raise HTTPException(status_code=409, detail="The audit_id was already used with different audit data. Read a fresh audit snapshot; no mutation was performed.")
     except RuntimeError as exc:
+        logging.getLogger(__name__).warning(
+            "commitAudit runtime reject session=%s audit=%s code=%s",
+            session_id, body.audit_id,
+            str(exc) if str(exc).isupper() and str(exc).isidentifier() and len(str(exc)) <= 90 else "INTERNAL_RUNTIME_ERROR",
+        )
         errors = {
             "AUDIT_NOT_REQUIRED": "Audit is not currently required",
             "AUDIT_PACKET_ID_REQUIRED": "The audit payload requires the exact audit_id returned in required_audit.",
@@ -821,6 +855,7 @@ def audit_commit(session_id: str, body: AuditCommit):
             "MEMORY_COMPACTION_SOURCE_REUSED": "One source memory record cannot be compacted into multiple canonical records in the same audit.",
             "MEMORY_COMPACTION_SOURCE_UNKNOWN": "A memory_compaction referenced a missing or already superseded source record.",
             "MEMORY_COMPACTION_SOURCE_OUT_OF_RANGE": "memory_compactions may only supersede records created inside this exact audit range.",
+            "MEMORY_COMPACTION_CROSS_DATE": "Do not merge knowledge journal records from different dates or periods. Split by date, or omit optional memory_compactions; source facts remain intact.",
             "MACRO_CHRONOLOGY_COMPACTION_REQUIRED": "The scheduled 60-turn macro audit is incomplete. Retry the same audit_id with repairs.chronology_compactions; the next gameplay turn remains blocked until it is saved.",
             "MACRO_CHRONOLOGY_COMPACTION_INVALID": "repairs.chronology_compactions is malformed. Each row needs DD.MM.YYYY date and a 20-1800 character summary.",
             "MACRO_CHRONOLOGY_IMPORTANT_DATE_MISSING": "The macro compaction omitted a story date that contains major/anchor/critical chronology. Add a dated summary for every important date and retry the same audit_id.",
@@ -830,6 +865,11 @@ def audit_commit(session_id: str, body: AuditCommit):
         raise
     except ValueError:
         raise HTTPException(status_code=409, detail="Audit range does not match the current turn")
+    except Exception:
+        logging.getLogger(__name__).exception(
+            "commitAudit unexpected error session=%s audit=%s", session_id, body.audit_id,
+        )
+        raise
 
 
 @app.post("/sessions/{session_id}/resume", operation_id="resumeSession")

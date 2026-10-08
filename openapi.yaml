@@ -13,6 +13,9 @@ components:
       properties:
         event:
           type: string
+        actor_character_id:
+          type: string
+          description: Registered actor performing the event; not automatically a POV witness or a personal knowledge entry.
         summary:
           type: string
         story_date:
