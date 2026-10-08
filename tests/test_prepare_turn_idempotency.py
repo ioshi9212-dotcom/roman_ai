@@ -5,8 +5,8 @@ from pathlib import Path
 import pytest
 from fastapi import HTTPException
 
-from app import session_runtime, storage
-from app.main import turn_packet_prepare
+from app import audit_runtime, session_runtime, storage
+from app.main import turn_packet_chunk_get, turn_packet_prepare
 from app.models import TurnPrepare
 from app.operation_service import prepare_turn_request
 from app.runtime_access import runtime_documents
@@ -107,6 +107,74 @@ def test_chunk_reads_update_only_small_progress_sidecar_and_preserve_full_packet
         assert replay["all_chunks_read"] is True
         assert replay["reused_pending_packet"] is True
         assert packet_path.read_bytes() == original_bytes
+
+
+
+
+def test_gameplay_packet_batch_reads_every_chunk_without_repeating_chunk_zero():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = make_session()
+        manifest = session_runtime.prepare_turn_packet(sid, "Прочитать весь контекст за меньшее число вызовов.")
+        assert manifest["chunk_count"] >= 4
+        parts = [manifest["content"]]
+        calls = 0
+        for start in range(1, manifest["chunk_count"], 3):
+            response = turn_packet_chunk_get(sid, manifest["packet_id"], start, max_chunks=3)
+            calls += 1
+            assert response["batch_count"] == len(response["chunks"])
+            assert [row["chunk_index"] for row in response["chunks"]] == list(
+                range(start, min(start + 3, manifest["chunk_count"]))
+            )
+            parts.extend(row["content"] for row in response["chunks"])
+            assert response["next_chunk_index"] == (
+                min(start + 3, manifest["chunk_count"])
+                if start + 3 < manifest["chunk_count"] else None
+            )
+        assert calls == (manifest["chunk_count"] - 1 + 2) // 3
+        assert response["all_chunks_read"] is True
+        merged = storage._read_json(storage.SESSIONS_DIR / sid / "turn_packet.json", {})
+        assert merged["read_chunks"] == list(range(manifest["chunk_count"]))
+        assert "".join(parts) == "".join(merged["chunks"])
+
+
+def test_single_chunk_api_remains_backward_compatible_and_batch_validates_size():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = make_session()
+        manifest = session_runtime.prepare_turn_packet(sid, "Совместимость старой версии.")
+        single = turn_packet_chunk_get(sid, manifest["packet_id"], 1)
+        assert single["chunk_index"] == 1
+        assert isinstance(single["content"], str)
+        assert "chunks" not in single
+        with pytest.raises(HTTPException) as bad:
+            turn_packet_chunk_get(sid, manifest["packet_id"], 1, max_chunks=4)
+        assert bad.value.status_code == 422
+
+
+def test_required_audit_chunks_use_same_batch_action_without_losing_audit_evidence():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = make_session()
+        root = storage.SESSIONS_DIR / sid
+        audit_id = "audit-batch-test"
+        original = ["audit-0", "audit-1", "audit-2", "audit-3", "audit-4", "audit-5"]
+        storage._write_json(root / audit_runtime.AUDIT_PACKET_FILE, {
+            "audit_id": audit_id,
+            "audit_range": [1, 15],
+            "read_chunks": [0],
+            "chunks": original,
+        })
+        first = turn_packet_chunk_get(sid, audit_id, 1, max_chunks=3)
+        second = turn_packet_chunk_get(sid, audit_id, 4, max_chunks=3)
+        assert first["packet_kind"] == second["packet_kind"] == "audit"
+        assert [row["content"] for row in first["chunks"] + second["chunks"]] == original[1:]
+        assert first["next_chunk_index"] == 4
+        assert second["next_chunk_index"] is None
+        assert second["all_chunks_read"] is True
+        saved = storage._read_json(root / audit_runtime.AUDIT_PACKET_FILE, {})
+        assert saved["read_chunks"] == list(range(len(original)))
+
 
 
 def test_old_chunk_progress_is_not_applied_to_replaced_packet():

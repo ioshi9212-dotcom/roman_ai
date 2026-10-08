@@ -1030,14 +1030,15 @@ paths:
   /sessions/{session_id}/turn-packet/{packet_id}/{chunk_index}:
     get:
       operationId: getTurnPacketChunk
-      summary: Read one remaining gameplay or required-audit chunk
-      description: For a gameplay packet use packet_id. For required_audit use its audit_id as packet_id. Chunk 0 is already included when first_chunk_included=true; read only remaining indices.
+      summary: Read up to 3 consecutive gameplay or required-audit chunks in one call
+      description: For gameplay use packet_id; for audits use audit_id. Chunk 0 is included. Set max_chunks=3 and start at next_chunk_index. Read chunks[].content in order, repeat at returned next_chunk_index until null. All returned chunks count as read for commit. Omit max_chunks for legacy single-chunk format.
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
         - {in: path, name: packet_id, required: true, schema: {type: string}}
         - {in: path, name: chunk_index, required: true, schema: {type: integer, minimum: 0}}
+        - {in: query, name: max_chunks, required: false, schema: {type: integer, minimum: 1, maximum: 3, default: 1}, description: "Set to 3 to fetch three sequential chunks and reduce tool calls; default 1 preserves old format."}
       responses:
-        '200': {description: "One remaining writer packet chunk"}
+        '200': {description: "With max_chunks=3 returns chunks array and next_chunk_index. With max_chunks=1 returns legacy content field."}
         '403': {description: "Invalid or stale packet_id"}
         '404': {description: "Chunk index out of range"}
   /sessions/{session_id}/characters/{character_id}/read:
