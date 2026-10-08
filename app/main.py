@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import secrets
 from threading import Thread
@@ -54,6 +55,9 @@ from .storage import (
 )
 from .turn_rollback import RollbackError
 from .startup_migration import read_migration_status, run_startup_session_migration
+
+logger = logging.getLogger(__name__)
+
 
 app = FastAPI(
     title="Roman AI",
@@ -755,9 +759,12 @@ def turns_commit(session_id: str, body: CommitTurnRequest):
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Session not found")
     except OperationReceiptConflict:
+        logger.warning("commitTurn rejected session=%s packet=%s code=OPERATION_RECEIPT_CONFLICT", session_id, turn_body.packet_id)
         raise HTTPException(status_code=409, detail="The packet_id was already used with a different commit payload. Prepare a fresh turn packet; no mutation was performed.")
     except RuntimeError as exc:
         code = str(exc)
+        diagnostic_code = code if code.isidentifier() and code.isupper() and len(code) <= 100 else "UNCLASSIFIED_RUNTIME_ERROR"
+        logger.warning("commitTurn rejected session=%s packet=%s code=%s", session_id, turn_body.packet_id, diagnostic_code)
         if code == "TURN_PACKET_RUNTIME_STALE":
             raise HTTPException(
                 status_code=409,
@@ -824,8 +831,12 @@ def audit_commit(session_id: str, body: AuditCommit):
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Session not found")
     except OperationReceiptConflict:
+        logger.warning("commitAudit rejected session=%s audit=%s code=OPERATION_RECEIPT_CONFLICT", session_id, body.audit_id)
         raise HTTPException(status_code=409, detail="The audit_id was already used with different audit data. Read a fresh audit snapshot; no mutation was performed.")
     except RuntimeError as exc:
+        code = str(exc)
+        diagnostic_code = code if code.isidentifier() and code.isupper() and len(code) <= 100 else "UNCLASSIFIED_RUNTIME_ERROR"
+        logger.warning("commitAudit rejected session=%s audit=%s code=%s", session_id, body.audit_id, diagnostic_code)
         errors = {
             "AUDIT_NOT_REQUIRED": "Audit is not currently required",
             "AUDIT_PACKET_ID_REQUIRED": "The audit payload requires the exact audit_id returned in required_audit.",
@@ -844,14 +855,16 @@ def audit_commit(session_id: str, body: AuditCommit):
             "MEMORY_COMPACTION_SOURCE_REUSED": "One source memory record cannot be compacted into multiple canonical records in the same audit.",
             "MEMORY_COMPACTION_SOURCE_UNKNOWN": "A memory_compaction referenced a missing or already superseded source record.",
             "MEMORY_COMPACTION_SOURCE_OUT_OF_RANGE": "memory_compactions may only supersede records created inside this exact audit range.",
+            "MEMORY_COMPACTION_CROSS_DATE": "knowledge_journal memory_compactions cannot merge source records from different dates or periods. Split by date and period, or omit optional memory_compactions; raw facts remain preserved. Retry the same audit_id.",
             "MACRO_CHRONOLOGY_COMPACTION_REQUIRED": "The scheduled 60-turn macro audit is incomplete. Retry the same audit_id with repairs.chronology_compactions; the next gameplay turn remains blocked until it is saved.",
             "MACRO_CHRONOLOGY_COMPACTION_INVALID": "repairs.chronology_compactions is malformed. Each row needs DD.MM.YYYY date and a 20-1800 character summary.",
             "MACRO_CHRONOLOGY_IMPORTANT_DATE_MISSING": "The macro compaction omitted a story date that contains major/anchor/critical chronology. Add a dated summary for every important date and retry the same audit_id.",
         }
-        if str(exc) in errors:
-            raise HTTPException(status_code=409, detail=errors[str(exc)])
+        if code in errors:
+            raise HTTPException(status_code=409, detail=errors[code])
         raise
     except ValueError:
+        logger.warning("commitAudit rejected session=%s audit=%s code=AUDIT_RANGE_MISMATCH", session_id, body.audit_id)
         raise HTTPException(status_code=409, detail="Audit range does not match the current turn")
 
 

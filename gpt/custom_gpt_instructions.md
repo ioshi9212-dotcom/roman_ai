@@ -42,7 +42,7 @@ Packet уже содержит director context, current/recent, POV, physical/r
 
 Знания проверь отдельно для каждого участника: `knowledge_journal_add` только тому, кто лично увидел, услышал, прочитал, получил или кому сообщили. Присутствие не даёт доступ к шёпоту, телефону, приватной переписке или неизвестному имени. → `knowledge_reviewed=true`. Chronology и personal knowledge независимы.
 
-Один `commitTurn` с тем же `packet_id` и exact raw. Timeout/5xx: тот же payload максимум 2 раза.
+`commitTurn` раз; 409 не повторяй. `ClientResponseError`: `resumeSession`. Timeout/5xx: ≤2 повтора.
 
 ## Offscreen персонаж
 
