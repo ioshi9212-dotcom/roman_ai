@@ -8,7 +8,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 
 from .audit_runtime import get_audit_snapshot, get_audit_snapshot_chunk
-from . import commit_failure_diagnostics
+from . import commit_failure_diagnostics, fast_resume_checkpoint
 from .character_access import get_character_bundle
 from .character_chunk_read import get_character_bundle_chunk, prepare_character_bundle_read
 from .context_stats import session_context_stats
@@ -850,6 +850,13 @@ def turns_commit(session_id: str, body: CommitTurnRequest):
         if code in errors:
             raise HTTPException(status_code=409, detail=errors[code])
         raise
+    except Exception:
+        logger.exception("commitTurn internal error session=%s packet=%s", session_id, turn_body.packet_id)
+        commit_failure_diagnostics.record(
+            session_id, operation="commitTurn", identity=turn_body.packet_id,
+            status_code=500, detail="COMMIT_INTERNAL_ERROR",
+        )
+        raise
 
 
 @app.post("/sessions/{session_id}/audit", operation_id="commitAudit", include_in_schema=False)
@@ -918,12 +925,23 @@ def audit_commit(session_id: str, body: AuditCommit):
         )
         logger.warning("commitAudit rejected session=%s audit=%s code=AUDIT_RANGE_MISMATCH", session_id, body.audit_id)
         raise HTTPException(status_code=409, detail="Audit range does not match the current turn")
+    except Exception:
+        logger.exception("commitAudit internal error session=%s audit=%s", session_id, body.audit_id)
+        commit_failure_diagnostics.record(
+            session_id, operation="commitAudit", identity=body.audit_id,
+            status_code=500, detail="COMMIT_INTERNAL_ERROR",
+        )
+        raise
 
 
 @app.post("/sessions/{session_id}/resume", operation_id="resumeSession")
 def session_resume(session_id: str):
     try:
-        result = dict(continue_session(session_id))
+        result = (
+            fast_resume_checkpoint.fast_resume(session_id)
+            if fast_resume_checkpoint.is_large_or_pending(session_id)
+            else dict(continue_session(session_id))
+        )
         failure = commit_failure_diagnostics.latest(session_id)
         if failure:
             result["last_commit_rejection"] = failure
