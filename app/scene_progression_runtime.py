@@ -2,16 +2,14 @@ from __future__ import annotations
 
 import re
 from copy import deepcopy
-from typing import Any, Dict, Iterable, List
+from typing import Any, Dict, List
 
 from fastapi import HTTPException
 
-from . import npc_intent, private_knowledge_runtime, relationship_file_runtime, storage, story_thread
+from . import npc_intent, relationship_file_runtime, storage, story_thread
 
 
 _VERSION = 1
-_TERMINAL = {"resolved", "closed", "expired", "cancelled", "canceled", "done", "abandoned"}
-
 _TIME_SKIP_RE = re.compile(
     r"(?iu)(?:"
     r"\bспат\w*|\bуснут\w*|\bпоспат\w*|\bдремат\w*|\bждат\w*|\bожидат\w*|"
@@ -60,8 +58,6 @@ _PASSIVE_END_RE = re.compile(
     r"\bещ[её]\s+не\s+знал\w*\s*,?\s+что\b"
     r")"
 )
-
-_REMOTE_LABEL_MARKERS = ("сообщ", "звон", "call", "message", "чат", "переписк", "voice", "video")
 
 _KIND_TO_ENDINGS = {
     "new_information": {"new_fact", "concrete_next_pressure", "conflict_change"},
@@ -346,19 +342,24 @@ def _post_unfinished_actions(root, payload: Dict[str, Any]) -> tuple[List[Any], 
     return before, after
 
 
-def _world_patch_meaningful(extracted: Dict[str, Any]) -> bool:
-    patch = extracted.get("state_patch") if isinstance(extracted.get("state_patch"), dict) else {}
-    world = patch.get("world") if isinstance(patch.get("world"), dict) else {}
-    return bool({key: value for key, value in world.items() if key not in {"cast_registry"} and value not in (None, "", [], {})})
-
-
-def _incoming_remote_npc(scene_output: str, cards: List[Dict[str, Any]], pov_id: str) -> bool:
-    for row in private_knowledge_runtime._speaker_units(str(scene_output or ""), cards):
-        cid = str(row.get("character_id") or "")
-        label = _norm(row.get("speaker_label"))
-        if not cid or cid == pov_id:
+def _new_remote_contact(state: Dict[str, Any], extracted: Dict[str, Any], pov_id: str) -> bool:
+    start_remote = {
+        str(value)
+        for value in storage._remote_character_ids(state)
+        if value and str(value) != pov_id
+    }
+    rows = extracted.get("dialogue_memory_add")
+    for row in rows if isinstance(rows, list) else []:
+        if not isinstance(row, dict) or _norm(row.get("mode")) != "remote":
             continue
-        if any(marker in label for marker in _REMOTE_LABEL_MARKERS):
+        participants = row.get("participants") or row.get("participant_ids") or []
+        if isinstance(participants, str):
+            participants = [participants]
+        counterpart_ids = {
+            str(value)
+            for value in participants if value and str(value) != pov_id
+        }
+        if counterpart_ids - start_remote:
             return True
     return False
 
@@ -418,25 +419,24 @@ def _collect_evidence(root, payload: Dict[str, Any]) -> Dict[str, Any]:
 
     chronology_rows = extracted.get("chronology") if isinstance(extracted.get("chronology"), list) else []
     for row in chronology_rows:
+        if not isinstance(row, dict):
+            continue
         text = _text_from_row(row)
-        if text and not _routine_only(text):
+        importance = _norm(row.get("importance"))
+        consequences = row.get("consequences") if isinstance(row.get("consequences"), list) else []
+        evidenced = (
+            importance in {"major", "anchor", "critical"}
+            or row.get("time_critical") is True
+            or any(str(value).strip() for value in consequences)
+        )
+        if text and evidenced and not _routine_only(text):
             refs.add("world:emergent")
             kinds.update({"external_event", "new_information"})
             break
 
-    journal_rows = extracted.get("knowledge_journal_add") if isinstance(extracted.get("knowledge_journal_add"), list) else []
-    if any(
-        isinstance(row, dict)
-        and str(row.get("character_id") or "") == pov_id
-        and _text_from_row(row)
-        for row in journal_rows
-    ):
-        refs.add("world:emergent")
-        kinds.add("new_information")
-
-    if _world_patch_meaningful(extracted):
-        refs.add("world:emergent")
-        kinds.update({"external_event", "new_constraint"})
+    # Personal-memory writes are persistence of what was learned, not proof that
+    # the learned fact was story-significant. Meaningful discoveries must also
+    # change a thread/intent/relationship or be recorded as consequential chronology.
 
     presence_rows = extracted.get("presence_updates") if isinstance(extracted.get("presence_updates"), list) else []
     if any(
@@ -448,7 +448,7 @@ def _collect_evidence(root, payload: Dict[str, Any]) -> Dict[str, Any]:
         refs.add("world:emergent")
         kinds.update({"external_event", "npc_action"})
 
-    if _incoming_remote_npc(str(payload.get("scene_output") or ""), cards, pov_id):
+    if _new_remote_contact(state, extracted, pov_id):
         refs.add("world:emergent")
         kinds.update({"external_event", "npc_action"})
 
