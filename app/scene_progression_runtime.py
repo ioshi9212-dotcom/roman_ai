@@ -280,11 +280,8 @@ def build_contract(
             "ending_evidence_text",
         ],
         "independent_cast_proof_rule": (
-            "For target=cast:independent include scene_progression.character_id of the offscreen NPC. "
-            "The saved changes must independently attribute a real action to that NPC: pursued_now intent, "
-            "physical entrance, or consequential chronology with actor_character_id. "
-            "No prior intent, POV mention, forced meeting or offscreen dossier read is needed merely to choose initiative. "
-            "Do not claim the POV knows an unseen offscreen event."
+            "For cast:independent set scene_progression.character_id. Evidence: NPC action/entry "
+            "or consequential chronology with actor_character_id; no POV knowledge transfer."
         ),
         "meaningful_progress_rule": (
             "Every gameplay turn must produce at least one meaningful world/story/relationship state change unless the user explicitly requests uneventful downtime. "
