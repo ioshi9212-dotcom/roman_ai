@@ -254,8 +254,19 @@ def _compact_chronology(value: Any, character_ids: List[str], location: Any) -> 
     for index, event in list(enumerate(events))[-MAX_RECENT_CHRONOLOGY:]:
         keep(event, index)
     for character_id in character_ids:
-        for index, event in [(i, e) for i, e in enumerate(events) if character_id in _event_participants(e) or character_id in session_runtime._event_actor_ids(e)][-MAX_CHARACTER_CHRONOLOGY:]:
+        matches = [
+            (i, event) for i, event in enumerate(events)
+            if character_id in session_runtime._event_indexed_character_ids(event)
+        ]
+        for index, event in matches[-MAX_CHARACTER_CHRONOLOGY:]:
             keep(event, index)
+        first_source_macro = next(
+            ((index, event) for index, event in matches
+             if isinstance(event.get("source_key_facts"), list) and event["source_key_facts"]),
+            None,
+        )
+        if first_source_macro is not None:
+            keep(*first_source_macro)
     needle = str(location or "").casefold().strip()
     if needle:
         for index, event in [(i, e) for i, e in enumerate(events) if _event_location(e) == needle][-MAX_LOCATION_CHRONOLOGY:]:
