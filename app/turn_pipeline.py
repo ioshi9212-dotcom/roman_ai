@@ -580,7 +580,6 @@ def _prepare_context(
         context=context,
         user_input=str(packet.get("user_input") or ""),
         cards=cards,
-        relationship_store=relationship_store,
         current_turn=current_turn,
     )
 
