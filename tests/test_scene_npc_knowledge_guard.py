@@ -652,4 +652,4 @@ def test_pipeline_version_bump_invalidates_old_pending_packet():
         second = session_runtime.prepare_turn_packet(sid, "(молчать)")
 
         assert second["packet_id"] != first["packet_id"]
-        assert second["turn_pipeline_version"] == 19
+        assert second["turn_pipeline_version"] == 20

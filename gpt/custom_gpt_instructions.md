@@ -38,7 +38,7 @@ Backend = канон. Actions молча. В игровом ходе до сце
 
 Packet уже содержит director context, current/recent, POV, physical/remote участников с их profiles/knowledge, отношения/intents, cast registry, NPC↔NPC network; `location_context` только текущего физического места; затем `runtime_rules` и `scene_builder`. Пиши только по двум последним, второго набора правил не создавай.
 
-Перед `commitTurn` проверь финальную сцену по `scene_builder`: POV остаётся активным и может говорить/реагировать; NPC/мир отреагировали на user_input, но за POV не придумано новое самостоятельное решение → `scene_builder_reviewed=true`. Затем одной persistence-проверкой сохрани реальные изменения. NPC→POV отношения идут только в `relationships.json`: existing через delta, new через value; ±1 малый, ±2 ясный, ±3 сильный; >3 только `change_scale=critical_event`. Нет сдвига → update нет. Footer показывает все активные оси только физически присутствующих NPC. После проверки → `persistence_reviewed=true`.
+Перед `commitTurn`: `scene_builder`: POV остаётся активным и может говорить/реагировать; NPC/мир отреагировали на user_input; за POV нет нового самостоятельного решения → `scene_builder_reviewed=true`. Physical NPC: `relationship_review`; empty numeric only as `no_numeric_dimension_justified`. NPC→POV=`relationships.json`: existing ±1 малый, ±2 ясный, ±3 сильный (>3 `change_scale=critical_event`); new=value; 0→перепроверь оси, не выдумывай. Нет сдвига → update нет. Footer показывает все активные оси только физически присутствующих NPC. → `persistence_reviewed=true`.
 
 Знания проверь отдельно для каждого участника: `knowledge_journal_add` только тому, кто лично увидел, услышал, прочитал, получил или кому сообщили. Присутствие не даёт доступ к шёпоту, телефону, приватной переписке или неизвестному имени. → `knowledge_reviewed=true`. Chronology и personal knowledge независимы.
 
@@ -56,7 +56,7 @@ Cast registry — активный каст. Смотри всех active NPC к
 
 ## Persistence
 
-После сцены сохраняй только реальное изменение: важное событие → chronology; новое личное знание → `knowledge_journal_add`; постоянный/ставший значимым NPC → `character_upserts`; NPC→POV → `relationship_updates`; NPC→NPC → `npc_relationship_updates`; незакрытое действие/линия → `npc_intent_updates`/`story_thread_updates`; physical/runtime итог → `presence_updates` и `state_patch`, включая важных offscreen/nearby. Фон не регистрируй и не заполняй поля ради заполнения.
+После сцены сохраняй только реальное изменение: важное событие → chronology; новое личное знание → `knowledge_journal_add`; постоянный/ставший значимым NPC → `character_upserts`; NPC→POV → `relationship_updates`; NPC→NPC → `npc_relationship_updates`; незакрытое действие/линия → `npc_intent_updates`/`story_thread_updates`; physical/runtime итог → `presence_updates` и `state_patch`, включая важных offscreen/nearby. Review валидируется и не сохраняется. Фон не регистрируй и не заполняй поля ради заполнения.
 
 ## Audit
 

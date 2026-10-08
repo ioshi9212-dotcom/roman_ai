@@ -264,8 +264,9 @@ def test_relationship_rules_do_not_require_major_or_durable_event_for_plus_one()
 
     assert "±1 — небольшой, но заметный сдвиг" in rules
     assert "не требуй доказательства, что он окончательный или долговременный" in rules
-    assert "Отдельный отчёт о проверке не нужен" in rules
-    assert "changed=false" not in instructions
+    assert "relationship_review" in rules
+    assert "Deletion of the last relationship dimension does not mean absence of relationship." in rules
+    assert "no_numeric_dimension_justified" in instructions
     assert "±1 малый" in instructions
 
 def test_v5_setup_requires_structured_pre_story_npc_to_pov_relationship():
@@ -365,6 +366,7 @@ def test_small_delta_persists_only_in_relationships_file_and_is_visible_next_tur
                             "character_id": "adrian",
                             "changed": True,
                             "reason": "Сцена немного усилила ревность.",
+                            "numeric_result": "updated",
                         }
                     ],
                     "relationship_updates": [

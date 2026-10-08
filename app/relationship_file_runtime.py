@@ -424,6 +424,39 @@ def apply_npc_updates(
     return result
 
 
+def physical_participant_ids(
+    state_before: Dict[str, Any],
+    state_after: Dict[str, Any],
+    extracted: Dict[str, Any],
+    *,
+    cards: List[Dict[str, Any]],
+) -> List[str]:
+    """Canonical physical NPC scope for per-turn relationship review."""
+    result: List[str] = []
+
+    def add(raw: Any) -> None:
+        if isinstance(raw, dict):
+            raw = raw.get("character_id") or raw.get("id") or raw.get("name")
+        cid = _resolve_character_id(cards, raw)
+        if cid and cid not in result:
+            result.append(cid)
+
+    for raw in storage._present_character_ids(state_before):
+        add(raw)
+    for raw in storage._present_character_ids(state_after):
+        add(raw)
+
+    for row in extracted.get("presence_updates", []) if isinstance(extracted.get("presence_updates"), list) else []:
+        if not isinstance(row, dict):
+            continue
+        if str(row.get("action") or "").casefold().strip() in {"enter", "leave", "move"}:
+            add(row.get("character_id") or row.get("id") or row.get("name"))
+
+    pov = state_after.get("pov") if isinstance(state_after.get("pov"), dict) else {}
+    pov_id = str(pov.get("character_id") or "")
+    return [cid for cid in result if cid and cid != pov_id]
+
+
 def ensure_participant_records(store: Dict[str, Any], participant_ids: Iterable[str], cards: List[Dict[str, Any]]) -> Dict[str, Any]:
     """Remember an encounter without inventing a numeric attitude."""
     result = deepcopy(store)
@@ -538,8 +571,9 @@ def apply_updates(
                 raise ValueError("RELATIONSHIP_NEW_DIMENSION_VALUE_REQUIRED")
             if float(value) > 100.0:
                 raise ValueError("RELATIONSHIP_VALUE_INVALID")
-            if scale == "ordinary" and float(value) > ORDINARY_DELTA_LIMIT:
-                raise ValueError("RELATIONSHIP_ORDINARY_DELTA_LIMIT")
+            # A newly evidenced dimension is initialized by absolute intensity
+            # (1..100). The +/-3 ordinary limit applies only to deltas on an
+            # already established dimension.
             if len(dimensions) >= MAX_DIMENSIONS_PER_NPC:
                 raise ValueError("RELATIONSHIP_DIMENSION_LIMIT")
             dimensions[label] = {
@@ -628,7 +662,9 @@ def _historical_updates_for_replay(
                 "label": label,
                 "value": _number(replay_value),
             })
-            critical = critical or replay_value > ORDINARY_DELTA_LIMIT
+            # A new dimension's absolute initialization value is intensity,
+            # not a per-turn delta. It must not promote historical replay to
+            # critical_event merely because the starting value is above 3.
 
         free_slots = max(
             0,

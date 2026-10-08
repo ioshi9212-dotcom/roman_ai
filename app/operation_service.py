@@ -50,7 +50,7 @@ def _packet_status(packet: Any) -> Dict[str, Any] | None:
         "status": "ready_for_commit" if not unread else "reading",
         "scene_archive_capable": bool(packet.get("scene_archive_capable")),
         "writer_review_required": bool(packet.get("writer_review_required")),
-        "relationship_review_required": False,
+        "relationship_review_required": bool(packet.get("relationship_review_required")),
     }
 
 
@@ -109,21 +109,24 @@ def prepare_turn_request(
             if same_input and not replace_pending:
                 if identity and pending_id and identity != pending_id:
                     raise RuntimeError("TURN_IN_PROGRESS")
-                if identity and not pending_id:
+                result = dict(session_runtime.prepare_turn_packet(session_id, user_input))
+                # prepare_turn_packet may rebuild an old pipeline-version packet.
+                # Apply public gameplay markers to the packet that actually survived.
+                packet = storage._read_json(root / "turn_packet.json", {})
+                if identity:
                     packet["request_id"] = identity
-                # Safe transport flags may be preserved/upgraded on an identical pending turn.
+                    result["request_id"] = identity
                 if scene_archive_capable:
                     packet["scene_archive_capable"] = True
                 if opening_scene:
                     packet["opening_scene"] = True
+                packet["writer_review_required"] = True
+                packet["relationship_review_required"] = True
                 storage._write_json(root / "turn_packet.json", packet)
-                result = dict(session_runtime.prepare_turn_packet(session_id, user_input))
-                if identity:
-                    result["request_id"] = identity
                 result["scene_archive_capable"] = bool(packet.get("scene_archive_capable"))
                 result["opening_scene"] = bool(packet.get("opening_scene"))
                 result["writer_review_required"] = bool(packet.get("writer_review_required"))
-                result["relationship_review_required"] = False
+                result["relationship_review_required"] = True
                 result["pending_turn"] = pending_turn_status(session_id)
                 return result
 
@@ -152,8 +155,8 @@ def prepare_turn_request(
             packet["scene_archive_capable"] = bool(scene_archive_capable)
             packet["opening_scene"] = bool(opening_scene)
             packet["writer_review_required"] = True
+            packet["relationship_review_required"] = True
             for key in (
-                "relationship_review_required",
                 "relationship_review_details_required",
                 "relationship_footer_scope_required",
                 "relationship_review_v3_required",
@@ -169,7 +172,7 @@ def prepare_turn_request(
         result["scene_archive_capable"] = bool(scene_archive_capable)
         result["opening_scene"] = bool(opening_scene)
         result["writer_review_required"] = bool(packet.get("writer_review_required"))
-        result["relationship_review_required"] = False
+        result["relationship_review_required"] = bool(packet.get("relationship_review_required"))
         result["pending_turn"] = pending_turn_status(session_id)
         return result
 

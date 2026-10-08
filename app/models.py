@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
@@ -108,6 +108,7 @@ class RelationshipReviewItem(BaseModel):
     character_id: str
     changed: bool
     reason: str
+    numeric_result: Literal["updated", "unchanged", "no_numeric_dimension_justified"]
 
 
 class NPCRelationshipUpdate(BaseModel):
@@ -169,8 +170,8 @@ class TurnExtracted(BaseModel):
     presence_updates: Optional[List[Dict[str, Any]]] = Field(default_factory=list)
     relationship_updates: Optional[List[RelationshipUpdate]] = Field(default_factory=list)
     relationship_review: Optional[List[RelationshipReviewItem]] = Field(
-        default_factory=list, deprecated=True,
-        description="Legacy optional review rows; ignored and not persisted.",
+        default_factory=list,
+        description="Mandatory one-row-per-physical-NPC relationship persistence review; review rows are validated then not persisted.",
     )
     state_patch: Dict[str, Any] = Field(default_factory=dict)
     character_upserts: Optional[List[Dict[str, Any]]] = Field(default_factory=list)

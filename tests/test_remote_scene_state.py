@@ -182,6 +182,12 @@ def _continuity_payload(sid, current_patch, *, header=True, presence_updates=Non
         "extracted": {
             "scene_builder_reviewed": True, "persistence_reviewed": True,
             "knowledge_reviewed": True,
+            "relationship_review": [{
+                "character_id": "silas",
+                "changed": False,
+                "reason": "Continuity-only test: no relational event occurred.",
+                "numeric_result": "no_numeric_dimension_justified",
+            }],
             "state_patch": {"current": current_patch},
             "presence_updates": presence_updates or [],
         },
