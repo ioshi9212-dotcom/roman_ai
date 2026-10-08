@@ -444,8 +444,10 @@ def _prepare_extracted_for_commit(
 
 
 
-def build_turn_context(session_id: str, user_input: str) -> Dict[str, Any]:
-    """Build the complete pre-writer turn context in memory without packet round-trips."""
+def build_turn_context(
+    session_id: str, user_input: str, *, return_snapshot: bool = False,
+) -> Dict[str, Any] | tuple[Dict[str, Any], Dict[str, Any]]:
+    """Build pre-writer context, optionally returning the same read-only source snapshot."""
     root = storage.SESSIONS_DIR / session_id
     if not root.exists():
         raise FileNotFoundError(session_id)
@@ -570,7 +572,7 @@ def build_turn_context(session_id: str, user_input: str) -> Dict[str, Any]:
         "Use it for objective continuity only. Personal speech facts come from personal_memory, self-known facts in that character's own card, current perception, or a valid canon_fill for an undefined self detail."
     )
     context["author_context"] = author_context
-    context = inject_required_turn_context(context, cards, state)
+    context = inject_required_turn_context(context, cards, state, memory_override=memory)
 
     context["chronology_policy"] = {
         "goal": "Detailed enough for durable canon, compact enough to remain useful after hundreds of turns.",
@@ -631,7 +633,7 @@ def build_turn_context(session_id: str, user_input: str) -> Dict[str, Any]:
         if key in context.get("author_context", {}):
             context[key] = context["author_context"][key]
 
-    return context
+    return (context, snapshot) if return_snapshot else context
 
 def _augment_packet(session_id: str, manifest: Dict[str, Any]) -> Dict[str, Any]:
     root = storage.SESSIONS_DIR / session_id
