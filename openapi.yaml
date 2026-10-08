@@ -1031,7 +1031,7 @@ paths:
     get:
       operationId: getTurnPacketChunk
       summary: Read up to 3 consecutive gameplay or required-audit chunks in one call
-      description: For gameplay use packet_id; for required_audit use audit_id as packet_id. Chunk 0 is already included when first_chunk_included=true. Set max_chunks=3 and start at next_chunk_index, then advance using returned next_chunk_index until null. For max_chunks greater than 1, read all chunks[].content in ascending chunk_index order. Every returned chunk is verified as read for commit. Omitting max_chunks preserves the legacy single-chunk response. No content is abbreviated.
+      description: For gameplay use packet_id; for audits use audit_id. Chunk 0 is included. Set max_chunks=3 and start at next_chunk_index. Read chunks[].content in order, repeat at returned next_chunk_index until null. All returned chunks count as read for commit. Omit max_chunks for legacy single-chunk format.
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
         - {in: path, name: packet_id, required: true, schema: {type: string}}
