@@ -440,7 +440,7 @@ A→B и B→A - разные записи и не зеркалятся авто
 `dynamic` — одна короткая актуальная фраза о связи NPC→POV. Она дополняет числа: если изменились доверие, интерес, близость или другой показатель, меняй и этот показатель. Качественный поворот, которому не подходит числовая ось, можно сохранить только через `dynamic`. У неизменившейся формулировки update не нужен.
 
 Шкала изменения уже существующей оси:
-- ±1 — небольшой, но заметный сдвиг;
+- ±1 — небольшой, но заметный сдвиг: удачная/неприятная реплика, выполненное обещание, маленький жест заботы, раздражение, неловкость, лёгкая ревность, интерес, разочарование;
 - ±2 — ясный сдвиг после более весомого поступка или разговора;
 - ±3 — сильный обычный сдвиг без уровня критического события.
 
@@ -454,6 +454,8 @@ A→B и B→A - разные записи и не зеркалятся авто
 - 81–100 — доминирующее/крайнее.
 
 Существующий показатель меняй через `delta`. Новый создавай через `value`. Лимит ±3 не ограничивает стартовый value новой оси.
+
+Если числовой связи ещё нет, пустые dimensions сами по себе не запрещают создать доказанную новую ось. Нейтральное знакомство может остаться без чисел только когда после обязательного review действительно нет устойчивого числового отношения; тогда используй `no_numeric_dimension_justified`.
 
 Если существующая ось дошла до 0, удали только эту dimension и сразу заново оцени всю связь. Deletion of the last relationship dimension does not mean absence of relationship. After any dimension reaches zero and is removed, re-evaluate the NPC→POV relationship from evidenced durable behavior. If another durable relational dimension is evidenced and absent, initialize it with value. Never invent attraction, attachment, jealousy, trust, fear, or other dimensions merely to avoid an empty store. An empty dimension store is valid only when no numeric relational attitude is actually evidenced.
 
