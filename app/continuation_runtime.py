@@ -8,7 +8,7 @@ from typing import Any, Dict, List
 
 from . import relationship_file_runtime, storage
 from .long_horizon_audit import _source_actor_events_by_date
-from .scene_compaction_runtime import active_memory_records, load_scene_history
+from .scene_compaction_runtime import active_memory_records, complete_knowledge_records, complete_knowledge_journal_records, load_scene_history
 from .transactional_storage import json_text, write_batch
 
 BLOCK_SIZE = 100
@@ -206,7 +206,12 @@ def _memory_for_range(memory: Dict[str, Any], start: int, end: int) -> Dict[str,
         bucket: Dict[str, Any] = {}
         for key in ("knowledge_journal", "knowledge", "experiences", "dialogue_memory"):
             values = raw.get(key) if isinstance(raw.get(key), list) else []
-            values = active_memory_records(values)
+            if key == "knowledge":
+                values = complete_knowledge_records(values)
+            elif key == "knowledge_journal":
+                values = complete_knowledge_journal_records(values)
+            else:
+                values = active_memory_records(values)
             rows = [
                 _compact_memory_row(x, key) for x in values
                 if isinstance(x, dict)
@@ -545,6 +550,56 @@ def _normalized_compact_memory(source: Dict[str, Any], cards: List[Dict[str, Any
     return result
 
 
+def _source_key_facts_by_date(source_rows: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
+    """Carry evidence through a continuation even if its prose omits facts."""
+    by_date: Dict[str, List[Dict[str, Any]]] = {}
+    seen: set[tuple[str, str]] = set()
+    for row in source_rows:
+        if not isinstance(row, dict):
+            continue
+        date = str(row.get("story_date") or row.get("date") or "").strip()
+        if not date:
+            continue
+        facts = row.get("source_key_facts")
+        if not isinstance(facts, list):
+            # Current 60-turn block may not be compacted yet. Individual
+            # significant events from turns 61-100 are still authoritative.
+            # Do not trust the final migration summary to list each one.
+            importance = str(row.get("importance") or "normal").casefold()
+            consequences = row.get("consequences")
+            is_durable = (
+                importance in {"major", "anchor", "critical"}
+                or row.get("anchor") is True
+                or row.get("time_critical") is True
+                or any(row.get(flag) is True for flag in ("durable", "pinned", "permanent"))
+                or (isinstance(consequences, list)
+                    and any(str(value).strip() for value in consequences))
+            )
+            if not is_durable or row.get("canonical_macro_compaction") is True:
+                continue
+            facts = [{
+                "source_event_id": row.get("event_id"),
+                "turn_number": row.get("turn_number"),
+                "event": row.get("event") or row.get("summary"),
+                "importance": importance,
+                "actor_character_id": row.get("actor_character_id"),
+                "participants_present": row.get("participants_present") or row.get("participants"),
+                "consequences": consequences,
+            }]
+        for fact in facts:
+            if not isinstance(fact, dict):
+                continue
+            identifier = str(fact.get("source_event_id") or fact.get("event_id") or "")
+            if not identifier:
+                identifier = f'{fact.get("turn_number") or 0}:{fact.get("event") or ""}'
+            key = (date, identifier)
+            if key in seen:
+                continue
+            seen.add(key)
+            by_date.setdefault(date, []).append(deepcopy(fact))
+    return by_date
+
+
 def _normalized_chronology(
     package: Dict[str, Any], *, source_chronology: Any = None,
 ) -> List[Dict[str, Any]]:
@@ -577,24 +632,42 @@ def _normalized_chronology(
     # actors as physically present or granting any character extra knowledge.
     source_rows = source_chronology if isinstance(source_chronology, list) else []
     by_date = _source_actor_events_by_date(source_rows)
+    source_facts = _source_key_facts_by_date(source_rows)
     attached: set[str] = set()
     for row in result:
         date = str(row.get("story_date") or "").strip()
-        if date in by_date and date not in attached:
-            row["actor_events"] = deepcopy(by_date[date])
-            attached.add(date)
-    for date, events in by_date.items():
         if date in attached:
             continue
-        # No author summary covered the date; preserve the original event
-        # rather than inventing a new POV-visible summary.
+        if date in by_date:
+            row["actor_events"] = deepcopy(by_date[date])
+        if date in source_facts:
+            row["source_key_facts"] = deepcopy(source_facts[date])
+            if any(
+                str(fact.get("importance") or "").casefold() in {"anchor", "critical"}
+                for fact in source_facts[date]
+            ):
+                row["importance"] = "anchor"
+        if date in by_date or date in source_facts:
+            attached.add(date)
+    for date in dict.fromkeys([*by_date, *source_facts]):
+        if date in attached:
+            continue
+        # The model omitted this entire date; retain its original author
+        # evidence without attributing it to an unwitnessing character.
+        actors = by_date.get(date, [])
+        facts = source_facts.get(date, [])
+        first = (facts or actors)[0]
         result.append({
-            "event_id": f"continuation_actor_{len(result) + 1}",
+            "event_id": f"continuation_evidence_{len(result) + 1}",
             "turn_number": 0,
             "story_date": date,
-            "event": events[0]["event"],
-            "importance": "major",
-            "actor_events": deepcopy(events),
+            "event": first.get("event") or "",
+            "importance": "anchor" if any(
+                str(fact.get("importance") or "").casefold() in {"anchor", "critical"}
+                for fact in facts
+            ) else "major",
+            **({"actor_events": deepcopy(actors)} if actors else {}),
+            **({"source_key_facts": deepcopy(facts)} if facts else {}),
             "compacted_from_prior_session": True,
         })
     return result

@@ -7,7 +7,7 @@ from typing import Any, Dict, List
 
 from .character_access import get_character_bundle
 from . import personal_memory_transport, relationship_file_runtime, storage, session_runtime
-from .scene_compaction_runtime import active_memory_records, complete_knowledge_records
+from .scene_compaction_runtime import active_memory_records, transport_knowledge_records, transport_knowledge_journal
 from .transactional_storage import session_transaction
 
 
@@ -129,12 +129,15 @@ def _working_memory(
     cards: List[Dict[str, Any]],
 ) -> Dict[str, Any]:
     memory = bundle.get("personal_memory") if isinstance(bundle.get("personal_memory"), dict) else {}
-    all_knowledge = complete_knowledge_records(memory.get("knowledge"))
+    all_knowledge = transport_knowledge_records(memory.get("knowledge"))
 
     # Knowledge is factual authority for this character. Do not replace old facts
     # with a tiny historical catalog: the bundle is chunked, so all active facts can
     # be transported safely.
     knowledge = deepcopy(all_knowledge)
+    # On-demand NPC bundles must include their V5 private journal too.
+    # Otherwise a character entering a scene appears to have forgotten facts.
+    journal = transport_knowledge_journal(memory.get("knowledge_journal"))
 
     experiences = _tail(memory.get("experiences"), CHARACTER_WORKING_EXPERIENCES)
     dialogue = personal_memory_transport.personal_dialogue_rows(
@@ -144,6 +147,7 @@ def _working_memory(
     )
     return {
         "knowledge": knowledge,
+        "knowledge_journal": deepcopy(journal),
         "experiences": _bound_memory_value(experiences),
         "dialogue_memory": _bound_memory_value(dialogue),
         "historical_knowledge_catalog": [],
@@ -151,6 +155,7 @@ def _working_memory(
         "knowledge_text_not_truncated_in_transport": True,
         "persistent_counts": {
             "knowledge": len(memory.get("knowledge", [])) if isinstance(memory.get("knowledge"), list) else 0,
+            "knowledge_journal": len(memory.get("knowledge_journal", [])) if isinstance(memory.get("knowledge_journal"), list) else 0,
             "experiences": len(memory.get("experiences", [])) if isinstance(memory.get("experiences"), list) else 0,
             "dialogue_memory": len(memory.get("dialogue_memory", [])) if isinstance(memory.get("dialogue_memory"), list) else 0,
         },

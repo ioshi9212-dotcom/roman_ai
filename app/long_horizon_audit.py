@@ -418,6 +418,59 @@ def _source_actor_events_by_date(events: List[Dict[str, Any]]) -> Dict[str, List
     return result
 
 
+def _durable_source_facts_by_date(events: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
+    """Retain each individually significant source fact alongside a dated summary.
+
+    The summary model may omit a promise or revelation while still naming
+    the right date. Store short source-grounded fact rows within the macro,
+    rather than trusting date coverage as proof that every fact survived.
+    This is author chronology, not any character's personal knowledge.
+    """
+    by_date: Dict[str, List[Dict[str, Any]]] = {}
+    seen: set[tuple[str, str]] = set()
+    for row in events:
+        if not isinstance(row, dict):
+            continue
+        date = _story_date(row)
+        importance = str(row.get("importance") or "").casefold().strip()
+        consequences = row.get("consequences")
+        has_consequence = (
+            isinstance(consequences, list)
+            and any(str(value).strip() for value in consequences)
+        )
+        if not date or not (
+            importance in {"major", "anchor", "critical"}
+            or row.get("anchor") is True
+            or row.get("time_critical") is True
+            or has_consequence
+            or any(row.get(key) is True for key in ("durable", "pinned", "permanent"))
+        ):
+            continue
+        text = " ".join(str(row.get("event") or row.get("summary") or "").split())
+        if not text:
+            continue
+        event_id = str(row.get("event_id") or f"turn:{_event_turn(row)}:{text}")
+        key = (date, event_id)
+        if key in seen:
+            continue
+        seen.add(key)
+        row_fact = {
+            "source_event_id": event_id,
+            "turn_number": _event_turn(row),
+            "event": text,
+            "importance": importance or "normal",
+            "actor_character_id": row.get("actor_character_id"),
+            "participants_present": row.get("participants_present") or row.get("participants"),
+            "exact_time": row.get("exact_time") if row.get("time_critical") is True else None,
+            "consequences": deepcopy(consequences) if has_consequence else None,
+        }
+        by_date.setdefault(date, []).append({
+            key: value for key, value in row_fact.items()
+            if value not in (None, "", [], 0)
+        })
+    return by_date
+
+
 def _apply_macro_chronology_compaction_core(
     source: Dict[str, Any],
     turns: List[Dict[str, Any]],
@@ -445,9 +498,19 @@ def _apply_macro_chronology_compaction_core(
     turns_by_date = _date_turns(turns, start_turn, end_turn)
 
     source_events = [
-        row for row in values
+        deepcopy(row) for row in values
         if start_turn <= _event_turn(row) <= end_turn
     ]
+    # An older session may have stored a significant event without a date.
+    # Recover that date from the original scene before assigning events to
+    # macro paragraphs, rather than silently losing a first-day fact.
+    turns_dates = {
+        _event_turn(turn): _turn_date(turn)
+        for turn in turns if _event_turn(turn) > 0 and _turn_date(turn)
+    }
+    for row in source_events:
+        if not _story_date(row) and turns_dates.get(_event_turn(row)):
+            row["story_date"] = turns_dates[_event_turn(row)]
     important_dates = {
         _story_date(row)
         for row in source_events
@@ -457,7 +520,9 @@ def _apply_macro_chronology_compaction_core(
     important_dates.discard("")
 
     actor_events_by_date = _source_actor_events_by_date(source_events)
+    durable_facts_by_date = _durable_source_facts_by_date(source_events)
     important_dates.update(actor_events_by_date)
+    important_dates.update(durable_facts_by_date)
     normalized: List[Dict[str, Any]] = []
     represented_dates: set[str] = set()
     attached_actor_dates: set[str] = set()
@@ -478,6 +543,17 @@ def _apply_macro_chronology_compaction_core(
         importance = str(raw.get("importance") or "major").casefold().strip()
         if importance not in {"normal", "major", "anchor", "critical"}:
             importance = "major"
+        # The model may label a day "normal" despite an anchor source fact.
+        # Preserve the strongest original significance for future retrieval.
+        rank = {"normal": 0, "major": 1, "anchor": 2, "critical": 3}
+        for source_event in source_events:
+            if _story_date(source_event) != date:
+                continue
+            source_importance = str(source_event.get("importance") or "normal").casefold()
+            if source_event.get("anchor") is True:
+                source_importance = "anchor"
+            if rank.get(source_importance, 0) > rank[importance]:
+                importance = source_importance
 
         participants = raw.get("participants")
         if isinstance(participants, str):
@@ -511,6 +587,10 @@ def _apply_macro_chronology_compaction_core(
         elif critical_times:
             item["critical_times"] = critical_times
             item["time_critical"] = True
+        # Keep all source-confirmed durable facts, even when the summarizer's
+        # dated paragraph accidentally omits one. Metadata remains author-only.
+        if durable_facts_by_date.get(date):
+            item["source_key_facts"] = deepcopy(durable_facts_by_date[date])
         # Do not ask the summary model to reconstruct actor identities. They
         # come from already saved chronology and attach once per story date.
         if date not in attached_actor_dates and actor_events_by_date.get(date):
@@ -524,6 +604,17 @@ def _apply_macro_chronology_compaction_core(
     kept = [
         row for row in values
         if not (start_turn <= _event_turn(row) <= end_turn)
+        or (
+            # A significant undated source that cannot be placed reliably in
+            # a dated macro must remain in canonical chronology verbatim.
+            not _story_date(row)
+            and not turns_dates.get(_event_turn(row))
+            and (
+                str(row.get("importance") or "").casefold() in {"major", "anchor", "critical"}
+                or row.get("anchor") is True
+                or row.get("time_critical") is True
+            )
+        )
     ]
     return sorted(
         [*kept, *normalized],

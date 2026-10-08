@@ -14,6 +14,7 @@ SCENE_SUMMARY_MAX_CHARS = 1200
 MEMORY_SUMMARY_MAX_CHARS = 900
 _MEMORY_ID_KEYS = {
     "knowledge": "fact_id",
+    "knowledge_journal": "entry_id",
     "experiences": "event_id",
     "dialogue_memory": "topic_id",
 }
@@ -422,6 +423,16 @@ def _canonical_memory_record(
             "first_learned_turn": first_turn,
             "last_learned_turn": last_turn,
         }
+    if memory_type == "knowledge_journal":
+        first = source_rows[0] if source_rows else {}
+        return {
+            **common,
+            "entry_id": canonical_id,
+            "text": summary,
+            "date": first.get("date"),
+            "period": first.get("period"),
+            "turn": min(ordered_turns) if ordered_turns else int(audit_end_turn),
+        }
     if memory_type == "experiences":
         return {
             **common,
@@ -516,6 +527,13 @@ def _apply_memory_compactions(
 
         if not has_current_audit_evidence:
             raise RuntimeError("MEMORY_COMPACTION_SOURCE_OUT_OF_RANGE")
+        if memory_type == "knowledge_journal" and len({
+            (str(item.get("date") or ""), str(item.get("period") or ""))
+            for item in source_rows
+        }) > 1:
+            # A merged entry cannot claim one date when its constituent facts
+            # were learned on different days. Source evidence stays intact.
+            raise RuntimeError("MEMORY_COMPACTION_CROSS_DATE")
 
         canonical = _canonical_memory_record(
             character_id=character_id,
@@ -569,6 +587,169 @@ def complete_knowledge_records(values: Any) -> List[Dict[str, Any]]:
     result.sort(key=lambda item: (_record_turn(item), str(item.get("fact_id") or "")))
     return result
 
+
+def complete_knowledge_journal_records(values: Any) -> List[Dict[str, Any]]:
+    """Lossless journal evidence for 100-turn continuation block reads.
+
+    Unlike the ordinary writer packet, migration uses individual original
+    entries with their own learned dates/turns. Summaries replace originals
+    only when those originals are no longer available in older sessions.
+    """
+    if not isinstance(values, list):
+        return []
+    rows = [
+        deepcopy(item) if isinstance(item, dict) else {"text": item.strip()}
+        for item in values
+        if isinstance(item, dict) or (isinstance(item, str) and item.strip())
+    ]
+    raw = [item for item in rows if item.get("canonical_compaction") is not True]
+    raw_ids = {
+        str(item["entry_id"]) for item in raw if item.get("entry_id") not in (None, "")
+    }
+    fallback = []
+    for item in rows:
+        if item.get("canonical_compaction") is not True or item.get("superseded_by"):
+            continue
+        sources = item.get("merged_from")
+        sources = [str(s) for s in sources if s] if isinstance(sources, list) else []
+        if not sources or not all(source in raw_ids for source in sources):
+            fallback.append(item)
+    result = [*raw, *fallback]
+    result.sort(key=lambda row: (_record_turn(row), str(row.get("entry_id") or "")))
+    return result
+
+
+def transport_knowledge_records(values: Any) -> List[Dict[str, Any]]:
+    """Use compacted factual knowledge only when nothing can be forgotten.
+
+    Older audit summaries may omit independent facts. Never trust
+    superseded_by alone. For each proposed canonical record verify that
+    every underlying raw fact is still literally present in its summary
+    (ignoring only whitespace), and that source uncertainty is uniform.
+    Otherwise send the exact raw facts. Originals remain unchanged.
+    """
+    complete = complete_knowledge_records(values)
+    if not isinstance(values, list):
+        return complete
+    raw_by_id = {
+        str(row.get("fact_id")): row
+        for row in complete
+        if isinstance(row, dict)
+        and row.get("canonical_compaction") is not True
+        and row.get("fact_id") not in (None, "")
+    }
+    chosen: List[Dict[str, Any]] = []
+    replaced: set[str] = set()
+    for item in values:
+        if not isinstance(item, dict) or item.get("canonical_compaction") is not True:
+            continue
+        if item.get("superseded_by"):
+            continue
+        ids = item.get("merged_from")
+        ids = [str(value) for value in ids if value] if isinstance(ids, list) else []
+        if not ids or len(set(ids)) != len(ids) or any(i in replaced or i not in raw_by_id for i in ids):
+            continue
+        sources = [raw_by_id[i] for i in ids]
+        summary = " ".join(str(item.get("fact") or "").split()).casefold()
+        facts = [" ".join(str(row.get("fact") or "").split()).casefold() for row in sources]
+        # Literal coverage alone is insufficient: "не [old fact]" still
+        # contains the original words but reverses their meaning. Only use
+        # an existing source fact verbatim (possibly containing shorter facts).
+        if not summary or summary not in facts or any(not fact or fact not in summary for fact in facts):
+            continue
+        confidences = [
+            str(row.get("confidence") or "").casefold().strip()
+            for row in sources
+        ]
+        if len(set(confidences)) > 1:
+            continue
+        # A stale or malformed compact record must never upgrade uncertain
+        # source knowledge to a certain statement.
+        canonical_confidence = str(item.get("confidence") or "").casefold().strip()
+        if canonical_confidence != confidences[0]:
+            continue
+        import json
+        raw_size = sum(len(json.dumps(row, ensure_ascii=False)) for row in sources)
+        compact_size = len(json.dumps(item, ensure_ascii=False))
+        if compact_size >= raw_size:
+            continue
+        chosen.append(deepcopy(item))
+        replaced.update(ids)
+
+    kept = [
+        row for row in complete
+        if not (row.get("canonical_compaction") is not True and str(row.get("fact_id") or "") in replaced)
+    ]
+    result = [*kept, *chosen]
+    result.sort(key=lambda row: (_record_turn(row), str(row.get("fact_id") or "")))
+    return result
+
+
+def transport_knowledge_journal(values: Any) -> List[Dict[str, Any]]:
+    """Preserve every available personal journal fact, including legacy forms.
+
+    An active canonical summary is a transport replacement only when its
+    original entries are all available, from the same date/period, literally
+    covered by one original source text, and it costs fewer bytes. When
+    sources have disappeared from an old session, keep the canonical summary
+    as a fallback alongside any available originals. Do not discard strings.
+    """
+    if not isinstance(values, list):
+        return []
+    rows = [
+        deepcopy(item) if isinstance(item, dict) else {"text": item.strip()}
+        for item in values
+        if isinstance(item, dict) or (isinstance(item, str) and item.strip())
+    ]
+    raw = {
+        str(item.get("entry_id")): item for item in rows
+        if item.get("canonical_compaction") is not True and item.get("entry_id")
+    }
+    replaced: set[str] = set()
+    selected: List[Dict[str, Any]] = []
+    import json
+
+    for item in rows:
+        if item.get("canonical_compaction") is not True or item.get("superseded_by"):
+            continue
+        ids = item.get("merged_from")
+        ids = [str(value) for value in ids if value] if isinstance(ids, list) else []
+        if not ids or len(ids) != len(set(ids)) or any(i not in raw for i in ids):
+            # Prior-session summaries may be all that survives a migration.
+            # Retain these records rather than replacing them with nothing.
+            selected.append(item)
+            continue
+        if any(i in replaced for i in ids):
+            continue
+        source = [raw[i] for i in ids]
+        if any(
+            (str(r.get("date") or ""), str(r.get("period") or ""))
+            != (str(item.get("date") or ""), str(item.get("period") or ""))
+            for r in source
+        ):
+            continue
+        summary = " ".join(str(item.get("text") or "").split()).casefold()
+        facts = [" ".join(str(row.get("text") or "").split()).casefold() for row in source]
+        # Paraphrases and negations are never accepted as lossless proof.
+        if not summary or summary not in facts or any(not fact or fact not in summary for fact in facts):
+            continue
+        if len(json.dumps(item, ensure_ascii=False)) >= sum(
+            len(json.dumps(row, ensure_ascii=False)) for row in source
+        ):
+            continue
+        selected.append(item)
+        replaced.update(ids)
+    selected.extend(
+        row for row in rows
+        if row.get("canonical_compaction") is not True
+        and str(row.get("entry_id") or "") not in replaced
+    )
+    # Keep canonical fallback entries with no original sources and preserve
+    # the earlier learned time for old records that have one.
+    selected.sort(key=lambda item: (
+        _record_turn(item), str(item.get("entry_id") or ""),
+    ))
+    return selected
 
 def active_memory_records(values: Any) -> List[Dict[str, Any]]:
     if not isinstance(values, list):

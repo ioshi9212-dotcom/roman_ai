@@ -7,7 +7,7 @@ from typing import Any, Dict, List
 
 from . import session_runtime, storage
 from .npc_intent import active_intents_for, normalise_store
-from .scene_compaction_runtime import active_memory_records, complete_knowledge_records, covered_turns, load_scene_history
+from .scene_compaction_runtime import active_memory_records, transport_knowledge_records, covered_turns, load_scene_history
 from .transactional_storage import session_transaction
 
 
@@ -169,7 +169,7 @@ def _compact_memory(context: Dict[str, Any]) -> None:
         }
         # Knowledge is the factual source for character dialogue, so do not apply
         # a recency cap here. Chunking handles transport size safely.
-        bucket["knowledge"] = deepcopy(complete_knowledge_records(bucket.get("knowledge")))
+        bucket["knowledge"] = deepcopy(transport_knowledge_records(bucket.get("knowledge")))
         bucket["experiences"] = _tail(bucket.get("experiences"), MAX_WORKING_EXPERIENCES)
         bucket["dialogue_memory"] = _tail(bucket.get("dialogue_memory"), MAX_WORKING_DIALOGUE)
         bucket["historical_knowledge_catalog"] = []
@@ -254,7 +254,19 @@ def _compact_chronology(value: Any, character_ids: List[str], location: Any) -> 
     for index, event in list(enumerate(events))[-MAX_RECENT_CHRONOLOGY:]:
         keep(event, index)
     for character_id in character_ids:
-        for index, event in [(i, e) for i, e in enumerate(events) if character_id in _event_participants(e) or character_id in session_runtime._event_actor_ids(e)][-MAX_CHARACTER_CHRONOLOGY:]:
+        matches = [
+            (i, event) for i, event in enumerate(events)
+            if character_id in session_runtime._event_indexed_character_ids(event)
+        ]
+        for index, event in matches[-MAX_CHARACTER_CHRONOLOGY:]:
+            keep(event, index)
+        first_source_macro = next(
+            ((index, event) for index, event in matches
+             if isinstance(event.get("source_key_facts"), list) and event["source_key_facts"]),
+            None,
+        )
+        if first_source_macro is not None:
+            index, event = first_source_macro
             keep(event, index)
     needle = str(location or "").casefold().strip()
     if needle:
@@ -271,17 +283,35 @@ def _compact_chronology(value: Any, character_ids: List[str], location: Any) -> 
     relevant = {str(cid) for cid in character_ids if cid}
     for event in selected.values():
         actor_events = event.get("actor_events")
-        if not isinstance(actor_events, list):
-            continue
-        scoped = [
-            action for action in actor_events
-            if isinstance(action, dict)
-            and str(action.get("actor_character_id") or "") in relevant
-        ]
-        if scoped:
-            event["actor_events"] = scoped
-        else:
-            event.pop("actor_events", None)
+        if isinstance(actor_events, list):
+            scoped = [
+                action for action in actor_events
+                if isinstance(action, dict)
+                and str(action.get("actor_character_id") or "") in relevant
+            ]
+            if scoped:
+                event["actor_events"] = scoped
+            else:
+                event.pop("actor_events", None)
+        # The full macro is persistent, but only source-proven facts tied to
+        # scene participants should expand the writer packet. Global events
+        # without an actor or participant remain visible as objective canon.
+        source_facts = event.get("source_key_facts")
+        if isinstance(source_facts, list):
+            scoped_facts = []
+            for fact in source_facts:
+                if not isinstance(fact, dict):
+                    continue
+                owners = _event_participants(fact)
+                actor = str(fact.get("actor_character_id") or "")
+                if actor:
+                    owners.add(actor)
+                if not owners or owners.intersection(relevant):
+                    scoped_facts.append(fact)
+            if scoped_facts:
+                event["source_key_facts"] = scoped_facts
+            else:
+                event.pop("source_key_facts", None)
     return sorted(selected.values(), key=lambda event: (_event_turn(event), str(event.get("event_id", ""))))
 
 
