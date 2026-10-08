@@ -197,7 +197,6 @@ def _commit_request_turn(sid: str, user_input: str, request_id: str, turn: int):
     start = 1 if manifest.get("first_chunk_included") else 0
     for index in range(start, manifest["chunk_count"]):
         storage.get_turn_packet_chunk(sid, manifest["packet_id"], index)
-    ending = f"Новый сетевой маркер {turn} подтверждён."
     return session_runtime.commit_turn(
         sid,
         {
@@ -206,25 +205,17 @@ def _commit_request_turn(sid: str, user_input: str, request_id: str, turn: int):
             "scene_output": (
                 "🎭 Duplicate guard · осень\n"
                 f"🕒 День 1 · вторник, 01.09.2026, 10:{turn:02d} · 📍 room\n\n"
-                f"Сохранённая сцена {turn}. {ending}\n\nСостояние: спокойно\nОтношения:\n\nХод {turn}"
+                f"Сохранённая сцена {turn} без событий.\n\nСостояние: спокойно\nОтношения:\n\nХод {turn}"
             ),
             "extracted": {
                 "persistence_reviewed": True,
-                "chronology": [{"event": ending, "importance": "minor"}],
+                "chronology": [],
                 "knowledge_add": [],
                 "experiences_add": [],
                 "dialogue_memory_add": [],
                 "npc_intent_updates": [],
                 "story_thread_updates": [],
-                "scene_progressed": True,
-                "scene_progression": {
-                    "target": "world:emergent",
-                    "kind": "new_information",
-                    "action": ending,
-                    "end_state_change": "Сохранён новый различимый маркер сетевого хода.",
-                    "ending_kind": "new_fact",
-                    "ending_evidence_text": ending,
-                },
+                "scene_progressed": False,
             },
         },
     )
@@ -234,7 +225,7 @@ def test_request_id_allows_identical_text_as_two_real_gameplay_turns():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         sid = make_session()
-        text = "Ещё раз."
+        text = "Ещё раз. Без событий."
 
         first = _commit_request_turn(sid, text, "req-repeat-1", 1)
         second = _commit_request_turn(sid, text, "req-repeat-2", 2)
@@ -250,7 +241,7 @@ def test_same_committed_request_id_replays_saved_scene_without_new_turn():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         sid = make_session()
-        text = "Один сетевой запрос."
+        text = "Один сетевой запрос. Без событий."
         _commit_request_turn(sid, text, "req-retry", 1)
 
         response = prepare_turn_request(sid, text, "req-retry")
@@ -356,7 +347,7 @@ def test_retry_of_old_committed_request_does_not_disturb_newer_pending_turn():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         sid = make_session()
-        old_text = "Уже сохранённый ход."
+        old_text = "Уже сохранённый ход. Без событий."
         _commit_request_turn(sid, old_text, "req-old-committed", 1)
 
         pending = prepare_turn_request(sid, "Новый незаписанный ход.", "req-new-pending")
