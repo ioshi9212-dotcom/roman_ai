@@ -590,7 +590,12 @@ def _prepare_context(
         remote_set = set(remote_ids)
         lens["footer_character_ids"] = physical_ids
         lens["remote_participant_ids"] = remote_ids
-        lens["review_required_character_ids"] = physical_ids
+        lens["review_required_character_ids_at_scene_start"] = physical_ids
+        lens["review_scope"] = (
+            "Review every NPC who physically participates at any point in the completed scene. "
+            "The start list is not exhaustive: include NPCs added or moved through presence_updates, "
+            "including an NPC who enters and leaves within the same turn."
+        )
         lens["review_required_every_turn"] = True
         lens["review_numeric_results"] = [
             "updated",
