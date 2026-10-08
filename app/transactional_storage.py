@@ -73,7 +73,20 @@ def _rollback(root: Path, transaction_dir: Path, manifest: Dict[str, Any]) -> No
     for entry in reversed(manifest.get("entries", [])):
         target = (root / _safe_relative(str(entry["target"]))).resolve()
         target.relative_to(root.resolve())
-        if entry.get("backup_exists"):
+        if entry.get("operation") == "append":
+            # A journal append changes only a file suffix. The original byte
+            # length is sufficient for rollback; no huge backup copy needed.
+            if entry.get("backup_exists"):
+                if not target.exists():
+                    raise RuntimeError(f"missing appended transaction target: {entry['target']}")
+                with target.open("r+b") as handle:
+                    handle.truncate(int(entry["original_size"]))
+                    handle.flush()
+                    os.fsync(handle.fileno())
+            else:
+                target.unlink(missing_ok=True)
+            _fsync_dir(target.parent)
+        elif entry.get("backup_exists"):
             backup = transaction_dir / str(entry["backup"])
             if not backup.exists():
                 raise RuntimeError(f"missing transaction backup for {entry['target']}")
@@ -138,9 +151,16 @@ def session_transaction(root: Path) -> Iterator[None]:
                     fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
-def write_batch(root: Path, values: Dict[str, str]) -> None:
-    if not values:
+def write_batch(
+    root: Path, values: Dict[str, str], *,
+    append_values: Dict[str, str] | None = None,
+) -> None:
+    """Commit replacements and append-only journals in one recoverable transaction."""
+    append_values = append_values or {}
+    if not values and not append_values:
         return
+    if set(values).intersection(append_values):
+        raise ValueError("transaction target cannot be replaced and appended at once")
     root = root.resolve()
     with session_transaction(root):
         transactions = root / ".transactions"
@@ -176,6 +196,22 @@ def write_batch(root: Path, values: Dict[str, str]) -> None:
                         "backup_exists": backup_exists,
                     }
                 )
+            for index, relative in enumerate(sorted(append_values), start=len(values)):
+                relative_path = _safe_relative(relative)
+                target = (root / relative_path).resolve()
+                target.relative_to(root)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                staged = staged_dir / f"{index:04d}.txt"
+                _write_text_atomic(staged, append_values[relative])
+                manifest["entries"].append(
+                    {
+                        "target": relative,
+                        "operation": "append",
+                        "staged": str(staged.relative_to(tx)),
+                        "backup_exists": target.exists(),
+                        "original_size": target.stat().st_size if target.exists() else 0,
+                    }
+                )
             _fsync_dir(staged_dir)
             _fsync_dir(backup_dir)
             _write_text_atomic(manifest_path, json.dumps(manifest, ensure_ascii=False, indent=2) + "\n")
@@ -183,7 +219,13 @@ def write_batch(root: Path, values: Dict[str, str]) -> None:
             for entry in manifest["entries"]:
                 target = (root / _safe_relative(str(entry["target"]))).resolve()
                 staged = tx / str(entry["staged"])
-                os.replace(staged, target)
+                if entry.get("operation") == "append":
+                    with target.open("ab") as handle, staged.open("rb") as source:
+                        shutil.copyfileobj(source, handle)
+                        handle.flush()
+                        os.fsync(handle.fileno())
+                else:
+                    os.replace(staged, target)
                 _fsync_dir(target.parent)
             manifest["state"] = "committed"
             _write_text_atomic(manifest_path, json.dumps(manifest, ensure_ascii=False, indent=2) + "\n")

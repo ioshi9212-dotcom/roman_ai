@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 import secrets
+from time import perf_counter
 from copy import deepcopy
 from typing import Any, Dict, List
 
@@ -463,6 +464,7 @@ def _prepare_context(
     *,
     packet_override: Dict[str, Any] | None = None,
     context_override: Dict[str, Any] | None = None,
+    snapshot_override: Dict[str, Any] | None = None,
 ) -> Dict[str, Any]:
     root = storage.SESSIONS_DIR / session_id
     if packet_override is None or context_override is None:
@@ -473,10 +475,13 @@ def _prepare_context(
     if not context:
         return base
 
-    source = storage._read_json(root / "source.json", {})
-    cards = storage._load_cards(root, source)
-    state = storage._read_json(root / "state.json", {})
-    meta = storage._read_json(root / "meta.json", {})
+    # The builder already read this consistent, pre-turn snapshot. It is
+    # internal-only, never embedded into the writer-facing packet.
+    snapshot = snapshot_override if isinstance(snapshot_override, dict) else {}
+    source = snapshot["source"] if "source" in snapshot else storage._read_json(root / "source.json", {})
+    cards = snapshot["cards"] if "cards" in snapshot else storage._load_cards(root, source)
+    state = snapshot["state"] if "state" in snapshot else storage._read_json(root / "state.json", {})
+    meta = snapshot["meta"] if "meta" in snapshot else storage._read_json(root / "meta.json", {})
     current_turn = int(meta.get("turn_number", 0) or 0)
     opening_scene = current_turn == 0 and str(packet.get("user_input") or "") == ""
     if opening_scene:
@@ -489,7 +494,7 @@ def _prepare_context(
         context,
         persistent_state=state,
     )
-    context = writer_first_runtime._rewrite_context(session_id, context)
+    context = writer_first_runtime._rewrite_context(session_id, context, snapshot_override=snapshot)
     context = private_knowledge_runtime.redact_private_history(context, root=root, cards=cards)
     context = _clean_director_layers(context)
     # cast_registry below is the single always-read cast index. Remove the older
@@ -532,7 +537,7 @@ def _prepare_context(
     # character_cards is the single lossless active-card representation.
     # Do not render the same cards a second time into character_profiles.
 
-    memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
+    memory = snapshot["memory"] if "memory" in snapshot else storage._normalise_memory(storage._read_json(root / "memory.json", {}))
     memory_buckets = memory.get("characters", {}) if isinstance(memory.get("characters"), dict) else {}
     context["character_memory"] = {
         cid: turn_context._working_memory_bucket(
@@ -670,6 +675,7 @@ def _prepare_context(
 
 
 def prepare_turn_packet(session_id: str, user_input: str) -> Dict[str, Any]:
+    started = perf_counter()
     root = storage.SESSIONS_DIR / session_id
     if not root.exists():
         raise FileNotFoundError(session_id)
@@ -694,13 +700,17 @@ def prepare_turn_packet(session_id: str, user_input: str) -> Dict[str, Any]:
             and pending.get("chunks")
         ):
             if int(pending.get("turn_pipeline_version", 0) or 0) == PIPELINE_VERSION:
-                return _packet_manifest(pending, reused=True)
+                result = _packet_manifest(pending, reused=True)
+                result["backend_prepare_ms"] = round((perf_counter() - started) * 1000, 1)
+                return result
             (root / "turn_packet.json").unlink(missing_ok=True)
             pending = {}
 
     # Build once in memory, then serialize only the final writer packet.
     # This avoids storage -> packet -> read -> rewrite -> packet round-trips.
-    context = session_runtime.build_turn_context(session_id, user_input)
+    context, snapshot = session_runtime.build_turn_context(
+        session_id, user_input, return_snapshot=True,
+    )
     packet = {
         "packet_id": secrets.token_urlsafe(12),
         "prepared_for_turn": expected_turn,
@@ -720,12 +730,17 @@ def prepare_turn_packet(session_id: str, user_input: str) -> Dict[str, Any]:
         "chunk_count": 0,
         "relevant_character_ids": packet["relevant_character_ids"],
     }
-    return _prepare_context(
+    result = _prepare_context(
         session_id,
         base,
         packet_override=packet,
         context_override=context,
+        snapshot_override=snapshot,
     )
+    # Wall-clock on the server only: model generation and Action transport
+    # are not included. This distinguishes backend I/O from LLM latency.
+    result["backend_prepare_ms"] = round((perf_counter() - started) * 1000, 1)
+    return result
 
 
 def _validate_technical_state_patch(payload: Dict[str, Any]) -> None:
@@ -1028,6 +1043,7 @@ def _strip_relationship_review(payload: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    started = perf_counter()
     _validate_technical_state_patch(payload)
     prepared = _prepare_profile_persistence(session_id, payload)
     prepared = private_knowledge_runtime.add_direct_communication_memory(session_id, prepared)
@@ -1070,6 +1086,7 @@ def commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     if saved.get("audit_due") is True:
         saved["required_audit"] = fast_audit_runtime.get_audit_snapshot(session_id)
     saved["turn_pipeline_version"] = PIPELINE_VERSION
+    saved["backend_commit_ms"] = round((perf_counter() - started) * 1000, 1)
     return saved
 
 

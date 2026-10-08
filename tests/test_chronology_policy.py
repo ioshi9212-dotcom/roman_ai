@@ -204,3 +204,42 @@ def test_old_anchor_remains_in_packet_after_hundreds_of_events():
         assert "chronology_policy" not in packet
         assert "## CHRONOLOGY" in packet["runtime_rules"]
         assert "## PERSISTENCE" in packet["runtime_rules"]
+
+
+def test_identical_chronology_events_are_not_saved_twice_and_empty_filler_drops():
+    state = novel()["starting_state"]
+    cards = novel()["characters"]
+    events = session_runtime._normalise_chronology_events(
+        [
+            {"event": "Кай обнаружил важное письмо.", "importance": "major"},
+            {"event": "  Кай обнаружил важное письмо.  ", "importance": "major"},
+            {"event": "Ничего не произошло."},
+            {"event": "Кай выпил чай и обнаружил яд.", "importance": "major"},
+            {"event": "Ничего не произошло.", "importance": "anchor"},
+            {"event": "Дарен нашёл след.", "actor_character_id": "kai",
+             "importance": "major", "location": "другая локация"},
+        ],
+        turn_number=8, state=state, cards=cards,
+    )
+    assert [e["event"] for e in events] == [
+        "Кай обнаружил важное письмо.",
+        "Кай выпил чай и обнаружил яд.",
+        "Ничего не произошло.",
+        "Дарен нашёл след.",
+    ]
+    assert events[2]["importance"] == "anchor"
+    assert events[3]["actor_character_id"] == "kai"
+    assert events[3]["location"] == "другая локация"
+
+
+def test_distinct_same_text_chronology_remains_when_actor_or_evidence_differs():
+    items = session_runtime._normalise_chronology_events(
+        [
+            {"event": "Обнаружен след.", "actor_character_id": "emily", "importance": "major"},
+            {"event": "Обнаружен след.", "actor_character_id": "kai", "importance": "major"},
+            {"event": "Обнаружен след.", "actor_character_id": "kai", "importance": "major",
+             "consequences": ["Новый свидетель сможет подтвердить время."]},
+        ],
+        turn_number=14, state=novel()["starting_state"], cards=novel()["characters"],
+    )
+    assert len(items) == 3

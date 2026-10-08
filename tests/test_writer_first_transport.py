@@ -142,3 +142,36 @@ def test_player_input_map_preserves_interleaved_segments_left_to_right():
     assert privacy["not_character_knowledge"] is True
     assert privacy["observable_physical_effects_only"] is True
     assert "rule" not in privacy
+
+
+def test_prepare_reuses_canonical_snapshot_without_second_memory_and_turn_read(monkeypatch):
+    from app import turn_context, writer_first_runtime
+
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(novel())["session_id"]
+        original_rolling = writer_first_runtime._rolling_turn_context
+        observed = []
+
+        def checked_rolling(root, *, turns_override=None, scene_history_override=None):
+            observed.append((turns_override, scene_history_override))
+            assert isinstance(turns_override, list), "writer re-read full turns.jsonl"
+            assert isinstance(scene_history_override, list), "writer re-read scene history"
+            return original_rolling(
+                root, turns_override=turns_override,
+                scene_history_override=scene_history_override,
+            )
+
+        def unexpected_memory_reload(*args, **kwargs):
+            raise AssertionError("scene context re-read memory.json instead of snapshot")
+
+        monkeypatch.setattr(writer_first_runtime, "_rolling_turn_context", checked_rolling)
+        monkeypatch.setattr(turn_context, "_session_memory", unexpected_memory_reload)
+        manifest, packet = read_context(sid, "(читать книгу)")
+        assert observed and isinstance(observed[0][0], list)
+        assert manifest["chunk_count"] >= 1
+        assert isinstance(manifest["backend_prepare_ms"], (int, float))
+        assert manifest["backend_prepare_ms"] >= 0
+        assert {x["character_id"] for x in packet["character_cards"]} == {"pov", "npc"}
+        assert set(packet["character_memory"]) == {"pov", "npc"}
+        assert "scene_builder" in packet and "runtime_rules" in packet
