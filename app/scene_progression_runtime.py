@@ -279,10 +279,7 @@ def build_contract(
             "ending_kind",
             "ending_evidence_text",
         ],
-        "independent_cast_proof_rule": (
-            "For cast:independent set scene_progression.character_id. Evidence: NPC action/entry "
-            "or consequential chronology with actor_character_id; no POV knowledge transfer."
-        ),
+        "independent_cast_proof_rule": "cast:independent needs scene_progression.character_id and evidenced NPC action; no POV knowledge transfer.",
         "meaningful_progress_rule": (
             "Every gameplay turn must produce at least one meaningful world/story/relationship state change unless the user explicitly requests uneventful downtime. "
             "Movement, sleeping, eating, checking devices, weather or passage of time alone do not count."
