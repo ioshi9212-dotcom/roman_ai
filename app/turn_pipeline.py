@@ -327,18 +327,11 @@ def _independent_cast_focus(rows: List[Dict[str, Any]], current_turn: int) -> Li
         int(row.get("last_contact_turn") or 0),
         str(row.get("character_id")),
     ))
+    # Registry rows already carry the full compact profile; never duplicate
+    # their text in the turn packet just to highlight cast agency.
     return [{
         "character_id": row["character_id"],
         "name": row.get("name"),
-        "importance": row.get("importance"),
-        "story_function": row.get("story_function"),
-        "goals": row.get("goals"),
-        "work": row.get("work"),
-        "current_activity": row.get("current_activity"),
-        "current_location": row.get("current_location"),
-        "active_intents": row.get("active_intents"),
-        "active_threads": row.get("active_threads"),
-        "pov_familiarity": row.get("pov_familiarity"),
     } for row in candidates]
 
 
