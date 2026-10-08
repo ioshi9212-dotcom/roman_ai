@@ -538,6 +538,15 @@ def test_offscreen_major_action_advances_cast_without_intent_or_pov_presence():
         state = storage._read_json(root / "state.json", {})
         assert "daren" not in state.get("current", {}).get("present_characters", [])
         assert not state.get("npc_intents")
+        # Objective offscreen chronology is not automatic personal knowledge,
+        # either for the actor or for the unaware POV.
+        memory = storage._read_json(root / "memory.json", {})
+        characters = memory.get("characters") if isinstance(memory.get("characters"), dict) else {}
+        for cid in ("kair", "daren"):
+            bucket = characters.get(cid) if isinstance(characters.get(cid), dict) else {}
+            entries = bucket.get("knowledge_journal") if isinstance(bucket.get("knowledge_journal"), list) else []
+            assert not any("поврежден" in str(entry).lower() for entry in entries)
+
 
 
 def test_offscreen_actor_does_not_inherit_pov_location_or_witnesses():
