@@ -488,9 +488,19 @@ def _apply_macro_chronology_compaction_core(
     turns_by_date = _date_turns(turns, start_turn, end_turn)
 
     source_events = [
-        row for row in values
+        deepcopy(row) for row in values
         if start_turn <= _event_turn(row) <= end_turn
     ]
+    # An older session may have stored a significant event without a date.
+    # Recover that date from the original scene before assigning events to
+    # macro paragraphs, rather than silently losing a first-day fact.
+    turns_dates = {
+        _event_turn(turn): _turn_date(turn)
+        for turn in turns if _event_turn(turn) > 0 and _turn_date(turn)
+    }
+    for row in source_events:
+        if not _story_date(row) and turns_dates.get(_event_turn(row)):
+            row["story_date"] = turns_dates[_event_turn(row)]
     important_dates = {
         _story_date(row)
         for row in source_events
@@ -523,6 +533,17 @@ def _apply_macro_chronology_compaction_core(
         importance = str(raw.get("importance") or "major").casefold().strip()
         if importance not in {"normal", "major", "anchor", "critical"}:
             importance = "major"
+        # The model may label a day "normal" despite an anchor source fact.
+        # Preserve the strongest original significance for future retrieval.
+        rank = {"normal": 0, "major": 1, "anchor": 2, "critical": 3}
+        for source_event in source_events:
+            if _story_date(source_event) != date:
+                continue
+            source_importance = str(source_event.get("importance") or "normal").casefold()
+            if source_event.get("anchor") is True:
+                source_importance = "anchor"
+            if rank.get(source_importance, 0) > rank[importance]:
+                importance = source_importance
 
         participants = raw.get("participants")
         if isinstance(participants, str):
@@ -573,6 +594,17 @@ def _apply_macro_chronology_compaction_core(
     kept = [
         row for row in values
         if not (start_turn <= _event_turn(row) <= end_turn)
+        or (
+            # A significant undated source that cannot be placed reliably in
+            # a dated macro must remain in canonical chronology verbatim.
+            not _story_date(row)
+            and not turns_dates.get(_event_turn(row))
+            and (
+                str(row.get("importance") or "").casefold() in {"major", "anchor", "critical"}
+                or row.get("anchor") is True
+                or row.get("time_critical") is True
+            )
+        )
     ]
     return sorted(
         [*kept, *normalized],
