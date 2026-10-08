@@ -75,6 +75,38 @@ def test_character_bundle_chunks_preserve_full_card_but_bound_memory_transport()
         assert stored["characters"]["away"]["experiences"][0]["event"] == full_memory_text
 
 
+
+def test_bundle_read_progress_never_rewrites_full_turn_packet():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(_novel())["session_id"]
+        root = storage.SESSIONS_DIR / sid
+        prepared = session_runtime.prepare_turn_packet(sid, "Посмотреть на Present.")
+        packet_path = root / "turn_packet.json"
+        original_bytes = packet_path.read_bytes()
+
+        manifest = prepare_character_bundle_read(sid, "away")
+        for chunk_index in range(1, manifest["chunk_count"]):
+            get_character_bundle_chunk(sid, "away", manifest["read_id"], chunk_index)
+            assert packet_path.read_bytes() == original_bytes
+
+        progress = storage._read_json(root / storage.TURN_PACKET_BUNDLE_PROGRESS, {})
+        assert progress["packet_id"] == prepared["packet_id"]
+        assert progress["character_bundle_reads"]["away"]["read_chunks"] == list(range(manifest["chunk_count"]))
+        merged = storage._read_json(packet_path, {})
+        assert merged["character_bundle_reads"]["away"]["read_id"] == manifest["read_id"]
+        assert merged["character_bundle_reads"]["away"]["read_chunks"] == list(range(manifest["chunk_count"]))
+        assert packet_path.read_bytes() == original_bytes
+
+        # Damaged sidecar fails closed rather than making the session unusable.
+        (root / storage.TURN_PACKET_BUNDLE_PROGRESS).write_text("{invalid", encoding="utf-8")
+        assert storage._read_json(packet_path, {}).get("character_bundle_reads") is None
+        retry = prepare_character_bundle_read(sid, "away")
+        assert retry["read_id"] == manifest["read_id"]
+        assert storage._read_json(packet_path, {})["character_bundle_reads"]["away"]["read_chunks"] == [0]
+
+
+
 def test_character_read_detects_dossier_change():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
