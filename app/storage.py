@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 import secrets
@@ -8,7 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List
 
-from .transactional_storage import json_text, write_batch
+from .transactional_storage import json_text, session_transaction, write_batch
 
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
@@ -17,6 +18,7 @@ DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
 LIBRARY_DIR = DATA_DIR / "library"
 SESSIONS_DIR = DATA_DIR / "sessions"
 MAX_PACKET_CHARS = 12000
+TURN_PACKET_READ_PROGRESS = "turn_packet_read_progress.json"
 
 
 def ensure_dirs() -> None:
@@ -24,10 +26,48 @@ def ensure_dirs() -> None:
     SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
 
 
+def _packet_content_digest(packet: Dict[str, Any]) -> str:
+    # A read marker is valid only for the exact payload it accompanied.
+    chunks = packet.get("chunks", [])
+    digest = hashlib.sha256()
+    for chunk in chunks if isinstance(chunks, list) else []:
+        digest.update(str(chunk).encode("utf-8"))
+    return digest.hexdigest()
+
+
+def _merge_packet_read_progress(path: Path, packet: Any) -> Any:
+    if not isinstance(packet, dict) or not packet.get("packet_id"):
+        return packet
+    chunks = packet.get("chunks")
+    if not isinstance(chunks, list) or not chunks:
+        return packet
+    progress_path = path.parent / TURN_PACKET_READ_PROGRESS
+    if not progress_path.exists():
+        return packet
+    progress = json.loads(progress_path.read_text(encoding="utf-8"))
+    if (
+        not isinstance(progress, dict)
+        or progress.get("packet_id") != packet.get("packet_id")
+        or progress.get("chunk_count") != len(chunks)
+        or progress.get("content_digest") != _packet_content_digest(packet)
+    ):
+        return packet
+    seen = {
+        int(value)
+        for value in [*(packet.get("read_chunks") or []), *(progress.get("read_chunks") or [])]
+        if isinstance(value, int) and 0 <= value < len(chunks)
+    }
+    packet["read_chunks"] = sorted(seen)
+    return packet
+
+
 def _read_json(path: Path, default: Any) -> Any:
     if not path.exists():
         return deepcopy(default)
-    return json.loads(path.read_text(encoding="utf-8"))
+    value = json.loads(path.read_text(encoding="utf-8"))
+    if path.name == "turn_packet.json":
+        return _merge_packet_read_progress(path, value)
+    return value
 
 
 def _write_json(path: Path, data: Any) -> None:
@@ -680,17 +720,34 @@ def get_turn_packet_chunk(session_id: str, packet_id: str, chunk_index: int) -> 
     root = SESSIONS_DIR / session_id
     if not root.exists():
         raise FileNotFoundError(session_id)
-    packet = _read_json(root / "turn_packet.json", {})
-    if not packet or packet.get("packet_id") != packet_id:
-        raise PermissionError("INVALID_PACKET")
-    chunks = packet.get("chunks", [])
-    if chunk_index < 0 or chunk_index >= len(chunks):
-        raise IndexError("CHUNK_OUT_OF_RANGE")
-    read_chunks = set(packet.get("read_chunks", []))
-    read_chunks.add(chunk_index)
-    packet["read_chunks"] = sorted(read_chunks)
-    _write_json(root / "turn_packet.json", packet)
-    return {"packet_id": packet_id, "chunk_index": chunk_index, "chunk_count": len(chunks), "content": chunks[chunk_index], "all_chunks_read": len(read_chunks) == len(chunks)}
+    with session_transaction(root):
+        packet = _read_json(root / "turn_packet.json", {})
+        if not packet or packet.get("packet_id") != packet_id:
+            raise PermissionError("INVALID_PACKET")
+        chunks = packet.get("chunks", [])
+        if chunk_index < 0 or chunk_index >= len(chunks):
+            raise IndexError("CHUNK_OUT_OF_RANGE")
+        read_chunks = {
+            int(value) for value in packet.get("read_chunks", [])
+            if isinstance(value, int) and 0 <= value < len(chunks)
+        }
+        if chunk_index not in read_chunks:
+            read_chunks.add(chunk_index)
+            # Keep the full immutable payload untouched on every chunk read.
+            # All packet readers transparently see this progress via _read_json.
+            _write_json(root / TURN_PACKET_READ_PROGRESS, {
+                "packet_id": packet_id,
+                "chunk_count": len(chunks),
+                "content_digest": _packet_content_digest(packet),
+                "read_chunks": sorted(read_chunks),
+            })
+        return {
+            "packet_id": packet_id,
+            "chunk_index": chunk_index,
+            "chunk_count": len(chunks),
+            "content": chunks[chunk_index],
+            "all_chunks_read": len(read_chunks) == len(chunks),
+        }
 
 
 def commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
