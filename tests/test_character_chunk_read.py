@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from app import session_runtime, storage
+from app import character_chunk_read, session_runtime, storage
 from app.character_chunk_read import (
     CHARACTER_CHUNK_CHARS,
     CHARACTER_MEMORY_TEXT_CHARS,
@@ -105,6 +105,63 @@ def test_bundle_read_progress_never_rewrites_full_turn_packet():
         assert retry["read_id"] == manifest["read_id"]
         assert storage._read_json(packet_path, {})["character_bundle_reads"]["away"]["read_chunks"] == [0]
 
+
+
+
+def test_character_bundle_cache_reuses_snapshot_without_rebuilding(monkeypatch):
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(_novel())["session_id"]
+        manifest = prepare_character_bundle_read(sid, "away")
+        assert manifest["chunk_count"] >= 2
+
+        def unexpected_rebuild(*args, **kwargs):
+            raise AssertionError("The dossier was unnecessarily reconstructed")
+
+        monkeypatch.setattr(character_chunk_read, "_participation_bundle", unexpected_rebuild)
+        for index in range(1, manifest["chunk_count"]):
+            row = get_character_bundle_chunk(sid, "away", manifest["read_id"], index)
+            assert row["chunk_index"] == index
+        repeat = prepare_character_bundle_read(sid, "away")
+        assert repeat["read_id"] == manifest["read_id"]
+
+
+def test_character_bundle_cached_read_invalidates_when_state_changes():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(_novel())["session_id"]
+        manifest = prepare_character_bundle_read(sid, "away")
+        root = storage.SESSIONS_DIR / sid
+        state = storage._read_json(root / "state.json", {})
+        state.setdefault("characters", {})["away"] = {"location": "new_location"}
+        storage._write_json(root / "state.json", state)
+        with pytest.raises(PermissionError, match="STALE_CHARACTER_READ"):
+            get_character_bundle_chunk(sid, "away", manifest["read_id"], 1)
+
+
+def test_character_bundle_cached_read_rebuilds_when_relationships_change(monkeypatch):
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(_novel())["session_id"]
+        manifest = prepare_character_bundle_read(sid, "away")
+        root = storage.SESSIONS_DIR / sid
+        relations = storage._read_json(root / "relationships.json", {})
+        relations["cache_test_change"] = "changed"
+        storage._write_json(root / "relationships.json", relations)
+
+        rebuilds = []
+        original = character_chunk_read._participation_bundle
+
+        def traced(*args, **kwargs):
+            rebuilds.append(True)
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(character_chunk_read, "_participation_bundle", traced)
+        rebuilt = prepare_character_bundle_read(sid, "away")
+        assert len(rebuilds) == 1
+        assert rebuilt["read_id"] == manifest["read_id"]
+        prepare_character_bundle_read(sid, "away")
+        assert len(rebuilds) == 1
 
 
 def test_character_read_detects_dossier_change():

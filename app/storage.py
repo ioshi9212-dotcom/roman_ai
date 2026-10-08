@@ -4,6 +4,8 @@ import os
 import secrets
 import shutil
 import uuid
+from contextlib import contextmanager
+from contextvars import ContextVar
 from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
@@ -22,6 +24,36 @@ TURN_PACKET_READ_PROGRESS = "turn_packet_read_progress.json"
 TURN_PACKET_BUNDLE_PROGRESS = "turn_packet_bundle_progress.json"
 TURN_PACKET_CHUNKS = "turn_packet_chunks.bin"
 TURN_PACKET_INDEX = "turn_packet_chunk_index.json"
+
+# Scoped to one commit and one session; never cache across HTTP requests.
+_READ_CACHE: ContextVar[dict | None] = ContextVar("roman_ai_session_read_cache", default=None)
+_CACHEABLE_JSON = frozenset({
+    "source.json", "characters.json", "state.json", "memory.json",
+    "chronology.json", "meta.json", "relationships.json", "audits.json",
+})
+
+
+@contextmanager
+def session_read_snapshot(root: Path):
+    """Share unmodified file data across precommit validators within one session lock.
+
+    File signatures invalidate the cache on any intermediate write. Each caller
+    receives an independent deep copy so validators cannot mutate one another.
+    """
+    token = _READ_CACHE.set({"root": root.resolve(), "entries": {}})
+    try:
+        yield
+    finally:
+        _READ_CACHE.reset(token)
+
+
+def _file_identity(path: Path):
+    try:
+        st = path.stat()
+        return (st.st_ino, st.st_mtime_ns, st.st_size)
+    except FileNotFoundError:
+        return None
+
 
 
 def ensure_dirs() -> None:
@@ -172,11 +204,24 @@ def _fast_packet_index(root: Path) -> Dict[str, Any]:
 
 
 def _read_json(path: Path, default: Any) -> Any:
+    scope = _READ_CACHE.get()
+    cacheable = bool(
+        scope and path.parent.resolve() == scope["root"]
+        and path.name in _CACHEABLE_JSON
+    )
+    if cacheable:
+        sig = _file_identity(path)
+        entry = scope["entries"].get(path.name)
+        if entry is not None and entry[0] == sig:
+            return deepcopy(entry[1])
     if not path.exists():
-        return deepcopy(default)
-    value = json.loads(path.read_text(encoding="utf-8"))
-    if path.name == "turn_packet.json":
-        return _merge_packet_read_progress(path, value)
+        value = deepcopy(default)
+    else:
+        value = json.loads(path.read_text(encoding="utf-8"))
+        if path.name == "turn_packet.json":
+            value = _merge_packet_read_progress(path, value)
+    if cacheable:
+        scope["entries"][path.name] = (_file_identity(path), deepcopy(value))
     return value
 
 
@@ -205,12 +250,20 @@ def _deep_merge(target: Dict[str, Any], patch: Dict[str, Any]) -> Dict[str, Any]
 
 def _read_turns(root: Path) -> List[Dict[str, Any]]:
     path = root / "turns.jsonl"
-    if not path.exists():
-        return []
+    scope = _READ_CACHE.get()
+    cacheable = bool(scope and root.resolve() == scope["root"])
+    if cacheable:
+        sig = _file_identity(path)
+        entry = scope["entries"].get("turns.jsonl")
+        if entry is not None and entry[0] == sig:
+            return deepcopy(entry[1])
     turns: List[Dict[str, Any]] = []
-    for line in path.read_text(encoding="utf-8").splitlines():
-        if line.strip():
-            turns.append(json.loads(line))
+    if path.exists():
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if line.strip():
+                turns.append(json.loads(line))
+    if cacheable:
+        scope["entries"]["turns.jsonl"] = (_file_identity(path), deepcopy(turns))
     return turns
 
 

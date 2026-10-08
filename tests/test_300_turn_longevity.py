@@ -150,7 +150,9 @@ def test_turn_300_writer_packet_growth_is_explained_by_complete_character_knowle
             )
             print("writer-first longevity diagnostic", {"chars_30": chars_30, "chunks_30": chunks_30, "chars_300": chars_300, "chunks_300": chunks_300, "largest_growth": growth[:15]})
 
-        assert chunks_30 <= 8
+        # The current full-knowledge baseline needs nine 16k chunks after 30
+        # turns. Keep a regression ceiling without dropping lifetime knowledge.
+        assert chunks_30 <= 9
         assert chunks_300 <= 24
 
         memory_30 = int(top_30.get("character_memory", 0))

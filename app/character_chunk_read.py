@@ -5,6 +5,8 @@ import json
 from copy import deepcopy
 from typing import Any, Dict, List
 
+from .performance_metrics import timed
+
 from .character_access import get_character_bundle
 from . import personal_memory_transport, relationship_file_runtime, storage, session_runtime
 from .scene_compaction_runtime import active_memory_records, complete_knowledge_records
@@ -205,12 +207,58 @@ def _participation_bundle(session_id: str, character_id: str) -> Dict[str, Any]:
     }
 
 
+_BUNDLE_DEPENDENCIES = (
+    "source.json", "characters.json", "state.json", "memory.json",
+    "meta.json", "relationships.json",
+)
+_BUNDLE_CACHE_VERSION = 1
+
+
+def _bundle_signature(root) -> Dict[str, Any]:
+    # Stat-only validation avoids rebuilding character dossiers on every chunk.
+    # Source of truth remains the canonical files, never this derived cache.
+    return {
+        name: list(identity) if (identity := storage._file_identity(root / name)) is not None else None
+        for name in _BUNDLE_DEPENDENCIES
+    }
+
+
 def _snapshot(session_id: str, character_id: str) -> tuple[str, List[str]]:
-    bundle = _participation_bundle(session_id, character_id)
-    text = json.dumps(bundle, ensure_ascii=False, separators=(",", ":"))
-    read_id = hashlib.sha256(text.encode("utf-8")).hexdigest()[:24]
-    chunks = [text[i:i + CHARACTER_CHUNK_CHARS] for i in range(0, len(text), CHARACTER_CHUNK_CHARS)] or ["{}"]
-    return read_id, chunks
+    root = storage.SESSIONS_DIR / session_id
+    if not root.exists():
+        raise FileNotFoundError(session_id)
+    with session_transaction(root):
+        key = hashlib.sha256(str(character_id).encode("utf-8")).hexdigest()[:32]
+        cache_path = root / f"character_bundle_cache_{key}.json"
+        signature = _bundle_signature(root)
+        cache = storage._read_optional_dict(cache_path)
+        if (
+            cache.get("version") == _BUNDLE_CACHE_VERSION
+            and cache.get("character_id") == character_id
+            and cache.get("signature") == signature
+            and isinstance(cache.get("chunks"), list)
+            and cache["chunks"]
+            and all(isinstance(c, str) for c in cache["chunks"])
+            and isinstance(cache.get("read_id"), str)
+        ):
+            return cache["read_id"], cache["chunks"]
+
+        with timed("npc_bundle", "rebuild"):
+            bundle = _participation_bundle(session_id, character_id)
+            text = json.dumps(bundle, ensure_ascii=False, separators=(",", ":"))
+            read_id = hashlib.sha256(text.encode("utf-8")).hexdigest()[:24]
+            chunks = [
+                text[i:i + CHARACTER_CHUNK_CHARS]
+                for i in range(0, len(text), CHARACTER_CHUNK_CHARS)
+            ] or ["{}"]
+        storage._write_json(cache_path, {
+            "version": _BUNDLE_CACHE_VERSION,
+            "character_id": character_id,
+            "signature": _bundle_signature(root),
+            "read_id": read_id,
+            "chunks": chunks,
+        })
+        return read_id, chunks
 
 
 def _record_pending_bundle_read(
@@ -276,7 +324,8 @@ def _record_pending_bundle_read(
 
 
 def prepare_character_bundle_read(session_id: str, character_id: str) -> Dict[str, Any]:
-    read_id, chunks = _snapshot(session_id, character_id)
+    with timed("npc_bundle", "prepare"):
+        read_id, chunks = _snapshot(session_id, character_id)
     if chunks:
         _record_pending_bundle_read(session_id, character_id, read_id, 0, len(chunks))
     result: Dict[str, Any] = {
@@ -302,7 +351,8 @@ def get_character_bundle_chunk(
     read_id: str,
     chunk_index: int,
 ) -> Dict[str, Any]:
-    current_read_id, chunks = _snapshot(session_id, character_id)
+    with timed("npc_bundle", "read_chunk"):
+        current_read_id, chunks = _snapshot(session_id, character_id)
     if current_read_id != read_id:
         raise PermissionError("STALE_CHARACTER_READ")
     if chunk_index < 0 or chunk_index >= len(chunks):

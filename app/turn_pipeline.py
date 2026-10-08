@@ -4,6 +4,8 @@ import json
 import re
 import secrets
 from copy import deepcopy
+
+from .performance_metrics import timed
 from typing import Any, Dict, List
 
 from fastapi import HTTPException
@@ -645,20 +647,22 @@ def prepare_turn_packet(
     if not root.exists():
         raise FileNotFoundError(session_id)
 
-    stability_runtime._recover_session(session_id)
-    if not prevalidated:
-        session_migrations.ensure_current_session_data(session_id, invalidate_pending=True)
-    _current_pointer_guard(session_id)
+    with timed("prepareTurn", "session_recovery"):
+        stability_runtime._recover_session(session_id)
+        if not prevalidated:
+            session_migrations.ensure_current_session_data(session_id, invalidate_pending=True)
+        _current_pointer_guard(session_id)
     # Preflight and context construction share one canonical file snapshot.
-    source = _strip_legacy_pov_rule_from_session_source(root)
-    state = storage._read_json(root / "state.json", {})
-    synced_state = game_day.sync_game_day(state, source)
-    if synced_state != state:
-        storage._write_json(root / "state.json", synced_state)
-    memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
-    knowledge_persistence_runtime.dedupe_persisted_knowledge_journal(
-        session_id, memory_override=memory,
-    )
+    with timed("prepareTurn", "preflight_files"):
+        source = _strip_legacy_pov_rule_from_session_source(root)
+        state = storage._read_json(root / "state.json", {})
+        synced_state = game_day.sync_game_day(state, source)
+        if synced_state != state:
+            storage._write_json(root / "state.json", synced_state)
+        memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
+        knowledge_persistence_runtime.dedupe_persisted_knowledge_journal(
+            session_id, memory_override=memory,
+        )
 
     with session_transaction(root):
         meta = storage._read_json(root / "meta.json", {})
@@ -679,14 +683,15 @@ def prepare_turn_packet(
 
     # Build once in memory, then serialize only the final writer packet.
     # This avoids storage -> packet -> read -> rewrite -> packet round-trips.
-    context, snapshot = session_runtime.build_turn_context(
-        session_id,
-        user_input,
-        return_snapshot=True,
-        preloaded_source=source,
-        preloaded_state=synced_state,
-        preloaded_memory=memory,
-    )
+    with timed("prepareTurn", "build_context"):
+        context, snapshot = session_runtime.build_turn_context(
+            session_id,
+            user_input,
+            return_snapshot=True,
+            preloaded_source=source,
+            preloaded_state=synced_state,
+            preloaded_memory=memory,
+        )
     packet = {
         "packet_id": secrets.token_urlsafe(12),
         "prepared_for_turn": expected_turn,
@@ -711,13 +716,14 @@ def prepare_turn_packet(
         "chunk_count": 0,
         "relevant_character_ids": packet["relevant_character_ids"],
     }
-    return _prepare_context(
-        session_id,
-        base,
-        packet_override=packet,
-        context_override=context,
-        snapshot_override=snapshot,
-    )
+    with timed("prepareTurn", "assemble_writer_packet"):
+        return _prepare_context(
+            session_id,
+            base,
+            packet_override=packet,
+            context_override=context,
+            snapshot_override=snapshot,
+        )
 
 
 def _validate_technical_state_patch(payload: Dict[str, Any]) -> None:
@@ -1016,46 +1022,57 @@ def _strip_relationship_review(payload: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
-    _validate_technical_state_patch(payload)
-    prepared = _prepare_profile_persistence(session_id, payload)
-    prepared = private_knowledge_runtime.add_direct_communication_memory(session_id, prepared)
-    prepared = scene_presence_runtime._apply_presence_contract(
-        prepared,
-        root=storage.SESSIONS_DIR / session_id,
-    )
-    prepared = private_knowledge_runtime.normalize_dialogue_memory_modes(session_id, prepared)
-    prepared = private_knowledge_runtime.add_scene_remote_communication_memory(session_id, prepared)
-    # Preserve the existing private-communication firewall and its error codes,
-    # then apply the broader scene provenance guard. Everything above is an
-    # in-memory payload transformation; no state has been persisted yet.
-    private_knowledge_runtime.validate_private_knowledge(session_id, prepared)
-    scene_knowledge_guard.validate_scene_output(session_id, prepared)
-    prepared = _strip_relationship_review(prepared)
-    prepared = _apply_story_and_intent_updates(session_id, prepared)
-    prepared = _apply_npc_relationship_updates(session_id, prepared)
-    prepared = _apply_relationship_changes(session_id, prepared)
-    prepared = cast_registry_runtime._with_registry_patch(session_id, prepared)
-    prepared = _normalise_chronology_for_save(session_id, prepared)
-    prepared = knowledge_persistence_runtime.dedupe_new_journal_against_persisted(
-        session_id,
-        prepared,
-    )
-    prepared = memory_integrity_runtime._canonicalize_memory_payload(
-        session_id,
-        prepared,
-        audit=False,
-    )
+    root = storage.SESSIONS_DIR / session_id
+    # All validators see the same serialized session while retaining their own
+    # independent defensive checks and in-memory payload transformations.
+    with timed("commitTurn", "total"):
+        with session_transaction(root):
+            with storage.session_read_snapshot(root):
+                with timed("commitTurn", "prepare_and_private_memory"):
+                    _validate_technical_state_patch(payload)
+                    prepared = _prepare_profile_persistence(session_id, payload)
+                    prepared = private_knowledge_runtime.add_direct_communication_memory(session_id, prepared)
+                    prepared = scene_presence_runtime._apply_presence_contract(
+                        prepared,
+                        root=root,
+                    )
+                    prepared = private_knowledge_runtime.normalize_dialogue_memory_modes(session_id, prepared)
+                    prepared = private_knowledge_runtime.add_scene_remote_communication_memory(session_id, prepared)
+                # Preserve private-communication and full scene provenance checks.
+                with timed("commitTurn", "knowledge_validations"):
+                    private_knowledge_runtime.validate_private_knowledge(session_id, prepared)
+                    scene_knowledge_guard.validate_scene_output(session_id, prepared)
+                with timed("commitTurn", "story_intents_relationships"):
+                    prepared = _strip_relationship_review(prepared)
+                    prepared = _apply_story_and_intent_updates(session_id, prepared)
+                    prepared = _apply_npc_relationship_updates(session_id, prepared)
+                    prepared = _apply_relationship_changes(session_id, prepared)
+                    prepared = cast_registry_runtime._with_registry_patch(session_id, prepared)
+                with timed("commitTurn", "chronology_memory"):
+                    prepared = _normalise_chronology_for_save(session_id, prepared)
+                    prepared = knowledge_persistence_runtime.dedupe_new_journal_against_persisted(
+                        session_id,
+                        prepared,
+                    )
+                    prepared = memory_integrity_runtime._canonicalize_memory_payload(
+                        session_id,
+                        prepared,
+                        audit=False,
+                    )
+            # Do not reuse precommit read snapshots after persistence starts.
+            with timed("commitTurn", "atomic_save"):
+                saved = dict(stability_runtime._atomic_commit_turn(session_id, prepared))
+        saved["saved_chronology_events"] = len(
+            prepared.get("extracted", {}).get("chronology", [])
+            if isinstance(prepared.get("extracted"), dict)
+            else []
+        )
+        if saved.get("audit_due") is True:
+            with timed("commitTurn", "required_audit"):
+                saved["required_audit"] = fast_audit_runtime.get_audit_snapshot(session_id)
+        saved["turn_pipeline_version"] = PIPELINE_VERSION
+        return saved
 
-    saved = dict(stability_runtime._atomic_commit_turn(session_id, prepared))
-    saved["saved_chronology_events"] = len(
-        prepared.get("extracted", {}).get("chronology", [])
-        if isinstance(prepared.get("extracted"), dict)
-        else []
-    )
-    if saved.get("audit_due") is True:
-        saved["required_audit"] = fast_audit_runtime.get_audit_snapshot(session_id)
-    saved["turn_pipeline_version"] = PIPELINE_VERSION
-    return saved
 
 
 def commit_audit(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
