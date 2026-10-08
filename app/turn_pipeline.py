@@ -737,16 +737,20 @@ def _relationship_scene_participants(
         if cid and cid not in result:
             result.append(cid)
 
-    for value in storage._scene_participant_ids(state_before):
-        add(value)
-    for value in storage._scene_participant_ids(state_after):
+    for value in relationship_file_runtime.physical_participant_ids(
+        state_before,
+        state_after,
+        extracted,
+        cards=cards,
+    ):
         add(value)
 
-    # Physical NPCs may enter and leave inside one turn, so neither the opening
-    # nor the final roster alone is enough evidence of scene participation.
-    for row in extracted.get("presence_updates", []) if isinstance(extracted.get("presence_updates"), list) else []:
-        if isinstance(row, dict):
-            add(row.get("character_id"))
+    # Remote participation is broader than physical review scope and is layered
+    # on top of the canonical physical participant helper.
+    for value in storage._remote_character_ids(state_before):
+        add(value)
+    for value in storage._remote_character_ids(state_after):
+        add(value)
 
     # A remote exchange can also begin and end inside one turn. The remote
     # communication memory is created before relationship persistence.
