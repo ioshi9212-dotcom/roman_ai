@@ -323,9 +323,12 @@ def _strip_cast_relationship_payload(context: Dict[str, Any]) -> None:
                 row.pop("relationship_to_pov", None)
 
 
-def inject_required_turn_context(context: Dict[str, Any], cards: List[Dict[str, Any]], state: Dict[str, Any]) -> Dict[str, Any]:
-    """Inject a scene-scoped working set while keeping complete persistent data in Railway."""
-    memory = _session_memory(context)
+def inject_required_turn_context(
+    context: Dict[str, Any], cards: List[Dict[str, Any]], state: Dict[str, Any],
+    *, memory_override: Dict[str, Any] | None = None,
+) -> Dict[str, Any]:
+    """Inject scene-scoped data. Reuse the already-read session snapshot when available."""
+    memory = memory_override if memory_override is not None else _session_memory(context)
     documents = runtime_documents()
     scene_ids = _scene_character_ids(context, state, cards)
     session = context.get("session") if isinstance(context.get("session"), dict) else {}
