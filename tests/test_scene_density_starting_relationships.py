@@ -360,6 +360,15 @@ def test_small_delta_persists_only_in_relationships_file_and_is_visible_next_tur
                     "npc_intent_updates": [],
                     "npc_relationship_updates": [],
                     "story_thread_updates": [],
+                    "scene_progressed": True,
+                    "scene_progression": {
+                        "target": "relationship:adrian",
+                        "kind": "relationship_shift",
+                        "action": "Эдриан заметно выдал ревность.",
+                        "end_state_change": "Ревность Эдриана стала немного сильнее.",
+                        "ending_kind": "relationship_shift",
+                        "ending_evidence_text": "Эдриан отвечает и заметно выдаёт ревность.",
+                    },
                     "presence_updates": [],
                     "relationship_review": [
                         {
