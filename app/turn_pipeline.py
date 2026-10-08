@@ -631,13 +631,23 @@ def _prepare_context(
     return result
 
 
-def prepare_turn_packet(session_id: str, user_input: str) -> Dict[str, Any]:
+def prepare_turn_packet(
+    session_id: str,
+    user_input: str,
+    *,
+    request_id: str | None = None,
+    opening_scene: bool = False,
+    scene_archive_capable: bool = False,
+    writer_review_required: bool = False,
+    prevalidated: bool = False,
+) -> Dict[str, Any]:
     root = storage.SESSIONS_DIR / session_id
     if not root.exists():
         raise FileNotFoundError(session_id)
 
     stability_runtime._recover_session(session_id)
-    session_migrations.ensure_current_session_data(session_id, invalidate_pending=True)
+    if not prevalidated:
+        session_migrations.ensure_current_session_data(session_id, invalidate_pending=True)
     _current_pointer_guard(session_id)
     # Preflight and context construction share one canonical file snapshot.
     source = _strip_legacy_pov_rule_from_session_source(root)
@@ -689,7 +699,12 @@ def prepare_turn_packet(session_id: str, user_input: str) -> Dict[str, Any]:
         "chunks": [],
         "runtime_revision": runtime_access.runtime_revision(),
         "data_schema_version": session_migrations.CURRENT_DATA_SCHEMA_VERSION,
+        "scene_archive_capable": bool(scene_archive_capable),
+        "opening_scene": bool(opening_scene),
+        "writer_review_required": bool(writer_review_required),
     }
+    if request_id:
+        packet["request_id"] = str(request_id)
     base = {
         "packet_id": packet["packet_id"],
         "prepared_for_turn": expected_turn,
