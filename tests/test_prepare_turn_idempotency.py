@@ -128,6 +128,111 @@ def test_old_chunk_progress_is_not_applied_to_replaced_packet():
             storage.get_turn_packet_chunk(sid, first["packet_id"], 1)
 
 
+
+def test_indexed_chunks_do_not_reparse_full_packet_for_each_chunk(monkeypatch):
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = make_session()
+        manifest = session_runtime.prepare_turn_packet(sid, "Чтение без повторного разбора пакета.")
+        original_read = storage._read_json
+
+        def protect_packet(path, default):
+            if path.name == "turn_packet.json":
+                raise AssertionError("full packet was reloaded while reading an indexed chunk")
+            return original_read(path, default)
+
+        monkeypatch.setattr(storage, "_read_json", protect_packet)
+        for chunk_index in range(1, manifest["chunk_count"]):
+            row = storage.get_turn_packet_chunk(sid, manifest["packet_id"], chunk_index)
+            assert row["chunk_index"] == chunk_index
+        assert row["all_chunks_read"] is True
+
+
+def test_corrupt_progress_is_safe_and_chunk_boundary_changes_invalidate_old_reads():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = make_session()
+        manifest = session_runtime.prepare_turn_packet(sid, "Невалидный файл прогресса.")
+        root = storage.SESSIONS_DIR / sid
+        packet_path = root / "turn_packet.json"
+        progress_path = root / storage.TURN_PACKET_READ_PROGRESS
+        storage.get_turn_packet_chunk(sid, manifest["packet_id"], 1)
+        assert 1 in storage._read_json(packet_path, {})["read_chunks"]
+
+        progress_path.write_text("{corrupted", encoding="utf-8")
+        assert storage._read_json(packet_path, {})["read_chunks"] == [0]
+        assert storage.get_turn_packet_chunk(sid, manifest["packet_id"], 1)["chunk_index"] == 1
+
+        # Same concatenated JSON text, different chunk boundaries: previous
+        # progress must not be carried into the changed packet.
+        packet = storage._read_json(packet_path, {})
+        packet["read_chunks"] = [0]
+        fragment = packet["chunks"][1][:5]
+        packet["chunks"][0] += fragment
+        packet["chunks"][1] = packet["chunks"][1][5:]
+        storage._write_json(packet_path, packet)
+        assert storage._read_json(packet_path, {})["read_chunks"] == [0]
+        assert len(storage._read_json(packet_path, {})["chunks"]) == manifest["chunk_count"]
+
+
+def test_corrupt_indexed_chunk_falls_back_to_unchanged_canonical_packet():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = make_session()
+        manifest = session_runtime.prepare_turn_packet(sid, "Канон важнее испорченного кеша.")
+        root = storage.SESSIONS_DIR / sid
+        full_packet = storage._read_json(root / "turn_packet.json", {})
+        expected = full_packet["chunks"][1]
+        chunk_path = root / storage.TURN_PACKET_CHUNKS
+        data = bytearray(chunk_path.read_bytes())
+        index = storage._read_json(root / storage.TURN_PACKET_INDEX, {})
+        offset, length = index["offsets"][1]
+        assert length > 5
+        data[offset + 1] ^= 1
+        chunk_path.write_bytes(bytes(data))
+        row = storage.get_turn_packet_chunk(sid, manifest["packet_id"], 1)
+        assert row["content"] == expected
+        assert storage._read_json(root / "turn_packet.json", {})["chunks"][1] == expected
+
+
+def test_public_prepare_serializes_once_and_forwards_opening_flag(monkeypatch):
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = make_session()
+        writes = []
+        original_write = storage._write_json
+
+        def trace(path, data):
+            if path.name == "turn_packet.json":
+                writes.append(path)
+            return original_write(path, data)
+
+        monkeypatch.setattr(storage, "_write_json", trace)
+        manifest = turn_packet_prepare(
+            sid,
+            TurnPrepare(user_input="запускай первую сцену", request_id="opening-1", opening_scene=True),
+        )
+        root = storage.SESSIONS_DIR / sid
+        packet = storage._read_json(root / "turn_packet.json", {})
+        context = json.loads("".join(packet["chunks"]))
+        assert len(writes) == 1
+        assert packet["user_input"] == ""
+        assert packet["opening_scene"] is True
+        assert packet["request_id"] == "opening-1"
+        assert packet["writer_review_required"] is True
+        assert context["opening_scene"]["active"] is True
+        assert manifest["opening_scene"] is True
+        assert manifest["pending_turn"]["user_input"] == ""
+
+        repeated = turn_packet_prepare(
+            sid,
+            TurnPrepare(user_input="запускай первую сцену", request_id="opening-1", opening_scene=True),
+        )
+        assert repeated["packet_id"] == manifest["packet_id"]
+        assert len(writes) == 1
+
+
+
 def test_same_pending_prepare_reuses_packet_and_keeps_read_progress():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
