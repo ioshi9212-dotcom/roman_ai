@@ -388,3 +388,25 @@ def test_spoken_wish_for_a_quiet_night_does_not_disable_progression():
         assert contract["time_skip_requested"] is False
         assert contract["explicit_uneventful_downtime"] is False
         assert contract["required_target_count"] == 1
+
+
+def test_independent_cast_goals_are_progression_targets_without_intent():
+    from app.scene_progression_runtime import _cast_candidates, build_contract
+    context = {
+        "cast_registry": {
+            "independent_initiative_focus": [
+                {"character_id": "daren", "story_function": "Investigate the breach"},
+                {"character_id": "var", "story_function": "Seek freedom"},
+            ]
+        },
+        "scene_presence": {"present_character_ids": ["kair"], "remote_character_ids": []},
+        "player_input_map": {"stage_directions": []},
+    }
+    state = {"pov": {"character_id": "kair"}, "current": {}}
+    targets = build_contract(
+        state=state, context=context, user_input="(заняться делами)",
+        cards=[{"character_id": "kair"}], current_turn=6,
+    )["eligible_targets"]
+    ids = {row["target_id"] for row in targets}
+    assert {"cast:daren", "cast:var", "world:emergent"} <= ids
+    assert not state.get("npc_intents")
