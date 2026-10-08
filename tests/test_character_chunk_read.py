@@ -139,7 +139,7 @@ def test_character_bundle_cached_read_invalidates_when_state_changes():
             get_character_bundle_chunk(sid, "away", manifest["read_id"], 1)
 
 
-def test_character_bundle_cached_read_invalidates_when_relationships_change():
+def test_character_bundle_cached_read_rebuilds_when_relationships_change(monkeypatch):
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         sid = storage.create_session(_novel())["session_id"]
@@ -148,9 +148,20 @@ def test_character_bundle_cached_read_invalidates_when_relationships_change():
         relations = storage._read_json(root / "relationships.json", {})
         relations["cache_test_change"] = "changed"
         storage._write_json(root / "relationships.json", relations)
-        # Rebuilt from current canonical relationship data, no cache reuse.
+
+        rebuilds = []
+        original = character_chunk_read._participation_bundle
+
+        def traced(*args, **kwargs):
+            rebuilds.append(True)
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(character_chunk_read, "_participation_bundle", traced)
         rebuilt = prepare_character_bundle_read(sid, "away")
-        assert rebuilt["read_id"] == manifest["read_id"] or rebuilt["read_id"] != manifest["read_id"]
+        assert len(rebuilds) == 1
+        assert rebuilt["read_id"] == manifest["read_id"]
+        prepare_character_bundle_read(sid, "away")
+        assert len(rebuilds) == 1
 
 
 def test_character_read_detects_dossier_change():
