@@ -713,6 +713,30 @@ components:
           type: string
       additionalProperties: false
 
+    SceneProgressionProof:
+      type: object
+      required: [target, kind, action, end_state_change, ending_kind, ending_evidence_text]
+      properties:
+        target:
+          type: string
+          description: One target_id from progression_contract.eligible_targets.
+        kind:
+          type: string
+          enum: [new_information, external_event, npc_action, thread_state_change, relationship_shift, new_constraint, new_opportunity, new_threat, unfinished_action_specific]
+        action:
+          type: string
+          description: Concrete state-changing action/event that actually occurred in this turn.
+        end_state_change:
+          type: string
+          description: How the situation is materially different at the final beat.
+        ending_kind:
+          type: string
+          enum: [new_fact, intent_action, incoming_contact, relationship_shift, conflict_change, new_constraint, new_opportunity, new_threat, concrete_next_pressure]
+        ending_evidence_text:
+          type: string
+          description: Short exact phrase copied from the final portion of scene_output that shows the concrete ending consequence.
+      additionalProperties: false
+
     TurnExtracted:
       type: object
       properties:
@@ -747,6 +771,9 @@ components:
             $ref: '#/components/schemas/StoryThreadUpdate'
         scene_progressed:
           type: boolean
+          description: True only when this turn has evidence-backed meaningful progression; routine/time passage alone is false.
+        scene_progression:
+          $ref: '#/components/schemas/SceneProgressionProof'
         presence_updates:
           type: array
           items:
