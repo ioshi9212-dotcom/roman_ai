@@ -516,14 +516,15 @@ Chronology — режиссёрская история. Она никогда а
 Соответствие:
 
 важное объективное событие → `chronology`
+важное самостоятельное offscreen-действие NPC → `chronology` с `actor_character_id`, фактическим местом (если известно) и последствием; не приписывай ему присутствие рядом с POV или знания POV
 
 новое factual knowledge → `knowledge_journal_add`
 
 важная завершённая коммуникация → `dialogue_memory_add`
 
-план конкретного NPC → `npc_active_intents`
+план конкретного NPC → `npc_intent_updates` (сохранение в `state.npc_intents`)
 
-общая незакрытая линия → `story_thread`
+общая незакрытая линия → `story_thread_updates` (сохранение в `state.threads`)
 
 изменение отношений → `relationship_updates`
 
