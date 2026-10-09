@@ -95,6 +95,71 @@ def _payload(packet_id: str, user_input: str, scene_output: str):
     }
 
 
+
+def test_personal_experiences_and_dialogue_are_valid_recollection_context():
+    bucket = {
+        "knowledge_journal": [{"text": "Вар столкнулся с существом."}],
+        "experiences": [{"event_id": "meeting", "summary": "Вар пытался удержать существо."}],
+        "dialogue_memory": [{
+            "topic_id": "meeting_story", "participants": ["var", "kair"],
+            "question": "Что ты сделал тогда?",
+            "answer": "Я пытался его удержать.",
+        }],
+    }
+    recalled = scene_knowledge_guard._memory_texts_from_bucket(bucket)
+    assert "Вар столкнулся с существом." in recalled
+    assert "Вар пытался удержать существо." in recalled
+    assert "Я пытался его удержать." in recalled
+
+
+def test_var_can_expand_own_encounter_without_bag_of_words_leak():
+    with tempfile.TemporaryDirectory() as tmp:
+        _setup(tmp)
+        novel = _novel()
+        novel["characters"].append({"character_id": "var", "name": "Вар", "role": "major"})
+        novel["starting_state"]["current"]["present_characters"].append("var")
+        sid = storage.create_session(novel)["session_id"]
+        root = storage.SESSIONS_DIR / sid
+        _seed(root, "var", "Вар лично столкнулся с неизвестным существом.")
+
+        manifest, context = _prepare(sid, "(слушать Вара)")
+        context = deepcopy(context)
+        context["chronology_recent"] = [
+            {"summary": "Вар схватил существо. Руки существа остались на месте, пальцы зацепились за край прохода."}
+        ]
+        _rewrite_pending_context(root, context)
+
+        # The words "hands", "fingers" and "grabbed" also occur in chronology,
+        # but this is Var's own plausible firsthand recollection, not a copied secret.
+        _validate(
+            sid, manifest, "(слушать Вара)",
+            "**Вар** — Оно полезло туда, где даже пальцы не просунешь. "
+            "Я схватил его за руки. Руки остались у меня. Остальное — нет.",
+        )
+
+
+def test_narrative_context_still_blocks_unknown_exact_phrase():
+    with tempfile.TemporaryDirectory() as tmp:
+        _setup(tmp)
+        sid = storage.create_session(_novel())["session_id"]
+        root = storage.SESSIONS_DIR / sid
+        _seed(root, "adrian", "Адриан знает только, что Кайр может перемещаться через отражения.")
+        manifest, context = _prepare(sid, "(молчать)")
+        context = deepcopy(context)
+        context["chronology_recent"] = [
+            {"summary": "Кайр вошёл через выключенный телевизор в другой комнате."}
+        ]
+        _rewrite_pending_context(root, context)
+
+        with pytest.raises(HTTPException) as exc:
+            _validate(
+                sid, manifest, "(молчать)",
+                "**Адриан** — Ты вошёл через выключенный телевизор.",
+            )
+        assert exc.value.detail["code"] == "SCENE_NPC_KNOWLEDGE_LEAK"
+        assert any(row["source"] == "chronology_recent" for row in exc.value.detail["unsupported_facts"])
+
+
 def test_prepare_packet_contains_compact_boundaries_without_copying_secret_facts():
     with tempfile.TemporaryDirectory() as tmp:
         _setup(tmp)
