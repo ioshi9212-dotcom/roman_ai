@@ -597,27 +597,14 @@ def turn_packet_chunk_get(session_id: str, packet_id: str, chunk_index: int, max
             first = get_turn_packet_chunk(session_id, packet_id, chunk_index)
             if max_chunks == 1 or first.get("packet_kind") != "audit":
                 return first
-            rows = [first]
+            # Older audit packets still have 16k parts. Read those one at a
+            # time rather than making a tool response too large for the model.
+            if len(str(first["content"])) > 10_000:
+                return first
             total = int(first["chunk_count"])
+            rows = [first]
             if chunk_index + 1 < total:
                 rows.append(get_turn_packet_chunk(session_id, packet_id, chunk_index + 1))
-            # Verify all chunks have the expected bounded size. If data was
-            # prepared by an older runtime, do not batch it into a large reply.
-            if any(len(str(row["content"])) > 10_000 for row in rows):
-                # The second chunk may have been marked as read; returning it
-                # would still be lossless, so never silently drop that content.
-                return {
-                    "packet_id": packet_id,
-                    "packet_kind": "audit",
-                    "chunk_count": total,
-                    "chunks": [
-                        {"chunk_index": row["chunk_index"], "content": row["content"]}
-                        for row in rows
-                    ],
-                    "batch_count": len(rows),
-                    "next_chunk_index": chunk_index + len(rows) if chunk_index + len(rows) < total else None,
-                    "all_chunks_read": rows[-1]["all_chunks_read"],
-                }
             return {
                 "packet_id": packet_id,
                 "packet_kind": "audit",
