@@ -96,6 +96,42 @@ def _payload(packet_id: str, user_input: str, scene_output: str):
 
 
 
+def test_active_pipeline_keeps_full_journals_without_per_replica_gate(monkeypatch):
+    from app.operation_service import commit_turn_request
+
+    def forbidden_gate(*args, **kwargs):
+        raise AssertionError("The legacy per-replica gate must not run during gameplay")
+
+    monkeypatch.setattr(scene_knowledge_guard, "build_boundaries", forbidden_gate)
+    monkeypatch.setattr(scene_knowledge_guard, "validate_scene_output", forbidden_gate)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        _setup(tmp)
+        sid = storage.create_session(_novel())["session_id"]
+        root = storage.SESSIONS_DIR / sid
+        facts = [f"Личный факт Адриана номер {index}." for index in range(100)]
+        _seed(root, "adrian", *facts)
+        user_input = "Спасибо, Адриан."
+        manifest, context = _prepare(sid, user_input)
+
+        assert "knowledge_boundaries" not in context
+        journal = context["character_memory"]["adrian"]["knowledge_journal"]
+        assert all(fact in journal for fact in facts)
+        saved = commit_turn_request(sid, {
+            "packet_id": manifest["packet_id"],
+            "user_input": user_input,
+            "scene_output": "**Кайр** — Спасибо, Адриан.\n**Адриан** — У меня вообще-то работа есть. И тренировки.",
+            "extracted": {"knowledge_journal_add": [{
+                "character_id": "adrian", "text": "Кайр поблагодарил Адриана.",
+            }]},
+        })
+        assert saved["turn_number"] == 1
+        memory = storage._read_json(root / "memory.json", {})
+        persisted = memory["characters"]["adrian"]["knowledge_journal"]
+        assert all(any(row["text"] == fact for row in persisted) for fact in facts)
+        assert any(row["text"] == "Кайр поблагодарил Адриана." for row in persisted)
+
+
 def test_repeated_npc_speech_reuses_knowledge_guard_cache(monkeypatch):
     # Each NPC's stable knowledge sources must be prepared only once per turn,
     # even when that NPC speaks several times.
@@ -239,7 +275,7 @@ def test_narrative_context_still_blocks_unknown_exact_phrase():
         assert any(row["source"] == "chronology_recent" for row in exc.value.detail["unsupported_facts"])
 
 
-def test_prepare_packet_contains_compact_boundaries_without_copying_secret_facts():
+def test_legacy_boundaries_helper_does_not_copy_secret_facts():
     with tempfile.TemporaryDirectory() as tmp:
         _setup(tmp)
         sid = storage.create_session(_novel())["session_id"]
@@ -249,7 +285,9 @@ def test_prepare_packet_contains_compact_boundaries_without_copying_secret_facts
 
         _, context = _prepare(sid, "(остаться рядом)")
 
-        boundaries = context["knowledge_boundaries"]
+        boundaries = scene_knowledge_guard.build_boundaries(
+            context, context["relevant_character_ids"], pov_id="kair",
+        )
         assert boundaries["mandatory"] is True
         assert "previous scene_output" in boundaries["previous_scene_rule"].casefold()
         assert "character_memory[OTHER_CHARACTER_ID]" in boundaries["global_must_not_know"]
@@ -756,30 +794,31 @@ def test_unread_offscreen_bundle_chunks_do_not_become_protected_visibility():
         )
 
 
-def test_rejected_commit_keeps_pending_turn_uncommitted():
+def test_private_disclosure_rejection_keeps_pending_turn_uncommitted():
+    from app.operation_service import commit_turn_request
+
     with tempfile.TemporaryDirectory() as tmp:
         _setup(tmp)
         sid = storage.create_session(_novel())["session_id"]
         root = storage.SESSIONS_DIR / sid
-        _seed(root, "kair", "Кайр вошёл в квартиру Миры через выключенный телевизор.")
-        _seed(root, "adrian", "Адриан знает, что Кайр может перемещаться через отражения.")
-
-        manifest, _ = _prepare(sid, "(молчать)")
+        user_input = "(написать Мире: пароль от секретного сейфа 4827)"
+        manifest, _ = _prepare(sid, user_input)
 
         with pytest.raises(HTTPException) as exc:
-            session_runtime.commit_turn(
+            commit_turn_request(
                 sid,
                 _payload(
                     manifest["packet_id"],
-                    "(молчать)",
-                    "**Адриан** — Ты вошёл сюда через выключенный телевизор.",
+                    user_input,
+                    "**Адриан** — Пароль от секретного сейфа 4827.",
                 ),
             )
 
-        assert exc.value.detail["code"] == "SCENE_NPC_KNOWLEDGE_LEAK"
+        assert exc.value.detail["code"] == "PRIVATE_COMMUNICATION_KNOWLEDGE_LEAK"
         pending = storage._read_json(root / "turn_packet.json", {})
         assert pending["packet_id"] == manifest["packet_id"]
         assert storage._read_turns(root) == []
+        assert storage._read_json(root / "meta.json", {})["turn_number"] == 0
 
 
 def test_pipeline_version_bump_invalidates_old_pending_packet():

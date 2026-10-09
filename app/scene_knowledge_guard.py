@@ -1,3 +1,8 @@
+"""Legacy overlap-based guard, retained for reference tests only.
+
+The active turn pipeline uses personal journals and private-communication
+validation, as it did before this per-replica gate was introduced on Oct 8.
+"""
 from __future__ import annotations
 
 import json
