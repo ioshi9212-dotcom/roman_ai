@@ -56,7 +56,7 @@ def _speaker_context(ids: List[str], pov_id: str) -> Dict[str, Any]:
                 "complete": True,
             },
             "current_perception": "only what this character can see/hear/receive in the current scene",
-            "relationship_path": f"relationship_lens.relations_in_current_scene[owner_character_id={cid}]",
+            "relationship_path": f"relationships.npc_to_pov.{cid}",
             "rule": (
                 "Реплики, мысли и решения строятся отдельно: self-known части своего profile, свой knowledge_journal, "
                 "доступное текущее восприятие и отношение к POV. Ветки profile с unknown_to_self/hidden_from_self/"

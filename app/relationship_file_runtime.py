@@ -3,7 +3,7 @@ from __future__ import annotations
 from copy import deepcopy
 from math import isfinite
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Tuple
+from typing import Any, Dict, Iterable, List
 
 from . import storage
 
@@ -11,10 +11,23 @@ from . import storage
 FILE_NAME = "relationships.json"
 MAX_DIMENSIONS_PER_NPC = 10
 ORDINARY_DELTA_LIMIT = 3.0
+MAX_RELATION_WORDS = 10
+MECHANICS = (
+    "NPC→POV: до 10 свободных показателей 1–100; 0 удаляет. "
+    "Бери текущие значения только отсюда. Меняй лишь затронутые, обычно на ±1–3; "
+    "серьёзное событие допускает большой скачок. Противоречия нормальны; "
+    "отношения влияют на речь и действия с учётом характера. "
+    "Незнакомым — без показателей; первая встреча даёт впечатление. "
+    "NPC→NPC: направленный текст до 10 слов. История здесь не хранится."
+)
 
 
 def _norm(value: Any) -> str:
     return " ".join(str(value or "").casefold().replace("ё", "е").split())
+
+
+def _mapping(value: Any) -> Dict[str, Any]:
+    return value if isinstance(value, dict) else {}
 
 
 def _number(value: Any) -> int | float:
@@ -29,14 +42,6 @@ def _is_number(value: Any) -> bool:
 def _bounded_value(value: Any) -> int | float:
     number = max(0.0, min(100.0, float(value)))
     return _number(number)
-
-
-def _change(turn: int, delta: Any, reason: str) -> Dict[str, Any]:
-    return {
-        "turn": int(turn),
-        "delta": _number(delta) if _is_number(delta) else 0,
-        "reason": " ".join(str(reason or "").split())[:360],
-    }
 
 
 def _resolve_character_id(cards: Iterable[Dict[str, Any]], raw: Any) -> str | None:
@@ -82,26 +87,17 @@ def _target_id(cards: List[Dict[str, Any]], row: Dict[str, Any]) -> str | None:
     return _resolve_character_id(cards, raw)
 
 
-def _reason_from_relation(row: Dict[str, Any]) -> str:
-    for key in ("relationship_context", "current_dynamic", "relationship_type", "behavioral_pattern"):
-        value = " ".join(str(row.get(key) or "").split())
-        if value:
-            return value[:360]
-    return "из стартовой анкеты"
-
-
 def _qualitative_relation(row: Dict[str, Any]) -> str:
-    parts: List[str] = []
-    for key in ("relationship_type", "relationship_context", "current_dynamic", "behavioral_pattern"):
-        value = " ".join(str(row.get(key) or "").split())
-        if value and value not in parts:
-            parts.append(value)
-    return " | ".join(parts)[:700]
-
+    text = row.get("description") or " ".join(
+        str(row.get(key) or "")
+        for key in ("relationship_type", "relationship_context", "current_dynamic", "behavioral_pattern")
+    )
+    return " ".join(str(text).split()[:MAX_RELATION_WORDS])
 
 def _empty_store(pov_id: str) -> Dict[str, Any]:
     return {
-        "version": 2,
+        "version": 3,
+        "mechanics": MECHANICS,
         "pov_character_id": str(pov_id or ""),
         "npc_to_pov": {},
         "npc_to_npc": {},
@@ -110,9 +106,6 @@ def _empty_store(pov_id: str) -> Dict[str, Any]:
 
 def _profile_store(cards: List[Dict[str, Any]], pov_id: str) -> Dict[str, Any]:
     store = _empty_store(pov_id)
-    npc_to_pov = store["npc_to_pov"]
-    npc_to_npc = store["npc_to_npc"]
-
     for card in cards:
         owner_id = storage._card_id(card)
         if not owner_id or owner_id == pov_id:
@@ -121,176 +114,65 @@ def _profile_store(cards: List[Dict[str, Any]], pov_id: str) -> Dict[str, Any]:
             target_id = _target_id(cards, row)
             if not target_id or target_id == owner_id:
                 continue
-            if target_id == pov_id:
-                owner = npc_to_pov.setdefault(owner_id, {"dimensions": {}})
-                dynamic = " ".join(str(row.get("current_dynamic") or "").split())[:700]
-                if dynamic:
-                    owner["dynamic"] = dynamic
-                    owner["dynamic_last_change"] = _change(0, 0, _reason_from_relation(row))
-                dimensions = owner.setdefault("dimensions", {})
-                if not isinstance(dimensions, dict):
-                    dimensions = {}
-                    owner["dimensions"] = dimensions
-                for raw_dim in row.get("dimensions", []) if isinstance(row.get("dimensions"), list) else []:
-                    if not isinstance(raw_dim, dict):
-                        continue
-                    label = " ".join(str(raw_dim.get("label") or raw_dim.get("key") or "").split())
-                    value = raw_dim.get("value")
-                    if not label or not _is_number(value) or float(value) <= 0.0:
-                        continue
-                    existing_label = next((name for name in dimensions if _norm(name) == _norm(label)), None)
-                    if existing_label is not None:
-                        dimensions[existing_label] = {
-                            "value": _bounded_value(value),
-                            "last_change": _change(0, 0, _reason_from_relation(row)),
-                        }
-                        continue
-                    if len(dimensions) >= MAX_DIMENSIONS_PER_NPC:
-                        break
-                    dimensions[label] = {
-                        "value": _bounded_value(value),
-                        "last_change": _change(0, 0, _reason_from_relation(row)),
-                    }
-                if not dimensions and not owner.get("dynamic"):
-                    npc_to_pov.pop(owner_id, None)
-            else:
+            if target_id != pov_id:
                 text = _qualitative_relation(row)
                 if text:
-                    npc_to_npc.setdefault(owner_id, {})[target_id] = text
-    return store
-
-
-def _legacy_reason(state: Dict[str, Any], owner_id: str, label: str) -> str:
-    docs = state.get("relationship_documents") if isinstance(state.get("relationship_documents"), dict) else {}
-    doc = docs.get(owner_id) if isinstance(docs.get(owner_id), dict) else {}
-    reasons: List[Dict[str, Any]] = []
-    for relation in doc.get("relations", []) if isinstance(doc.get("relations"), list) else []:
-        if not isinstance(relation, dict):
-            continue
-        rows = relation.get("change_reasons")
-        if isinstance(rows, list):
-            reasons.extend(row for row in rows if isinstance(row, dict))
-    norm_label = _norm(label)
-    for row in reversed(reasons):
-        changes = row.get("changes") if isinstance(row.get("changes"), list) else []
-        if any(_norm(item.get("label") or item.get("key")) == norm_label for item in changes if isinstance(item, dict)):
-            reason = " ".join(str(row.get("reason") or "").split())
-            if reason:
-                return reason[:360]
-    return "перенесено из существующей сессии"
-
-
-def _legacy_dynamic(state: Dict[str, Any], owner_id: str, pov_id: str) -> str:
-    docs = state.get("relationship_documents") if isinstance(state.get("relationship_documents"), dict) else {}
-    doc = docs.get(owner_id) if isinstance(docs.get(owner_id), dict) else {}
-    for relation in doc.get("relations", []) if isinstance(doc.get("relations"), list) else []:
-        if not isinstance(relation, dict):
-            continue
-        target = str(relation.get("target_character_id") or relation.get("target_id") or relation.get("target") or "")
-        if target and _norm(target) != _norm(pov_id):
-            continue
-        text = " ".join(str(relation.get("current_dynamic") or "").split())[:700]
-        if text:
-            return text
-    return ""
-
+                    store["npc_to_npc"].setdefault(owner_id, {})[target_id] = text
+                continue
+            dimensions = store["npc_to_pov"].setdefault(owner_id, {"dimensions": {}})["dimensions"]
+            for item in row.get("dimensions", []) if isinstance(row.get("dimensions"), list) else []:
+                if not isinstance(item, dict):
+                    continue
+                label = " ".join(str(item.get("label") or item.get("key") or "").split())
+                value = item.get("value")
+                if label and _is_number(value) and value > 0:
+                    dimensions[label] = {"value": _bounded_value(value)}
+    return normalize_store(store, pov_id)
 
 def _migrate_legacy_state(store: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
     result = deepcopy(store)
-    flat = state.get("relationships") if isinstance(state.get("relationships"), dict) else {}
-    npc_to_pov = result.setdefault("npc_to_pov", {})
-
-    for owner_id, raw in flat.items():
-        if not isinstance(raw, dict):
-            continue
-        dimensions: Dict[str, Dict[str, Any]] = {}
-        for label, value in raw.items():
-            if not _is_number(value) or float(value) <= 0.0:
-                continue
-            dimensions[str(label)] = {
-                "value": _bounded_value(value),
-                "last_change": _change(0, 0, _legacy_reason(state, str(owner_id), str(label))),
-            }
-            if len(dimensions) >= MAX_DIMENSIONS_PER_NPC:
-                break
-        existing = npc_to_pov.get(str(owner_id)) if isinstance(npc_to_pov.get(str(owner_id)), dict) else {}
-        dynamic = (
-            _legacy_dynamic(state, str(owner_id), str(result.get("pov_character_id") or ""))
-            or " ".join(str(existing.get("dynamic") or "").split())[:700]
-        )
-        if dimensions or dynamic:
-            npc_to_pov[str(owner_id)] = {"dimensions": dimensions}
-            if dynamic:
-                npc_to_pov[str(owner_id)]["dynamic"] = dynamic
-
-    legacy_npc = state.get("npc_relationships") if isinstance(state.get("npc_relationships"), dict) else {}
-    npc_to_npc = result.setdefault("npc_to_npc", {})
-    for owner_id, targets in legacy_npc.items():
-        if not isinstance(targets, dict):
-            continue
-        for target_id, raw in targets.items():
-            if not isinstance(raw, dict):
-                continue
-            text = _qualitative_relation(raw)
-            if text:
-                npc_to_npc.setdefault(str(owner_id), {})[str(target_id)] = text
-    return result
-
+    for owner_id, raw in _mapping(state.get("relationships")).items():
+        if isinstance(raw, dict):
+            result["npc_to_pov"][str(owner_id)] = {"dimensions": {
+                str(label): {"value": _bounded_value(value)}
+                for label, value in raw.items() if _is_number(value) and value > 0
+            }}
+    for owner_id, targets in _mapping(state.get("npc_relationships")).items():
+        if isinstance(targets, dict):
+            for target_id, raw in targets.items():
+                text = _qualitative_relation(raw) if isinstance(raw, dict) else " ".join(str(raw).split()[:MAX_RELATION_WORDS])
+                if text:
+                    result["npc_to_npc"].setdefault(str(owner_id), {})[str(target_id)] = text
+    return normalize_store(result)
 
 def normalize_store(value: Any, pov_id: str = "") -> Dict[str, Any]:
     source = value if isinstance(value, dict) else {}
     result = _empty_store(str(source.get("pov_character_id") or pov_id or ""))
-    npc_to_pov = source.get("npc_to_pov") if isinstance(source.get("npc_to_pov"), dict) else {}
-    for owner_id, raw in npc_to_pov.items():
-        if not isinstance(raw, dict):
+    for owner_id, row in _mapping(source.get("npc_to_pov")).items():
+        if not isinstance(row, dict) or str(owner_id) == result["pov_character_id"]:
             continue
-        dimensions = raw.get("dimensions") if isinstance(raw.get("dimensions"), dict) else {}
-        clean: Dict[str, Dict[str, Any]] = {}
-        for label, item in dimensions.items():
-            if len(clean) >= MAX_DIMENSIONS_PER_NPC:
-                break
-            if not isinstance(item, dict):
+        clean = {}
+        for label, item in _mapping(row.get("dimensions")).items():
+            value = item.get("value") if isinstance(item, dict) else item
+            name = " ".join(str(label).split())
+            if not name or not _is_number(value) or value <= 0:
                 continue
-            value = item.get("value")
-            if not _is_number(value) or float(value) <= 0.0:
-                continue
-            last_change = item.get("last_change") if isinstance(item.get("last_change"), dict) else {}
-            if not last_change:
-                last_change = {
-                    "turn": int(item.get("last_turn", 0) or 0),
-                    "delta": item.get("last_delta", 0),
-                    "reason": item.get("reason", ""),
-                }
-            clean[str(label)] = {
-                "value": _bounded_value(value),
-                "last_change": _change(
-                    int(last_change.get("turn", 0) or 0),
-                    last_change.get("delta", 0),
-                    str(last_change.get("reason") or ""),
-                ),
-            }
-        dynamic = " ".join(str(raw.get("dynamic") or "").split())[:700]
-        if clean or dynamic or raw.get("dimensions") == {}:
-            result["npc_to_pov"][str(owner_id)] = {"dimensions": clean}
-            if dynamic:
-                result["npc_to_pov"][str(owner_id)]["dynamic"] = dynamic
-                change = raw.get("dynamic_last_change")
-                if isinstance(change, dict):
-                    result["npc_to_pov"][str(owner_id)]["dynamic_last_change"] = _change(
-                        int(change.get("turn", 0) or 0), 0, str(change.get("reason") or "")
-                    )
-
-    npc_to_npc = source.get("npc_to_npc") if isinstance(source.get("npc_to_npc"), dict) else {}
-    for owner_id, targets in npc_to_npc.items():
-        if not isinstance(targets, dict):
+            existing = next((key for key in clean if _norm(key) == _norm(name)), None)
+            if existing is not None:
+                clean[existing] = {"value": _bounded_value(value)}
+            elif len(clean) < MAX_DIMENSIONS_PER_NPC:
+                clean[name] = {"value": _bounded_value(value)}
+        # An empty record remembers an encounter, not a fabricated attitude.
+        result["npc_to_pov"][str(owner_id)] = {"dimensions": clean}
+    for owner_id, targets in _mapping(source.get("npc_to_npc")).items():
+        if not isinstance(targets, dict) or str(owner_id) == result["pov_character_id"]:
             continue
-        clean_targets: Dict[str, str] = {}
         for target_id, text in targets.items():
-            value_text = " ".join(str(text or "").split())[:700]
-            if value_text:
-                clean_targets[str(target_id)] = value_text
-        if clean_targets:
-            result["npc_to_npc"][str(owner_id)] = clean_targets
+            if str(target_id) in {str(owner_id), result["pov_character_id"]}:
+                continue
+            short = " ".join(str(text or "").split()[:MAX_RELATION_WORDS])
+            if short:
+                result["npc_to_npc"].setdefault(str(owner_id), {})[str(target_id)] = short
     return result
 
 
@@ -303,43 +185,15 @@ def load(root: Path, *, cards: List[Dict[str, Any]], state: Dict[str, Any], pov_
     if path.exists():
         raw = storage._read_json(path, {})
         store = normalize_store(raw, pov_id)
-        if raw.get("version", 1) == 1:
-            # Never relabel a played relationship with its outdated setup description.
-            meta = storage._read_json(root / "meta.json", {})
-            turns = storage._read_turns(root)
-            if not turns and not int(meta.get("turn_number", 0) or 0):
-                initial = _profile_store(cards, pov_id)
-                for cid, row in store["npc_to_pov"].items():
-                    initial_row = initial["npc_to_pov"].get(cid, {})
-                    if not row.get("dynamic") and initial_row.get("dynamic"):
-                        row["dynamic"] = initial_row["dynamic"]
-                        row["dynamic_last_change"] = deepcopy(initial_row["dynamic_last_change"])
-            for turn in turns:
-                extracted = turn.get("extracted") or {}
-                for update in extracted.get("relationship_updates") or []:
-                    cid = _resolve_character_id(cards, update.get("character_id"))
-                    row = store["npc_to_pov"].get(cid)
-                    dynamic = " ".join(str(update.get("dynamic") or "").split())[:700]
-                    if row is not None and dynamic:
-                        row["dynamic"] = dynamic
-                        row["dynamic_last_change"] = _change(
-                            int(turn.get("turn_number", 0) or 0), 0, str(update.get("reason") or "")
-                        )
-            storage._write_json(path, store)
-        elif raw != store:
+        if raw != store:
             storage._write_json(path, store)
         return store
-
     store = build_initial_store(cards, state, pov_id)
     storage._write_json(path, store)
-
     cleaned_state = deepcopy(state)
-    changed = False
     for key in ("relationships", "relationship_documents", "relationship_schemas", "npc_relationships"):
-        if key in cleaned_state:
-            cleaned_state.pop(key, None)
-            changed = True
-    if changed:
+        cleaned_state.pop(key, None)
+    if cleaned_state != state:
         storage._write_json(root / "state.json", cleaned_state)
     return store
 
@@ -418,7 +272,7 @@ def apply_npc_updates(
             raise ValueError("NPC_RELATIONSHIP_INVALID_PAIR")
         text = _qualitative_relation(raw)
         if not text:
-            text = " ".join(str(raw.get("description") or "").split())[:700]
+            text = " ".join(str(raw.get("description") or "").split()[:MAX_RELATION_WORDS])
         if text:
             target_store.setdefault(owner_id, {})[target_id] = text
     return result
@@ -435,126 +289,50 @@ def ensure_participant_records(store: Dict[str, Any], participant_ids: Iterable[
 
 
 def apply_updates(
-    store: Dict[str, Any],
-    updates: Any,
-    *,
-    cards: List[Dict[str, Any]],
-    pov_id: str,
-    turn_number: int,
-    participant_ids: Iterable[str],
+    store: Dict[str, Any], updates: Any, *, cards: List[Dict[str, Any]],
+    pov_id: str, turn_number: int, participant_ids: Iterable[str],
     enforce_turn_invariants: bool = True,
 ) -> Dict[str, Any]:
-    if not isinstance(updates, list) or not updates:
-        return deepcopy(store)
+    """Apply numeric changes; narrative judgment stays with the writer.
 
-    result = deepcopy(store)
-    npc_to_pov = result.setdefault("npc_to_pov", {})
-    participants = {str(value) for value in participant_ids if value}
-    changed_dimensions: set[tuple[str, str]] = set()
-
-    for raw in updates:
+    No reason/scale/review gate and no per-turn change history. Structural bounds
+    protect the file; an empty update or a value already at its bound is a no-op.
+    """
+    result = normalize_store(store, pov_id)
+    participants = {str(cid) for cid in participant_ids}
+    for raw in updates if isinstance(updates, list) else []:
         if not isinstance(raw, dict):
             continue
         owner_id = _resolve_character_id(cards, raw.get("character_id"))
-        owner_id = str(owner_id or "")
         if not owner_id or owner_id == pov_id or owner_id not in participants:
             raise ValueError("RELATIONSHIP_UPDATE_FOR_UNSEEN_NPC")
-
-        reason = " ".join(str(raw.get("reason") or "").split())[:360]
-        if not reason:
-            raise ValueError("RELATIONSHIP_CHANGE_REASON_REQUIRED")
-
-        scale = str(raw.get("change_scale") or "ordinary").strip().casefold()
-        if scale not in {"ordinary", "critical_event"}:
-            raise ValueError("RELATIONSHIP_CHANGE_SCALE_INVALID")
-
-        incoming_dimensions = raw.get("dimensions") if isinstance(raw.get("dimensions"), list) else []
-        incoming_dynamic = " ".join(str(raw.get("dynamic") or "").split())[:700]
-        if not incoming_dimensions and not incoming_dynamic:
-            raise ValueError("RELATIONSHIP_UPDATE_EMPTY")
-
-        owner = npc_to_pov.setdefault(owner_id, {"dimensions": {}})
-        dimensions = owner.setdefault("dimensions", {})
-        if not isinstance(dimensions, dict):
-            dimensions = {}
-            owner["dimensions"] = dimensions
-
-        changed_any = False
-        bounded_noop = False
-        if incoming_dynamic and incoming_dynamic != str(owner.get("dynamic") or ""):
-            owner["dynamic"] = incoming_dynamic
-            owner["dynamic_last_change"] = _change(turn_number, 0, reason)
-            changed_any = True
-
-        seen: set[str] = set()
-        prepared_dimensions: List[Tuple[Dict[str, Any], str, str, str | None]] = []
-        for item in incoming_dimensions:
-            if not isinstance(item, dict):
-                continue
+        dimensions = result["npc_to_pov"].setdefault(owner_id, {"dimensions": {}})["dimensions"]
+        pending = [item for item in raw.get("dimensions", []) or [] if isinstance(item, dict)]
+        # Removing an existing axis frees a slot for a new one in the same update.
+        pending.sort(key=lambda item: not any(_norm(label) == _norm(item.get("label")) for label in dimensions))
+        for item in pending:
             label = " ".join(str(item.get("label") or "").split())
-            key = _norm(label)
-            if not label or not key or key in seen:
-                raise ValueError("RELATIONSHIP_DIMENSION_INVALID")
-            seen.add(key)
-            if enforce_turn_invariants and (owner_id, key) in changed_dimensions:
-                raise ValueError("RELATIONSHIP_DIMENSION_DUPLICATE_UPDATE")
-            changed_dimensions.add((owner_id, key))
-            existing_label = next((name for name in dimensions if _norm(name) == key), None)
-            prepared_dimensions.append((item, label, key, existing_label))
-
-        # Apply existing axes first so an axis that reaches zero frees a slot
-        # before a new axis from the same scene is created.
-        prepared_dimensions.sort(key=lambda row: row[3] is None)
-
-        for item, label, key, existing_label in prepared_dimensions:
-            if existing_label is not None:
-                delta = item.get("delta")
-                if not _is_number(delta) or float(delta) == 0.0:
-                    raise ValueError("RELATIONSHIP_EXISTING_DIMENSION_DELTA_REQUIRED")
-                if scale == "ordinary" and abs(float(delta)) > ORDINARY_DELTA_LIMIT:
-                    raise ValueError("RELATIONSHIP_ORDINARY_DELTA_LIMIT")
-                current_value = float(dimensions[existing_label]["value"])
-                raw_new_value = current_value + float(delta)
-                if not isfinite(raw_new_value):
-                    raise ValueError("RELATIONSHIP_VALUE_INVALID")
-                new_value = max(0.0, min(100.0, raw_new_value))
-                if new_value == 0.0:
-                    dimensions.pop(existing_label, None)
-                    changed_any = True
-                    continue
-                effective_delta = new_value - current_value
-                if effective_delta == 0.0:
-                    bounded_noop = True
-                    continue
-                dimensions[existing_label] = {
-                    "value": _number(new_value),
-                    "last_change": _change(turn_number, effective_delta, reason),
-                }
-                changed_any = True
+            if not label:
                 continue
-
-            value = item.get("value")
-            if not _is_number(value) or float(value) <= 0.0:
-                raise ValueError("RELATIONSHIP_NEW_DIMENSION_VALUE_REQUIRED")
-            if float(value) > 100.0:
-                raise ValueError("RELATIONSHIP_VALUE_INVALID")
-            if scale == "ordinary" and float(value) > ORDINARY_DELTA_LIMIT:
-                raise ValueError("RELATIONSHIP_ORDINARY_DELTA_LIMIT")
-            if len(dimensions) >= MAX_DIMENSIONS_PER_NPC:
-                raise ValueError("RELATIONSHIP_DIMENSION_LIMIT")
-            dimensions[label] = {
-                "value": _number(value),
-                "last_change": _change(turn_number, value, reason),
-            }
-            changed_any = True
-
-        if not changed_any and not bounded_noop:
-            raise ValueError("RELATIONSHIP_UPDATE_EMPTY")
-        if not dimensions and not owner.get("dynamic"):
-            npc_to_pov.pop(owner_id, None)
-
-    if any(len(row.get("dimensions", {})) > MAX_DIMENSIONS_PER_NPC for row in npc_to_pov.values()):
-        raise ValueError("RELATIONSHIP_DIMENSION_LIMIT")
+            existing = next((name for name in dimensions if _norm(name) == _norm(label)), None)
+            if existing is not None:
+                delta = item.get("delta")
+                if not _is_number(delta):
+                    raise ValueError("RELATIONSHIP_EXISTING_DIMENSION_DELTA_REQUIRED")
+                value = _bounded_value(dimensions[existing]["value"] + delta)
+                if value == 0:
+                    dimensions.pop(existing)
+                else:
+                    dimensions[existing] = {"value": value}
+            else:
+                value = item.get("value")
+                if not _is_number(value):
+                    raise ValueError("RELATIONSHIP_NEW_DIMENSION_VALUE_REQUIRED")
+                value = _bounded_value(value)
+                if value > 0:
+                    if len(dimensions) >= MAX_DIMENSIONS_PER_NPC:
+                        raise ValueError("RELATIONSHIP_DIMENSION_LIMIT")
+                    dimensions[label] = {"value": value}
     return result
 
 

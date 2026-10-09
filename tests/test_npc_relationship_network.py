@@ -124,14 +124,15 @@ def test_every_turn_has_causal_cast_and_qualitative_directed_npc_network_from_sa
         assert registry["offscreen_bundle_read"]["action"] == "prepareCharacterBundleRead"
         assert "full_card_retrieval" not in rows["dante"]
 
-        network = context["npc_relationship_network"]
-        assert network["directional"] is True
+        assert "npc_relationship_network" not in context
         pairs = {
-            (row["owner_character_id"], row["target_character_id"]): row["description"]
-            for row in network["relations"]
+            (owner, target): description
+            for owner, targets in context["relationships"]["npc_to_npc"].items()
+            for target, description in targets.items()
         }
+        assert all(len(text.split()) <= 10 for text in pairs.values())
         assert "лучшие друзья" in pairs[("adrian", "dante")]
-        assert "бесится" in pairs[("adrian", "dante")]
+        assert "лучшие друзья" in pairs[("adrian", "dante")]
         assert "провоцировать" in pairs[("dante", "adrian")]
         assert "бывшие" in pairs[("yuna", "lem")]
         assert "бывшие" in pairs[("lem", "yuna")]
@@ -192,13 +193,11 @@ def test_relationship_contract_keeps_npc_to_npc_qualitative_and_footer_scene_sco
     instructions = Path("gpt/custom_gpt_instructions.md").read_text(encoding="utf-8")
     schema = Path("openapi.yaml").read_text(encoding="utf-8")
 
-    assert "Единственный канон отношений - `relationships.json`." in rules
-    assert "Связи NPC между собой" in rules
-    assert "только словами, без числовых шкал" in rules
-    assert "только физически присутствующих NPC" in rules
-    assert "Footer показывает все активные оси только физически присутствующих NPC" in instructions
+    assert "`relationships.json` — один файл актуальных отношений" in rules
+    assert "Одна связь — до 10 слов" in rules
+    assert "физически или через актуальный звонок/переписку" in rules
+    assert "Footer только текущих physical/remote участников" in instructions
     assert "все его активные NPC→POV показатели из relationships.json" in builder
-    assert "description:" in schema
-    assert "relationship_review:" in schema
-    assert "dynamic:" in schema
-    assert len(instructions) + 93 < 8000
+    assert "at most 10 words" in schema
+    assert "relationship_review:" not in schema
+    assert len(instructions.replace("\n", "\r\n")) < 8000

@@ -554,6 +554,7 @@ components:
       properties:
         label:
           type: string
+          description: Short free-form axis name chosen for this NPC, without a fixed list.
         value:
           type: number
           minimum: 1
@@ -561,12 +562,12 @@ components:
           description: Initial value for a new NPC→POV dimension. Active values are 1..100.
         delta:
           type: number
-          description: Signed change for an established dimension. Ordinary changes are limited to -3..+3. Persisted values stay within 1..100; reaching zero deletes the dimension.
+          description: Signed change for an existing axis, normally -3..+3; a serious scene event may justify a larger change. Values stay in 0..100; zero deletes the axis.
       additionalProperties: false
 
     RelationshipUpdate:
       type: object
-      required: [character_id, reason]
+      required: [character_id, dimensions]
       properties:
         character_id:
           type: string
@@ -574,32 +575,7 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/RelationshipDimensionUpdate'
-        dynamic:
-          type: string
-          description: Short current qualitative dynamic for this NPC→POV relation. May change without a numeric dimension change.
-        reason:
-          type: string
-          description: Short concrete current-scene reason.
-        change_scale:
-          type: string
-          enum: [ordinary, critical_event]
-          default: ordinary
-          description: Use critical_event only for a genuinely major relationship event; ordinary is limited to +/-3 per changed dimension.
       additionalProperties: false
-    RelationshipReviewItem:
-      type: object
-      required: [character_id, changed, reason]
-      properties:
-        character_id:
-          type: string
-        changed:
-          type: boolean
-          description: Legacy review result; ignored.
-        reason:
-          type: string
-          description: Legacy review reason; ignored.
-      additionalProperties: false
-
     NPCRelationshipUpdate:
       type: object
       required: [owner_character_id, target_character_id, description]
@@ -610,10 +586,7 @@ components:
           type: string
         description:
           type: string
-          description: Short qualitative directed relationship/dynamic. No numeric scores.
-        change_reason:
-          type: string
-          description: Optional short reason for the durable change.
+          description: Current directed NPC-to-NPC relation in at most 10 words. Replaces the previous description; no numeric scores or history.
       additionalProperties: false
     NPCIntentUpdate:
       type: object
@@ -751,12 +724,6 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/RelationshipUpdate'
-        relationship_review:
-          deprecated: true
-          type: array
-          description: Legacy optional review rows; accepted for compatibility, ignored and not persisted.
-          items:
-            $ref: '#/components/schemas/RelationshipReviewItem'
         state_patch:
           $ref: '#/components/schemas/StatePatch'
         character_upserts:
