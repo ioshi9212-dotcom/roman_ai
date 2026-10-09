@@ -21,6 +21,7 @@ from . import (
     knowledge_persistence_runtime,
     location_runtime,
     memory_integrity_runtime,
+    narrative_guardrails_runtime,
     npc_intent,
     npc_intent_runtime,
     npc_relationship_runtime,
@@ -54,7 +55,7 @@ _BASE_PARTICIPATION_BUNDLE = character_chunk_read._participation_bundle
 _BASE_CREATE_SESSION = storage.create_session
 _BASE_RECOVER_CURRENT = session_recovery.recover_session_current
 
-PIPELINE_VERSION = 19
+PIPELINE_VERSION = 20
 
 def _packet_manifest(packet: Dict[str, Any], *, reused: bool) -> Dict[str, Any]:
     chunks = packet.get("chunks", []) if isinstance(packet.get("chunks"), list) else []
@@ -617,6 +618,11 @@ def _prepare_context(
             elif owner_id in remote_set:
                 row["participation_mode"] = "remote"
         context["relationship_lens"] = lens
+
+    # The old narrative_guardrails packet is intentionally discarded.
+    # Keep only its existing POV activity contract in the final writer packet:
+    # no extra pass over the packet and no commit-time rejection loop.
+    context["pov_activity"] = narrative_guardrails_runtime._pov_activity_rule()
 
     # Persistence/chronology instructions live once in runtime_rules.
     # Do not mirror the same directing prose into a second packet contract.
