@@ -11,8 +11,8 @@ from .long_horizon_audit import build_macro_payload, cast_audit, macro_due, rela
 
 
 _ORIGINAL_GET_AUDIT = None
-FAST_AUDIT_PACKET_VERSION = 12
-AUDIT_PACKET_CHARS = 16000
+FAST_AUDIT_PACKET_VERSION = 13
+AUDIT_PACKET_CHARS = 10000
 
 
 def _turn_evidence(turn: Dict[str, Any]) -> Dict[str, Any]:
@@ -252,7 +252,7 @@ def _response(packet: Dict[str, Any], *, include_first: bool) -> Dict[str, Any]:
         "already_read_chunks": sorted(read),
         "first_chunk_included": bool(include_first and chunks),
         "next_chunk_index": unread_after_zero[0] if unread_after_zero else None,
-        "instruction": "Chunk 0 уже включён. Прочитай остальные непрочитанные chunks и заверши audit одним commitTurn с audit payload.",
+        "instruction": "Chunk 0 уже включён. Читай остальные части через getTurnPacketChunk(max_chunks=2), объединяя chunks[].content строго по chunk_index до next_chunk_index=null. Полный аудит обязателен, ничего не пропускай; затем один commitTurn с audit payload.",
     }
     if include_first and chunks:
         result["chunk_index"] = 0
