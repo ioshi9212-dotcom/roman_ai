@@ -4,7 +4,7 @@ info:
   version: 2.0.7
   description: Rules-driven interactive novel sessions with character-scoped knowledge, dynamic relationships, cast continuity, recovery, rollback, continuation compaction and lossless setup intake.
 servers:
-  - url: https://ai-roman-yumikofv.mia0.amvera.tech
+  - url: https://airomannovella-yumikofv.waw0.amvera.tech
 
 components:
   schemas:
