@@ -83,3 +83,45 @@ def test_many_large_dormant_dossiers_do_not_bloat_each_turn_packet():
         )
         persisted_memory = storage._read_json(storage.SESSIONS_DIR / large_sid / "memory.json", {})
         assert "DORMANT_MEMORY_23_" in persisted_memory["characters"]["away_23"]["dialogue_memory"][0]["summary"]
+
+
+
+def test_discarded_scene_lenses_never_copy_offscreen_memory(monkeypatch):
+    # Full personal knowledge is sent only for physically/remote participating
+    # characters. The old temporary lens is discarded before serialization.
+    import json
+
+    def forbid_legacy_lens(*args, **kwargs):
+        raise AssertionError("legacy per-character memory lenses were rebuilt")
+
+    monkeypatch.setattr(storage, "_character_knowledge_lenses", forbid_legacy_lens)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(_make_novel(4))["session_id"]
+        root = storage.SESSIONS_DIR / sid
+        memory = storage._normalise_memory(
+            storage._read_json(root / "memory.json", {})
+        )
+        storage._memory_bucket(memory, "present")["knowledge"] = [
+            {"fact_id": "present_fact", "fact": "PRESENT_KNOWLEDGE_MARKER"}
+        ]
+        storage._memory_bucket(memory, "away_0")["knowledge"] = [
+            {"fact_id": "away_fact", "fact": "OFFSCREEN_KNOWLEDGE_MARKER"}
+        ]
+        storage._write_json(root / "memory.json", memory)
+
+        manifest = session_runtime.prepare_turn_packet(
+            sid, "(вспомнить Away 0, не связываясь с ним)"
+        )
+        packet = storage._read_json(root / "turn_packet.json", {})
+        context = json.loads("".join(packet["chunks"]))
+        assert manifest["chunk_count"] == packet["chunk_count"]
+        assert set(context["character_memory"]) == {"pov", "present"}
+        assert "PRESENT_KNOWLEDGE_MARKER" in str(context["character_memory"]["present"])
+        assert "OFFSCREEN_KNOWLEDGE_MARKER" not in str(context)
+        assert {card["character_id"] for card in context["character_cards"]} == {"pov", "present"}
+        assert any(
+            row.get("character_id") == "away_0"
+            for row in context["cast_registry"]["characters"]
+        )

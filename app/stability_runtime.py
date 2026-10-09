@@ -147,6 +147,21 @@ def _compact_turn_context(context: Dict[str, Any], source: Dict[str, Any]) -> Di
         for key, value in source.items()
         if key not in _SOURCE_STANDARD_KEYS
     }
+    # Foundation facts are already canonical; raw proof excerpts and source
+    # mapping IDs are setup/audit provenance, not separate writer-facing facts.
+    # Keep every fact's own text and metadata. The source.json file is untouched.
+    foundation = extras.get("foundation")
+    if isinstance(foundation, dict):
+        facts = foundation.get("facts")
+        if isinstance(facts, list):
+            for fact in facts:
+                if (
+                    isinstance(fact, dict)
+                    and isinstance(fact.get("text"), str)
+                    and fact["text"].strip()
+                ):
+                    fact.pop("source_evidence", None)
+                    fact.pop("source_unit_ids", None)
     if extras:
         context["source_extra"] = extras
     else:

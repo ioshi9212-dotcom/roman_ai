@@ -136,6 +136,46 @@ def test_turn_packet_loads_only_the_location_where_pov_is_physically_present():
         assert "canon_notes" not in context.get("source_extra", {})
 
 
+def test_setup_source_evidence_is_not_duplicated_in_every_turn_packet():
+    with tempfile.TemporaryDirectory() as tmp:
+        _setup(tmp)
+        novel = _novel()
+        evidence = "RAW_SOURCE_EVIDENCE_MARKER_" + "E" * 65000
+        novel["foundation"] = {
+            "facts": [{
+                "fact_id": "rinata_trait",
+                "text": "Рината любит свой сад и ухаживает за растениями.",
+                "story_use": "reference",
+                "stored_in": ["characters[pov].character"],
+                "source_unit_ids": ["intake:u1"],
+                "source_evidence": [{
+                    "source_unit_id": "intake:u1",
+                    "block_id": "intake",
+                    "stage": "setup",
+                    "text": evidence,
+                }],
+            }],
+            "hooks": [{"hook_id": "garden_visit", "summary": "Посещение сада"}],
+        }
+        novel["custom_world_detail"] = {"text": "UNIQUE_CANON_MARKER"}
+        sid = storage.create_session(novel)["session_id"]
+        context, raw = _read_packet(sid, "(посмотреть в окно)")
+
+        foundation = context["source_extra"]["foundation"]
+        fact = foundation["facts"][0]
+        assert fact["text"] == novel["foundation"]["facts"][0]["text"]
+        assert "source_evidence" not in fact
+        assert "source_unit_ids" not in fact
+        assert foundation["hooks"] == novel["foundation"]["hooks"]
+        assert context["source_extra"]["custom_world_detail"] == novel["custom_world_detail"]
+        assert "RAW_SOURCE_EVIDENCE_MARKER_" not in raw
+
+        # No destructive compaction: source evidence remains fully retrievable
+        # from the persisted session source.
+        persisted = storage._read_json(storage.SESSIONS_DIR / sid / "source.json", {})
+        assert persisted["foundation"]["facts"][0]["source_evidence"][0]["text"] == evidence
+
+
 def test_unknown_or_one_off_location_does_not_receive_a_saved_location_profile():
     with tempfile.TemporaryDirectory() as tmp:
         _setup(tmp)

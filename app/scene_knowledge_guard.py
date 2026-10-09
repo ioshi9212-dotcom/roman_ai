@@ -906,20 +906,22 @@ def validate_scene_output(session_id: str, payload: Dict[str, Any]) -> None:
             continue
 
         if cid != pov_id:
-            base_text = base_cache.setdefault(
-                cid,
-                _authorized_base_text(
+            # setdefault evaluates its default argument even on a cache hit.
+            # Build each NPC's stable knowledge/perception context only once.
+            if cid not in base_cache:
+                base_cache[cid] = _authorized_base_text(
                     context,
                     cid,
                     context_card_map=context_card_map,
                     all_card_map=all_card_map,
                     fallback_memory=fallback_memory,
-                ),
-            )
-            perception = perception_cache.setdefault(
-                cid,
-                _physical_perception_text(context, cid, context_card_map),
-            )
+                )
+            base_text = base_cache[cid]
+            if cid not in perception_cache:
+                perception_cache[cid] = _physical_perception_text(
+                    context, cid, context_card_map,
+                )
+            perception = perception_cache[cid]
             allowed_text = "\n".join([
                 base_text,
                 perception,
@@ -936,17 +938,16 @@ def validate_scene_output(session_id: str, payload: Dict[str, Any]) -> None:
             used_terms = private_knowledge_runtime._terms(text)
             used_numbers = _numbers(text)
 
-            for row in protected_cache.setdefault(
-                cid,
-                _protected_rows(
+            if cid not in protected_cache:
+                protected_cache[cid] = _protected_rows(
                     context,
                     cid,
                     context_card_map,
                     all_card_map=all_card_map,
                     fallback_memory=fallback_memory,
                     loaded_bundle_chunks=loaded_bundle_chunks,
-                ),
-            ):
+                )
+            for row in protected_cache[cid]:
                 protected_text = str(row.get("text") or "").strip()
                 match = _match_protected(
                     used_terms,
