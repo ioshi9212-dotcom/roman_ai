@@ -684,7 +684,7 @@ def _protected_rows(
             "terms": private_knowledge_runtime._terms(text),
             "numbers": _numbers(text),
             "source": source,
-            "ordered_triples": _ordered_triples(text) if source in _NARRATIVE_CONTEXT_SOURCES else set(),
+            "ordered_triples": _ordered_triples(text),
             "broad": row.get("broad_override") is True or source in _BROAD_DIRECTOR_SOURCES,
         })
     return unique
@@ -698,6 +698,7 @@ def _match_protected(
     allowed_terms: set[str],
     allowed_numbers: set[str],
     inference_text: str,
+    inference_triples: set[tuple[str, str, str]] | None = None,
 ) -> Dict[str, Any] | None:
     protected_terms = set(protected.get("terms") or [])
     protected_numbers = set(protected.get("numbers") or [])
@@ -708,38 +709,27 @@ def _match_protected(
     known_overlap = raw_overlap & allowed_terms
     unknown_numbers = (used_numbers & protected_numbers) - allowed_numbers
 
-    if protected.get("source") in _NARRATIVE_CONTEXT_SOURCES:
-        # A chronology / old scene is not personal knowledge, but shared words
-        # ("hands", "creature", "grabbed") do not prove that it was copied.
-        # Reject precise unlearned detail when it is actually repeated in order.
-        shared = _ordered_triples(inference_text) & set(protected.get("ordered_triples") or ())
-        copied = {
-            term
-            for triple in shared
-            if len(set(triple) - allowed_terms) >= 2
-            for term in triple
-            if term not in allowed_terms
-        }
-        if copied:
-            return {
-                "terms": sorted(copied),
-                "numbers": sorted(unknown_numbers),
-                "reason": "unsupported_narrative_detail_copy",
-            }
-        if unknown_numbers and raw_overlap:
-            return {
-                "terms": sorted(unknown_terms),
-                "numbers": sorted(unknown_numbers),
-                "reason": "unsupported_exact_number",
-            }
-        return None
-
-    minimum_terms = 3 if broad else 2
-    if len(unknown_terms) >= minimum_terms:
+    # Coincidental bag-of-words matches are not evidence of an information
+    # leak. A copied specific phrase, an exact unlearned number with context,
+    # or a dense match to a short protected fact provides stronger evidence.
+    triples = inference_triples if inference_triples is not None else _ordered_triples(inference_text)
+    shared = triples & set(protected.get("ordered_triples") or ())
+    copied = {
+        term
+        for triple in shared
+        if len(set(triple) - allowed_terms) >= 2
+        for term in triple
+        if term not in allowed_terms
+    }
+    if copied:
         return {
-            "terms": sorted(unknown_terms),
+            "terms": sorted(copied),
             "numbers": sorted(unknown_numbers),
-            "reason": "unsupported_specificity",
+            "reason": (
+                "unsupported_narrative_detail_copy"
+                if protected.get("source") in _NARRATIVE_CONTEXT_SOURCES
+                else "unsupported_specificity"
+            ),
         }
 
     if unknown_numbers and raw_overlap:
@@ -749,17 +739,24 @@ def _match_protected(
             "reason": "unsupported_exact_number",
         }
 
-    if not broad and len(unknown_terms) == 1 and len(known_overlap) >= 2:
-        if _looks_like_inference(inference_text):
-            return None
+    if protected.get("source") in _NARRATIVE_CONTEXT_SOURCES:
+        return None
+
+    # Paraphrased, concrete short facts can still leak without word-for-word
+    # copying. Four overlapping unknown content stems and a substantial share
+    # of the protected fact are required. Two commonplace words never suffice.
+    if (
+        len(unknown_terms) >= 3
+        and len(protected_terms) <= 12
+        and len(unknown_terms) * 2 >= len(protected_terms)
+    ):
         return {
             "terms": sorted(unknown_terms),
-            "numbers": [],
-            "reason": "unsupported_relation_completion",
+            "numbers": sorted(unknown_numbers),
+            "reason": "unsupported_specificity",
         }
 
     return None
-
 
 def _authorized_base_text(
     context: Dict[str, Any],
@@ -937,6 +934,7 @@ def validate_scene_output(session_id: str, payload: Dict[str, Any]) -> None:
             leaked_numbers: set[str] = set()
             used_terms = private_knowledge_runtime._terms(text)
             used_numbers = _numbers(text)
+            used_triples = _ordered_triples(text)
 
             if cid not in protected_cache:
                 protected_cache[cid] = _protected_rows(
@@ -956,6 +954,7 @@ def validate_scene_output(session_id: str, payload: Dict[str, Any]) -> None:
                     allowed_terms=allowed_terms,
                     allowed_numbers=allowed_numbers,
                     inference_text=text,
+                    inference_triples=used_triples,
                 )
                 if match is None:
                     continue
