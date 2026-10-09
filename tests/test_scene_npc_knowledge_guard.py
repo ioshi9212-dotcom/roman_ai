@@ -120,18 +120,18 @@ def test_repeated_npc_speech_reuses_knowledge_guard_cache(monkeypatch):
         sid = storage.create_session(_novel())["session_id"]
         manifest, _ = _prepare(sid, "(слушать разговор)")
         scene = (
-            "**Адриан** — Привет, Кайр.\\n\\n"
-            "**Мира** — Я здесь.\\n\\n"
-            "**Адриан** — Как дела?\\n\\n"
-            "**Мира** — Слушаю.\\n\\n"
+            "**Адриан** — Привет, Кайр.\n\n"
+            "**Мира** — Я здесь.\n\n"
+            "**Адриан** — Как дела?\n\n"
+            "**Мира** — Слушаю.\n\n"
             "**Адриан** — Тогда продолжим."
         )
         _validate(sid, manifest, "(слушать разговор)", scene)
 
-    # At least three Adrian speech units were checked, but the immutable
-    # per-speaker source texts must each be assembled once, not three times.
+    # Three lines from Adrian and two from Mira must be checked independently,
+    # yet each NPC's immutable source texts are built only once per turn.
     for label in calls:
-        assert calls[label] == {"adrian": 1}, (label, calls[label])
+        assert calls[label] == {"adrian": 1, "mira": 1}, (label, calls[label])
 
 
 def test_personal_experiences_and_dialogue_are_valid_recollection_context():
