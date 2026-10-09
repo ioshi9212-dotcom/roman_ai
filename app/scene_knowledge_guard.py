@@ -110,6 +110,15 @@ _PROTECTED_CONTEXT_PATHS = (
     "starting_state",
 )
 
+# Recent narrative and chronology provide continuity, not automatically private facts.
+# Matching scattered common words against them is not evidence of a knowledge leak.
+_NARRATIVE_CONTEXT_SOURCES = {
+    "chronology_recent",
+    "recent_turns",
+    "continuity_turns",
+    "scene_history",
+}
+
 _BROAD_DIRECTOR_SOURCES = {
     "novel",
     "novel_rules",
@@ -218,6 +227,26 @@ def _memory_texts_from_bucket(bucket: Any) -> List[str]:
     knowledge = source.get("knowledge")
     if isinstance(knowledge, list):
         rows.extend(text for text in (_fact_text(row) for row in knowledge) if text)
+
+    # A character also remembers their OWN experiences and conversations.
+    # These are supporting recollections, not a license to invent someone else's secrets.
+    for field in ("experiences", "dialogue_memory"):
+        records = source.get(field)
+        if not isinstance(records, list):
+            continue
+        for record in records:
+            if isinstance(record, str) and record.strip():
+                rows.append(record.strip())
+            elif isinstance(record, dict):
+                details = [
+                    str(record[key]).strip()
+                    for key in (
+                        "summary", "text", "fact", "event", "description",
+                        "content", "memory", "note", "detail", "question", "answer",
+                    )
+                    if isinstance(record.get(key), str) and str(record[key]).strip()
+                ]
+                rows.extend(details)
 
     return list(dict.fromkeys(rows))
 
@@ -568,6 +597,21 @@ def _numbers(text: str) -> set[str]:
     return {match.group(0) for match in _NUMBER_RE.finditer(str(text or ""))}
 
 
+def _ordered_terms(text: str) -> List[str]:
+    """Meaningful stems in their original order, unlike bag-of-words _terms."""
+    result: List[str] = []
+    for match in re.finditer(r"(?iu)[a-zа-яё][a-zа-яё-]{3,}", str(text or "")):
+        terms = private_knowledge_runtime._terms(match.group(0))
+        if terms:
+            result.append(next(iter(terms)))
+    return result
+
+
+def _ordered_triples(text: str) -> set[tuple[str, str, str]]:
+    terms = _ordered_terms(text)
+    return {tuple(terms[i:i + 3]) for i in range(len(terms) - 2)}
+
+
 def _looks_like_inference(text: str) -> bool:
     normalized = private_knowledge_runtime._norm(text)
     return "?" in str(text or "") or any(marker in normalized for marker in _INFERENCE_MARKERS)
@@ -639,6 +683,8 @@ def _protected_rows(
             "text": text,
             "terms": private_knowledge_runtime._terms(text),
             "numbers": _numbers(text),
+            "source": source,
+            "ordered_triples": _ordered_triples(text) if source in _NARRATIVE_CONTEXT_SOURCES else set(),
             "broad": row.get("broad_override") is True or source in _BROAD_DIRECTOR_SOURCES,
         })
     return unique
@@ -661,6 +707,32 @@ def _match_protected(
     unknown_terms = raw_overlap - allowed_terms
     known_overlap = raw_overlap & allowed_terms
     unknown_numbers = (used_numbers & protected_numbers) - allowed_numbers
+
+    if protected.get("source") in _NARRATIVE_CONTEXT_SOURCES:
+        # A chronology / old scene is not personal knowledge, but shared words
+        # ("hands", "creature", "grabbed") do not prove that it was copied.
+        # Reject precise unlearned detail when it is actually repeated in order.
+        shared = _ordered_triples(inference_text) & set(protected.get("ordered_triples") or ())
+        copied = {
+            term
+            for triple in shared
+            if len(set(triple) - allowed_terms) >= 2
+            for term in triple
+            if term not in allowed_terms
+        }
+        if copied:
+            return {
+                "terms": sorted(copied),
+                "numbers": sorted(unknown_numbers),
+                "reason": "unsupported_narrative_detail_copy",
+            }
+        if unknown_numbers and raw_overlap:
+            return {
+                "terms": sorted(unknown_terms),
+                "numbers": sorted(unknown_numbers),
+                "reason": "unsupported_exact_number",
+            }
+        return None
 
     minimum_terms = 3 if broad else 2
     if len(unknown_terms) >= minimum_terms:
