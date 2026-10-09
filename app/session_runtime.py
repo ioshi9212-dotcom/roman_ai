@@ -511,7 +511,6 @@ def build_turn_context(
         "cast_index": storage._cast_index(cards, state, int(meta.get("turn_number", 0))),
         "relevant_character_ids": relevant_ids,
         "present_character_ids_at_turn_start": present_ids,
-        "scene_characters": storage._character_knowledge_lenses(cards, state, memory, relevant_ids),
         "knowledge_boundary": {
             "rule": "World history is not character knowledge.",
             "instruction": (
@@ -564,18 +563,9 @@ def build_turn_context(
                 row["role"] = registry_row.get("role") or row.get("role")
                 row["pov_familiarity"] = registry_row.get("pov_familiarity")
 
-    scene_characters = context.get("scene_characters", {})
-    if isinstance(scene_characters, dict):
-        for cid, bundle in scene_characters.items():
-            if not isinstance(bundle, dict):
-                continue
-            registry_row = by_id.get(str(cid))
-            if registry_row:
-                bundle["pov_familiarity"] = registry_row.get("pov_familiarity")
-                bundle["continuity_rule"] = (
-                    "Check pov_familiarity before recognition or introduction. known/acquainted forbids a first-time introduction; "
-                    "encountered means prior co-presence but identity may still be unknown."
-                )
+    # The legacy scene_characters lens is always discarded before transport.
+    # Do not duplicate offscreen NPC memories during the preparation pass.
+    # Active participants receive their knowledge from character_memory later.
 
     context.setdefault("knowledge_boundary", {})["identity_continuity"] = (
         "Who knows a person's identity is separate from objective card truth. Use character_registry.pov_familiarity plus POV personal_memory. "
