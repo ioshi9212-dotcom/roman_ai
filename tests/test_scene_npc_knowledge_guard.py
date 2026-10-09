@@ -134,6 +134,47 @@ def test_repeated_npc_speech_reuses_knowledge_guard_cache(monkeypatch):
         assert calls[label] == {"adrian": 1, "mira": 1}, (label, calls[label])
 
 
+def test_common_dialogue_words_in_other_character_memory_do_not_block_commit():
+    # Four ordinary pairs used to produce false foreign-memory leaks.
+    # Unrelated fragments must not turn normal dialogue into five commit retries.
+    with tempfile.TemporaryDirectory() as tmp:
+        _setup(tmp)
+        sid = storage.create_session(_novel())["session_id"]
+        root = storage.SESSIONS_DIR / sid
+        _seed(
+            root, "kair",
+            "Ладно, подожди. Я всё понял, слушай внимательно.",
+            "Представляешь себе, есть несколько разных причин.",
+            "Он начал встречу и вёл себя прилично.",
+            "Даже её личная просьба осталась без ответа.",
+        )
+        manifest, _ = _prepare(sid, "(слушать разговор)")
+        _validate(
+            sid,
+            manifest,
+            "(слушать разговор)",
+            "**Адриан** — Ладно. Послушай меня внимательно.\\n\\n"
+            "**Мира** — Представляешь, причины разные.\\n\\n"
+            "**Адриан** — Начал я вполне прилично.\\n\\n"
+            "**Мира** — Даже у меня есть просьба.",
+        )
+
+
+def test_rephrased_specific_foreign_fact_still_blocks_npc():
+    with tempfile.TemporaryDirectory() as tmp:
+        _setup(tmp)
+        sid = storage.create_session(_novel())["session_id"]
+        root = storage.SESSIONS_DIR / sid
+        _seed(root, "kair", "Запасной ключ спрятан внутри красной вазы.")
+        manifest, _ = _prepare(sid, "(молчать)")
+        with pytest.raises(HTTPException) as exc:
+            _validate(
+                sid, manifest, "(молчать)",
+                "**Адриан** — Я достал красную вазу и взял запасной ключ.",
+            )
+        assert exc.value.detail["code"] == "SCENE_NPC_KNOWLEDGE_LEAK"
+
+
 def test_personal_experiences_and_dialogue_are_valid_recollection_context():
     bucket = {
         "knowledge_journal": [{"text": "Вар столкнулся с существом."}],
