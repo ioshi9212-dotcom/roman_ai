@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 from fastapi import HTTPException
 
-from app import session_runtime, storage
+from app import narrative_guardrails_runtime, session_runtime, storage
 from app.main import turn_packet_prepare
 from app.models import TurnPrepare
 from app.operation_service import prepare_turn_request
@@ -70,6 +70,16 @@ def test_new_turn_serializes_one_final_packet_without_duplicate_writer_context(m
         assert "scene_characters" not in context
         assert context["character_cards"][0]["name"] == "POV"
         assert context["cast_registry"]["registry_index_path"] == "cast_registry.characters"
+
+        # One active POV contract reaches the FINAL packet, not an orphan
+        # narrative_guardrails wrapper or a second server validation loop.
+        assert "narrative_guardrails" not in context
+        assert context["pov_activity"] == narrative_guardrails_runtime._pov_activity_rule()
+        assert context["pov_activity"]["ordinary_dialogue_required_when_natural"] is True
+        assert context["pov_activity"]["min_post_input_presence_beats"] == 2
+        assert "Останавливайся, когда действительно нужен игрок:" not in context["scene_builder"]
+        assert "Не заканчивай сцену только потому" in context["scene_builder"]
+
         assert manifest["chunk_chars_max"] == 16000
 
 
