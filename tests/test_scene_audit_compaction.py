@@ -183,6 +183,65 @@ def test_same_long_scene_reuses_scene_id_across_two_audits():
         assert covered_turns(root) == set(range(1, 31))
 
 
+def test_unknown_scene_id_becomes_new_canonical_scene_without_erasing_old_archive():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(novel())["session_id"]
+        root = storage.SESSIONS_DIR / sid
+        memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
+        memory, chronology, store, rows = apply_audit_compactions(
+            root,
+            {"scene_compactions": [one_scene(1, 15, status="closed")]},
+            start_turn=1, end_turn=15, memory=memory, chronology=[],
+        )
+        original = rows[0]
+        storage._write_json(root / SCENE_MEMORY_FILE, store)
+        memory, chronology, updated, new_rows = apply_audit_compactions(
+            root,
+            {"scene_compactions": [
+                one_scene(16, 30, scene_id="invented_scene_id", status="open"),
+            ]},
+            start_turn=16, end_turn=30, memory=memory, chronology=chronology,
+        )
+        assert new_rows[0]["scene_id"] != "invented_scene_id"
+        assert new_rows[0]["scene_id"] != original["scene_id"]
+        assert len(updated["scenes"]) == 2
+        assert updated["scenes"][0]["summary"] == original["summary"]
+        assert updated["scenes"][0]["source_ranges"] == [[1, 15]]
+        assert updated["scenes"][1]["source_ranges"] == [[16, 30]]
+
+
+def test_closed_scene_id_is_not_reused_and_valid_open_id_still_continues():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(novel())["session_id"]
+        root = storage.SESSIONS_DIR / sid
+        memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
+        memory, chronology, store, first = apply_audit_compactions(
+            root,
+            {"scene_compactions": [one_scene(1, 15, status="open")]},
+            start_turn=1, end_turn=15, memory=memory, chronology=[],
+        )
+        storage._write_json(root / SCENE_MEMORY_FILE, store)
+        valid_id = first[0]["scene_id"]
+        memory, chronology, store, second = apply_audit_compactions(
+            root,
+            {"scene_compactions": [one_scene(16, 30, scene_id=valid_id, status="closed")]},
+            start_turn=16, end_turn=30, memory=memory, chronology=chronology,
+        )
+        assert second[0]["scene_id"] == valid_id
+        storage._write_json(root / SCENE_MEMORY_FILE, store)
+        _, _, newer, third = apply_audit_compactions(
+            root,
+            {"scene_compactions": [one_scene(31, 45, scene_id=valid_id, status="open")]},
+            start_turn=31, end_turn=45, memory=memory, chronology=chronology,
+        )
+        assert third[0]["scene_id"] != valid_id
+        assert len(newer["scenes"]) == 2
+        assert newer["scenes"][0]["source_ranges"] == [[1, 15], [16, 30]]
+        assert newer["scenes"][1]["source_ranges"] == [[31, 45]]
+
+
 def test_scene_compaction_rejects_a_gap_in_the_fifteen_turn_range():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
