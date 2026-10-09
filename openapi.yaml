@@ -1033,7 +1033,7 @@ paths:
     get:
       operationId: getTurnPacketChunk
       summary: Read one gameplay chunk or up to two small audit chunks losslessly
-      description: Gameplay always uses one 16000-character piece. For required_audit use audit_id as packet_id and max_chunks=2 to read two 10000-character pieces per call. Preserve all chunks[].content in numerical chunk_index order. With max_chunks omitted, the original single content response is unchanged. Older 16000-character audits fall back to single-chunk reads.
+      description: Gameplay always returns one 16k chunk. For required_audit use audit_id and max_chunks=2, returning two 10k chunks in chunks[]. Read all content in chunk_index order to next_chunk_index=null. Omitting max_chunks retains legacy single-content format. Old 16k audits also return one chunk.
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
         - {in: path, name: packet_id, required: true, schema: {type: string}}
