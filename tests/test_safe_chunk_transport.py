@@ -1,11 +1,13 @@
 """Check that ChatGPT never receives batched 48k turn-packet responses."""
 import json
 import tempfile
+import pytest
 from inspect import signature
 from pathlib import Path
 
-from app import audit_runtime, session_runtime, storage
-from app.main import turn_packet_chunk_get
+from app import audit_runtime, storage
+from app.main import turn_packet_chunk_get, turn_packet_prepare
+from app.models import TurnPrepare
 
 
 def _session(tmp):
@@ -23,12 +25,20 @@ def _session(tmp):
     })["session_id"]
 
 
-def test_gameplay_action_returns_one_complete_chunk_at_a_time():
+@pytest.mark.parametrize("scene_archive_capable", [False, True])
+def test_gameplay_action_returns_one_complete_chunk_at_a_time(scene_archive_capable):
     assert signature(turn_packet_chunk_get).parameters["max_chunks"].default == 1
     with tempfile.TemporaryDirectory() as tmp:
         sid = _session(tmp)
-        manifest = session_runtime.prepare_turn_packet(sid, "Прочесть контекст без пропусков.")
+        request = TurnPrepare(
+            user_input="Прочесть контекст без пропусков.",
+            request_id="safe-chunk-public-path",
+            scene_archive_capable=scene_archive_capable,
+        )
+        manifest = turn_packet_prepare(sid, request)
         assert manifest["chunk_chars_max"] == 16000
+        assert manifest["chunk_count"] > 1
+        assert len(manifest["content"]) == 16000
         contents = [manifest["content"]]
         for index in range(1, manifest["chunk_count"]):
             result = turn_packet_chunk_get(sid, manifest["packet_id"], index)
@@ -41,6 +51,9 @@ def test_gameplay_action_returns_one_complete_chunk_at_a_time():
         assert "".join(contents) == "".join(packet["chunks"])
         assert packet["read_chunks"] == list(range(manifest["chunk_count"]))
         assert json.loads("".join(contents))["character_cards"][0]["name"] == "POV"
+        retry = turn_packet_prepare(sid, request)
+        assert retry["packet_id"] == manifest["packet_id"]
+        assert retry["pending_turn"]["unread_chunk_indices"] == []
         batched_request = turn_packet_chunk_get(sid, manifest["packet_id"], 1, max_chunks=2)
         assert "chunks" not in batched_request  # gameplay never returns oversized batches
 

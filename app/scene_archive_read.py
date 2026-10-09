@@ -11,7 +11,9 @@ from .transactional_storage import session_transaction
 
 
 SCENE_ARCHIVE_CHUNK_CHARS = 12000
-SCENE_HISTORY_PACKET_CHARS = 12000
+# This rewrites the ordinary gameplay packet, not a scene-archive response.
+# Keep the same safe 16k transport even when scene-history capability is enabled.
+SCENE_HISTORY_PACKET_CHARS = 16000
 MAX_WORKING_SCENES = 12
 MAX_RECENT_SCENES = 8
 MAX_SCENES_PER_CHARACTER = 2
