@@ -17,22 +17,27 @@ def _persistent_fact_ids(root, character_id: str) -> set[str]:
     memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
     bucket = memory.get("characters", {}).get(character_id, {}) if isinstance(memory.get("characters"), dict) else {}
     result: set[str] = set()
-    for item in bucket.get("knowledge", []) if isinstance(bucket, dict) and isinstance(bucket.get("knowledge"), list) else []:
-        if isinstance(item, dict) and item.get("fact_id"):
-            result.add(str(item["fact_id"]))
+    if not isinstance(bucket, dict):
+        return result
+    for field, id_key in (("knowledge", "fact_id"), ("knowledge_journal", "entry_id")):
+        rows = bucket.get(field)
+        for item in rows if isinstance(rows, list) else []:
+            if isinstance(item, dict) and item.get(id_key):
+                result.add(str(item[id_key]))
     return result
 
 
 def _same_commit_fact_ids(container: Dict[str, Any], character_id: str) -> set[str]:
     result: set[str] = set()
-    values = container.get("knowledge_add") if isinstance(container.get("knowledge_add"), list) else []
-    for item in values:
-        if not isinstance(item, dict):
-            continue
-        if str(item.get("character_id") or "") != character_id:
-            continue
-        if item.get("fact_id"):
-            result.add(str(item["fact_id"]))
+    for field, id_key in (("knowledge_add", "fact_id"), ("knowledge_journal_add", "entry_id")):
+        values = container.get(field)
+        for item in values if isinstance(values, list) else []:
+            if not isinstance(item, dict):
+                continue
+            if str(item.get("character_id") or "") != character_id:
+                continue
+            if item.get(id_key):
+                result.add(str(item[id_key]))
     return result
 
 
@@ -58,178 +63,14 @@ def _source_error(character_id: str, unknown: list[str]) -> None:
     )
 
 
-_INTENT_KNOWLEDGE_FIELDS = (
-    "summary",
-    "trigger",
-    "why_it_matters",
-    "planned_action",
-    "last_outcome",
-    "resolution",
-)
-
-
-def _intent_text(raw: Dict[str, Any]) -> str:
-    return "\n".join(
-        str(raw.get(field) or "").strip()
-        for field in _INTENT_KNOWLEDGE_FIELDS
-        if str(raw.get(field) or "").strip()
-    )
-
-
-def _same_commit_personal_text(container: Dict[str, Any], character_id: str) -> str:
-    pieces: list[str] = []
-    for field in ("knowledge_journal_add", "knowledge_add", "dialogue_memory_add"):
-        values = container.get(field)
-        if not isinstance(values, list):
-            continue
-        for row in values:
-            if not isinstance(row, dict) or str(row.get("character_id") or row.get("owner_character_id") or "") != character_id:
-                continue
-            for key in ("text", "content", "fact", "summary", "last_outcome"):
-                value = str(row.get(key) or "").strip()
-                if value:
-                    pieces.append(value)
-            segments = row.get("segments")
-            if isinstance(segments, list):
-                for segment in segments:
-                    if isinstance(segment, dict):
-                        value = str(segment.get("text") or "").strip()
-                        if value:
-                            pieces.append(value)
-    return "\n".join(pieces)
-
-
-def _other_personal_knowledge_rows(root, character_id: str) -> list[tuple[str, str]]:
-    memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
-    characters = memory.get("characters") if isinstance(memory.get("characters"), dict) else {}
-    rows: list[tuple[str, str]] = []
-    for source_id, bucket in characters.items():
-        source_id = str(source_id)
-        if source_id == character_id or not isinstance(bucket, dict):
-            continue
-        journal = bucket.get("knowledge_journal")
-        if isinstance(journal, list):
-            for row in journal:
-                if not isinstance(row, dict):
-                    continue
-                value = str(row.get("text") or row.get("fact") or row.get("summary") or "").strip()
-                if value:
-                    rows.append((source_id, value))
-        knowledge = bucket.get("knowledge")
-        if isinstance(knowledge, list):
-            for row in knowledge:
-                if isinstance(row, dict):
-                    value = str(row.get("content") or row.get("text") or row.get("fact") or row.get("summary") or "").strip()
-                else:
-                    value = str(row or "").strip()
-                if value:
-                    rows.append((source_id, value))
-        dialogue = bucket.get("dialogue_memory")
-        if isinstance(dialogue, list):
-            for row in dialogue:
-                if not isinstance(row, dict):
-                    continue
-                value = str(row.get("summary") or "").strip()
-                if value:
-                    rows.append((source_id, value))
-                segments = row.get("segments")
-                if isinstance(segments, list):
-                    for segment in segments:
-                        if isinstance(segment, dict):
-                            value = str(segment.get("text") or "").strip()
-                            if value:
-                                rows.append((source_id, value))
-    return rows
-
-
-def _other_same_commit_personal_rows(container: Dict[str, Any], character_id: str) -> list[tuple[str, str]]:
-    rows: list[tuple[str, str]] = []
-    for field in ("knowledge_journal_add", "knowledge_add", "dialogue_memory_add"):
-        values = container.get(field)
-        if not isinstance(values, list):
-            continue
-        for row in values:
-            if not isinstance(row, dict):
-                continue
-            source_id = str(row.get("character_id") or row.get("owner_character_id") or "")
-            if not source_id or source_id == character_id:
-                continue
-            for key in ("text", "content", "fact", "summary"):
-                value = str(row.get(key) or "").strip()
-                if value:
-                    rows.append((source_id, value))
-            segments = row.get("segments")
-            if isinstance(segments, list):
-                for segment in segments:
-                    if isinstance(segment, dict):
-                        value = str(segment.get("text") or "").strip()
-                        if value:
-                            rows.append((source_id, value))
-    return rows
-
-
-def _validate_intent_personal_knowledge(root, container: Dict[str, Any], updates: Any) -> None:
-    if not isinstance(updates, list):
-        return
-
-    # Local import avoids coupling the intent storage module to the scene validator
-    # during module initialization while reusing the same conservative term matcher.
-    from . import private_knowledge_runtime
-
-    source = storage._read_json(root / "source.json", {})
-    cards = storage._load_cards(root, source)
-    allowed_cache: Dict[str, set[str]] = {}
-    protected_cache: Dict[str, list[tuple[str, str]]] = {}
-
-    for raw in updates:
-        if not isinstance(raw, dict):
-            continue
-        character_id = str(raw.get("character_id") or "")
-        text = _intent_text(raw)
-        if not character_id or not text:
-            continue
-
-        if character_id not in allowed_cache:
-            allowed_text = private_knowledge_runtime._authorized_corpus(root, character_id, cards)
-            same_commit = _same_commit_personal_text(container, character_id)
-            allowed_cache[character_id] = private_knowledge_runtime._terms(
-                allowed_text + "\n" + same_commit
-            )
-        if character_id not in protected_cache:
-            protected_cache[character_id] = [
-                *_other_personal_knowledge_rows(root, character_id),
-                *_other_same_commit_personal_rows(container, character_id),
-            ]
-
-        allowed_terms = allowed_cache[character_id]
-        for source_character_id, protected_text in protected_cache[character_id]:
-            protected_terms = private_knowledge_runtime._terms(protected_text)
-            if not protected_terms:
-                continue
-            leaked = private_knowledge_runtime._leaked_terms(
-                text,
-                protected_terms,
-                allowed_terms,
-                protected_payload=protected_text,
-            )
-            if leaked:
-                raise HTTPException(
-                    status_code=409,
-                    detail={
-                        "code": "NPC_INTENT_PERSONAL_KNOWLEDGE_LEAK",
-                        "message": (
-                            "An NPC intent contains concrete detail present in another character's personal knowledge "
-                            "but absent from the intent owner's own knowledge. Keep the intent at the unresolved goal/question level "
-                            "until this NPC actually learns the detail."
-                        ),
-                        "character_id": character_id,
-                        "source_character_id": source_character_id,
-                        "leaked_terms": leaked,
-                    },
-                )
-
-
 def _validate_intent_sources(root, container: Dict[str, Any], updates: Any) -> None:
+    """Validate explicit evidence ownership, never similarities in free text.
+
+    An intention is a plan, not an entry granting knowledge. Optional source IDs
+    must name this NPC's own knowledge or journal, including facts genuinely
+    learned in this commit. Semantic knowledge review remains with the writer;
+    matching words in another character's memory cannot establish a disclosure.
+    """
     if not isinstance(updates, list):
         return
     known_cache: Dict[str, set[str]] = {}
@@ -248,10 +89,6 @@ def _validate_intent_sources(root, container: Dict[str, Any], updates: Any) -> N
         if unknown:
             _source_error(character_id, unknown)
 
-    # source_fact_ids are optional in the current simple knowledge journal, so IDs
-    # alone cannot protect intent state. Also reject textual laundering of another
-    # character's personal knowledge into summary/trigger/planned_action/etc.
-    _validate_intent_personal_knowledge(root, container, updates)
 
 
 def _with_intent_patch(session_id: str, payload: Dict[str, Any], *, audit: bool = False) -> Dict[str, Any]:
