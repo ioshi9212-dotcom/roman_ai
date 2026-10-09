@@ -333,12 +333,17 @@ def _prepare_journal_entries(root, extracted: Dict[str, Any]) -> None:
         text = str(raw.get("text") or raw.get("fact") or raw.get("summary") or "").strip()
         if not character_id or not text:
             continue
-        clean.append({
+        entry = {
             "character_id": str(character_id),
             "date": raw.get("date") or date,
             "period": raw.get("period") or period,
             "text": text,
-        })
+        }
+        # Explicit IDs are also used by same-turn intent source references.
+        # Preserve them through normalization so validation and storage agree.
+        if raw.get("entry_id") not in (None, ""):
+            entry["entry_id"] = str(raw["entry_id"])
+        clean.append(entry)
     extracted["knowledge_journal_add"] = clean
 
 

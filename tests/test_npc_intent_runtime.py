@@ -459,3 +459,49 @@ def test_journal_source_ownership_for_persisted_and_new_entries(owner, same_comm
             with pytest.raises(HTTPException) as exc:
                 npc_intent_runtime._validate_intent_sources(root, extracted, updates)
             assert exc.value.detail["code"] == "NPC_INTENT_SOURCE_FACT_UNKNOWN"
+
+
+@pytest.mark.parametrize("owner", ["ren", "pov"])
+def test_simple_profile_public_commit_keeps_same_turn_journal_source_owner(owner):
+    from app.main import turns_commit
+    from app.models import CommitTurnRequest
+    from app.operation_service import prepare_turn_request
+
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        source = novel()
+        source["version"] = 5
+        sid = storage.create_session(source)["session_id"]
+        root = storage.SESSIONS_DIR / sid
+        user_input = "Выступление будет у стойки после семи."
+        manifest = prepare_turn_request(sid, user_input, request_id="journal-source")
+        for index in range(1, manifest["chunk_count"]):
+            storage.get_turn_packet_chunk(sid, manifest["packet_id"], index)
+        body = CommitTurnRequest(
+            packet_id=manifest["packet_id"], user_input=user_input,
+            scene_output="**POV** — Выступление будет у стойки после семи.\n**Ren** — Я приду.",
+            extracted=base_extracted(
+                scene_builder_reviewed=True, knowledge_reviewed=True,
+                knowledge_journal_add=[{
+                    "character_id": owner, "entry_id": "heard-show-details",
+                    "text": "Выступление будет у стойки после семи.",
+                }],
+                npc_intent_updates=[{
+                    "character_id": "ren", "intent_id": "come_to_show",
+                    "summary": "Прийти послушать выступление.",
+                    "source_fact_ids": ["heard-show-details"],
+                }],
+            ),
+        )
+        if owner == "pov":
+            with pytest.raises(HTTPException) as exc:
+                turns_commit(sid, body)
+            assert exc.value.detail["code"] == "NPC_INTENT_SOURCE_FACT_UNKNOWN"
+            assert not storage._read_turns(root)
+            assert (root / "turn_packet.json").exists()
+        else:
+            assert turns_commit(sid, body)["turn_number"] == 1
+            memory = storage._read_json(root / "memory.json", {})
+            assert memory["characters"]["ren"]["knowledge_journal"][0]["entry_id"] == "heard-show-details"
+            state = storage._read_json(root / "state.json", {})
+            assert state["npc_intents"]["ren"][0]["source_fact_ids"] == ["heard-show-details"]
