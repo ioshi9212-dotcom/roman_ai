@@ -94,6 +94,14 @@ def _qualitative_relation(row: Dict[str, Any]) -> str:
     )
     return " ".join(str(text).split()[:MAX_RELATION_WORDS])
 
+
+def card_for_context(card: Dict[str, Any]) -> Dict[str, Any]:
+    """Keep the source intact; transport attitudes only from the current file."""
+    result = deepcopy(card)
+    for key in ("relationships", "relationship_documents", "relationship_schemas", "npc_relationships"):
+        result.pop(key, None)
+    return result
+
 def _empty_store(pov_id: str) -> Dict[str, Any]:
     return {
         "version": 3,
@@ -472,20 +480,23 @@ def rebuild_from_turns(
             cards=cards,
             pov_id=pov_id,
         )
-        replay_updates = _historical_updates_for_replay(
-            store,
-            extracted.get("relationship_updates"),
-            cards=cards,
-        )
-        store = apply_updates(
-            store,
-            replay_updates,
-            cards=cards,
-            pov_id=pov_id,
-            turn_number=turn_number,
-            participant_ids=all_ids,
-            enforce_turn_invariants=False,
-        )
+        # Replay valid committed updates through the same arithmetic as live save.
+        # The adapter is only a fallback for old archives using absolute values
+        # or referring to axes absent from their reconstructed baseline.
+        updates = extracted.get("relationship_updates")
+        try:
+            store = apply_updates(
+                store, updates, cards=cards, pov_id=pov_id,
+                turn_number=turn_number, participant_ids=all_ids,
+                enforce_turn_invariants=False,
+            )
+        except ValueError:
+            replay_updates = _historical_updates_for_replay(store, updates, cards=cards)
+            store = apply_updates(
+                store, replay_updates, cards=cards, pov_id=pov_id,
+                turn_number=turn_number, participant_ids=all_ids,
+                enforce_turn_invariants=False,
+            )
     return store
 
 

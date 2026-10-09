@@ -50,7 +50,7 @@ _BASE_PARTICIPATION_BUNDLE = character_chunk_read._participation_bundle
 _BASE_CREATE_SESSION = storage.create_session
 _BASE_RECOVER_CURRENT = session_recovery.recover_session_current
 
-PIPELINE_VERSION = 18
+PIPELINE_VERSION = 19
 
 def _packet_manifest(packet: Dict[str, Any], *, reused: bool) -> Dict[str, Any]:
     chunks = packet.get("chunks", []) if isinstance(packet.get("chunks"), list) else []
@@ -386,7 +386,6 @@ def _move_runtime_documents_last(context: Dict[str, Any]) -> Dict[str, Any]:
         "each active character's own knowledge",
         "relationships and active intents",
         "cast registry",
-        "NPC relationship network",
         "runtime_rules",
         "scene_builder",
     ]
@@ -465,11 +464,11 @@ def _prepare_context(
         if storage._card_id(card)
     }
     context["character_cards"] = [
-        deepcopy(card_map[cid])
+        relationship_file_runtime.card_for_context(card_map[cid])
         for cid in scene_ids
         if cid in card_map
     ]
-    # character_cards is the single lossless active-card representation.
+    # Active cards preserve biography; current attitudes live in relationships only.
     # Do not render the same cards a second time into character_profiles.
 
     memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))

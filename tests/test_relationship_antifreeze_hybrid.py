@@ -382,3 +382,92 @@ def test_existing_file_beats_starting_profile_and_upgrade_never_replays_history(
         assert upgraded["npc_to_pov"]["adrian"]["dimensions"]["доверие"] == {"value": 19}
         assert "dynamic" not in upgraded["npc_to_pov"]["adrian"]
         assert read_context(sid)["relationships"] == upgraded
+
+
+@pytest.mark.parametrize('dimensions', [
+    [{'label': 'доверие', 'delta': 1}, {'label': 'Доверие', 'delta': 2}],
+    [{'label': 'доверие', 'delta': 0, 'value': 99}],
+    [{'label': 'доверие', 'delta': -40}, {'label': 'доверие', 'value': 2}],
+    [{'label': 'интерес', 'value': 1}, {'label': 'интерес', 'delta': 2}],
+])
+def test_public_save_and_archive_rebuild_use_identical_relationship_arithmetic(dimensions):
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        n = novel()
+        sid = storage.create_session(n)['session_id']
+        manifest = prepare_turn_request(sid, 'Привет.', request_id='replay-arithmetic')
+        read_all_pending(sid, manifest)
+        commit_turn_request(sid, payload(manifest, 'Привет.', updates=[{
+            'character_id': 'adrian', 'dimensions': dimensions,
+        }]))
+        root = storage.SESSIONS_DIR / sid
+        rebuilt = relationship_file_runtime.rebuild_from_turns(n, n['characters'], storage._read_turns(root))
+        assert rebuilt == storage._read_json(root / 'relationships.json', {})
+
+
+def test_old_absolute_value_archive_still_restores():
+    n = novel()
+    rebuilt = relationship_file_runtime.rebuild_from_turns(n, n['characters'], [{
+        'turn_number': 1, 'extracted': {'relationship_updates': [{
+            'character_id': 'adrian', 'dimensions': [{'label': 'доверие', 'value': 17}],
+        }]},
+    }])
+    assert rebuilt['npc_to_pov']['adrian']['dimensions']['доверие']['value'] == 17
+
+
+@pytest.mark.parametrize('simple', [False, True])
+def test_gameplay_packet_and_bundle_exclude_stale_card_relations_without_mutating_source(simple):
+    from app.character_chunk_read import prepare_character_bundle_read, get_character_bundle_chunk
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        n = novel()
+        if not simple:
+            n.pop('profile_schema')
+            n['version'] = 4
+        n['characters'][1]['bio'] = 'Биография остаётся в карточке.'
+        n['characters'][1]['relationships'][0]['current_dynamic'] = ' '.join(['STALE_RELATIONSHIP_PROSE'] * 200)
+        sid = storage.create_session(n)['session_id']
+        root = storage.SESSIONS_DIR / sid
+        before = storage._read_json(root / 'source.json', {})
+        current = storage._read_json(root / 'relationships.json', {})
+        current['npc_to_pov']['adrian']['dimensions']['доверие']['value'] = 19
+        storage._write_json(root / 'relationships.json', current)
+        context = read_context(sid)
+        assert context['relationships'] == current
+        assert 'STALE_RELATIONSHIP_PROSE' not in json.dumps(context)
+        assert 'NPC relationship network' not in context['read_order']
+        card = next(row for row in context['character_cards'] if row['character_id'] == 'adrian')
+        assert 'relationships' not in card
+        assert card['bio'] == n['characters'][1]['bio']
+        manifest = prepare_character_bundle_read(sid, 'adrian')
+        parts = [manifest['content']]
+        for index in range(1, manifest['chunk_count']):
+            parts.append(get_character_bundle_chunk(sid, 'adrian', manifest['read_id'], index)['content'])
+        bundle = json.loads(''.join(parts))
+        assert 'STALE_RELATIONSHIP_PROSE' not in json.dumps(bundle)
+        assert bundle['relationship_to_pov']['dimensions']['доверие']['value'] == 19
+        assert storage._read_json(root / 'source.json', {}) == before
+        assert 'STALE_RELATIONSHIP_PROSE' in json.dumps(storage._load_cards(root, before))
+
+
+def test_archive_fallback_rollback_preserves_duplicate_axis_changes():
+    from app.turn_rollback import rollback_last_turn
+    from app.rollback_snapshot_runtime import SNAPSHOT_FILE, PREVIOUS_SNAPSHOT_FILE, PREVIOUS2_SNAPSHOT_FILE
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        n = novel()
+        sid = storage.create_session(n)['session_id']
+        root = storage.SESSIONS_DIR / sid
+        for number, text in enumerate(['Спасибо.', 'Спасибо.'], 1):
+            manifest = prepare_turn_request(sid, text, request_id=f'archive-rollback-{number}')
+            read_all_pending(sid, manifest)
+            updates = [{'character_id': 'adrian', 'dimensions': [
+                {'label': 'доверие', 'delta': 1}, {'label': 'доверие', 'delta': 2},
+            ]}] if number == 1 else []
+            commit_turn_request(sid, payload(manifest, text, updates=updates))
+        for name in (SNAPSHOT_FILE, PREVIOUS_SNAPSHOT_FILE, PREVIOUS2_SNAPSHOT_FILE):
+            (root / name).unlink(missing_ok=True)
+        result = rollback_last_turn(sid, 2, True)
+        assert result['turn_number'] == 1
+        assert result['method'] != 'exact_pre_turn_snapshot'
+        assert storage._read_json(root / 'relationships.json', {})['npc_to_pov']['adrian']['dimensions']['доверие']['value'] == 43
