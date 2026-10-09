@@ -5,7 +5,7 @@ from copy import deepcopy
 import pytest
 from fastapi import HTTPException
 
-from app import commit_failure_diagnostics, main, runtime_access, session_checkpoint, storage
+from app import commit_failure_diagnostics, main, runtime_access, session_checkpoint, storage, turn_pipeline
 from app.models import CommitTurnRequest
 
 
@@ -70,7 +70,7 @@ def test_current_packet_can_be_reused_without_full_resume(long_session, monkeypa
     storage._write_json(folder / "turn_packet.json", {
         "packet_id": "good112", "prepared_for_turn": 112,
         "user_input": "(ждать)", "chunks": ["a"], "read_chunks": [0],
-        "turn_pipeline_version": 19,
+        "turn_pipeline_version": turn_pipeline.PIPELINE_VERSION,
         "runtime_revision": runtime_access.runtime_revision(),
         "data_schema_version": 2,
     })
