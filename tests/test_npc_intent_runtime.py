@@ -207,7 +207,7 @@ def test_intent_cannot_launder_author_only_fact_into_future_npc_behavior():
         assert "ren" not in state.get("npc_intents", {})
 
 
-def test_intent_cannot_copy_pov_only_time_and_place_without_source_fact_ids():
+def test_intent_cannot_cite_another_characters_journal():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         sid = storage.create_session(novel())["session_id"]
@@ -216,6 +216,7 @@ def test_intent_cannot_copy_pov_only_time_and_place_without_source_fact_ids():
         memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
         storage._memory_bucket(memory, "pov")["knowledge_journal"].append({
             "turn": 21,
+            "entry_id": "pov-show-details",
             "text": "POV узнала от другого человека: выступление будет у стойки после семи.",
         })
         storage._memory_bucket(memory, "ren")["knowledge_journal"].append({
@@ -235,6 +236,7 @@ def test_intent_cannot_copy_pov_only_time_and_place_without_source_fact_ids():
                         npc_intent_updates=[{
                             "character_id": "ren",
                             "intent_id": "come_to_show",
+                            "source_fact_ids": ["pov-show-details"],
                             "summary": "Прийти к стойке после семи послушать POV",
                             "planned_action": "Быть у стойки после семи",
                         }]
@@ -243,7 +245,8 @@ def test_intent_cannot_copy_pov_only_time_and_place_without_source_fact_ids():
             )
 
         assert exc.value.status_code == 409
-        assert exc.value.detail["code"] == "NPC_INTENT_PERSONAL_KNOWLEDGE_LEAK"
+        assert exc.value.detail["code"] == "NPC_INTENT_SOURCE_FACT_UNKNOWN"
+        assert exc.value.detail["unknown_source_fact_ids"] == ["pov-show-details"]
         assert exc.value.detail["character_id"] == "ren"
         state = storage._read_json(root / "state.json", {})
         assert "ren" not in state.get("npc_intents", {})
@@ -392,3 +395,67 @@ def test_future_offscreen_intent_is_not_exposed_as_candidate_before_eligible_day
         _, context = read_packet(sid, "(налить чай)")
         row = next(item for item in context["cast_registry"]["characters"] if item["character_id"] == "ren")
         assert "Вернуться к POV позже" in row["active_intents"]
+
+
+def test_public_commit_accepts_independent_intent_with_shared_words_without_granting_knowledge():
+    from app.operation_service import prepare_turn_request, commit_turn_request
+
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(novel())["session_id"]
+        root = storage.SESSIONS_DIR / sid
+        memory = storage._read_json(root / "memory.json", {})
+        private_fact = {
+            "entry_id": "pov-private-letter", "turn": 0,
+            "text": "POV прочла в личном письме, что незнакомец украл сломанный принтер.",
+        }
+        storage._memory_bucket(memory, "pov")["knowledge_journal"].append(private_fact)
+        storage._write_json(root / "memory.json", memory)
+        user_input = "(налить себе воды)"
+        manifest = prepare_turn_request(sid, user_input, request_id="independent-plan")
+        for index in range(1, manifest["chunk_count"]):
+            storage.get_turn_packet_chunk(sid, manifest["packet_id"], index)
+        result = commit_turn_request(sid, {
+            "packet_id": manifest["packet_id"], "user_input": user_input,
+            "scene_output": "POV налила себе воды. Рен остался дома.",
+            "extracted": base_extracted(
+                scene_builder_reviewed=True, knowledge_reviewed=True,
+                npc_intent_updates=[{
+                    "character_id": "ren", "intent_id": "repair_own_printer",
+                    "summary": "Починить сломанный принтер у себя дома.",
+                }],
+            ),
+        })
+        assert result["turn_number"] == 1
+        state = storage._read_json(root / "state.json", {})
+        assert state["npc_intents"]["ren"][0]["summary"] == "Починить сломанный принтер у себя дома."
+        saved_memory = storage._read_json(root / "memory.json", {})
+        assert saved_memory["characters"]["pov"]["knowledge_journal"] == [private_fact]
+        assert not saved_memory["characters"].get("ren", {}).get("knowledge_journal")
+        assert len(storage._read_turns(root)) == 1
+        assert not (root / "turn_packet.json").exists()
+
+
+@pytest.mark.parametrize("owner,same_commit", [("ren", False), ("ren", True), ("pov", False), ("pov", True)])
+def test_journal_source_ownership_for_persisted_and_new_entries(owner, same_commit):
+    from app import npc_intent_runtime
+
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = storage.create_session(novel())["session_id"]
+        root = storage.SESSIONS_DIR / sid
+        record = {"entry_id": "show-details", "text": "Выступление будет у стойки после семи."}
+        updates = [{"character_id": "ren", "intent_id": "come_to_show", "source_fact_ids": ["show-details"]}]
+        extracted = {}
+        if same_commit:
+            extracted["knowledge_journal_add"] = [{"character_id": owner, **record}]
+        else:
+            memory = storage._read_json(root / "memory.json", {})
+            storage._memory_bucket(memory, owner)["knowledge_journal"].append(record)
+            storage._write_json(root / "memory.json", memory)
+        if owner == "ren":
+            npc_intent_runtime._validate_intent_sources(root, extracted, updates)
+        else:
+            with pytest.raises(HTTPException) as exc:
+                npc_intent_runtime._validate_intent_sources(root, extracted, updates)
+            assert exc.value.detail["code"] == "NPC_INTENT_SOURCE_FACT_UNKNOWN"

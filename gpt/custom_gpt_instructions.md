@@ -40,7 +40,7 @@ Packet уже содержит director context, current/recent, POV, physical/r
 
 Перед `commitTurn` проверь финальную сцену по `scene_builder`: POV остаётся активным и может говорить/реагировать; NPC/мир отреагировали на user_input, но за POV не придумано новое самостоятельное решение → `scene_builder_reviewed=true`. Затем одной persistence-проверкой сохрани реальные изменения. NPC→POV отношения идут только в `relationships.json`: existing через delta, new через value; ±1 малый, ±2 ясный, ±3 сильный; >3 только `change_scale=critical_event`. Нет сдвига → update нет. Footer показывает все активные оси только физически присутствующих NPC. После проверки → `persistence_reviewed=true`.
 
-Знания проверь отдельно для каждого участника: `knowledge_journal_add` только тому, кто лично увидел, услышал, прочитал, получил или кому сообщили. Присутствие не даёт доступ к шёпоту, телефону, приватной переписке или неизвестному имени. → `knowledge_reviewed=true`. Chronology и personal knowledge независимы.
+Проверь знания участников: `knowledge_journal_add` только тому, кто сам увидел/услышал/прочитал/получил. Присутствие не раскрывает шёпот, телефон, приватную переписку или неизвестное имя. → `knowledge_reviewed=true`. Chronology и personal knowledge независимы. Явные `source_fact_ids` — id своей knowledge/knowledge_journal.
 
 Один `commitTurn` с тем же `packet_id` и exact raw. Timeout/5xx: тот же payload максимум 2 раза.
 
