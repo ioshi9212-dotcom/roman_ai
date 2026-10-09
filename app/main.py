@@ -586,42 +586,10 @@ def turn_packet_prepare(session_id: str, body: TurnPrepare):
 
 
 @app.get("/sessions/{session_id}/turn-packet/{packet_id}/{chunk_index}", operation_id="getTurnPacketChunk")
-def turn_packet_chunk_get(session_id: str, packet_id: str, chunk_index: int, max_chunks: int = 1):
-    """Read up to three consecutive chunks with one model/tool round trip.
-
-    A missing max_chunks preserves the original single-chunk response exactly.
-    Each returned chunk is marked read through the original guarded route;
-    neither writer context nor audit evidence is shortened.
-    """
-    if not 1 <= max_chunks <= 3:
-        raise HTTPException(status_code=422, detail="max_chunks must be between 1 and 3")
+def turn_packet_chunk_get(session_id: str, packet_id: str, chunk_index: int):
     try:
         with timed("getTurnPacketChunk", "api_total"):
-            first = get_turn_packet_chunk(session_id, packet_id, chunk_index)
-            if max_chunks == 1:
-                return first
-            rows = [first]
-            total = int(first["chunk_count"])
-            for index in range(chunk_index + 1, min(total, chunk_index + max_chunks)):
-                rows.append(get_turn_packet_chunk(session_id, packet_id, index))
-            result = {
-                "packet_id": packet_id,
-                "chunk_index": chunk_index,
-                "chunk_count": total,
-                "batch_count": len(rows),
-                "chunks": [
-                    {"chunk_index": row["chunk_index"], "content": row["content"]}
-                    for row in rows
-                ],
-                "next_chunk_index": (
-                    chunk_index + len(rows)
-                    if chunk_index + len(rows) < total else None
-                ),
-                "all_chunks_read": rows[-1]["all_chunks_read"],
-            }
-            if first.get("packet_kind"):
-                result["packet_kind"] = first["packet_kind"]
-            return result
+            return get_turn_packet_chunk(session_id, packet_id, chunk_index)
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Session not found")
     except PermissionError:
