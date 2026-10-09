@@ -191,5 +191,7 @@ def test_turn_300_fast_audit_is_compact_and_inlines_first_chunk():
         assert payload["audit_mode"] == "fast_chat_reconciliation"
         assert payload["audit_range"] == [286, 300]
         assert len(payload["turn_evidence_backup"]) == 15
+        assert payload["turn_evidence_backup"][0]["scene_output"] == "Scene 286. " + "S" * 2300
+        assert payload["turn_evidence_backup"][-1]["scene_output"] == "Scene 300. " + "S" * 2300
         assert "audit_turns_full" not in payload
         audit_runtime.require_complete_audit_read(sid, 286, 300)
