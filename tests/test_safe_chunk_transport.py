@@ -24,7 +24,7 @@ def _session(tmp):
 
 
 def test_gameplay_action_returns_one_complete_chunk_at_a_time():
-    assert "max_chunks" not in signature(turn_packet_chunk_get).parameters
+    assert signature(turn_packet_chunk_get).parameters["max_chunks"].default == 1
     with tempfile.TemporaryDirectory() as tmp:
         sid = _session(tmp)
         manifest = session_runtime.prepare_turn_packet(sid, "Прочесть контекст без пропусков.")
@@ -41,6 +41,8 @@ def test_gameplay_action_returns_one_complete_chunk_at_a_time():
         assert "".join(contents) == "".join(packet["chunks"])
         assert packet["read_chunks"] == list(range(manifest["chunk_count"]))
         assert json.loads("".join(contents))["character_cards"][0]["name"] == "POV"
+        batched_request = turn_packet_chunk_get(sid, manifest["packet_id"], 1, max_chunks=2)
+        assert "chunks" not in batched_request  # gameplay never returns oversized batches
 
 
 def test_audit_action_keeps_same_single_chunk_shape():

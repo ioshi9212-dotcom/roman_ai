@@ -586,10 +586,37 @@ def turn_packet_prepare(session_id: str, body: TurnPrepare):
 
 
 @app.get("/sessions/{session_id}/turn-packet/{packet_id}/{chunk_index}", operation_id="getTurnPacketChunk")
-def turn_packet_chunk_get(session_id: str, packet_id: str, chunk_index: int):
+def turn_packet_chunk_get(session_id: str, packet_id: str, chunk_index: int, max_chunks: int = 1):
+    # Optional lossless batched audit reads. Gameplay remains at the known-safe
+    # 16k-per-call transport; audit pieces are 10k each, at most two per call.
+    # Legacy calls without max_chunks return the exact original response.
+    if not 1 <= max_chunks <= 2:
+        raise HTTPException(status_code=422, detail="max_chunks must be 1 or 2")
     try:
         with timed("getTurnPacketChunk", "api_total"):
-            return get_turn_packet_chunk(session_id, packet_id, chunk_index)
+            first = get_turn_packet_chunk(session_id, packet_id, chunk_index)
+            if max_chunks == 1 or first.get("packet_kind") != "audit":
+                return first
+            # Older audit packets still have 16k parts. Read those one at a
+            # time rather than making a tool response too large for the model.
+            if len(str(first["content"])) > 10_000:
+                return first
+            total = int(first["chunk_count"])
+            rows = [first]
+            if chunk_index + 1 < total:
+                rows.append(get_turn_packet_chunk(session_id, packet_id, chunk_index + 1))
+            return {
+                "packet_id": packet_id,
+                "packet_kind": "audit",
+                "chunk_count": total,
+                "chunks": [
+                    {"chunk_index": row["chunk_index"], "content": row["content"]}
+                    for row in rows
+                ],
+                "batch_count": len(rows),
+                "next_chunk_index": chunk_index + len(rows) if chunk_index + len(rows) < total else None,
+                "all_chunks_read": rows[-1]["all_chunks_read"],
+            }
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Session not found")
     except PermissionError:

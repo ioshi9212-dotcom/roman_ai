@@ -172,10 +172,14 @@ def _normalise_scene_rows(
         scene_id = str(raw.get("scene_id") or "").strip()
         if scene_id:
             prior = existing.get(scene_id)
+            # Only an existing OPEN scene can continue across audits. A made-up
+            # or already-closed scene_id means a NEW scene, not a failed audit.
+            # Never overwrite old compacted scenes or their raw source ranges.
             if not prior or str(prior.get("status") or "").casefold() != "open" or scene_id in used_existing:
-                raise RuntimeError("SCENE_COMPACTION_SCENE_ID_INVALID")
-            used_existing.add(scene_id)
-        else:
+                scene_id = ""
+            else:
+                used_existing.add(scene_id)
+        if not scene_id:
             scene_id = _next_scene_id({"scenes": [*store.get("scenes", []), *result]})
 
         participants = raw.get("participants")
