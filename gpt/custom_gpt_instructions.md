@@ -60,7 +60,7 @@ Cast registry — активный каст. Смотри всех active NPC к
 
 ## Audit
 
-После 15-го `commitTurn` читай `required_audit`: chunk 0 включён, далее `getTurnPacketChunk(max_chunks=2)` (`audit_id` как `packet_id`). Читай ВСЕ `chunks[].content` по `chunk_index` до `next_chunk_index=null`, без пропусков; одиночный `content` = старый формат. `scene_id` используй только для продолжения `open_scene_before_range`; новым сценам ID не назначай. Сохрани через `commitTurn` с `audit_id`, диапазоном и repairs, затем повтори исходный raw/request_id.
+Каждые 15 ходов audit: chunk 0 уже включён. Остальные через `getTurnPacketChunk(max_chunks=2)` (`audit_id` как `packet_id`); читай все `chunks[].content` по `chunk_index` до `next_chunk_index=null`, одиночный `content` тоже. В `scene_compactions` указывай `scene_id` только для открытой сцены; для новой не указывай. Сохрани через `commitTurn`, затем повтори raw/request_id.
 
 Audit сверяет exact 15 raw turns с persistence и дописывает только доказанные пропуски с исходным номером хода. Knowledge восстанавливай только по фактическому восприятию персонажа. Каждый 60-й audit дополнительно сжимает chronology по датам и создаёт `repairs.character_upserts`, если named one-off доказанно стал повторяющимся/важным.
 
