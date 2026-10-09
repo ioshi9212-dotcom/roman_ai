@@ -5,8 +5,8 @@ from pathlib import Path
 import pytest
 from fastapi import HTTPException
 
-from app import narrative_guardrails_runtime, session_runtime, storage
-from app.main import turn_packet_prepare
+from app import audit_runtime, narrative_guardrails_runtime, session_runtime, storage
+from app.main import turn_packet_chunk_get, turn_packet_prepare
 from app.models import TurnPrepare
 from app.operation_service import prepare_turn_request
 from app.runtime_access import runtime_documents
@@ -532,3 +532,58 @@ def test_retry_of_old_committed_request_does_not_disturb_newer_pending_turn():
         assert after == before
         assert after["packet_id"] == pending["packet_id"]
         assert after["request_id"] == "req-new-pending"
+
+
+
+def test_lossless_audit_batch_reads_every_byte_with_two_small_chunks():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = make_session()
+        root = storage.SESSIONS_DIR / sid
+        parts = ["0" * 10_000, "1" * 10_000, "2" * 10_000, "3" * 8193]
+        audit_id = "safe-audit-batch"
+        storage._write_json(root / audit_runtime.AUDIT_PACKET_FILE, {
+            "audit_id": audit_id,
+            "audit_range": [1, 15],
+            "read_chunks": [0],
+            "chunks": parts,
+        })
+        response = turn_packet_chunk_get(sid, audit_id, 1, max_chunks=2)
+        assert response["packet_kind"] == "audit"
+        assert response["batch_count"] == 2
+        assert response["next_chunk_index"] == 3
+        assert [p["chunk_index"] for p in response["chunks"]] == [1, 2]
+        last = turn_packet_chunk_get(sid, audit_id, 3, max_chunks=2)
+        assert last["all_chunks_read"] is True
+        reconstructed = (
+            parts[0] + "".join(p["content"] for p in response["chunks"])
+            + "".join(p["content"] for p in last["chunks"])
+        )
+        assert reconstructed == "".join(parts)
+        saved = storage._read_json(root / audit_runtime.AUDIT_PACKET_FILE, {})
+        assert saved["chunks"] == parts
+        assert saved["read_chunks"] == [0, 1, 2, 3]
+
+
+def test_lossless_batch_keeps_old_audits_and_gameplay_at_safe_single_chunk_size():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = make_session()
+        root = storage.SESSIONS_DIR / sid
+        audit_id = "old-audit-batch"
+        parts = ["A" * 16_000, "B" * 16_000, "C" * 16_000]
+        storage._write_json(root / audit_runtime.AUDIT_PACKET_FILE, {
+            "audit_id": audit_id, "audit_range": [1, 15],
+            "read_chunks": [0], "chunks": parts,
+        })
+        old = turn_packet_chunk_get(sid, audit_id, 1, max_chunks=2)
+        assert old["content"] == parts[1]
+        assert "chunks" not in old
+        next_part = turn_packet_chunk_get(sid, audit_id, 2)
+        assert next_part["content"] == parts[2]
+        assert parts[0] + old["content"] + next_part["content"] == "".join(parts)
+
+        manifest = session_runtime.prepare_turn_packet(sid, "Текст хода.")
+        read = turn_packet_chunk_get(sid, manifest["packet_id"], 1, max_chunks=2)
+        assert read["content"]
+        assert "chunks" not in read
