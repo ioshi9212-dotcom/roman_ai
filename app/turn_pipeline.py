@@ -50,7 +50,7 @@ _BASE_PARTICIPATION_BUNDLE = character_chunk_read._participation_bundle
 _BASE_CREATE_SESSION = storage.create_session
 _BASE_RECOVER_CURRENT = session_recovery.recover_session_current
 
-PIPELINE_VERSION = 17
+PIPELINE_VERSION = 19
 
 def _packet_manifest(packet: Dict[str, Any], *, reused: bool) -> Dict[str, Any]:
     chunks = packet.get("chunks", []) if isinstance(packet.get("chunks"), list) else []
@@ -255,13 +255,6 @@ def _cast_registry_rows(
             or card.get("story_function")
             or (goals.get("story_function") if isinstance(goals, dict) else None)
         )
-        relation = relationship_file_runtime.character_relation(relationship_store, cid)
-        relation_dims = relation.get("dimensions") if isinstance(relation, dict) and isinstance(relation.get("dimensions"), dict) else {}
-        pov_relationship = {
-            str(label): item.get("value")
-            for label, item in relation_dims.items()
-            if isinstance(item, dict) and item.get("value") not in (None, 0)
-        }
         row = {
             "character_id": cid,
             "name": raw.get("name") or storage._card_name(card) or cid,
@@ -277,8 +270,7 @@ def _cast_registry_rows(
             "work": compact(card.get("work"), 220),
             "habits": compact(card.get("habits"), 260),
             "character": compact(card.get("character") or card.get("personality"), 260),
-            "pov_relationship": pov_relationship or None,
-            "pov_relationship_dynamic": compact(relation.get("dynamic"), 700) if isinstance(relation, dict) else None,
+            "relationship_path": f"relationships.npc_to_pov.{cid}",
             "current_location": compact(info.get("location") or info.get("location_id"), 220),
             "current_zone": compact(info.get("zone") or info.get("zone_id"), 180),
             "current_activity": compact(info.get("activity"), 320),
@@ -307,32 +299,9 @@ def _cast_registry_rows(
 
 
 def _clean_relationship_lens(context: Dict[str, Any]) -> None:
-    lens = context.get("relationship_lens")
-    if not isinstance(lens, dict):
-        return
-    lens = deepcopy(lens)
-    for key in (
-        "instruction",
-        "rule",
-        "initialization_instruction",
-        "stagnation_rule",
-    ):
-        lens.pop(key, None)
-    candidates = lens.get("present_npc_candidates")
-    if isinstance(candidates, list):
-        for row in candidates:
-            if isinstance(row, dict):
-                row.pop("instruction", None)
-                row.pop("rule", None)
-    lens.pop("initialization_required", None)
-    lens["initialization_rule"] = (
-        "После первого содержательного взаимодействия постоянного NPC с POV сохрани реальный показатель через relationship_updates."
-    )
-    lens["small_shift_rule"] = (
-        "Не жди крупного события ради обычного изменения: ±1 = небольшой, но реальный сдвиг; "
-        "±2 = ясный сдвиг; ±3 = сильный обычный сдвиг. >3 только critical_event."
-    )
-    context["relationship_lens"] = lens
+    # The complete current file is attached once by _prepare_context.
+    context.pop("relationship_lens", None)
+
 
 def _clean_director_layers(context: Dict[str, Any]) -> Dict[str, Any]:
     result = deepcopy(context)
@@ -417,7 +386,6 @@ def _move_runtime_documents_last(context: Dict[str, Any]) -> Dict[str, Any]:
         "each active character's own knowledge",
         "relationships and active intents",
         "cast registry",
-        "NPC relationship network",
         "runtime_rules",
         "scene_builder",
     ]
@@ -496,11 +464,11 @@ def _prepare_context(
         if storage._card_id(card)
     }
     context["character_cards"] = [
-        deepcopy(card_map[cid])
+        relationship_file_runtime.card_for_context(card_map[cid])
         for cid in scene_ids
         if cid in card_map
     ]
-    # character_cards is the single lossless active-card representation.
+    # Active cards preserve biography; current attitudes live in relationships only.
     # Do not render the same cards a second time into character_profiles.
 
     memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
@@ -537,13 +505,14 @@ def _prepare_context(
             "rule": "The bundle may be read to decide whether a candidate should participate; complete it before actual participation.",
         },
         "instruction": (
-            "Перед сценой просмотри постоянный NPC-каст и npc_relationship_network. "
+            "Перед сценой просмотри постоянный NPC-каст и relationships. "
             "Cast registry даёт контекст и не задаёт очередь, квоту или таймер появления; решение о появлении/контакте — по scene_builder. "
             "До реального участия offscreen NPC прочитай его полный character bundle."
         ),
         "characters": _cast_registry_rows(state, cards, source, current_turn, npc_network, relationship_store),
     }
-    context["npc_relationship_network"] = npc_network
+    context.pop("npc_relationship_network", None)
+    context["relationships"] = deepcopy(relationship_store)
     # Legacy intent-only candidate list falsely implied that offscreen NPCs
     # without a pre-existing intent were ineligible to act. The complete
     # cast_registry is now the single offscreen review surface.
@@ -555,31 +524,14 @@ def _prepare_context(
     }
     context["scene_presence"] = scene_presence
 
-    lens = context.get("relationship_lens")
-    if isinstance(lens, dict):
-        pov = state.get("pov") if isinstance(state.get("pov"), dict) else {}
-        pov_id = str(pov.get("character_id") or "")
-        physical_ids = [
-            str(value) for value in storage._present_character_ids(state)
-            if value and str(value) != pov_id
-        ]
-        remote_ids = [
-            str(value) for value in storage._remote_character_ids(state)
-            if value and str(value) != pov_id
-        ]
-        physical_set = set(physical_ids)
-        remote_set = set(remote_ids)
-        lens["footer_character_ids"] = physical_ids
-        lens["remote_participant_ids"] = remote_ids
-        for row in lens.get("relations_in_current_scene", []) if isinstance(lens.get("relations_in_current_scene"), list) else []:
-            if not isinstance(row, dict):
-                continue
-            owner_id = str(row.get("owner_character_id") or "")
-            if owner_id in physical_set:
-                row["participation_mode"] = "physical"
-            elif owner_id in remote_set:
-                row["participation_mode"] = "remote"
-        context["relationship_lens"] = lens
+    physical_ids = [cid for cid in storage._present_character_ids(state) if cid != str(pov.get("character_id") or "")]
+    remote_ids = [cid for cid in storage._remote_character_ids(state) if cid != str(pov.get("character_id") or "")]
+    context["relationship_lens"] = {
+        "source": "relationships.json",
+        "values_path": "relationships.npc_to_pov",
+        "footer_character_ids": list(dict.fromkeys([*physical_ids, *remote_ids])),
+        "remote_participant_ids": remote_ids,
+    }
 
     # Persistence/chronology instructions live once in runtime_rules.
     # Do not mirror the same directing prose into a second packet contract.
@@ -777,46 +729,6 @@ def _apply_relationship_changes(session_id: str, payload: Dict[str, Any]) -> Dic
             status_code=409,
             detail={"code": str(exc), "message": "Invalid NPC-to-POV relationship update."},
         ) from exc
-
-    source_ids = {
-        storage._card_id(card)
-        for card in storage._normalise_cards(source.get("characters", []))
-        if storage._card_id(card)
-    }
-    registry = (
-        state.get("world", {}).get("cast_registry", {})
-        if isinstance(state.get("world"), dict)
-        else {}
-    )
-    strict = extracted.get("runtime_rules_reviewed") is True
-    if strict:
-        for character_id in participants:
-            cid = str(character_id or "")
-            if not cid or cid == pov_id or cid in source_ids:
-                continue
-            card = next(
-                (card for card in cards if storage._card_id(card) == cid),
-                None,
-            )
-            registry_row = registry.get(cid) if isinstance(registry, dict) else None
-            story_created = bool(card) and (
-                not source_ids
-                or cid not in source_ids
-            )
-            if isinstance(registry_row, dict):
-                story_created = str(registry_row.get("origin") or "") == "story_created"
-            if not story_created:
-                continue
-            relation = relationship_file_runtime.character_relation(store, cid) or {}
-            dimensions = relation.get("dimensions") if isinstance(relation.get("dimensions"), dict) else {}
-            if not dimensions:
-                raise HTTPException(
-                    status_code=409,
-                    detail={
-                        "code": "RELATIONSHIP_INITIALIZATION_REQUIRED",
-                        "message": "A persistent story NPC who participated with POV needs at least one real NPC-to-POV relationship dimension.",
-                    },
-                )
 
     result["_relationships_after"] = store
     return result

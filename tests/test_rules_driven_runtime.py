@@ -286,7 +286,7 @@ def test_relationship_change_survives_npc_leaving_at_end_of_same_turn():
         assert relationships["npc_to_pov"]["npc"]["dimensions"]["обида"]["value"] == 2
 
 
-def test_relationship_lens_separates_physical_footer_from_remote_without_hidden_director_prose():
+def test_relationship_lens_lists_only_current_physical_and_remote_participants():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         novel = base_novel()
@@ -299,12 +299,12 @@ def test_relationship_lens_separates_physical_footer_from_remote_without_hidden_
 
         _, context = read_context(sid, "(посмотреть на NPC)")
         lens = context["relationship_lens"]
-        assert lens["footer_character_ids"] == ["npc"]
+        assert lens["footer_character_ids"] == ["npc", "away"]
         assert lens["remote_participant_ids"] == ["away"]
         assert "rule" not in lens
         assert "footer_rule" not in lens
         assert "stagnation_rule" not in lens
-        assert "Единственный канон отношений - `relationships.json`." in context["runtime_rules"]
+        assert "`relationships.json` — один файл актуальных отношений" in context["runtime_rules"]
 
 
 
@@ -1488,7 +1488,7 @@ def test_cast_registry_exposes_context_without_forced_return_pressure():
         assert row["habits"] == "после обеда заходит к коллегам"
         assert row["character"] == "общительный, вспыльчивый"
         assert "residence" not in row
-        assert row["pov_relationship"]["близость"] == 1
+        assert context["relationships"]["npc_to_pov"]["npc"]["dimensions"]["близость"]["value"] == 1
         assert "known_relationships" not in row
         assert "npc_relationships" not in row
         assert any(
@@ -1527,7 +1527,7 @@ def test_offscreen_npc_can_be_considered_without_saved_intent_or_forced_timer():
         assert "initiative_cues" not in row
         assert row["work"] == "тренер"
         assert "пишет вечером после работы" in row["habits"]
-        assert row["pov_relationship"]["привязанность"] == 65
+        assert context["relationships"]["npc_to_pov"]["npc"]["dimensions"]["привязанность"]["value"] == 65
         assert "Появление, звонок, сообщение, уход и возвращение персонажей выбирает режиссура сама" not in context["runtime_rules"]
         assert "Появление и частота появления изначально заданных игроком NPC полностью определяются режиссурой." in context["scene_builder"]
         assert "не задаёт очередь, квоту или таймер появления" in context["cast_registry"]["instruction"]

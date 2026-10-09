@@ -91,15 +91,10 @@ def test_profile_relationship_is_canon_in_relationships_file_before_turn_one():
             "влечение": 68,
             "ревность": 36,
         }
-        assert dims["влечение"]["last_change"]["turn"] == 0
-        assert "анк" in dims["влечение"]["last_change"]["reason"].casefold() or dims["влечение"]["last_change"]["reason"]
+        assert dims["влечение"] == {"value": 68}
 
         context = read_context(sid)
-        row = next(
-            item for item in context["relationship_lens"]["relations_in_current_scene"]
-            if item["owner_character_id"] == "adrian"
-        )
-        values = {item["label"]: item["value"] for item in row["dimensions"]}
+        values = {label: item["value"] for label, item in context["relationships"]["npc_to_pov"]["adrian"]["dimensions"].items()}
         assert values["привязанность"] == 81
         assert values["влечение"] == 68
         assert context["relationship_lens"]["source"] == "relationships.json"
@@ -167,11 +162,7 @@ def test_first_legacy_prepare_exposes_only_positive_relationship_values():
         storage._write_json(root / "state.json", state)
 
         context = read_context(sid)
-        row = next(
-            item for item in context["relationship_lens"]["relations_in_current_scene"]
-            if item["owner_character_id"] == "adrian"
-        )
-        values = {item["label"]: item["value"] for item in row["dimensions"]}
+        values = {label: item["value"] for label, item in context["relationships"]["npc_to_pov"]["adrian"]["dimensions"].items()}
         assert values["доверие"] == 17
         assert "раздражение" not in values
 
@@ -181,7 +172,7 @@ def test_first_legacy_prepare_exposes_only_positive_relationship_values():
             "relationship_schemas",
             "npc_relationships",
         }
-        assert legacy_keys.isdisjoint(context)
+        assert (legacy_keys - {"relationships"}).isdisjoint(context)
         assert legacy_keys.isdisjoint(context.get("scene_state", {}))
         assert legacy_keys.isdisjoint(context.get("author_context", {}))
         for lens in context.get("scene_characters", {}).values():
@@ -226,13 +217,10 @@ def test_new_scene_npc_without_starting_relationship_is_still_in_relationship_le
         sid = storage.create_session(template)["session_id"]
 
         context = read_context(sid)
-        row = next(
-            item for item in context["relationship_lens"]["relations_in_current_scene"]
-            if item["owner_character_id"] == "tessa"
-        )
-        assert row["dimensions"] == []
-        assert "После первого содержательного взаимодействия постоянного NPC с POV" in context["relationship_lens"]["initialization_rule"]
-        assert "±1 = небольшой, но реальный сдвиг" in context["relationship_lens"]["small_shift_rule"]
+        assert "tessa" not in context["relationships"]["npc_to_pov"]
+        assert "tessa" in context["relationship_lens"]["footer_character_ids"]
+        assert "initialization_rule" not in context["relationship_lens"]
+        assert "Первая содержательная встреча создаёт естественное первое впечатление" in context["runtime_rules"]
 
 
 def test_small_everyday_shift_is_valid_without_critical_event():
@@ -263,11 +251,11 @@ def test_relationship_rules_do_not_require_major_or_durable_event_for_plus_one()
     rules = Path("runtime/rules.md").read_text(encoding="utf-8")
     instructions = Path("gpt/custom_gpt_instructions.md").read_text(encoding="utf-8")
 
-    assert "±1 — небольшой, но заметный сдвиг" in rules
-    assert "не требуй доказательства, что он окончательный или долговременный" in rules
-    assert "Отдельный отчёт о проверке не нужен" in rules
+    assert "Обычно изменение одной оси 0–3 по модулю" in rules
+    assert "Не меняй все оси, не придумывай изменения ради хода" in rules
+    assert "Отдельный отчёт, причины для каждой оси и дополнительные review-проверки не нужны" in rules
     assert "changed=false" not in instructions
-    assert "±1 малый" in instructions
+    assert "обычно ±1–3" in instructions
 
 def test_v5_setup_requires_structured_pre_story_npc_to_pov_relationship():
     template = relationship_novel()
@@ -386,20 +374,13 @@ def test_small_delta_persists_only_in_relationships_file_and_is_visible_next_tur
         assert "relationships" not in state
         store = read_relationships(sid)
         assert store["npc_to_pov"]["adrian"]["dimensions"]["ревность"]["value"] == 37
-        last = store["npc_to_pov"]["adrian"]["dimensions"]["ревность"]["last_change"]
-        assert last == {"turn": 1, "delta": 1, "reason": "Впервые заметно выдал ревность."}
-
+        assert store["npc_to_pov"]["adrian"]["dimensions"]["ревность"] == {"value": 37}
         next_context = read_context(sid)
-        row = next(
-            item for item in next_context["relationship_lens"]["relations_in_current_scene"]
-            if item["owner_character_id"] == "adrian"
-        )
-        values = {item["label"]: item["value"] for item in row["dimensions"]}
-        assert values["ревность"] == 37
+        assert next_context["relationships"]["npc_to_pov"]["adrian"]["dimensions"]["ревность"]["value"] == 37
 
 
 
-def test_zero_removes_dimension_negative_values_are_rejected_and_ordinary_delta_is_bounded():
+def test_zero_removes_dimension_negative_values_are_absent_and_large_changes_are_allowed():
     cards = relationship_novel()["characters"]
     store = relationship_file_runtime.build_initial_store(
         cards,
@@ -431,33 +412,16 @@ def test_zero_removes_dimension_negative_values_are_rejected_and_ordinary_delta_
     assert dims["ревность"]["value"] == 33
     assert all(1 <= item["value"] <= 100 for item in dims.values())
 
-    with pytest.raises(ValueError, match="RELATIONSHIP_NEW_DIMENSION_VALUE_REQUIRED"):
-        relationship_file_runtime.apply_updates(
-            changed,
-            [{
-                "character_id": "adrian",
-                "reason": "Новая реакция.",
-                "dimensions": [{"label": "обида", "value": -2}],
-            }],
-            cards=cards,
-            pov_id="rina",
-            turn_number=5,
-            participant_ids=["adrian"],
-        )
-
-    with pytest.raises(ValueError, match="RELATIONSHIP_ORDINARY_DELTA_LIMIT"):
-        relationship_file_runtime.apply_updates(
-            changed,
-            [{
-                "character_id": "adrian",
-                "reason": "Обычная сцена.",
-                "dimensions": [{"label": "ревность", "delta": 4}],
-            }],
-            cards=cards,
-            pov_id="rina",
-            turn_number=5,
-            participant_ids=["adrian"],
-        )
+    changed = relationship_file_runtime.apply_updates(
+        changed, [{"character_id": "adrian", "dimensions": [{"label": "обида", "value": -2}]}],
+        cards=cards, pov_id="rina", turn_number=5, participant_ids=["adrian"],
+    )
+    assert "обида" not in changed["npc_to_pov"]["adrian"]["dimensions"]
+    changed = relationship_file_runtime.apply_updates(
+        changed, [{"character_id": "adrian", "dimensions": [{"label": "ревность", "delta": 40}]}],
+        cards=cards, pov_id="rina", turn_number=5, participant_ids=["adrian"],
+    )
+    assert changed["npc_to_pov"]["adrian"]["dimensions"]["ревность"] == {"value": 73}
 
 
 def test_critical_event_is_capped_at_100_and_ten_dimension_cap_is_real():

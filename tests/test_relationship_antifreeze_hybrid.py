@@ -126,7 +126,7 @@ def test_old_pending_review_marker_and_rows_do_not_block_valid_updates():
         assert "relationship_review" not in storage._read_turns(root)[-1]["extracted"]
 
 
-def test_dynamic_only_shift_persists_without_forcing_numeric_jump_and_is_visible_next_turn():
+def test_legacy_prose_update_does_not_create_live_relationship_history():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         sid = storage.create_session(novel())["session_id"]
@@ -165,23 +165,20 @@ def test_dynamic_only_shift_persists_without_forcing_numeric_jump_and_is_visible
             for label, item in after_relation["dimensions"].items()
         }
         assert after_values == before_values
-        assert "меньше ждёт" in after_relation["dynamic"]
-        assert after_relation["dynamic_last_change"]["turn"] == 1
-        assert "обещание" in after_relation["dynamic_last_change"]["reason"]
+        assert "dynamic" not in after_relation
+        assert "dynamic_last_change" not in after_relation
+        assert all(set(item) == {"value"} for item in after_relation["dimensions"].values())
         assert relationship_file_runtime.normalize_store(after)["npc_to_pov"]["adrian"] == after_relation
 
         turns = storage._read_turns(root)
         assert "relationship_review" not in turns[-1].get("extracted", {})
 
         context = read_context(sid)
-        row = next(
-            item for item in context["relationship_lens"]["relations_in_current_scene"]
-            if item["owner_character_id"] == "adrian"
-        )
-        assert "меньше ждёт" in row["dynamic"]
+        assert context["relationships"] == after
+        assert context["relationship_lens"]["values_path"] == "relationships.npc_to_pov"
 
 
-def test_starting_current_dynamic_survives_without_numeric_dimensions():
+def test_starting_prose_does_not_invent_numeric_dimensions():
     cards = [
         {"character_id": "rina", "name": "Рината", "is_pov": True},
         {
@@ -201,7 +198,7 @@ def test_starting_current_dynamic_survives_without_numeric_dimensions():
         "rina",
     )
     assert store["npc_to_pov"]["tessa"]["dimensions"] == {}
-    assert "присматривается" in store["npc_to_pov"]["tessa"]["dynamic"]
+    assert set(store["npc_to_pov"]["tessa"]) == {"dimensions"}
 
 
 def apply(store, updates):
@@ -214,11 +211,12 @@ def initial_store():
     return relationship_file_runtime.build_initial_store(n["characters"], n["starting_state"], "rina")
 
 
-def test_split_updates_cannot_bypass_per_turn_delta_limit():
+def test_numeric_changes_need_no_reason_or_critical_event_gate():
     store = initial_store()
-    update = {"character_id": "adrian", "reason": "Сдвиг доверия", "dimensions": [{"label": "доверие", "delta": 3}]}
-    with pytest.raises(ValueError, match="RELATIONSHIP_DIMENSION_DUPLICATE_UPDATE"):
-        apply(store, [update, update])
+    after = apply(store, [{"character_id": "adrian", "dimensions": [{"label": "доверие", "delta": -40}]}])
+    assert "доверие" not in after["npc_to_pov"]["adrian"]["dimensions"]
+    after = apply(after, [{"character_id": "adrian", "dimensions": [{"label": "недоверие", "value": 1}]}])
+    assert after["npc_to_pov"]["adrian"]["dimensions"]["недоверие"] == {"value": 1}
     assert store == initial_store()
 
 
@@ -235,8 +233,6 @@ def test_cap_is_checked_on_final_state_independent_of_dimension_order():
 
 
 @pytest.mark.parametrize("updates,code", [
-    ([{"character_id": "adrian", "dimensions": [{"label": "доверие", "delta": 1}]}], "RELATIONSHIP_CHANGE_REASON_REQUIRED"),
-    ([{"character_id": "adrian", "reason": "Сдвиг", "dimensions": [{"label": "доверие", "delta": 4}]}], "RELATIONSHIP_ORDINARY_DELTA_LIMIT"),
     ([{"character_id": "adrian", "reason": "Сдвиг", "dimensions": [{"label": "доверие", "delta": float("nan")}]}], "RELATIONSHIP_EXISTING_DIMENSION_DELTA_REQUIRED"),
 ])
 def test_numeric_invariants_remain_enforced(updates, code):
@@ -309,16 +305,18 @@ def test_v1_upgrade_preserves_numbers_and_does_not_revive_stale_setup_dynamic(pl
         root = storage.SESSIONS_DIR / sid
         old = initial_store()
         old["version"] = 1
-        old["npc_to_pov"]["adrian"].pop("dynamic")
-        old["npc_to_pov"]["adrian"].pop("dynamic_last_change")
+        old["npc_to_pov"]["adrian"]["dynamic"] = "Старая длинная динамика"
+        old["npc_to_pov"]["adrian"]["dynamic_last_change"] = {"turn": 1, "reason": "Старый отчёт"}
+        old["npc_to_pov"]["adrian"]["dimensions"]["доверие"]["last_change"] = {"turn": 1, "delta": 2, "reason": "Длинное объяснение"}
         storage._write_json(root / "relationships.json", old)
         if played:
             meta = storage._read_json(root / "meta.json", {})
             meta["turn_number"] = 20
             storage._write_json(root / "meta.json", meta)
         upgraded = relationship_file_runtime.load(root, cards=n["characters"], state=n["starting_state"], pov_id="rina")
-        assert upgraded["npc_to_pov"]["adrian"]["dimensions"] == old["npc_to_pov"]["adrian"]["dimensions"]
-        assert bool(upgraded["npc_to_pov"]["adrian"].get("dynamic")) is not played
+        assert upgraded["npc_to_pov"]["adrian"]["dimensions"] == initial_store()["npc_to_pov"]["adrian"]["dimensions"]
+        assert "dynamic" not in upgraded["npc_to_pov"]["adrian"]
+        assert upgraded["version"] == 3
         assert storage._read_json(root / "relationships.json", {}) == upgraded
 
 
@@ -336,3 +334,140 @@ def test_offscreen_npc_cannot_receive_numeric_update_without_participating():
         relationship_file_runtime.apply_updates(initial_store(), [{
             "character_id": "adrian", "reason": "Сдвиг", "dimensions": [{"label": "доверие", "delta": 1}],
         }], cards=novel()["characters"], pov_id="rina", turn_number=1, participant_ids=[])
+
+
+def test_public_commit_first_impression_and_remote_change_use_the_file_only():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        n = novel()
+        n["characters"][1].pop("relationships")
+        n["starting_state"]["current"]["present_characters"] = ["rina"]
+        n["starting_state"]["current"]["remote_characters"] = ["adrian"]
+        sid = storage.create_session(n)["session_id"]
+        root = storage.SESSIONS_DIR / sid
+        assert not storage._read_json(root / "relationships.json", {})["npc_to_pov"]
+        manifest = prepare_turn_request(sid, "Здравствуйте по телефону.", request_id="remote-first")
+        read_all_pending(sid, manifest)
+        data = payload(manifest, "Здравствуйте по телефону.", updates=[{
+            "character_id": "adrian", "dimensions": [{"label": "любопытство", "value": 2}],
+        }])
+        commit_turn_request(sid, data)
+        current = storage._read_json(root / "relationships.json", {})
+        assert current["npc_to_pov"]["adrian"] == {"dimensions": {"любопытство": {"value": 2}}}
+        assert commit_turn_request(sid, data)["already_committed"] is True
+        context = read_context(sid)
+        assert context["relationships"] == current
+        assert context["relationship_lens"]["footer_character_ids"] == ["adrian"]
+        assert "last_change" not in json.dumps(current)
+
+
+def test_existing_file_beats_starting_profile_and_upgrade_never_replays_history(monkeypatch):
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        n = novel()
+        sid = storage.create_session(n)["session_id"]
+        root = storage.SESSIONS_DIR / sid
+        old = initial_store()
+        old["version"] = 2
+        old["npc_to_pov"]["adrian"]["dimensions"]["доверие"] = {
+            "value": 19, "last_change": {"turn": 9, "reason": "причина " * 100},
+        }
+        old["npc_to_pov"]["adrian"]["dynamic"] = "длинное описание " * 100
+        storage._write_json(root / "relationships.json", old)
+        with monkeypatch.context() as patch:
+            def unexpected_replay(*args, **kwargs):
+                raise AssertionError("A current file must not replay old turns")
+            patch.setattr(storage, "_read_turns", unexpected_replay)
+            upgraded = relationship_file_runtime.load(root, cards=n["characters"], state=n["starting_state"], pov_id="rina")
+        assert upgraded["npc_to_pov"]["adrian"]["dimensions"]["доверие"] == {"value": 19}
+        assert "dynamic" not in upgraded["npc_to_pov"]["adrian"]
+        assert read_context(sid)["relationships"] == upgraded
+
+
+@pytest.mark.parametrize('dimensions', [
+    [{'label': 'доверие', 'delta': 1}, {'label': 'Доверие', 'delta': 2}],
+    [{'label': 'доверие', 'delta': 0, 'value': 99}],
+    [{'label': 'доверие', 'delta': -40}, {'label': 'доверие', 'value': 2}],
+    [{'label': 'интерес', 'value': 1}, {'label': 'интерес', 'delta': 2}],
+])
+def test_public_save_and_archive_rebuild_use_identical_relationship_arithmetic(dimensions):
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        n = novel()
+        sid = storage.create_session(n)['session_id']
+        manifest = prepare_turn_request(sid, 'Привет.', request_id='replay-arithmetic')
+        read_all_pending(sid, manifest)
+        commit_turn_request(sid, payload(manifest, 'Привет.', updates=[{
+            'character_id': 'adrian', 'dimensions': dimensions,
+        }]))
+        root = storage.SESSIONS_DIR / sid
+        rebuilt = relationship_file_runtime.rebuild_from_turns(n, n['characters'], storage._read_turns(root))
+        assert rebuilt == storage._read_json(root / 'relationships.json', {})
+
+
+def test_old_absolute_value_archive_still_restores():
+    n = novel()
+    rebuilt = relationship_file_runtime.rebuild_from_turns(n, n['characters'], [{
+        'turn_number': 1, 'extracted': {'relationship_updates': [{
+            'character_id': 'adrian', 'dimensions': [{'label': 'доверие', 'value': 17}],
+        }]},
+    }])
+    assert rebuilt['npc_to_pov']['adrian']['dimensions']['доверие']['value'] == 17
+
+
+@pytest.mark.parametrize('simple', [False, True])
+def test_gameplay_packet_and_bundle_exclude_stale_card_relations_without_mutating_source(simple):
+    from app.character_chunk_read import prepare_character_bundle_read, get_character_bundle_chunk
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        n = novel()
+        if not simple:
+            n.pop('profile_schema')
+            n['version'] = 4
+        n['characters'][1]['bio'] = 'Биография остаётся в карточке.'
+        n['characters'][1]['relationships'][0]['current_dynamic'] = ' '.join(['STALE_RELATIONSHIP_PROSE'] * 200)
+        sid = storage.create_session(n)['session_id']
+        root = storage.SESSIONS_DIR / sid
+        before = storage._read_json(root / 'source.json', {})
+        current = storage._read_json(root / 'relationships.json', {})
+        current['npc_to_pov']['adrian']['dimensions']['доверие']['value'] = 19
+        storage._write_json(root / 'relationships.json', current)
+        context = read_context(sid)
+        assert context['relationships'] == current
+        assert 'STALE_RELATIONSHIP_PROSE' not in json.dumps(context)
+        assert 'NPC relationship network' not in context['read_order']
+        card = next(row for row in context['character_cards'] if row['character_id'] == 'adrian')
+        assert 'relationships' not in card
+        assert card['bio'] == n['characters'][1]['bio']
+        manifest = prepare_character_bundle_read(sid, 'adrian')
+        parts = [manifest['content']]
+        for index in range(1, manifest['chunk_count']):
+            parts.append(get_character_bundle_chunk(sid, 'adrian', manifest['read_id'], index)['content'])
+        bundle = json.loads(''.join(parts))
+        assert 'STALE_RELATIONSHIP_PROSE' not in json.dumps(bundle)
+        assert bundle['relationship_to_pov']['dimensions']['доверие']['value'] == 19
+        assert storage._read_json(root / 'source.json', {}) == before
+        assert 'STALE_RELATIONSHIP_PROSE' in json.dumps(storage._load_cards(root, before))
+
+
+def test_archive_fallback_rollback_preserves_duplicate_axis_changes():
+    from app.turn_rollback import rollback_last_turn
+    from app.rollback_snapshot_runtime import SNAPSHOT_FILE, PREVIOUS_SNAPSHOT_FILE, PREVIOUS2_SNAPSHOT_FILE
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        n = novel()
+        sid = storage.create_session(n)['session_id']
+        root = storage.SESSIONS_DIR / sid
+        for number, text in enumerate(['Спасибо.', 'Спасибо.'], 1):
+            manifest = prepare_turn_request(sid, text, request_id=f'archive-rollback-{number}')
+            read_all_pending(sid, manifest)
+            updates = [{'character_id': 'adrian', 'dimensions': [
+                {'label': 'доверие', 'delta': 1}, {'label': 'доверие', 'delta': 2},
+            ]}] if number == 1 else []
+            commit_turn_request(sid, payload(manifest, text, updates=updates))
+        for name in (SNAPSHOT_FILE, PREVIOUS_SNAPSHOT_FILE, PREVIOUS2_SNAPSHOT_FILE):
+            (root / name).unlink(missing_ok=True)
+        result = rollback_last_turn(sid, 2, True)
+        assert result['turn_number'] == 1
+        assert result['method'] != 'exact_pre_turn_snapshot'
+        assert storage._read_json(root / 'relationships.json', {})['npc_to_pov']['adrian']['dimensions']['доверие']['value'] == 43

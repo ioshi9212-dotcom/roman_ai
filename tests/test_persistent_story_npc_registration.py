@@ -109,7 +109,7 @@ def test_unregistered_one_off_extra_can_leave_without_becoming_a_card():
         assert prepared["extracted"]["state_patch"]["current"]["present_characters"] == ["pov"]
 
 
-def test_participating_story_npc_needs_first_relationship_dimension():
+def test_first_impression_is_a_writer_rule_without_a_commit_gate():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         sid = make_session()
@@ -130,10 +130,8 @@ def test_participating_story_npc_needs_first_relationship_dimension():
             },
         }
 
-        with pytest.raises(HTTPException) as exc:
-            turn_pipeline._apply_relationship_changes(sid, base)
-        assert exc.value.status_code == 409
-        assert exc.value.detail["code"] == "RELATIONSHIP_INITIALIZATION_REQUIRED"
+        prepared = turn_pipeline._apply_relationship_changes(sid, base)
+        assert prepared["_relationships_after"]["npc_to_pov"]["ada"] == {"dimensions": {}}
 
         base["extracted"]["relationship_updates"] = [{
             "character_id": "ada",
@@ -282,7 +280,7 @@ def test_audit_can_promote_missing_npc_and_keep_original_knowledge_turn():
         )
         trust = relationships["npc_to_pov"]["ada"]["dimensions"]["доверие"]
         assert trust["value"] == 1
-        assert trust["last_change"]["turn"] == 8
+        assert set(trust) == {"value"}
         assert result["relationship_repairs_saved"] == 1
 
         state = storage._read_json(root / "state.json", {})

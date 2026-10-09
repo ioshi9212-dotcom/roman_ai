@@ -40,7 +40,7 @@ def _profile_map(cards: List[Dict[str, Any]], ids: List[str]) -> Dict[str, str]:
     for card in cards:
         cid = storage._card_id(card)
         if cid in wanted:
-            result[cid] = render_character_profile(card)
+            result[cid] = render_character_profile(relationship_file_runtime.card_for_context(card))
     return result
 
 
@@ -56,7 +56,7 @@ def _speaker_context(ids: List[str], pov_id: str) -> Dict[str, Any]:
                 "complete": True,
             },
             "current_perception": "only what this character can see/hear/receive in the current scene",
-            "relationship_path": f"relationship_lens.relations_in_current_scene[owner_character_id={cid}]",
+            "relationship_path": f"relationships.npc_to_pov.{cid}",
             "rule": (
                 "Реплики, мысли и решения строятся отдельно: self-known части своего profile, свой knowledge_journal, "
                 "доступное текущее восприятие и отношение к POV. Ветки profile с unknown_to_self/hidden_from_self/"
@@ -673,7 +673,7 @@ def _participation_bundle(session_id: str, character_id: str) -> Dict[str, Any]:
 
     return {
         "character_id": character_id,
-        "profile": render_character_profile(card),
+        "profile": render_character_profile(relationship_file_runtime.card_for_context(card)),
         "current_state": deepcopy(current_state),
         "relationship_to_pov": deepcopy(relationship),
         "npc_relationships_director_only": relationship_file_runtime.outgoing_npc_relations(

@@ -49,7 +49,7 @@ def get_character_bundle(session_id: str, character_id: str) -> Dict[str, Any]:
 
     return {
         "character_id": character_id,
-        "card": card,
+        "card": relationship_file_runtime.card_for_context(card),
         "current_state": character_state,
         "pov_familiarity": character_state.get("pov_familiarity") if isinstance(character_state, dict) else None,
         "personal_memory": storage._memory_bucket(memory, character_id),
