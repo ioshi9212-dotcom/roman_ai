@@ -746,8 +746,8 @@ def _match_protected(
     # copying. Four overlapping unknown content stems and a substantial share
     # of the protected fact are required. Two commonplace words never suffice.
     if (
-        len(unknown_terms) >= 4
-        and len(protected_terms) <= 24
+        len(unknown_terms) >= 3
+        and len(protected_terms) <= 12
         and len(unknown_terms) * 2 >= len(protected_terms)
     ):
         return {
