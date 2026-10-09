@@ -128,8 +128,10 @@ def test_repeated_npc_speech_reuses_knowledge_guard_cache(monkeypatch):
         )
         _validate(sid, manifest, "(слушать разговор)", scene)
 
+    # At least three Adrian speech units were checked, but the immutable
+    # per-speaker source texts must each be assembled once, not three times.
     for label in calls:
-        assert calls[label] == {"adrian": 1, "mira": 1}, (label, calls[label])
+        assert calls[label] == {"adrian": 1}, (label, calls[label])
 
 
 def test_personal_experiences_and_dialogue_are_valid_recollection_context():
