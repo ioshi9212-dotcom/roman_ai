@@ -96,6 +96,42 @@ def _payload(packet_id: str, user_input: str, scene_output: str):
 
 
 
+def test_repeated_npc_speech_reuses_knowledge_guard_cache(monkeypatch):
+    # Each NPC's stable knowledge sources must be prepared only once per turn,
+    # even when that NPC speaks several times.
+    calls = {"base": {}, "perception": {}, "protected": {}}
+    for label, name in (
+        ("base", "_authorized_base_text"),
+        ("perception", "_physical_perception_text"),
+        ("protected", "_protected_rows"),
+    ):
+        original = getattr(scene_knowledge_guard, name)
+
+        def track(*args, _label=label, _original=original, **kwargs):
+            cid = str(args[1])
+            bucket = calls[_label]
+            bucket[cid] = bucket.get(cid, 0) + 1
+            return _original(*args, **kwargs)
+
+        monkeypatch.setattr(scene_knowledge_guard, name, track)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        _setup(tmp)
+        sid = storage.create_session(_novel())["session_id"]
+        manifest, _ = _prepare(sid, "(слушать разговор)")
+        scene = (
+            "**Адриан** — Привет, Кайр.\\n\\n"
+            "**Мира** — Я здесь.\\n\\n"
+            "**Адриан** — Как дела?\\n\\n"
+            "**Мира** — Слушаю.\\n\\n"
+            "**Адриан** — Тогда продолжим."
+        )
+        _validate(sid, manifest, "(слушать разговор)", scene)
+
+    for label in calls:
+        assert calls[label] == {"adrian": 1, "mira": 1}, (label, calls[label])
+
+
 def test_personal_experiences_and_dialogue_are_valid_recollection_context():
     bucket = {
         "knowledge_journal": [{"text": "Вар столкнулся с существом."}],
