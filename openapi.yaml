@@ -994,6 +994,7 @@ paths:
   /sessions/{session_id}/resume:
     post:
       operationId: resumeSession
+      x-openai-isConsequential: false
       summary: Reconnect to the exact existing session
       description: Compact checkpoint including exact last_committed_turn.scene_output. If current_recovery_required=true, call recoverSessionCurrent before prepareTurn. Full canon remains in backend persistent storage.
       parameters:
@@ -1015,6 +1016,7 @@ paths:
   /sessions/{session_id}/turn-packet:
     post:
       operationId: prepareTurn
+      x-openai-isConsequential: false
       summary: Build or reuse one bounded gameplay packet from persistent canon
       description: Use one stable request_id per gameplay turn. Read all chunks. Active POV/NPC already include their own cards and complete factual knowledge. Write from runtime_rules and scene_builder.
       parameters:
@@ -1043,6 +1045,7 @@ paths:
   /sessions/{session_id}/characters/{character_id}/read:
     post:
       operationId: prepareCharacterBundleRead
+      x-openai-isConsequential: false
       summary: Read one selected offscreen character dossier
       description: After an offscreen NPC is selected to act from cast_registry, returns that character's own card, factual memory/knowledge, relationship and active intents before substantive dialogue/action. This read is a knowledge check, not permission to appear. Chunk 0 is included when first_chunk_included=true.
       parameters:
@@ -1068,6 +1071,7 @@ paths:
   /sessions/{session_id}/turns:
     post:
       operationId: commitTurn
+      x-openai-isConsequential: false
       summary: Save one completed gameplay turn or finish a required audit
       description: Gameplay uses TurnCommit with packet_id and exact user_input. When required_audit is active, use AuditCommit with its audit_id after all audit chunks were read. Persist only evidence-backed changes.
       parameters:
