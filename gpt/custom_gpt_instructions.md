@@ -34,7 +34,7 @@ Backend = канон. Actions молча. В игровом ходе до сце
 
 ## Игровой ход
 
-Ход: новый `request_id`, повтор тот же. `prepareTurn`: raw, `replace_pending=false`, chunk 0 есть. Остальные `getTurnPacketChunk` вызывай параллельно по 2–3, если возможно; иначе подряд. Собери всё по `chunk_index` без пропусков. Запомни `packet_id`.
+Ход: новый `request_id`, повтор тот же. `prepareTurn`: raw, `replace_pending=false`, chunk 0 есть. Остальные `getTurnPacketChunk` читай параллельно по 2–3 при возможности. Собери всё по `chunk_index` без пропусков. Запомни `packet_id`.
 
 Packet уже содержит director context, current/recent, POV, physical/remote участников с их profiles/knowledge, отношения/intents, cast registry, NPC↔NPC network; `location_context` только текущего физического места; затем `runtime_rules` и `scene_builder`. Пиши только по двум последним, второго набора правил не создавай.
 
