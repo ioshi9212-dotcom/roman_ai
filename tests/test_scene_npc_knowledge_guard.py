@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from fastapi import HTTPException
 
-from app import character_chunk_read, private_knowledge_runtime, scene_knowledge_guard, session_runtime, storage
+from app import character_chunk_read, private_knowledge_runtime, scene_knowledge_guard, session_runtime, storage, turn_pipeline
 
 
 def _setup(tmp: str) -> None:
@@ -790,10 +790,10 @@ def test_pipeline_version_bump_invalidates_old_pending_packet():
 
         first, _ = _prepare(sid, "(молчать)")
         packet = storage._read_json(root / "turn_packet.json", {})
-        packet["turn_pipeline_version"] = 18
+        packet["turn_pipeline_version"] = turn_pipeline.PIPELINE_VERSION - 1
         storage._write_json(root / "turn_packet.json", packet)
 
         second = session_runtime.prepare_turn_packet(sid, "(молчать)")
 
         assert second["packet_id"] != first["packet_id"]
-        assert second["turn_pipeline_version"] == 19
+        assert second["turn_pipeline_version"] == turn_pipeline.PIPELINE_VERSION
