@@ -422,3 +422,31 @@ def test_durable_fact_outside_major_level_requires_date_and_reports_409():
             }, end_turn=60)
         assert exc.value.missing_dates == ["09.10.2026"]
         assert chronology[0]["event_id"] == "promise"
+
+
+def test_legacy_durable_facts_import_preserves_source_rows():
+    """Catch Amvera's startup ImportError from an older continuation runtime."""
+    from app.long_horizon_audit import (
+        _durable_facts_by_date,
+        _durable_source_facts_by_date,
+    )
+    from app.main import app
+
+    assert app is not None
+    events = [
+        {
+            "event_id": "anchor-event",
+            "turn_number": 24,
+            "story_date": "2026-10-09",
+            "importance": "anchor",
+            "event": "Важная сюжетная развязка с долговременным последствием.",
+            "actor_character_id": "silas",
+            "consequences": ["Персонаж сохраняет обещание"],
+        },
+    ]
+    old_name = _durable_facts_by_date(events)
+    current_name = _durable_source_facts_by_date(events)
+    assert old_name == current_name
+    assert list(old_name) == ["09.10.2026"]
+    assert old_name["09.10.2026"][0]["source_event_id"] == "anchor-event"
+    assert old_name["09.10.2026"][0]["consequences"] == ["Персонаж сохраняет обещание"]
