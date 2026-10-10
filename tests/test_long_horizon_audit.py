@@ -343,3 +343,82 @@ def test_iso_summary_date_is_accepted_and_saved_as_dotted_canonical_date():
         assert len(result) == 1
         assert result[0]["story_date"] == "09.10.2026"
 
+
+
+def test_sixtieth_audit_preserves_original_durable_events_even_when_summary_is_incomplete():
+    # Regression for production NameError: durable_facts referenced but undefined.
+    # The important event source remains retrievable beyond the dated paragraph.
+    with tempfile.TemporaryDirectory() as tmp:
+        _setup(tmp)
+        root = storage.SESSIONS_DIR / "sid"
+        root.mkdir(parents=True)
+        source = {"version": 5, "profile_schema": {"version": 1}}
+        storage._write_json(root / "source.json", source)
+        turns = [_turn(i, "09.10.2026") for i in range(1, 61)]
+        (root / "turns.jsonl").write_text(
+            "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in turns),
+            encoding="utf-8",
+        )
+        chronology = [
+            {"event_id": "revelation", "turn_number": 12,
+             "story_date": "2026-10-09", "importance": "anchor",
+             "actor_character_id": "silas",
+             "event": "Сайлас признался, что знает имя пропавшего.",
+             "consequences": ["Рината начинает расследование"]},
+            {"event_id": "promise", "turn_number": 25,
+             "story_date": "09.10.2026", "importance": "major",
+             "event": "Рината пообещала прийти в воскресенье.",
+             "participants_present": ["rinata", "silas"]},
+            {"event_id": "clock", "turn_number": 44,
+             "story_date": "09.10.2026", "importance": "normal",
+             "time_critical": True, "exact_time": "18:30",
+             "event": "Они договорились встретиться в 18:30."},
+        ]
+        before = json.dumps(chronology, ensure_ascii=False)
+        payload = build_macro_payload(
+            root, source=source, state={"world": {"cast_registry": {}}},
+            chronology=chronology, turns=turns, end_turn=60,
+        )
+        assert payload["required_important_dates"] == ["09.10.2026"]
+        result = apply_macro_chronology_compaction(root, chronology, {
+            "chronology_compactions": [{
+                "date": "09.10.2026",
+                "summary": "Состоялась важная встреча, повлиявшая на дальнейшие события.",
+                "importance": "normal",
+            }],
+        }, end_turn=60)
+        assert len(result) == 1
+        row = result[0]
+        assert row["story_date"] == "09.10.2026"
+        assert {fact["source_event_id"] for fact in row["source_key_facts"]} == {
+            "revelation", "promise", "clock"
+        }
+        facts = {fact["source_event_id"]: fact for fact in row["source_key_facts"]}
+        assert facts["revelation"]["actor_character_id"] == "silas"
+        assert facts["revelation"]["consequences"] == ["Рината начинает расследование"]
+        assert facts["promise"]["participants_present"] == ["rinata", "silas"]
+        assert facts["clock"]["exact_time"] == "18:30"
+        assert json.dumps(chronology, ensure_ascii=False) == before
+
+
+def test_durable_fact_outside_major_level_requires_date_and_reports_409():
+    with tempfile.TemporaryDirectory() as tmp:
+        _setup(tmp)
+        root = storage.SESSIONS_DIR / "sid"
+        root.mkdir(parents=True)
+        storage._write_json(root / "source.json", {
+            "version": 5, "profile_schema": {"version": 1},
+        })
+        (root / "turns.jsonl").write_text("", encoding="utf-8")
+        chronology = [{
+            "event_id": "promise", "turn_number": 20,
+            "story_date": "2026-10-09", "importance": "normal",
+            "durable": True, "event": "Невыполненное долговременное обещание.",
+        }]
+        from app.long_horizon_audit import MacroChronologyMissingDates
+        with pytest.raises(MacroChronologyMissingDates) as exc:
+            apply_macro_chronology_compaction(root, chronology, {
+                "chronology_compactions": [],
+            }, end_turn=60)
+        assert exc.value.missing_dates == ["09.10.2026"]
+        assert chronology[0]["event_id"] == "promise"
