@@ -8,6 +8,7 @@ from .audit_runtime import get_audit_snapshot, get_audit_snapshot_chunk
 from .character_access import get_character_bundle
 from .character_chunk_read import get_character_bundle_chunk, prepare_character_bundle_read
 from .context_stats import session_context_stats
+from .long_horizon_audit import MacroChronologyMissingDates
 from .continuation_runtime import build_continuation_preview, commit_continuation_block, commit_continuation_final, create_continuation_session, get_continuation_read_chunk, prepare_continuation_block_read, prepare_continuation_compaction, prepare_continuation_final_read
 from .models import AuditCommit, CommitTurnRequest, ContinuationBlockCommit, ContinuationFinalCommit, NovelDraftCreate, NovelDraftIntakeChunk, NovelDraftIntakeMapping, NovelDraftLaunchState, NovelDraftReconciliation, NovelDraftSection, NovelRawSave, NovelTemplate, RollbackLastTurn, SceneArchiveRead, SessionCreate, TurnCommit, TurnPrepare
 from .novel_access import get_novel_read_chunk, prepare_novel_read, verify_novel
@@ -801,6 +802,20 @@ def audit_commit(session_id: str, body: AuditCommit):
     except OperationReceiptConflict:
         raise HTTPException(status_code=409, detail="The audit_id was already used with different audit data. Read a fresh audit snapshot; no mutation was performed.")
     except RuntimeError as exc:
+        if isinstance(exc, MacroChronologyMissingDates):
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "MACRO_CHRONOLOGY_IMPORTANT_DATE_MISSING",
+                    "message": "A required important story date is not represented by the macro summary.",
+                    "missing_dates": exc.missing_dates,
+                    "instruction": (
+                        "Add one repairs.chronology_compactions row for EACH missing date (DD.MM.YYYY), "
+                        "preserve the important factual events for those dates, and retry commitTurn "
+                        "with the SAME audit_id. Do not recreate turn 60 or start turn 61."
+                    ),
+                },
+            ) from exc
         errors = {
             "AUDIT_NOT_REQUIRED": "Audit is not currently required",
             "AUDIT_PACKET_ID_REQUIRED": "The audit payload requires the exact audit_id returned in required_audit.",

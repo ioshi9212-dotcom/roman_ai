@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from copy import deepcopy
+from datetime import date as calendar_date
 from typing import Any, Dict, List
 
 from . import storage
@@ -12,6 +13,7 @@ MACRO_AUDIT_INTERVAL = 60
 MACRO_CHRONOLOGY_VERSION = 1
 MACRO_SUMMARY_MAX_CHARS = 1800
 _DATE_RE = re.compile(r"\b(?P<date>\d{2}\.\d{2}\.\d{4})\b")
+_ISO_DATE_RE = re.compile(r"\b(?P<date>\d{4}-\d{2}-\d{2})\b")
 _TIME_RE = re.compile(r"\b(?P<time>\d{1,2}:\d{2})\b")
 
 
@@ -40,9 +42,45 @@ def _event_turn(item: Dict[str, Any]) -> int:
         return 0
 
 
+def _canonical_story_date(value: Any) -> str:
+    """Compare supported story dates by calendar day without changing raw canon."""
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    try:
+        if _ISO_DATE_RE.fullmatch(raw):
+            return calendar_date.fromisoformat(raw).strftime("%d.%m.%Y")
+        if _DATE_RE.fullmatch(raw):
+            day, month, year = (int(part) for part in raw.split("."))
+            return calendar_date(year, month, day).strftime("%d.%m.%Y")
+    except ValueError:
+        pass
+    return raw
+
+
 def _story_date(item: Dict[str, Any]) -> str:
     value = item.get("story_date") or item.get("date")
-    return str(value or "").strip()
+    return _canonical_story_date(value)
+
+
+def _important_date_rows(events: List[Dict[str, Any]]) -> List[str]:
+    dates = {
+        _story_date(row)
+        for row in events
+        if str(row.get("importance") or "").strip().casefold() in {"major", "anchor", "critical"}
+        or row.get("anchor") is True
+    }
+    dates.discard("")
+    return sorted(dates, key=lambda value: (
+        value[6:10], value[3:5], value[:2]
+    ) if _DATE_RE.fullmatch(value) else (value, "", ""))
+
+
+class MacroChronologyMissingDates(RuntimeError):
+    """Audit coverage failure carrying exact dates, for actionable HTTP 409."""
+    def __init__(self, missing_dates: List[str]):
+        super().__init__("MACRO_CHRONOLOGY_IMPORTANT_DATE_MISSING")
+        self.missing_dates = list(missing_dates)
 
 
 def _turn_date(turn: Dict[str, Any]) -> str:
@@ -51,10 +89,10 @@ def _turn_date(turn: Dict[str, Any]) -> str:
     current = patch.get("current") if isinstance(patch.get("current"), dict) else {}
     value = current.get("date") or current.get("game_date") or current.get("calendar_date")
     if value not in (None, ""):
-        return str(value).strip()
+        return _canonical_story_date(value)
     scene = str(turn.get("scene_output") or "")
-    match = _DATE_RE.search(scene[:1400])
-    return match.group("date") if match else ""
+    match = _DATE_RE.search(scene[:1400]) or _ISO_DATE_RE.search(scene[:1400])
+    return _canonical_story_date(match.group("date")) if match else ""
 
 
 def _turn_calendar(turns: List[Dict[str, Any]], start_turn: int, end_turn: int) -> List[Dict[str, Any]]:
@@ -327,6 +365,9 @@ def build_macro_payload(
         "macro_interval": MACRO_AUDIT_INTERVAL,
         "macro_range": [start_turn, end_turn],
         "turn_calendar": _turn_calendar(turns, start_turn, end_turn),
+        # Computed by the SAME date/importance rule as commit validation.
+        # GPT can cover every necessary date without guessing from 60 turns.
+        "required_important_dates": _important_date_rows(events),
         "prior_scene_summaries": _scene_rows_for_range(root, start_turn, end_turn),
         "chronology_events_before_compaction": compact_events,
         "relationship_changes_60_turns": relationship_changes,
@@ -354,12 +395,14 @@ def build_macro_payload(
             "replace_raw_chronology_in_macro_range": True,
             "keep_only_distinct_plot_relationship_revelation_conflict_decision_and_consequence_events": True,
             "group_by_story_date": True,
+            "all_required_important_dates_must_be_represented": True,
+            "both_iso_and_dotted_story_dates_match_one_calendar_day": True,
             "do_not_repeat_same_fact_across_paragraphs": True,
             "do_not_write_clock_time_unless_time_critical": True,
         },
         "instruction": (
             "60-TURN MACRO AUDIT. После обычной проверки последних 15 ходов собери repairs.chronology_compactions "
-            "по macro_range: короткие датированные абзацы без бытовой воды и повторов, с сохранением причинно важных событий и значимых точных реплик только когда формулировка сама важна. "
+            "по macro_range: по одной записи на каждую дату required_important_dates; короткие датированные абзацы без бытовой воды и повторов, с сохранением причинно важных событий и значимых точных реплик только когда формулировка сама важна. "
             "Одновременно проверь cast за доступный 60-turn evidence: если именованный one-off уже фактически стал повторяющимся или долговременно важным, а карточки всё ещё нет, добавь repairs.character_upserts."
         ),
     }
@@ -395,20 +438,14 @@ def _apply_macro_chronology_compaction_core(
         row for row in values
         if start_turn <= _event_turn(row) <= end_turn
     ]
-    important_dates = {
-        _story_date(row)
-        for row in source_events
-        if str(row.get("importance") or "").casefold() in {"major", "anchor", "critical"}
-        or row.get("anchor") is True
-    }
-    important_dates.discard("")
+    important_dates = set(_important_date_rows(source_events))
 
     normalized: List[Dict[str, Any]] = []
     represented_dates: set[str] = set()
     for index, raw in enumerate(raw_rows, 1):
         if not isinstance(raw, dict):
             raise RuntimeError("MACRO_CHRONOLOGY_COMPACTION_INVALID")
-        date = str(raw.get("date") or raw.get("story_date") or "").strip()
+        date = _canonical_story_date(raw.get("date") or raw.get("story_date"))
         summary = " ".join(str(raw.get("summary") or raw.get("event") or "").split()).strip()
         if not date or not _DATE_RE.fullmatch(date) or len(summary) < 20 or len(summary) > MACRO_SUMMARY_MAX_CHARS:
             raise RuntimeError("MACRO_CHRONOLOGY_COMPACTION_INVALID")
@@ -457,8 +494,11 @@ def _apply_macro_chronology_compaction_core(
             item["time_critical"] = True
         normalized.append({k: v for k, v in item.items() if v not in (None, "", [], {})})
 
-    if important_dates - represented_dates:
-        raise RuntimeError("MACRO_CHRONOLOGY_IMPORTANT_DATE_MISSING")
+    missing_dates = sorted(important_dates - represented_dates, key=lambda date: (
+        date[6:10], date[3:5], date[:2]
+    ) if _DATE_RE.fullmatch(date) else (date, "", ""))
+    if missing_dates:
+        raise MacroChronologyMissingDates(missing_dates)
 
     kept = [
         row for row in values
