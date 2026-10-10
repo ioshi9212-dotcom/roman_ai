@@ -468,6 +468,16 @@ def _durable_source_facts_by_date(events: List[Dict[str, Any]]) -> Dict[str, Lis
     return by_date
 
 
+def _durable_facts_by_date(events: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
+    """Backward-compatible import for pre-rename continuation runtimes.
+
+    Some deployed continuation_runtime versions import this older helper name.
+    Both names must return identical source-grounded facts; no session data is
+    rewritten and no rule for macro chronology coverage is relaxed.
+    """
+    return _durable_source_facts_by_date(events)
+
+
 def _apply_macro_chronology_compaction_core(
     source: Dict[str, Any],
     turns: List[Dict[str, Any]],
