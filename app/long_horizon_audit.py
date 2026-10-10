@@ -367,7 +367,12 @@ def build_macro_payload(
         "turn_calendar": _turn_calendar(turns, start_turn, end_turn),
         # Computed by the SAME date/importance rule as commit validation.
         # GPT can cover every necessary date without guessing from 60 turns.
-        "required_important_dates": _important_date_rows(events),
+        "required_important_dates": sorted(
+            set(_important_date_rows(events)) | set(_durable_source_facts_by_date(events)),
+            key=lambda value: (
+                value[6:10], value[3:5], value[:2]
+            ) if _DATE_RE.fullmatch(value) else (value, "", ""),
+        ),
         "prior_scene_summaries": _scene_rows_for_range(root, start_turn, end_turn),
         "chronology_events_before_compaction": compact_events,
         "relationship_changes_60_turns": relationship_changes,
@@ -408,6 +413,61 @@ def build_macro_payload(
     }
 
 
+
+def _durable_source_facts_by_date(events: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
+    """Keep significant source facts verbatim alongside every dated macro summary.
+
+    A date-level paragraph cannot be trusted as a complete replacement for
+    distinct source events. This metadata remains director-only and is taken
+    exclusively from already persisted chronology, never invented by the model.
+    """
+    by_date: Dict[str, List[Dict[str, Any]]] = {}
+    seen: set[tuple[str, str]] = set()
+    for row in events:
+        if not isinstance(row, dict):
+            continue
+        date = _story_date(row)
+        importance = str(row.get("importance") or "normal").strip().casefold()
+        consequences = row.get("consequences")
+        has_consequences = bool(consequences) and (
+            not isinstance(consequences, list)
+            or any(str(value).strip() for value in consequences)
+        )
+        significant = (
+            importance in {"major", "anchor", "critical"}
+            or row.get("anchor") is True
+            or row.get("time_critical") is True
+            or has_consequences
+            or any(row.get(key) is True for key in ("durable", "pinned", "permanent"))
+        )
+        if not date or not significant:
+            continue
+        event = str(row.get("event") or row.get("summary") or row.get("text") or "").strip()
+        if not event:
+            continue
+        event_id = str(row.get("event_id") or f"turn:{_event_turn(row)}:{event}")
+        key = (date, event_id)
+        if key in seen:
+            continue
+        seen.add(key)
+        fact = {
+            "source_event_id": event_id,
+            "turn_number": _event_turn(row),
+            "event": event,
+            "importance": importance,
+            "actor_character_id": row.get("actor_character_id"),
+            "participants_present": deepcopy(row.get("participants_present") or row.get("participants")),
+            "location": row.get("location"),
+            "exact_time": row.get("exact_time") if row.get("time_critical") is True else None,
+            "consequences": deepcopy(consequences) if has_consequences else None,
+        }
+        by_date.setdefault(date, []).append({
+            key: value for key, value in fact.items()
+            if value not in (None, "", [], {}, 0)
+        })
+    return by_date
+
+
 def _apply_macro_chronology_compaction_core(
     source: Dict[str, Any],
     turns: List[Dict[str, Any]],
@@ -439,6 +499,10 @@ def _apply_macro_chronology_compaction_core(
         if start_turn <= _event_turn(row) <= end_turn
     ]
     important_dates = set(_important_date_rows(source_events))
+    # Defined before use: the Amvera crash came from an undefined durable_facts
+    # variable at the moment the 60-turn audit tried to preserve source facts.
+    durable_facts = _durable_source_facts_by_date(source_events)
+    important_dates.update(durable_facts)
 
     normalized: List[Dict[str, Any]] = []
     represented_dates: set[str] = set()
@@ -492,6 +556,10 @@ def _apply_macro_chronology_compaction_core(
         elif critical_times:
             item["critical_times"] = critical_times
             item["time_critical"] = True
+        # Lossless back-reference for important source events, independent of
+        # the completeness or wording of the model-written dated paragraph.
+        if durable_facts.get(date):
+            item["source_key_facts"] = deepcopy(durable_facts[date])
         normalized.append({k: v for k, v in item.items() if v not in (None, "", [], {})})
 
     missing_dates = sorted(important_dates - represented_dates, key=lambda date: (
