@@ -5,7 +5,8 @@ from pathlib import Path
 import pytest
 from fastapi import HTTPException
 
-from app import main, storage
+from app import audit_runtime, main, storage
+from app.models import AuditCommit
 from app.long_horizon_audit import (
     apply_macro_chronology_compaction,
     build_macro_payload,
@@ -343,3 +344,102 @@ def test_iso_summary_date_is_accepted_and_saved_as_dotted_canonical_date():
         assert len(result) == 1
         assert result[0]["story_date"] == "09.10.2026"
 
+
+
+def test_full_60_turn_audit_retries_same_id_after_missing_macro_date_and_commits():
+    # Full API path, including transactional audit and operation receipts.
+    with tempfile.TemporaryDirectory() as tmp:
+        _setup(tmp)
+        source = {
+            "novel_id": "macro-60-retry", "title": "Macro retry",
+            "version": 5, "profile_schema": {"version": 1},
+            "novel": {"pov_character": "pov"},
+            "characters": [{"character_id": "pov", "name": "POV", "is_pov": True}],
+            "starting_state": {
+                "pov": {"character_id": "pov"},
+                "current": {"date": "09.04.2026", "time": "12:00",
+                            "location": "room", "present_characters": ["pov"]},
+            },
+        }
+        sid = storage.create_session(source)["session_id"]
+        root = storage.SESSIONS_DIR / sid
+        turns = [_turn(i, "09.04.2026" if i <= 30 else "10.04.2026") for i in range(1, 61)]
+        turns[59]["user_input"] = "(проверить последнюю сцену)"
+        (root / "turns.jsonl").write_text(
+            "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in turns),
+            encoding="utf-8",
+        )
+        meta = storage._read_json(root / "meta.json", {})
+        meta.update({"turn_number": 60, "last_audit_turn": 45, "audit_required": True})
+        storage._write_json(root / "meta.json", meta)
+        chronology = [
+            {"event_id": "event-old", "turn_number": 2, "story_date": "2025-10-02",
+             "importance": "major", "event": "Долговременно важное событие предыдущей даты."},
+            {"event_id": "event-9-april", "turn_number": 20, "story_date": "09.04.2026",
+             "importance": "anchor", "event": "Важная встреча с долговременными последствиями."},
+            {"event_id": "event-10-april", "turn_number": 40, "story_date": "2026-04-10",
+             "importance": "critical", "event": "Важный конфликт, изменивший обстоятельства."},
+        ]
+        storage._write_json(root / "chronology.json", chronology)
+        snapshot = audit_runtime.get_audit_snapshot(sid)
+        audit_id = snapshot["audit_id"]
+        for index in range(1, snapshot["chunk_count"]):
+            audit_runtime.get_audit_snapshot_chunk(sid, audit_id, index)
+        before_turns = (root / "turns.jsonl").read_bytes()
+        before_chronology = (root / "chronology.json").read_bytes()
+        scene_rows = [{
+            "start_turn": 46, "end_turn": 60,
+            "summary": (
+                "На ходах 46–60 участники завершили последовательность важных "
+                "разговоров и действий и сохранили фактическое состояние сцены."
+            ),
+            "participants": ["pov"], "location": "room", "status": "closed",
+        }]
+        compacted = [{
+            "date": "09.04.2026",
+            "summary": "Девятого апреля произошла важная встреча, повлиявшая на дальнейшие события.",
+        }]
+        first = AuditCommit(
+            audit_id=audit_id, start_turn=46, end_turn=60,
+            repairs={"scene_compactions": scene_rows, "chronology_compactions": compacted},
+        )
+        with pytest.raises(HTTPException) as error:
+            main.audit_commit(sid, first)
+        assert error.value.status_code == 409
+        assert error.value.detail["code"] == "MACRO_CHRONOLOGY_IMPORTANT_DATE_MISSING"
+        assert error.value.detail["missing_dates"] == ["02.10.2025", "10.04.2026"]
+        assert storage._read_json(root / "meta.json", {})["audit_required"] is True
+        assert (root / "turns.jsonl").read_bytes() == before_turns
+        assert (root / "chronology.json").read_bytes() == before_chronology
+
+        completed = AuditCommit(
+            audit_id=audit_id, start_turn=46, end_turn=60,
+            repairs={
+                "scene_compactions": scene_rows,
+                "chronology_compactions": [
+                    {"date": "02.10.2025",
+                     "summary": "В октябре прошлого года произошло долговременно важное событие."},
+                    *compacted,
+                    {"date": "10.04.2026",
+                     "summary": "Десятого апреля произошёл важный конфликт с последствиями."},
+                ],
+            },
+        )
+        response = main.audit_commit(sid, completed)
+        assert response["ok"] is True
+        assert response["audited_through"] == 60
+        assert response["macro_chronology_compacted"] is True
+        after_meta = storage._read_json(root / "meta.json", {})
+        assert after_meta["turn_number"] == 60
+        assert after_meta["last_audit_turn"] == 60
+        assert after_meta["audit_required"] is False
+        assert (root / "turns.jsonl").read_bytes() == before_turns
+        saved = storage._read_json(root / "chronology.json", [])
+        assert {row["story_date"] for row in saved} == {
+            "02.10.2025", "09.04.2026", "10.04.2026"
+        }
+        assert all(row.get("canonical_macro_compaction") for row in saved)
+        assert len(storage._read_turns(root)) == 60
+        repeat = main.audit_commit(sid, completed)
+        assert repeat["audited_through"] == 60
+        assert len(storage._read_json(root / "audits.json", [])) == 1
