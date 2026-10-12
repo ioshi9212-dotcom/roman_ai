@@ -1,0 +1,26 @@
+name: scene refactor smoke checks
+
+on:
+  push:
+    branches: [refactor/skin-builder-author-freedom-20261012]
+  pull_request:
+    paths:
+      - 'runtime/scene_builder.md'
+      - 'runtime/rules.md'
+      - 'gpt/custom_gpt_instructions.md'
+      - 'tests/test_author_runtime_sources.py'
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: .
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install --upgrade pip
+      - run: pip install -r requirements.txt pytest pyyaml httpx
+      - name: Author documents and GPT surface
+        run: pytest -q tests/test_author_runtime_sources.py tests/test_custom_gpt_surface.py
