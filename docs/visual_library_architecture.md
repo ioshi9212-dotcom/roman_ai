@@ -58,6 +58,16 @@ Build an owner-only same-origin page or a separate desktop client that:
 
 The Phase-1 API is a backend building block, not yet a complete click-through gallery. API docs/form can be exercised directly in a dev environment, but do not expose the production key in screenshots.
 
+### Optional image upload from an existing GPT Action (not wired yet)
+
+OpenAI's documented GPT Actions file mechanism can pass up to ten conversation uploads via the special JSON field openaiFileIdRefs, containing short-lived (five-minute) download links. A dedicated server endpoint could ingest those links after explicit user authorization, validate each downloaded image, then save to this library. This differs from this branch's existing direct multipart-upload endpoint. The links must never be trusted blindly: fetch only permitted OpenAI hosts, reject redirects/private IPs, limit file size and timeout, and validate decoded image bytes. The direct local-file picker remains the preferred management experience.
+
+Official docs also state GPT Actions file **responses cannot be images or videos**. Therefore sending a saved reference back as openaiFileResponse does not solve in-chat image rendering or reliable image generation. An arbitrary URL returned by a custom Action is NOT a guaranteed input to ChatGPT's image tool.
+
+References:
+- https://developers.openai.com/api/docs/actions/sending-files
+- https://developers.openai.com/api/reference/resources/images/methods/edit
+
 ## Phase 3: generation using the original image bytes (integration unverified)
 
 Do NOT assume an Action response containing an image URL is automatically provided to the ChatGPT image generator. A Custom GPT calling an API is not the same as an ImageGen tool receiving image inputs.
