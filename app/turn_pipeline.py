@@ -373,11 +373,19 @@ def _clean_director_layers(context: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _wait_input(raw: Any) -> bool:
-    """Recognize a player's request to wait, not a requirement to spawn an event."""
+    """Recognize an action to wait, not spoken promises or quick reaction beats."""
     text = str(raw or "").strip().casefold().replace("ё", "е")
-    if text.startswith("("):
+    parenthetical = text.startswith("(")
+    if parenthetical:
         text = text[1:].lstrip()
+    elif not re.match(
+        r"^(?:ждать|подождать|дожидаться|ожидать|дождаться|продолжать ждать|продолжить ждать)(?!\w)",
+        text,
+    ):
+        return False
     if re.search(r"(?<!\w)не\s+(?:ждать|подождать|дожидаться|ожидать)(?!\w)", text):
+        return False
+    if re.search(r"(?:ждать|ожидать)\s+(?:(?:его|ее)\s+)?(?:реакци\w*|ответа)(?!\w)", text):
         return False
     return bool(re.search(
         r"(?<!\w)(?:ждать|подождать|дожидаться|ожидать|дождаться|жду)(?!\w)",
