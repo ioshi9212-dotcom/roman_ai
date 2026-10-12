@@ -17,16 +17,18 @@ def test_pov_activity_rule_keeps_pov_active_without_stealing_meaningful_choice()
     rule = guardrails._pov_activity_rule()
 
     assert rule["mandatory"] is True
-    assert rule["dialogue_when_natural"] is True
-    assert rule["visible_pov_in_scene"] is True
-    assert rule["no_forced_speech_or_beat_count"] is True
-    assert "min_post_input_presence_beats" not in rule
+    assert rule["min_post_input_presence_beats"] == 2
+    assert rule["ordinary_dialogue_required_when_natural"] is True
+    assert rule["multiple_pov_lines_allowed"] is True
+    assert rule["silence_requires_character_or_scene_reason"] is True
+    assert rule["do_not_replace_speech_with_gesture"] is True
 
     text = rule["rule"]
-    assert "живой участник сцены" in text
-    assert "сам отвечает на обычные вопросы" in text
-    assert "вне диалога действует" in text
-    assert "не требуй фиксированного" in text
+    assert "не камера и не мебель" in text
+    assert "минимум дважды" in text
+    assert "сам user_input не засчитывай" in text
+    assert "POV отвечает словами" in text
+    assert "не заменяй естественный ответ" in text
     assert "reserved_for_player" in text
     assert "серьёзный риск" in rule["reserved_for_player"]
 
@@ -56,10 +58,10 @@ def test_writer_packet_contains_active_pov_guard_and_meaningful_choice_boundary(
         context = json.loads("".join(chunks))
 
         signals = context["narrative_guardrails"]
-        assert signals["version"] == 20
+        assert signals["version"] == 18
         assert signals["pov_activity"]["mandatory"] is True
-        assert signals["pov_activity"]["visible_pov_in_scene"] is True
-        assert signals["pov_activity"]["dialogue_when_natural"] is True
-        assert signals["pov_activity"]["no_forced_speech_or_beat_count"] is True
+        assert signals["pov_activity"]["min_post_input_presence_beats"] == 2
+        assert signals["pov_activity"]["ordinary_dialogue_required_when_natural"] is True
+        assert signals["pov_activity"]["do_not_replace_speech_with_gesture"] is True
         assert signals["scene_momentum"]["player_input_scope"]["boundary"] == "next_meaningful_pov_choice"
         assert len(json.dumps(signals["pov_activity"], ensure_ascii=False)) < 2200
