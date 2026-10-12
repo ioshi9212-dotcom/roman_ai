@@ -372,6 +372,43 @@ def _clean_director_layers(context: Dict[str, Any]) -> Dict[str, Any]:
     return result
 
 
+def _wait_input(raw: Any) -> bool:
+    """Recognize a player's request to wait, not a requirement to spawn an event."""
+    text = str(raw or "").strip().casefold().replace("ё", "е")
+    if text.startswith("("):
+        text = text[1:].lstrip()
+    if re.search(r"(?<!\\w)не\\s+(?:ждать|подождать|дожидаться|ожидать)(?!\\w)", text):
+        return False
+    return bool(re.search(
+        r"(?<!\\w)(?:ждать|подождать|дожидаться|ожидать|дождаться|жду)(?!\\w)",
+        text,
+    ))
+
+
+def _waiting_momentum_context(user_input: Any, recent_turns: Any) -> Dict[str, Any] | None:
+    """Read-only director cue: passive waiting must not create identical turns."""
+    if not _wait_input(user_input):
+        return None
+    consecutive = 1
+    for row in reversed(recent_turns if isinstance(recent_turns, list) else []):
+        if not isinstance(row, dict) or not _wait_input(row.get("user_input")):
+            break
+        consecutive += 1
+    return {
+        "kind": "passive_wait",
+        "consecutive_wait_inputs": consecutive,
+        "writer_cue": (
+            "POV уже выбрал ждать. Не создавай новый ход только с тем же ожиданием. "
+            "Проверь текущее время, действующие планы и доступность NPC, незакрытые дела, "
+            "расписание и события мира; сожми пустой промежуток до ближайшего причинного "
+            "изменения или действительно значимого выбора POV. "
+            "Ни один NPC не обязан прибыть по квоте: учитывай его собственные дела и путь. "
+            "Если ожидание продолжается, покажи фактическое изменение ситуации, а не "
+            "повтор предыдущего кадра. Не присваивай POV решение прекратить ждать."
+        ),
+    }
+
+
 def _move_runtime_documents_last(context: Dict[str, Any]) -> Dict[str, Any]:
     result = deepcopy(context)
     rules = result.pop("runtime_rules", None)
@@ -536,6 +573,12 @@ def _prepare_context(
     # Persistence/chronology instructions live once in runtime_rules.
     # Do not mirror the same directing prose into a second packet contract.
     context.pop("persistence_contract", None)
+
+    wait_cue = _waiting_momentum_context(packet.get("user_input"), context.get("recent_turns"))
+    if wait_cue:
+        context["waiting_momentum"] = wait_cue
+    else:
+        context.pop("waiting_momentum", None)
 
     context = _move_runtime_documents_last(context)
     packet = _write_packet_context(root, packet, context)
