@@ -179,15 +179,20 @@ def test_scene_momentum_is_short_and_keeps_meaningful_boundary():
 def test_pov_activity_keeps_visible_presence_and_ordinary_dialogue():
     rule = guardrails._pov_activity_rule()
     assert rule["mandatory"] is True
-    assert rule["dialogue_when_natural"] is True
-    assert rule["visible_pov_in_scene"] is True
-    assert rule["no_forced_speech_or_beat_count"] is True
-    assert "min_post_input_presence_beats" not in rule
+    assert rule["min_post_input_presence_beats"] == 2
+    assert rule["min_active_post_input_beats"] == 1
+    assert rule["passive_observation_alone_is_not_activity"] is True
+    assert rule["ordinary_dialogue_required_when_natural"] is True
+    assert rule["multiple_pov_lines_allowed"] is True
+    assert rule["silence_requires_character_or_scene_reason"] is True
+    assert rule["do_not_replace_speech_with_gesture"] is True
     text = rule["rule"]
-    assert "сам отвечает на обычные вопросы" in text
-    assert "вне диалога действует и реагирует физически" in text
-    assert "фиксированного" in text
-    assert "значимой новой встрече" in text
+    assert "не камера и не мебель" in text
+    assert "минимум дважды" in text
+    assert "сам user_input не засчитывай" in text
+    assert "одни ощущения, наблюдения и описание состояния не считаются" in text
+    assert "POV отвечает словами" in text
+    assert "не заменяй естественный ответ" in text
 
 
 def test_npc_intent_drive_treats_evasion_as_unresolved():
@@ -264,11 +269,10 @@ def test_prepare_turn_packet_contains_concise_narrative_guardrails():
         context = json.loads("".join(parts))
 
         signals = context["narrative_guardrails"]
-        assert signals["version"] == 20
+        assert signals["version"] == 18
         assert signals["pov_activity"]["mandatory"] is True
-        assert signals["pov_activity"]["visible_pov_in_scene"] is True
-        assert signals["pov_activity"]["dialogue_when_natural"] is True
-        assert signals["pov_activity"]["no_forced_speech_or_beat_count"] is True
+        assert signals["pov_activity"]["min_post_input_presence_beats"] == 2
+        assert signals["pov_activity"]["ordinary_dialogue_required_when_natural"] is True
         assert signals["character_driven_behavior"]["mandatory"] is True
         assert signals["npc_intent_drive"]["mandatory"] is True
         assert signals["scene_momentum"]["player_input_scope"]["boundary"] == "next_meaningful_pov_choice"
