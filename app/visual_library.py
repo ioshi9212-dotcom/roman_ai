@@ -26,7 +26,6 @@ from .transactional_storage import session_transaction
 MAX_BYTES = 12 * 1024 * 1024
 MAX_PIXELS = 40_000_000
 IMAGE_FORMATS = {"JPEG": ("image/jpeg", ".jpg"), "PNG": ("image/png", ".png"), "WEBP": ("image/webp", ".webp")}
-ID_PATTERN = re.compile(r"^[\w-]{1,100}$", re.UNICODE)
 REF_PATTERN = re.compile(r"^[0-9a-f]{32}$")
 STORED_PATTERN = re.compile(r"^[0-9a-f]{32}\.(jpg|png|webp)$")
 
@@ -39,7 +38,9 @@ class VisualLibraryError(ValueError):
 
 def _identifier(value: str, what: str) -> str:
     value = str(value or "").strip()
-    if not ID_PATTERN.fullmatch(value):
+    if not value or len(value) > 120 or value in {".", ".."} or any(
+        ord(char) < 32 or char in "/\\" for char in value
+    ):
         raise VisualLibraryError(f"INVALID_{what.upper()}")
     return value
 
