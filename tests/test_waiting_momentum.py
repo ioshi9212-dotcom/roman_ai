@@ -21,6 +21,9 @@ def test_wait_input_detects_passive_wait(raw):
     "(пойти встретить Данте)",
     "(поцеловать Данте)",
     "Я буду ждать тебя.",
+    "Я жду тебя.",
+    "(ждать реакции Данте)",
+    "(ждать ответа)",
 ])
 def test_wait_input_does_not_force_active_interactions(raw):
     assert _wait_input(raw) is False
