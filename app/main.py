@@ -51,6 +51,7 @@ from .storage import (
     load_session,
     save_novel,
 )
+from .visual_library_api import router as visual_library_router
 from .turn_rollback import RollbackError
 from .startup_migration import read_migration_status, run_startup_session_migration
 
@@ -59,6 +60,9 @@ app = FastAPI(
     version="1.17.0",
     description="Persistent interactive-novel sessions with rules-driven scenes, character-scoped knowledge, dynamic relationships, cast continuity, recovery, rollback and lossless setup intake.",
 )
+
+
+app.include_router(visual_library_router)
 
 
 @app.on_event("startup")
