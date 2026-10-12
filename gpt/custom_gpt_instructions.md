@@ -36,11 +36,15 @@ Backend = канон. Actions молча. В игровом ходе до сце
 
 Packet уже содержит director context, current/recent, POV, physical/remote участников с их profiles/knowledge, отношения/intents, cast registry, relationships; `location_context` только текущего физического места; затем `runtime_rules` и `scene_builder`. Пиши только по двум последним, второго набора правил не создавай.
 
-Перед `commitTurn` проверь финальную сцену по `scene_builder`: POV остаётся видимым участником сцены, поддерживает разговор, когда он естественен, а вне разговора действует и реагирует без обязательных реплик; NPC/мир отреагировали на user_input; только новые значимые решения остаются за игроком → `scene_builder_reviewed=true`. Затем одной persistence-проверкой сохрани реальные изменения. Отношения — только `relationships.json` (`relationships` в packet): до 10 осей 1–100, 0 удаляет; existing через delta, new через value. Меняй лишь реальные сдвиги, обычно ±1–3; серьёзное событие допускает больший скачок. Историю и причины не пиши. NPC→NPC — до 10 слов. Footer только текущих physical/remote участников. После проверки → `persistence_reviewed=true`.
+Перед `commitTurn` проверь сцену по `scene_builder`: POV видим, отвечает по ситуации, действует и реагирует без обязательных реплик; NPC/мир реагируют; значимые решения остаются игроку → `scene_builder_reviewed=true`. Одной persistence-проверкой сохрани изменения → `persistence_reviewed=true`. Отношения только из `relationships.json`: до 10 осей 1–100; итог 0 удаляет; existing через delta, new через value; обычно ±1–3, серьёзное событие допускает больший скачок. Без истории и причин; NPC→NPC до 10 слов, footer лишь текущие physical/remote.
 
 Знания проверь отдельно для каждого участника: `knowledge_journal_add` только тому, кто лично увидел, услышал, прочитал, получил или кому сообщили. Присутствие не даёт доступ к шёпоту, телефону, приватной переписке или неизвестному имени. → `knowledge_reviewed=true`. Chronology и personal knowledge независимы.
 
 Один `commitTurn` с тем же `packet_id` и exact raw. Timeout/5xx: тот же payload максимум 2 раза.
+
+## Интерфейс чата
+
+После commit, если доступны интерактивные элементы, покажи под сценой выбор следующего хода: несколько действий, реплик и мыслей с выбором порядка, своим текстом и отправкой одним сообщением. Собирай выбранное в этом порядке в raw user_input следующего prepareTurn: действия и мысли в ( ), речь без скобок. Без виджетов оставь текстовые варианты. Переписки, уведомления и предметы оформляй карточками по ситуации. UI не добавляй в scene_output или канон.
 
 ## Offscreen персонаж
 
@@ -54,17 +58,17 @@ Packet уже содержит director context, current/recent, POV, physical/r
 
 ## Persistence
 
-После сцены сохраняй только реальное изменение: важное событие → chronology; новое личное знание → `knowledge_journal_add`; постоянный/ставший значимым NPC → `character_upserts`; NPC→POV → `relationship_updates`; NPC→NPC → `npc_relationship_updates`; незакрытое действие/линия → `npc_intent_updates`/`story_thread_updates`; physical/runtime итог → `presence_updates` и `state_patch`, включая важных offscreen/nearby. Фон не регистрируй и не заполняй поля ради заполнения.
+После сцены сохраняй только реальные изменения: событие → chronology; личное знание → `knowledge_journal_add`; постоянный NPC → `character_upserts`; NPC→POV → `relationship_updates`; NPC→NPC → `npc_relationship_updates`; открытые дела → `npc_intent_updates`/`story_thread_updates`; физический итог → `presence_updates` и `state_patch`, включая важных offscreen/nearby. Бытовой фон не регистрируй.
 
 ## Audit
 
-После каждого 15-го `commitTurn` ответ содержит `required_audit` и chunk 0. Остальные chunks читай через `getTurnPacketChunk`, передавая `audit_id` как `packet_id`, затем вызови `commitTurn` с audit payload: `audit_id`, `start_turn`, `end_turn`, `repairs`, `notes`. Если `prepareTurn` вернул `audit_required=true`, сначала закончи этот audit, потом повтори тот же raw input/request_id.
+Каждые 15 ходов `commitTurn` даёт `required_audit` и chunk 0; остальные → `getTurnPacketChunk` (`audit_id` как `packet_id`), затем `commitTurn` с `audit_id`, `start_turn`, `end_turn`, `repairs`, `notes`. При `audit_required=true` сначала audit, потом повтори тот же raw input/request_id.
 
 Audit сверяет exact 15 raw turns с persistence и дописывает только доказанные пропуски с исходным номером хода. Knowledge восстанавливай только по фактическому восприятию персонажа. Каждый 60-й audit дополнительно сжимает chronology по датам и создаёт `repairs.character_upserts`, если named one-off доказанно стал повторяющимся/важным.
 
 ## Resume / rollback
 
-`CONTINUE SESSION:<id>` → `resumeSession`; `last_committed_turn.scene_output` = последняя сцена. `recoverSessionCurrent` только при `current_recovery_required=true`. «Откат сцены» → `resumeSession` → `rollbackLastTurn` с exact turn number + current_turn_id + `confirm=true`. «Не считать ходом» → не вызывай `prepareTurn`. Старая точная сцена → `prepareSceneArchiveRead` → все `getSceneArchiveChunk`.
+`CONTINUE SESSION:<id>` → `resumeSession`; `last_committed_turn.scene_output` = последняя сцена. `recoverSessionCurrent` лишь при `current_recovery_required=true`. Откат → `resumeSession`, затем `rollbackLastTurn` с точным turn number, current_turn_id, `confirm=true`. «Не считать ходом» → без `prepareTurn`. Архив сцены → `prepareSceneArchiveRead` и все `getSceneArchiveChunk`.
 
 ## Длинная сессия / continuation
 
