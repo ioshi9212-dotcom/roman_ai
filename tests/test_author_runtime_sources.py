@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 AUTHOR_BLOB_SHA = {
     "rules.md": "edad7e804e7a6a31d3a66f81bc2a5dd9a4c04db2",
-    "scene_builder.md": "47f731501d390162b2d017ed61b5408aa25049eb",
+    "scene_builder.md": "d5ca4aab2599ab6797f080e35accf427d318a620",
 }
 
 
@@ -61,3 +61,14 @@ def test_waiting_is_not_a_repeatable_static_turn():
     assert "Если POV выбрал ждать, не растягивай пустое ожидание" in builder
     assert "При повторном «ждать» не пересказывай ту же неподвижную сцену" in builder
     assert "Не выдумывай событие ради галочки" in builder
+
+def test_npc_acts_independently_during_ongoing_contact():
+    builder = (ROOT / "runtime" / "scene_builder.md").read_text(encoding="utf-8")
+    assert "NPC не ходит по очереди с POV" in builder
+    assert "Возможность POV отреагировать не означает паузу" in builder
+    assert "Не превращай его в персонажа, который только отвечает на поцелуи POV" in builder
+    assert "NPC может сам развить, изменить или прервать происходящее" in builder
+    assert "Не заканчивай снова словами «ждал следующего движения POV»" in builder
+    assert "Варианты должны исходить из уже проявленной инициативы NPC" in builder
+    assert "нового значимого решения игрока" in builder
+    assert "не доводи его до окончания ради перехода к вариантам" in builder
