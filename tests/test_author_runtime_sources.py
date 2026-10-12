@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 AUTHOR_BLOB_SHA = {
     "rules.md": "edad7e804e7a6a31d3a66f81bc2a5dd9a4c04db2",
-    "scene_builder.md": "3f62718c8692202c10e43ed6d325f3921758ae92",
+    "scene_builder.md": "47f731501d390162b2d017ed61b5408aa25049eb",
 }
 
 
@@ -54,3 +54,10 @@ def test_recurring_npcs_can_reenter_without_forced_events():
     assert "Не вводи NPC по таймеру" in builder
     assert "Даже формально решённый вопрос" in builder
     assert "Возвращай эти линии по причинности" in builder
+
+
+def test_waiting_is_not_a_repeatable_static_turn():
+    builder = (ROOT / "runtime" / "scene_builder.md").read_text(encoding="utf-8")
+    assert "Если POV выбрал ждать, не растягивай пустое ожидание" in builder
+    assert "При повторном «ждать» не пересказывай ту же неподвижную сцену" in builder
+    assert "Не выдумывай событие ради галочки" in builder
