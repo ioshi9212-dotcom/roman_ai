@@ -1,0 +1,27 @@
+name: visual library isolated tests
+
+on:
+  push:
+    branches: [feature/visual-library]
+  pull_request:
+    paths:
+      - 'app/visual_library.py'
+      - 'app/visual_library_api.py'
+      - 'tests/test_visual_library.py'
+
+jobs:
+  visual-library:
+    runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: .
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install --upgrade pip
+      - run: pip install -r requirements.txt pytest httpx
+      - name: Validate Python syntax
+        run: python -m compileall -q app
+      - name: Test isolated visual library
+        run: pytest -q tests/test_visual_library.py
