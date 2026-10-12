@@ -377,10 +377,10 @@ def _wait_input(raw: Any) -> bool:
     text = str(raw or "").strip().casefold().replace("ё", "е")
     if text.startswith("("):
         text = text[1:].lstrip()
-    if re.search(r"(?<!\\w)не\\s+(?:ждать|подождать|дожидаться|ожидать)(?!\\w)", text):
+    if re.search(r"(?<!\w)не\s+(?:ждать|подождать|дожидаться|ожидать)(?!\w)", text):
         return False
     return bool(re.search(
-        r"(?<!\\w)(?:ждать|подождать|дожидаться|ожидать|дождаться|жду)(?!\\w)",
+        r"(?<!\w)(?:ждать|подождать|дожидаться|ожидать|дождаться|жду)(?!\w)",
         text,
     ))
 
