@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 AUTHOR_BLOB_SHA = {
     "rules.md": "edad7e804e7a6a31d3a66f81bc2a5dd9a4c04db2",
-    "scene_builder.md": "392fa5c1877b350cf5dbc56d1df3859caa474867",
+    "scene_builder.md": "3f62718c8692202c10e43ed6d325f3921758ae92",
 }
 
 
@@ -46,3 +46,11 @@ def test_turn_boundary_does_not_force_interaction_to_end():
     assert "не доводи его до окончания ради перехода к вариантам" in builder
     assert "не вынуждай персонажей разговаривать посреди физического момента" in builder
     assert "не принимай" not in builder
+
+def test_recurring_npcs_can_reenter_without_forced_events():
+    builder = (ROOT / "runtime" / "scene_builder.md").read_text(encoding="utf-8")
+    assert "Постоянные NPC не исчезают после разговора, примирения или отказа" in builder
+    assert "Если сцена вязнет в бытовухе и повторах" in builder
+    assert "Не вводи NPC по таймеру" in builder
+    assert "Даже формально решённый вопрос" in builder
+    assert "Возвращай эти линии по причинности" in builder
