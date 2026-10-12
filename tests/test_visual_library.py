@@ -153,6 +153,22 @@ def test_authenticated_upload_gallery_replace_and_delete(state):
     assert client.get(url, headers=key).json()["references"] == []
 
 
+def test_existing_canonical_ids_can_contain_spaces_and_unicode(state):
+    novel = _novel()
+    novel["novel_id"] = "По ту сторону Аверна"
+    novel["locations"].append({
+        "location_id": "Медицинский корпус",
+        "name": "Медицинский корпус",
+    })
+    storage.save_novel(novel)
+    image = visual_library.save_reference(
+        novel["novel_id"], _image(), subject_type="location",
+        subject_id="Медицинский корпус",
+    )
+    assert image["subject_id"] == "Медицинский корпус"
+    assert len(visual_library.list_references(novel["novel_id"])) == 1
+
+
 def test_auth_requires_configured_key(state, monkeypatch):
     monkeypatch.delenv("VISUAL_LIBRARY_API_KEY")
     assert TestClient(app).get("/visual-library/avern-test/references").status_code == 503
