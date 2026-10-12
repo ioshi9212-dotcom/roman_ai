@@ -264,3 +264,14 @@ def test_static_schema_avoids_actions_parser_traps():
 
     collect_refs(schema)
     assert set(refs) <= set(schemas)
+
+def test_optional_chat_picker_preserves_turn_raw_and_scene_output():
+    text = (ROOT / "gpt" / "custom_gpt_instructions.md").read_text(encoding="utf-8")
+    assert text.count("## Интерфейс чата") == 1
+    ui = text.split("## Интерфейс чата", 1)[1].split("## Offscreen персонаж", 1)[0]
+    assert "если доступны интерактивные элементы" in ui
+    assert "несколько действий, реплик и мыслей" in ui
+    assert "raw user_input следующего prepareTurn" in ui
+    assert "действия и мысли в ( ), речь без скобок" in ui
+    assert "Без виджетов оставь текстовые варианты" in ui
+    assert "UI не добавляй в scene_output или канон" in ui
