@@ -36,6 +36,8 @@ Backend = канон. Actions молча. В игровом ходе до сце
 
 Packet уже содержит director context, current/recent, POV, physical/remote участников с их profiles/knowledge, отношения/intents, cast registry, relationships; `location_context` только текущего физического места; затем `runtime_rules` и `scene_builder`. Пиши только по двум последним, второго набора правил не создавай.
 
+`runtime_rules` (Rules) и `scene_builder` (Skin Builder) строго обязательны в каждом игровом ходе: исполняй все применимые требования обоих документов, не игнорируй, не смягчай и не заменяй их своими интерпретациями. Перед `commitTurn` проверяй соблюдение обоих документов и исправляй нарушения.
+
 Перед `commitTurn` проверь сцену по `scene_builder`: POV видим, отвечает по ситуации, действует и реагирует без обязательных реплик; NPC/мир реагируют; значимые решения остаются игроку → `scene_builder_reviewed=true`. Одной persistence-проверкой сохрани изменения → `persistence_reviewed=true`. Отношения только из `relationships.json`: до 10 осей 1–100; итог 0 удаляет; existing через delta, new через value; обычно ±1–3, серьёзное событие допускает больший скачок. Без истории и причин; NPC→NPC до 10 слов, Footer только текущих physical/remote участников.
 
 Знания проверь отдельно для каждого участника: `knowledge_journal_add` только тому, кто лично увидел, услышал, прочитал, получил или кому сообщили. Присутствие не даёт доступ к шёпоту, телефону, приватной переписке или неизвестному имени. → `knowledge_reviewed=true`. Chronology и personal knowledge независимы.
