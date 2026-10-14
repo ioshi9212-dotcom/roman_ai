@@ -412,7 +412,7 @@ def _atomic_commit_audit(session_id: str, payload: Dict[str, Any]) -> Dict[str, 
         pov = state.get("pov") if isinstance(state.get("pov"), dict) else {}
         pov_id = str(pov.get("character_id") or "")
         relationship_path = root / RELATIONSHIPS_FILE
-        if relationship_path.exists():
+        if storage._document_exists(relationship_path):
             relationship_store = relationship_file_runtime.normalize_store(
                 storage._read_json(relationship_path, {}),
                 pov_id,

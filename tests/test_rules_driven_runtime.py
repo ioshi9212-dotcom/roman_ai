@@ -50,6 +50,21 @@ def read_context(session_id: str, user_input: str):
     return manifest, json.loads("".join(parts))
 
 
+
+def packet_knowledge(context, character_id):
+    memory = context["character_memory"][character_id]
+    if "знания" in memory:
+        return "\n".join(str(row) for rows in memory["знания"].values() for row in rows)
+    return memory.get("knowledge_journal", "")
+
+
+def packet_knowledge_count(context, character_id):
+    memory = context["character_memory"][character_id]
+    if "знания" in memory:
+        return sum(len(rows) for rows in memory["знания"].values())
+    return memory.get("knowledge_journal_entry_count", 0)
+
+
 def read_all(manifest, session_id: str):
     for index in range(1, manifest["chunk_count"]):
         storage.get_turn_packet_chunk(session_id, manifest["packet_id"], index)
@@ -206,9 +221,9 @@ def test_active_character_receives_complete_knowledge_journal_in_packet():
         manifest, context = read_context(sid, "(посмотреть на NPC)")
         assert manifest["chunk_chars_max"] == 16000
         assert manifest["chunk_count"] <= 8
-        journal = context["character_memory"]["npc"]["knowledge_journal"]
+        journal = packet_knowledge(context, "npc")
         assert isinstance(journal, str)
-        assert context["character_memory"]["npc"]["knowledge_journal_entry_count"] == 120
+        assert packet_knowledge_count(context, "npc") == 120
         assert "fact 1" in journal
         assert "fact 120" in journal
         assert "entry_id" not in journal
@@ -483,7 +498,7 @@ def test_chronology_never_grants_personal_knowledge_even_with_legacy_marker():
         assert not memory["characters"]["away"]["knowledge_journal"]
 
         _, context = read_context(sid, "(посмотреть на NPC)")
-        assert "поезд завтра уходит в шесть" not in context["character_memory"]["npc"]["knowledge_journal"]
+        assert "поезд завтра уходит в шесть" not in packet_knowledge(context, "npc")
 
 
 def test_chronology_without_explicit_knowledge_participants_does_not_grant_memory():
@@ -543,7 +558,7 @@ def test_persisted_legacy_chronology_marker_does_not_repair_personal_memory():
         )
 
         _, context = read_context(sid, "(посмотреть на NPC)")
-        assert "NPC узнал код от сейфа" not in context["character_memory"]["npc"]["knowledge_journal"]
+        assert "NPC узнал код от сейфа" not in packet_knowledge(context, "npc")
 
         memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
         assert not memory["characters"]["npc"]["knowledge_journal"]
@@ -567,8 +582,8 @@ def test_exact_duplicate_persisted_journal_rows_are_compacted_before_packet():
         persisted = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
         rows = persisted["characters"]["npc"]["knowledge_journal"]
         assert len(rows) == 2
-        assert context["character_memory"]["npc"]["knowledge_journal_entry_count"] == 2
-        assert context["character_memory"]["npc"]["knowledge_journal"].count("Рината любит чёрный кофе.") == 1
+        assert packet_knowledge_count(context, "npc") == 2
+        assert packet_knowledge(context, "npc").count("Рината любит чёрный кофе.") == 1
 
 
 def test_repeated_identical_new_fact_is_not_appended_on_later_turn():
@@ -1571,8 +1586,8 @@ def test_legacy_pending_packet_is_refreshed_into_current_knowledge_context():
             "".join(storage._read_json(root / "turn_packet.json", {})["chunks"])
         )
         assert "simple_knowledge_rules" not in rebuilt
-        assert rebuilt["character_memory"]["npc"]["knowledge_journal"] == "NPC уже знает этот факт."
-        assert rebuilt["character_memory"]["npc"]["knowledge_journal_entry_count"] == 1
+        assert packet_knowledge(rebuilt, "npc") == "NPC уже знает этот факт."
+        assert packet_knowledge_count(rebuilt, "npc") == 1
         assert "working_context_contract" not in rebuilt
 
 

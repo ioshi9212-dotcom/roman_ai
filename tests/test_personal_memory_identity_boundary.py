@@ -1,6 +1,7 @@
 import json
 import tempfile
 from pathlib import Path
+import pytest
 
 from app import session_migrations, session_runtime, storage, turn_context
 
@@ -40,10 +41,13 @@ def read_all(manifest, session_id: str):
     return json.loads("".join(parts))
 
 
-def test_physical_dialogue_cannot_stay_remote_only_because_model_marked_it_remote():
+@pytest.mark.parametrize("version", [1, 5])
+def test_physical_dialogue_cannot_stay_remote_only_because_model_marked_it_remote(version):
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
-        sid = storage.create_session(novel())["session_id"]
+        source = novel()
+        source["version"] = version
+        sid = storage.create_session(source)["session_id"]
 
         manifest = session_runtime.prepare_turn_packet(sid, "(ответить Мире)")
         read_all(manifest, sid)
@@ -90,10 +94,12 @@ def test_physical_dialogue_cannot_stay_remote_only_because_model_marked_it_remot
         assert "Привет." in blob
 
 
-def test_real_remote_memory_keeps_content_but_not_unknown_counterpart_identity():
+@pytest.mark.parametrize("version", [1, 5])
+def test_real_remote_memory_keeps_content_but_not_unknown_counterpart_identity(version):
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         source = novel()
+        source["version"] = version
         source["starting_state"]["current"]["present_characters"] = ["kair_venner"]
         source["starting_state"]["current"]["remote_characters"] = ["mira_veil"]
         sid = storage.create_session(source)["session_id"]
