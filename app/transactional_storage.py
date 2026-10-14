@@ -73,7 +73,16 @@ def _rollback(root: Path, transaction_dir: Path, manifest: Dict[str, Any]) -> No
     for entry in reversed(manifest.get("entries", [])):
         target = (root / _safe_relative(str(entry["target"]))).resolve()
         target.relative_to(root.resolve())
-        if entry.get("backup_exists"):
+        if entry.get("append"):
+            if entry.get("backup_exists"):
+                with target.open("r+b") as handle:
+                    handle.truncate(int(entry["original_size"]))
+                    handle.flush()
+                    os.fsync(handle.fileno())
+            else:
+                target.unlink(missing_ok=True)
+            _fsync_dir(target.parent)
+        elif entry.get("backup_exists"):
             backup = transaction_dir / str(entry["backup"])
             if not backup.exists():
                 raise RuntimeError(f"missing transaction backup for {entry['target']}")
@@ -129,7 +138,11 @@ def session_transaction(root: Path) -> Iterator[None]:
             _LOCAL.active = active
             try:
                 recover(root)
-                from .session_documents import read_view
+                from .session_documents import invalidate_views, read_view
+                # A different process may have committed between two outer locks.
+                # Raw file caches are stat-keyed; decoded compatibility views must
+                # be rebuilt from that now-current data under the acquired lock.
+                invalidate_views(root)
                 with read_view():
                     yield
             finally:
@@ -140,8 +153,15 @@ def session_transaction(root: Path) -> Iterator[None]:
                     fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
-def write_batch(root: Path, values: Dict[str, str]) -> None:
-    if not values:
+def _append_staged(target: Path, staged: Path) -> None:
+    with staged.open("rb") as source, target.open("ab") as dest:
+        shutil.copyfileobj(source, dest)
+        dest.flush()
+        os.fsync(dest.fileno())
+
+
+def write_batch(root: Path, values: Dict[str, str], *, appends: Dict[str, str] | None = None) -> None:
+    if not values and not appends:
         return
     root = root.resolve()
     with session_transaction(root):
@@ -151,8 +171,10 @@ def write_batch(root: Path, values: Dict[str, str]) -> None:
         values = {name: text for name, text in values.items()
                   if ((root / name).is_file() if text is None else
                       not (root / name).is_file() or (root / name).read_text(encoding="utf-8") != text)}
-        if not values:
+        if not values and not appends:
             return
+        if set(values) & set(appends or {}):
+            raise ValueError("a transaction cannot replace and append the same file")
         transactions = root / ".transactions"
         tx = transactions / uuid.uuid4().hex
         staged_dir = tx / "staged"
@@ -188,6 +210,23 @@ def write_batch(root: Path, values: Dict[str, str]) -> None:
                         "delete": values[relative] is None,
                     }
                 )
+            for relative, content in (appends or {}).items():
+                target = (root / _safe_relative(relative)).resolve()
+                target.relative_to(root)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                existed = target.exists()
+                size = target.stat().st_size if existed else 0
+                if size:
+                    with target.open("rb") as handle:
+                        handle.seek(-1, os.SEEK_END)
+                        if handle.read(1) != b"\n":
+                            content = "\n" + content
+                staged = staged_dir / f"{len(manifest['entries']):04d}.txt"
+                _write_text_atomic(staged, content)
+                manifest["entries"].append({
+                    "target": relative, "staged": str(staged.relative_to(tx)),
+                    "append": True, "original_size": size, "backup_exists": existed,
+                })
             _fsync_dir(staged_dir)
             _fsync_dir(backup_dir)
             _write_text_atomic(manifest_path, json.dumps(manifest, ensure_ascii=False, indent=2) + "\n")
@@ -195,7 +234,9 @@ def write_batch(root: Path, values: Dict[str, str]) -> None:
             for entry in manifest["entries"]:
                 target = (root / _safe_relative(str(entry["target"]))).resolve()
                 staged = tx / str(entry["staged"])
-                if entry.get("delete"):
+                if entry.get("append"):
+                    _append_staged(target, staged)
+                elif entry.get("delete"):
                     target.unlink(missing_ok=True)
                 else:
                     os.replace(staged, target)
@@ -209,6 +250,8 @@ def write_batch(root: Path, values: Dict[str, str]) -> None:
                 _fsync_dir(root)
             except OSError:
                 pass
+            from .session_documents import invalidate_views
+            invalidate_views(root)
         except Exception:
             try:
                 if manifest_path.exists():
@@ -218,6 +261,8 @@ def write_batch(root: Path, values: Dict[str, str]) -> None:
                     shutil.rmtree(tx, ignore_errors=True)
                     _fsync_dir(transactions)
             finally:
+                from .session_documents import invalidate_views
+                invalidate_views(root)
                 raise
 
 

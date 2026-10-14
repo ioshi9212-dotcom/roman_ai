@@ -115,7 +115,7 @@ def test_every_turn_has_causal_cast_and_qualitative_directed_npc_network_from_sa
         context = read_context(sid)
 
         registry = context["cast_registry"]
-        assert registry["mandatory_causal_review"] is True
+        assert "mandatory_causal_review" not in registry
         assert "return_pressure" not in registry
         assert "important_cast_return_required" not in registry
         assert "не задаёт очередь, квоту или таймер появления" in registry["instruction"]

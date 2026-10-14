@@ -51,7 +51,7 @@ _BASE_PARTICIPATION_BUNDLE = character_chunk_read._participation_bundle
 _BASE_CREATE_SESSION = storage.create_session
 _BASE_RECOVER_CURRENT = session_recovery.recover_session_current
 
-PIPELINE_VERSION = 20
+PIPELINE_VERSION = 21
 
 def _packet_manifest(packet: Dict[str, Any], *, reused: bool) -> Dict[str, Any]:
     chunks = packet.get("chunks", []) if isinstance(packet.get("chunks"), list) else []
@@ -301,80 +301,6 @@ def _cast_registry_rows(
     return rows
 
 
-def _clean_relationship_lens(context: Dict[str, Any]) -> None:
-    # The complete current file is attached once by _prepare_context.
-    context.pop("relationship_lens", None)
-
-
-def _clean_director_layers(context: Dict[str, Any]) -> Dict[str, Any]:
-    result = deepcopy(context)
-
-    # relationships.json is the sole relationship canon. Base compatibility
-    # builders may still have copied legacy relationship stores into the packet
-    # before migration runs, especially on the first turn of an old session.
-    legacy_relationship_keys = (
-        "relationships",
-        "relationship_documents",
-        "relationship_schemas",
-        "npc_relationships",
-    )
-    for key in legacy_relationship_keys:
-        result.pop(key, None)
-    scene_state = result.get("scene_state")
-    if isinstance(scene_state, dict):
-        scene_state = deepcopy(scene_state)
-        for key in legacy_relationship_keys:
-            scene_state.pop(key, None)
-        result["scene_state"] = scene_state
-
-    for key in (
-        "runtime_contract",
-        "knowledge_guard",
-        "knowledge_boundary",
-        "scene_logic_guardrails",
-        "knowledge_firewall_v5",
-        "dialogue_policy",
-        "dialogue_frames",
-        "author_only_recollection_context",
-        "narrative_guardrails",
-        "living_world",
-        "relationship_policy",
-        "story_pressure",
-        "story_drive",
-        "foundation_pressure",
-        "story_pillar_pressure",
-        "cast_pressure",
-        "scene_builder_instruction",
-        "pov_participation_instruction",
-        "npc_agency_instruction",
-        "character_context_instruction",
-        "relationship_lens_instruction",
-        "npc_intent_instruction",
-        "simple_knowledge_rules",
-        "speaker_context",
-        "director_only",
-        "character_registry_instruction",
-        "character_registry",
-        "scene_characters",
-        "working_context_contract",
-        "chronology_policy",
-        "transport_context_paths",
-    ):
-        result.pop(key, None)
-
-    for key in ("novel_rules", "novel", "author_context", "novel_profile"):
-        if key in result:
-            result[key] = profile_templates._strip_legacy_pov_silence_rule(result[key])
-    author = result.get("author_context")
-    if isinstance(author, dict):
-        author = deepcopy(author)
-        for key in ("instruction", "knowledge_quarantine", "chronology_context_rule", *legacy_relationship_keys):
-            author.pop(key, None)
-        result["author_context"] = author
-    _clean_relationship_lens(result)
-    return result
-
-
 def _wait_input(raw: Any) -> bool:
     """Recognize an action to wait, not spoken promises or quick reaction beats."""
     text = str(raw or "").strip().casefold().replace("ё", "е")
@@ -421,7 +347,7 @@ def _waiting_momentum_context(user_input: Any, recent_turns: Any) -> Dict[str, A
 
 
 def _move_runtime_documents_last(context: Dict[str, Any]) -> Dict[str, Any]:
-    result = deepcopy(context)
+    result = context
     rules = result.pop("runtime_rules", None)
     builder = result.pop("scene_builder", None)
     result["read_order"] = [
@@ -469,19 +395,8 @@ def _prepare_context(
     if opening_scene:
         context["opening_scene"] = {"active": True}
 
-    # session_runtime/turn_context already gives full cards and complete factual knowledge
-    # only for POV + physical/remote scene participants. A name mention alone is excluded.
-    context = stability_runtime._compact_turn_context(context, source)
-    context = transport_scope_runtime._strip_legacy_full_payloads(
-        context,
-        persistent_state=state,
-    )
-    context = writer_first_runtime._rewrite_context(session_id, context)
+    # The base is already the final writer data; only privacy scoping remains.
     context = private_knowledge_runtime.redact_private_history(context, root=root, cards=cards)
-    context = _clean_director_layers(context)
-    # cast_registry below is the single always-read cast index. Remove the older
-    # writer-facing cast_index so recency metadata cannot compete with causal selection.
-    context.pop("cast_index", None)
 
     scene_ids = _scene_ids(state, cards)
     context["relevant_character_ids"] = scene_ids
@@ -519,17 +434,11 @@ def _prepare_context(
     # Active cards preserve biography; current attitudes live in relationships only.
     # Do not render the same cards a second time into character_profiles.
 
-    memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
-    memory_buckets = memory.get("characters", {}) if isinstance(memory.get("characters"), dict) else {}
-    context["character_memory"] = {
-        cid: turn_context._working_memory_bucket(
-            memory_buckets.get(cid, {}),
-            current_turn,
-            character_id=cid,
-            cards=cards,
-        )
-        for cid in scene_ids
-    }
+    if not session_documents.is_native(root):
+        memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
+        buckets = memory.get("characters", {})
+        context["character_memory"] = {cid: turn_context._working_memory_bucket(
+            buckets.get(cid, {}), current_turn, character_id=cid, cards=cards) for cid in scene_ids}
     pov = state.get("pov") if isinstance(state.get("pov"), dict) else {}
     relationship_store = relationship_file_runtime.load(
         root,
@@ -546,14 +455,13 @@ def _prepare_context(
     context["cast_registry"] = {
         "persistent": True,
         "registry_index_path": "cast_registry.characters",
-        "mandatory_causal_review": True,
         "offscreen_bundle_read": {
             "action": "prepareCharacterBundleRead",
             "then": "read all getCharacterBundleChunk chunks before material participation",
             "rule": "The bundle may be read to decide whether a candidate should participate; complete it before actual participation.",
         },
         "instruction": (
-            "Перед сценой просмотри постоянный NPC-каст и relationships. "
+            "Постоянный NPC-каст и relationships доступны как контекст. "
             "Cast registry даёт контекст и не задаёт очередь, квоту или таймер появления; решение о появлении/контакте — по scene_builder. "
             "До реального участия offscreen NPC прочитай его полный character bundle."
         ),
@@ -616,17 +524,17 @@ def _prepare_context(
     return result
 
 
-def prepare_turn_packet(session_id: str, user_input: str) -> Dict[str, Any]:
+def prepare_turn_packet(session_id: str, user_input: str, *, _migrated: bool = False) -> Dict[str, Any]:
     root = storage.SESSIONS_DIR / session_id
     if not root.exists():
         raise FileNotFoundError(session_id)
 
     stability_runtime._recover_session(session_id)
-    session_migrations.ensure_current_session_data(session_id, invalidate_pending=True)
+    if not _migrated:
+        session_migrations.ensure_current_session_data(session_id, invalidate_pending=True)
     _current_pointer_guard(session_id)
     _strip_legacy_pov_rule_from_session_source(root)
     game_day._sync_session_game_day(session_id)
-    knowledge_persistence_runtime.dedupe_persisted_knowledge_journal(session_id)
 
     with session_transaction(root):
         meta = storage._read_json(root / "meta.json", {})
@@ -951,7 +859,7 @@ def commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     prepared = _apply_story_and_intent_updates(session_id, prepared)
     prepared = _apply_npc_relationship_updates(session_id, prepared)
     prepared = _apply_relationship_changes(session_id, prepared)
-    prepared = cast_registry_runtime._with_registry_patch(session_id, prepared)
+    prepared = cast_registry_runtime._with_registry_patch(session_id, prepared, presence_normalized=True)
     prepared = _normalise_chronology_for_save(session_id, prepared)
     prepared = knowledge_persistence_runtime.dedupe_new_journal_against_persisted(
         session_id,
@@ -969,8 +877,6 @@ def commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         if isinstance(prepared.get("extracted"), dict)
         else []
     )
-    if saved.get("audit_due") is True:
-        saved["required_audit"] = fast_audit_runtime.get_audit_snapshot(session_id)
     saved["turn_pipeline_version"] = PIPELINE_VERSION
     return saved
 
@@ -984,6 +890,7 @@ def commit_audit(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     return dict(stability_runtime._atomic_commit_audit(session_id, prepared))
 
 
+@session_documents.read_view()
 def continue_session(session_id: str) -> Dict[str, Any]:
     stability_runtime._recover_session(session_id)
     migration = session_migrations.ensure_current_session_data(session_id, invalidate_pending=True)
@@ -1011,11 +918,9 @@ def continue_session(session_id: str) -> Dict[str, Any]:
         result["pending_turn"] = pending
 
     meta = storage._read_json(root / "meta.json", {})
-    if meta.get("audit_required"):
-        result["audit_required"] = True
-        result["required_audit"] = fast_audit_runtime.get_audit_snapshot(session_id)
-        result["instruction"] = "Complete required_audit before preparing the next gameplay turn."
-        return result
+    result["audit_available"] = bool(meta.get("audit_required"))
+    result["audit_blocking"] = False
+    result["audit_required"] = False
 
     if result.get("current_recovery_required"):
         if pending:

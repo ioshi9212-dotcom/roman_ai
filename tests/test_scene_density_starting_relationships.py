@@ -255,7 +255,7 @@ def test_relationship_rules_do_not_require_major_or_durable_event_for_plus_one()
     assert "Не меняй все оси, не придумывай изменения ради хода" in rules
     assert "Отдельный отчёт, причины для каждой оси и дополнительные review-проверки не нужны" in rules
     assert "changed=false" not in instructions
-    assert "обычно ±1–3" in instructions
+    assert "Отдельные обязательные review-флаги и подробные отчёты не нужны" in instructions
 
 def test_v5_setup_requires_structured_pre_story_npc_to_pov_relationship():
     template = relationship_novel()

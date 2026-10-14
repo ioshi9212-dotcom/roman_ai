@@ -8,7 +8,7 @@ from . import personal_memory_transport, relationship_file_runtime, storage, ses
 from .transactional_storage import session_transaction
 
 
-CURRENT_DATA_SCHEMA_VERSION = 2
+CURRENT_DATA_SCHEMA_VERSION = 3
 LEGACY_RELATIONSHIP_KEYS = (
     "relationships",
     "relationship_documents",
@@ -69,9 +69,19 @@ def _migrate_v1_to_v2(root: Path) -> None:
         storage._write_json(root / "memory.json", memory)
 
 
+def _migrate_v2_to_v3(root: Path) -> None:
+    # Historical cleanup belongs to an upgrade, never to every scene preparation.
+    from .knowledge_persistence_runtime import dedupe_persisted_knowledge_journal
+    dedupe_persisted_knowledge_journal(root.name)
+    meta = storage._read_json(root / "meta.json", {})
+    meta["audit_blocking"] = False
+    storage._write_json(root / "meta.json", meta)
+
+
 _MIGRATIONS: Dict[int, Callable[[Path], None]] = {
     0: _migrate_v0_to_v1,
     1: _migrate_v1_to_v2,
+    2: _migrate_v2_to_v3,
 }
 
 

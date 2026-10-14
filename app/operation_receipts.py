@@ -177,14 +177,9 @@ def current_turn_identity(root: Path) -> str | None:
     path = file_path(root, "turns.jsonl")
     if not path.exists():
         return None
+    from .session_documents import read_jsonl
     last: Dict[str, Any] | None = None
-    for line in path.read_text(encoding="utf-8").splitlines():
-        if not line.strip():
-            continue
-        try:
-            row = json.loads(line)
-        except json.JSONDecodeError:
-            continue
+    for row in read_jsonl(path):
         if isinstance(row, dict):
             last = row
     return turn_identity(last)

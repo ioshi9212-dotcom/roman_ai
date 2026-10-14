@@ -169,7 +169,7 @@ def test_v2_migration_neutralizes_old_generated_remote_identity_labels():
         storage._write_json(root / "memory.json", memory)
 
         result = session_migrations.ensure_current_session_data(sid)
-        assert result["data_schema_version"] == 2
+        assert result["data_schema_version"] == session_migrations.CURRENT_DATA_SCHEMA_VERSION
 
         migrated = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
         text = migrated["characters"]["mira_veil"]["knowledge_journal"][0]["text"]

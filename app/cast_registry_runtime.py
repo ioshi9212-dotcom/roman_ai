@@ -599,7 +599,7 @@ def _registry_delta(before: Any, after: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _with_registry_patch(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+def _with_registry_patch(session_id: str, payload: Dict[str, Any], *, presence_normalized: bool = False) -> Dict[str, Any]:
     root = storage.SESSIONS_DIR / session_id
     with session_transaction(root):
         state = storage._read_json(root / "state.json", {})
@@ -611,7 +611,7 @@ def _with_registry_patch(session_id: str, payload: Dict[str, Any]) -> Dict[str, 
         world_before = state.get("world") if isinstance(state.get("world"), dict) else {}
         registry_before = world_before.get("cast_registry") if isinstance(world_before.get("cast_registry"), dict) else {}
 
-        prepared = scene_presence_runtime._apply_presence_contract(deepcopy(payload), root=root)
+        prepared = deepcopy(payload) if presence_normalized else scene_presence_runtime._apply_presence_contract(deepcopy(payload), root=root)
         extracted = prepared.get("extracted") if isinstance(prepared.get("extracted"), dict) else {}
         extracted = deepcopy(extracted)
         _validate_character_upserts(current_cards, extracted, source_ids)
