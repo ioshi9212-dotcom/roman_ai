@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict
 
-from . import personal_memory_transport, relationship_file_runtime, storage
+from . import personal_memory_transport, relationship_file_runtime, storage, session_documents
 from .transactional_storage import session_transaction
 
 
@@ -127,6 +127,7 @@ def ensure_current_session_data(
     if not root.exists():
         raise FileNotFoundError(session_id)
 
+    session_documents.ensure_native(root)
     migrated_from = None
     with session_transaction(root):
         meta = storage._read_json(root / "meta.json", {})

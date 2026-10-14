@@ -173,7 +173,8 @@ def turn_identity(turn: Any) -> str | None:
 
 
 def current_turn_identity(root: Path) -> str | None:
-    path = root / "turns.jsonl"
+    from .session_documents import file_path
+    path = file_path(root, "turns.jsonl")
     if not path.exists():
         return None
     last: Dict[str, Any] | None = None

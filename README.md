@@ -44,6 +44,57 @@ Each session keeps:
 - full raw turn archive;
 - audits.
 
+## Generator state documents
+
+The repository now has exactly ten JSON templates in `state/`, copied verbatim
+from `romance-novella-generator-api` at `4379d8d` (14 October 2026). The former
+`state_templates/` folder is replaced, not kept as a second template set.
+
+| Template | Live V5 session file |
+|---|---|
+| `сессия.json` | `сессия.json` |
+| `анкета.json` | `анкета.json` |
+| `персонажи.json` | `персонажи.json` |
+| `state.json` | `state.json` |
+| `отношения.json` | `отношения.json` |
+| `локации.json` | `локации.json` |
+| `скрытый_лор_и_крючки.json` | `скрытый_лор_и_крючки.json` |
+| `хронология.json` | `хронология.json` |
+| `карточка_персонажа.json` | `карточки/<id>.json`, including POV |
+| `память_персонажа.json` | `память/<id>.json`, including POV |
+
+The JSON template count is ten. The number of actual personal files depends on
+the cast. RAW/source snapshots, exact turn archives, operation receipts and
+rollback records remain technical storage, not additional author templates.
+
+New V5/profile sessions use these files immediately. Existing V5 sessions move
+once when loaded, preserving their ID, original RAW, archive, original memory
+record IDs/turns and relationships. The move is transactional; old aggregate
+files are removed only after the new files are committed. Pre-V5 stories remain
+supported through their original format.
+
+`prepareTurn` includes the entire dated `хронология.json` as `chronology`, and
+the complete dated personal memories of physical/remote participants as
+`character_memory[id].знания` and `личные_события`. It does not drop the oldest
+knowledge or select only recent chronology entries. Offscreen character memory
+is loaded through the existing character-bundle actions. Missing chronology or
+participant memory returns `409 SESSION_DOCUMENT_REQUIRED`; a scene is never
+prepared with an invented empty replacement.
+
+Chronology is director-only. Personal facts retain their original wording,
+including attributed claims, uncertainty and lies; another character's memory
+does not become shared knowledge. `_runtime` preserves technical provenance for
+audit/replay/rollback and is removed from writer-facing documents.
+
+The existing Actions and `extracted` update fields remain compatible. Old
+English file names are internal views, not duplicate saved memories or
+chronologies. Numerical relationship behavior remains the current Roman AI
+contract, including zero-axis removal and causal deltas. A request-scoped read
+view avoids reopening the same native document for each compatibility helper.
+
+Use the updated `gpt/custom_gpt_instructions.md` in the GPT configuration; the
+deployed runtime Rules explain the new packet paths. Scene Builder is unchanged.
+
 ## Turn cycle
 
 Every gameplay turn uses a lossless chunked turn packet and is written back to the same Railway session.

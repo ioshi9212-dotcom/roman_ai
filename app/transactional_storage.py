@@ -129,7 +129,9 @@ def session_transaction(root: Path) -> Iterator[None]:
             _LOCAL.active = active
             try:
                 recover(root)
-                yield
+                from .session_documents import read_view
+                with read_view():
+                    yield
             finally:
                 active = set(getattr(_LOCAL, "active", set()))
                 active.discard(key)
@@ -143,6 +145,14 @@ def write_batch(root: Path, values: Dict[str, str]) -> None:
         return
     root = root.resolve()
     with session_transaction(root):
+        from .session_documents import encode_batch
+        values = encode_batch(root, values)
+        # Canonical documents are not rewritten when the decoded content is unchanged.
+        values = {name: text for name, text in values.items()
+                  if ((root / name).is_file() if text is None else
+                      not (root / name).is_file() or (root / name).read_text(encoding="utf-8") != text)}
+        if not values:
+            return
         transactions = root / ".transactions"
         tx = transactions / uuid.uuid4().hex
         staged_dir = tx / "staged"
@@ -161,7 +171,8 @@ def write_batch(root: Path, values: Dict[str, str]) -> None:
                 target.parent.mkdir(parents=True, exist_ok=True)
                 staged = staged_dir / f"{index:04d}.txt"
                 backup = backup_dir / f"{index:04d}.txt"
-                _write_text_atomic(staged, values[relative])
+                if values[relative] is not None:
+                    _write_text_atomic(staged, values[relative])
                 backup_exists = target.exists()
                 if backup_exists:
                     with target.open("rb") as source, backup.open("wb") as dest:
@@ -174,6 +185,7 @@ def write_batch(root: Path, values: Dict[str, str]) -> None:
                         "staged": str(staged.relative_to(tx)),
                         "backup": str(backup.relative_to(tx)),
                         "backup_exists": backup_exists,
+                        "delete": values[relative] is None,
                     }
                 )
             _fsync_dir(staged_dir)
@@ -183,7 +195,10 @@ def write_batch(root: Path, values: Dict[str, str]) -> None:
             for entry in manifest["entries"]:
                 target = (root / _safe_relative(str(entry["target"]))).resolve()
                 staged = tx / str(entry["staged"])
-                os.replace(staged, target)
+                if entry.get("delete"):
+                    target.unlink(missing_ok=True)
+                else:
+                    os.replace(staged, target)
                 _fsync_dir(target.parent)
             manifest["state"] = "committed"
             _write_text_atomic(manifest_path, json.dumps(manifest, ensure_ascii=False, indent=2) + "\n")

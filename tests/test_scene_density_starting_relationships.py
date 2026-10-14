@@ -106,7 +106,7 @@ def test_legacy_session_migrates_once_to_relationships_file_and_drops_invalid_ne
         setup_temp_storage(tmp)
         sid = storage.create_session(relationship_novel())["session_id"]
         root = storage.SESSIONS_DIR / sid
-        (root / "relationships.json").unlink()
+        (root / "отношения.json").unlink()
 
         state = storage._read_json(root / "state.json", {})
         state["relationships"] = {"adrian": {"доверие": 17, "раздражение": -4}}
@@ -149,7 +149,7 @@ def test_first_legacy_prepare_exposes_only_positive_relationship_values():
         setup_temp_storage(tmp)
         sid = storage.create_session(relationship_novel())["session_id"]
         root = storage.SESSIONS_DIR / sid
-        (root / "relationships.json").unlink()
+        (root / "отношения.json").unlink()
 
         state = storage._read_json(root / "state.json", {})
         state["relationships"] = {"adrian": {"доверие": 17, "раздражение": -4}}

@@ -9,10 +9,11 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from .transactional_storage import json_text, write_batch
+from . import session_documents
 
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
-TEMPLATE_DIR = ROOT_DIR / "state_templates"
+TEMPLATE_DIR = ROOT_DIR / "state"
 DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
 LIBRARY_DIR = DATA_DIR / "library"
 SESSIONS_DIR = DATA_DIR / "sessions"
@@ -25,12 +26,18 @@ def ensure_dirs() -> None:
 
 
 def _read_json(path: Path, default: Any) -> Any:
-    if not path.exists():
-        return deepcopy(default)
-    return json.loads(path.read_text(encoding="utf-8"))
+    handled, value = session_documents.compat_read(path, default)
+    return value if handled else session_documents.read(path, default)
+
+
+def _document_exists(path: Path) -> bool:
+    return session_documents.document_exists(path)
 
 
 def _write_json(path: Path, data: Any) -> None:
+    if session_documents.is_native(path.parent):
+        write_batch(path.parent, {path.name: json_text(data)})
+        return
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -38,6 +45,19 @@ def _write_json(path: Path, data: Any) -> None:
 
 
 def _template(name: str, default: Any) -> Any:
+    # The ten generator templates are the external document contract. These
+    # small defaults keep the pre-V5 API views readable without old template files.
+    if name == "state.json":
+        return {"current": {"date": None, "time": None, "location": None, "location_id": None,
+                "zone": None, "zone_id": None, "scene": None, "present_characters": [],
+                "remote_characters": [], "remote_channels": {}, "positions": {},
+                "scene_items": {}, "unfinished_actions": []},
+                "pov": {"character_id": None, "condition": {}, "clothing": None, "inventory": []},
+                "characters": {}, "threads": {}, "world": {}}
+    if name == "session_meta.json":
+        return {"session_id": None, "source_novel_id": None, "source_novel_version": 1,
+                "turn_number": 0, "audit_required": False, "handoff_required": False,
+                "handoff_generation": 0, "last_audit_turn": 0}
     return _read_json(TEMPLATE_DIR / name, default)
 
 
@@ -52,7 +72,7 @@ def _deep_merge(target: Dict[str, Any], patch: Dict[str, Any]) -> Dict[str, Any]
 
 
 def _read_turns(root: Path) -> List[Dict[str, Any]]:
-    path = root / "turns.jsonl"
+    path = session_documents.file_path(root, "turns.jsonl")
     if not path.exists():
         return []
     turns: List[Dict[str, Any]] = []
@@ -712,7 +732,7 @@ def commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     extracted = payload.get("extracted", {}) if isinstance(payload.get("extracted"), dict) else {}
     entry = _template("turn.json", {})
     entry.update({"turn_number": turn_number, "saved_at": datetime.now(timezone.utc).isoformat(), "user_input": payload["user_input"], "scene_output": payload["scene_output"], "extracted": extracted})
-    with (root / "turns.jsonl").open("a", encoding="utf-8") as fh:
+    with session_documents.file_path(root, "turns.jsonl").open("a", encoding="utf-8") as fh:
         fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
     source = _read_json(root / "source.json", {})

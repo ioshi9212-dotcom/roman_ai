@@ -6,18 +6,69 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any, Dict, Iterable, List
 
-PROFILE_ROOT = Path(__file__).resolve().parent.parent / "state_templates"
+PROFILE_ROOT = Path(__file__).resolve().parent.parent / "state"
 
 
-PROFILE_VERSION = 1
-_TEMPLATE_FILES = {
-    "character": "character_profile.json",
-    "novel": "novel_profile.json",
-    "hidden_lore": "hidden_lore.json",
-    "knowledge_entry": "knowledge_journal_entry.json",
-    "location": "location_profile.json",
-    "canon_note": "canon_note.json",
-}
+PROFILE_VERSION = 2
+
+# In-memory compatibility shapes for the existing draft API; no duplicate template files.
+_INTERNAL_SHAPES = {'character': {'character_id': None,
+               'name': None,
+               'surname': None,
+               'aliases': [],
+               'age': None,
+               'status': None,
+               'role': None,
+               'is_pov': False,
+               'story_function': None,
+               'appearance': None,
+               'character': None,
+               'speech': None,
+               'habits': None,
+               'work': None,
+               'residence': None,
+               'relationships': None,
+               'abilities': None,
+               'weaknesses': None,
+               'goals': None,
+               'background': None,
+               'secrets_known_to_self': None,
+               'notes': None,
+               'generated_details': {},
+               'additional': {}},
+ 'novel': {'title': None,
+           'genres': [],
+           'category': None,
+           'pov_character': None,
+           'setting': None,
+           'premise': None,
+           'tone': None,
+           'world_rules': None,
+           'supernatural': None,
+           'story_rules': None,
+           'start': None,
+           'core_cast': [],
+           'notes': None,
+           'additional': {}},
+ 'location': {'location_id': None,
+              'name': None,
+              'aliases': [],
+              'type': None,
+              'parent_location_id': None,
+              'where': None,
+              'floor': None,
+              'hours': None,
+              'staff': [],
+              'linked_characters': [],
+              'layout': None,
+              'zones': [],
+              'appearance': None,
+              'fixed_features': [],
+              'notes': None,
+              'additional': {}},
+ 'hidden_lore': {'entries': []},
+ 'knowledge_entry': {'date': None, 'period': None, 'text': None},
+ 'canon_note': {'note_id': None, 'text': None, 'subjects': []}}
 
 _CHARACTER_ALIASES = {
     "id": "character_id",
@@ -136,21 +187,10 @@ _NOVEL_LABELS = (
 )
 
 
-def _template_path(name: str) -> Path:
-    filename = _TEMPLATE_FILES[name]
-    return PROFILE_ROOT / filename
-
-
 def load_profile_template(name: str) -> Dict[str, Any]:
-    if name not in _TEMPLATE_FILES:
+    if name not in _INTERNAL_SHAPES:
         raise KeyError(name)
-    path = _template_path(name)
-    if not path.exists():
-        raise RuntimeError(f"PROFILE_TEMPLATE_MISSING:{name}")
-    value = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(value, dict):
-        raise RuntimeError(f"PROFILE_TEMPLATE_INVALID:{name}")
-    return deepcopy(value)
+    return deepcopy(_INTERNAL_SHAPES[name])
 
 
 def _norm_key(value: Any) -> str:
@@ -195,7 +235,8 @@ def _split_full_name(profile: Dict[str, Any]) -> None:
 
 
 def normalize_character_profile(raw: Any) -> Dict[str, Any]:
-    source = deepcopy(raw) if isinstance(raw, dict) else {}
+    from .session_documents import card_to_internal
+    source = card_to_internal(raw) if isinstance(raw, dict) else {}
     profile = _merge_known_fields(
         source,
         base=load_profile_template("character"),
@@ -270,7 +311,8 @@ def _strip_legacy_pov_silence_rule(value: Any) -> Any:
 
 
 def normalize_novel_profile(raw: Any, *, title: str | None = None) -> Dict[str, Any]:
-    source = deepcopy(raw) if isinstance(raw, dict) else {}
+    from .session_documents import novel_to_internal
+    source = novel_to_internal(raw) if isinstance(raw, dict) and "название" in raw else deepcopy(raw) if isinstance(raw, dict) else {}
     profile = _merge_known_fields(
         source,
         base=load_profile_template("novel"),
@@ -296,6 +338,9 @@ def normalize_novel_profile(raw: Any, *, title: str | None = None) -> Dict[str, 
 
 
 def normalize_location_profile(raw: Any) -> Dict[str, Any]:
+    from .session_documents import location_to_internal
+    if isinstance(raw, dict):
+        raw = location_to_internal(raw)
     source = deepcopy(raw) if isinstance(raw, dict) else {}
     profile = _merge_known_fields(
         source,
@@ -644,7 +689,12 @@ def render_knowledge_journal(values: Any) -> str:
 
 
 def profile_manifest() -> Dict[str, Any]:
+    from .session_documents import FILES, template, public
     return {
+        "state_document_format": "generator",
+        "state_template_count": len(FILES),
+        "state_files": list(FILES),
+        "state_fields": {name: list(public(template(name))) for name in FILES},
         "version": PROFILE_VERSION,
         "novel_fields": list(load_profile_template("novel").keys()),
         "character_fields": list(load_profile_template("character").keys()),

@@ -386,6 +386,9 @@ def _foundation_coverage(template: Dict[str, Any], *, required: bool) -> Dict[st
 
 def _normalise_starting_state_for_session(template: Dict[str, Any]) -> Dict[str, Any]:
     result = deepcopy(template)
+    from .session_documents import state_to_internal
+    if isinstance(result.get("starting_state"), dict) and "pov_id" in result["starting_state"]:
+        result["starting_state"] = state_to_internal(result["starting_state"])
     cards = storage._normalise_cards(result.get("characters", []))
     raw = result.get("starting_state")
     state = deepcopy(raw) if isinstance(raw, dict) else {}

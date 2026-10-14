@@ -4,7 +4,7 @@ from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Any, Dict
 
-from . import audit_runtime, session_migrations, session_runtime, storage
+from . import audit_runtime, session_migrations, session_runtime, storage, session_documents
 from .operation_receipts import (
     OperationReceiptConflict,
     current_turn_identity,
@@ -74,6 +74,7 @@ def _archive_abandoned_pending(root, packet: Dict[str, Any], *, reason: str) -> 
     storage._write_json(path, rows[-20:])
 
 
+@session_documents.read_view()
 def prepare_turn_request(
     session_id: str,
     user_input: str,
@@ -172,6 +173,7 @@ def prepare_turn_request(
 
 
 
+@session_documents.read_view()
 def commit_turn_request(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     root = _session_root(session_id)
     session_migrations.ensure_current_session_data(session_id, invalidate_pending=False)

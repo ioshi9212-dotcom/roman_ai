@@ -190,7 +190,7 @@ def build_initial_store(cards: List[Dict[str, Any]], state: Dict[str, Any], pov_
 
 def load(root: Path, *, cards: List[Dict[str, Any]], state: Dict[str, Any], pov_id: str) -> Dict[str, Any]:
     path = root / FILE_NAME
-    if path.exists():
+    if storage._document_exists(path):
         raw = storage._read_json(path, {})
         store = normalize_store(raw, pov_id)
         if raw != store:

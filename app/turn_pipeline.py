@@ -30,6 +30,7 @@ from . import (
     runtime_fixes,
     scene_presence_runtime,
     session_migrations,
+    session_documents,
     session_recovery,
     session_runtime,
     simple_profile_runtime,
@@ -50,7 +51,7 @@ _BASE_PARTICIPATION_BUNDLE = character_chunk_read._participation_bundle
 _BASE_CREATE_SESSION = storage.create_session
 _BASE_RECOVER_CURRENT = session_recovery.recover_session_current
 
-PIPELINE_VERSION = 19
+PIPELINE_VERSION = 20
 
 def _packet_manifest(packet: Dict[str, Any], *, reused: bool) -> Dict[str, Any]:
     chunks = packet.get("chunks", []) if isinstance(packet.get("chunks"), list) else []
@@ -131,6 +132,8 @@ def _current_pointer_guard(session_id: str) -> None:
 
 
 def _strip_legacy_pov_rule_from_session_source(root) -> None:
+    if session_documents.is_native(root):
+        return
     source = storage._read_json(root / "source.json", {})
     if not isinstance(source, dict) or not source:
         return
@@ -588,6 +591,20 @@ def _prepare_context(
     else:
         context.pop("waiting_momentum", None)
 
+    if session_documents.is_native(root):
+        documents = session_documents.writer_documents(root, scene_ids)
+        # Chronology is a complete director-only document. Character knowledge
+        # comes from each participant's own complete dated memory, never it.
+        context["chronology"] = documents["chronology"]
+        context["character_memory"] = documents["personal_memory"]
+        context.pop("chronology_recent", None)
+        context.pop("chronology_anchor_catalog", None)
+        context["session_document_paths"] = {
+            "chronology": "хронология.json", "memory": "память/<character_id>.json",
+            "cards": "карточки/<character_id>.json", "registry": "персонажи.json",
+            "relationships": "отношения.json", "state": "state.json",
+        }
+
     context = _move_runtime_documents_last(context)
     packet = _write_packet_context(root, packet, context)
     result = _packet_manifest(packet, reused=False)
@@ -868,6 +885,12 @@ def _prepare_profile_persistence(session_id: str, payload: Dict[str, Any]) -> Di
     extracted.setdefault("presence_updates", [])
     extracted.setdefault("state_patch", {})
     state_patch = deepcopy(extracted.get("state_patch")) if isinstance(extracted.get("state_patch"), dict) else {}
+    if any(key in state_patch for key in ("pov_id", "физически", "удалённо", "дата", "период_суток",
+                                          "точное_время", "локация", "что_происходит_сейчас", "важные_вещи_не_при_себе")):
+        previous = storage._read_json(root / "state.json", {})
+        native = session_documents.state_to_native(previous)
+        native = storage._deep_merge(native, state_patch)
+        state_patch = session_documents.state_to_internal(native)
     for key in ("relationships", "relationship_documents", "relationship_schemas", "npc_relationships"):
         state_patch.pop(key, None)
     extracted["state_patch"] = state_patch
@@ -914,8 +937,8 @@ def _strip_relationship_review(payload: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
-    _validate_technical_state_patch(payload)
     prepared = _prepare_profile_persistence(session_id, payload)
+    _validate_technical_state_patch(prepared)
     prepared = private_knowledge_runtime.add_direct_communication_memory(session_id, prepared)
     prepared = scene_presence_runtime._apply_presence_contract(
         prepared,

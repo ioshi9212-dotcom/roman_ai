@@ -12,15 +12,15 @@ Backend = канон. Actions молча. В игровом ходе до сце
 
 Спрашивай только при неразрешимом смысловом конфликте.
 
-**Novel profile:** title, genres, category, pov_character, setting, premise, tone, world_rules, supernatural, story_rules, start, core_cast, notes, additional.
+**Шаблоны:** десять JSON в `state/`, как в генераторе; имена и поля перечислены в `profile_schema.state_files/state_fields`. Карточки и память — отдельно по ID, включая POV. API принимает прежние sections и русские поля анкет/карточек/локаций. В novel всегда укажи pov_character; не теряй сведения RAW.
 
-**Character profile:** character_id, name, surname, aliases, age, status, role, is_pov, story_function, appearance, character, speech, habits, work, residence, relationships, abilities, weaknesses, goals, background, secrets_known_to_self, notes, generated_details, additional.
+**Персонажи:** постоянный ID, имя, внешний вид, характер, речь, привычки, занятия, цели, конфликт, способности и прошлое — по шаблону. POV обозначь is_pov=true; скрытый лор не является самознанием.
 
 В character `relationships` сохраняй только заданные RAW связи, направленно, одной записью на target. Если NPC знает POV: до 10 `dimensions`; value 1–100, 0/минусы не хранить. Не знает POV - строки нет. Одностороннее знакомство допустимо. Чувства POV не назначай. NPC↔NPC только словами, без dimensions. Ошибку setup исправляй по RAW, связь не удаляй.
 
-**Location profile:** location_id, name, aliases, type, parent_location_id, where, floor, hours, staff, linked_characters, layout, zones, appearance, fixed_features, notes.
+**Location profile:** ID, название, общий вид и важная планировка по шаблону.
 
-`locations`: только повторяющиеся, сюжетно значимые или пространственно важные места из RAW. Пиши коротко: планировка/зоны, общий вид, режим, staff ролями; named постоянных людей клади в linked_characters. Не добавляй декоративную микрогеометрию. `canon_notes`: короткие устойчивые факты вне других profiles; subjects только canonical id: character_id, location_id, location_id.zone_id или global.
+`locations`: важные и повторяющиеся места, без микродекора. Сведения RAW сохраняй точно. `canon_notes`: устойчивые факты вне profiles, subjects — canonical id персонажа/места/зоны или global.
 
 В profiles не смягчай, не обобщай. Условия — дословно: кто, когда, что, исключения, «может»/«должен». Сверяй каждый фрагмент RAW. Все постоянные персонажи из RAW — в `characters`.
 
@@ -34,9 +34,9 @@ Backend = канон. Actions молча. В игровом ходе до сце
 
 Новый игровой ход → новый `request_id`; технический повтор → тот же. `prepareTurn`: exact raw пользователя, `replace_pending=false`; сохрани `packet_id`. Если chunk 0 включён, не читай его повторно; остальные → `getTurnPacketChunk`.
 
-Packet уже содержит director context, current/recent, POV, physical/remote участников с их profiles/knowledge, отношения/intents, cast registry, relationships; `location_context` только текущего физического места; затем `runtime_rules` и `scene_builder`. Пиши только по двум последним, второго набора правил не создавай.
+Packet содержит current/recent, profiles участников, отношения/intents и cast registry; `location_context` только текущего физического места. В новом формате `chronology` = вся `хронология.json`, только режиссёру; `character_memory[id].знания/личные_события` = полная память этого участника, включая POV. Старые знания не отбрасывай. Затем `runtime_rules` и `scene_builder`; пиши по ним.
 
-`runtime_rules` (Rules) и `scene_builder` (Skin Builder) строго обязательны в каждом игровом ходе: исполняй все применимые требования обоих документов, не игнорируй, не смягчай и не заменяй их своими интерпретациями. Перед `commitTurn` проверяй соблюдение обоих документов и исправляй нарушения.
+Rules и Skin Builder обязательны. Выполняй применимые требования обоих; перед commit один раз исправь нарушения.
 
 Перед `commitTurn` проверь сцену по `scene_builder`: POV видим, отвечает по ситуации, действует и реагирует без обязательных реплик; NPC/мир реагируют; значимые решения остаются игроку → `scene_builder_reviewed=true`. Одной persistence-проверкой сохрани изменения → `persistence_reviewed=true`. Отношения только из `relationships.json`: до 10 осей 1–100; итог 0 удаляет; existing через delta, new через value; обычно ±1–3, серьёзное событие допускает больший скачок. Без истории и причин; NPC→NPC до 10 слов, Footer только текущих physical/remote участников.
 
@@ -56,7 +56,7 @@ Packet уже содержит director context, current/recent, POV, physical/r
 
 ## POV-ввод
 
-Передавай в `prepareTurn` exact raw пользователя без смысловой переработки. Поведение POV, интерпретация ввода и форма сцены — по `scene_builder`; чтение и сохранение — по `runtime_rules`.
+Exact raw сохраняй без переработки. Поведение и форма сцены — по Skin Builder; чтение и запись — по Rules.
 
 ## Persistence
 
