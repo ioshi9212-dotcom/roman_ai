@@ -6,7 +6,7 @@ from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Any, Dict
 
-from . import location_runtime, npc_intent, relationship_file_runtime, session_recovery, session_runtime, storage, story_thread
+from . import session_documents, location_runtime, npc_intent, relationship_file_runtime, session_recovery, session_runtime, storage, story_thread
 from .game_day import sync_game_day
 from .relationship_runtime import overwrite_relationship_snapshots
 from .relationship_file_runtime import FILE_NAME as RELATIONSHIPS_FILE
@@ -202,8 +202,6 @@ def _atomic_commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, A
 
     with session_transaction(root):
         meta = storage._read_json(root / "meta.json", {})
-        if meta.get("audit_required"):
-            raise RuntimeError("AUDIT_REQUIRED")
 
         turn_number = int(meta.get("turn_number", 0)) + 1
         packet = storage._read_json(root / "turn_packet.json", {})
@@ -282,13 +280,15 @@ def _atomic_commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, A
 
         audit_due = turn_number % 15 == 0
         meta["turn_number"] = turn_number
-        meta["audit_required"] = bool(audit_due)
+        meta["audit_required"] = bool(audit_due or meta.get("audit_required"))
+        meta["audit_blocking"] = False
         meta["handoff_required"] = False
 
         result = {
             "ok": True,
             "turn_number": turn_number,
             "audit_due": audit_due,
+            "audit_blocking": False,
             "audit_range": [max(1, turn_number - 14), turn_number] if audit_due else None,
             "handoff_required": False,
             "transactional_commit": True,
@@ -300,7 +300,6 @@ def _atomic_commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, A
             result["request_id"] = str(packet.get("request_id"))
 
         values = {
-            "turns.jsonl": _turns_text(turns),
             "characters.json": json_text(cards),
             "state.json": json_text(state),
             "memory.json": json_text(memory),
@@ -334,7 +333,8 @@ def _atomic_commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, A
             )
             values[RECEIPTS_FILE] = json_text(ledger_with_receipt(root, receipt))
 
-        write_batch(root, values)
+        archive = session_documents.file_path(root, "turns.jsonl").relative_to(root).as_posix()
+        write_batch(root, values, appends={archive: _turns_text([entry])})
         if not prior_snapshot_valid:
             (root / PREVIOUS_SNAPSHOT_FILE).unlink(missing_ok=True)
         if not prior_previous_valid:

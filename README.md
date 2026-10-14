@@ -101,6 +101,27 @@ Every gameplay turn uses a lossless chunked turn packet and is written back to t
 
 Technical audits are optional and do not block gameplay every 15 turns. Use them only when the client exposes the corresponding actions.
 
+The V5 writer context is built directly, without legacy policy/guard objects,
+duplicate dossiers or successive context-rewrite passes. Native preparation
+loads personal memory only for POV and the actual participants. Archive parsing
+and decoded compatibility views are cached for one request; acquiring a new
+outer session lock refreshes views that another worker may have changed.
+
+Ordinary commits append one exact JSONL record in the same transaction as the
+state, knowledge, relationships, receipt and rollback snapshot. A prepared
+transaction records the original archive length: interrupted append recovery
+truncates to that length and restores the other documents. Retrying a successful
+commit still replays its receipt instead of appending twice.
+
+The turn pipeline returns `audit_blocking=false`; checkpoints only signal that maintenance is
+available. Prepare, commit and resume can continue with an outstanding audit.
+An audit packet is built only when explicitly requested. Older data formats
+remain compatible without a mandatory checkpoint pause. Review flags remain accepted input
+but no longer block commits; packet completeness and real persistence/knowledge
+checks remain enforced. Historical knowledge deduplication runs once in schema
+upgrade 2→3 rather than before every scene. Rules are shorter; Scene Builder and
+the ten author templates are unchanged.
+
 There is no 60-turn transfer package and no copied handoff session. A session remains the same persistent object across chats.
 
 Continuation text:

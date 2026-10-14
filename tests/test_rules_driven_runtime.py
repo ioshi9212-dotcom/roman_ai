@@ -356,39 +356,19 @@ def test_saturated_old_metric_does_not_block_new_dynamic_dimension():
         assert dims["влечение"]["value"] == 3
 
 
-def test_new_public_packet_requires_scene_and_persistence_review_before_commit():
+@pytest.mark.parametrize("flags", [{}, {"scene_builder_reviewed": False, "persistence_reviewed": False, "knowledge_reviewed": False}])
+def test_public_commit_accepts_real_changes_without_review_flags(flags):
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         sid = storage.create_session(base_novel())["session_id"]
         manifest = prepare_turn_request(sid, "(посмотреть на NPC)", request_id="writer-review")
         read_all(manifest, sid)
-
-        payload = {
-            "packet_id": manifest["packet_id"],
-            "user_input": "(посмотреть на NPC)",
-            "scene_output": "Сцена продолжается.",
-            "extracted": {},
-        }
-        with pytest.raises(RuntimeError, match="SCENE_BUILDER_REVIEW_REQUIRED"):
-            commit_turn_request(sid, payload)
-
-        payload["extracted"] = {
-            "scene_builder_reviewed": True,
-            "persistence_reviewed": True,
-        }
-        with pytest.raises(RuntimeError, match="KNOWLEDGE_REVIEW_REQUIRED"):
-            commit_turn_request(sid, payload)
-
-        payload["extracted"]["knowledge_reviewed"] = True
-        payload["extracted"]["relationship_review"] = [
-            {
-                "character_id": "npc",
-                "changed": False,
-                "reason": "Проверено: сцена не изменила отношение NPC к POV.",
-            }
-        ]
-        result = commit_turn_request(sid, payload)
+        result = commit_turn_request(sid, {
+            "packet_id": manifest["packet_id"], "user_input": "(посмотреть на NPC)",
+            "scene_output": "Сцена продолжается.", "extracted": flags,
+        })
         assert result["turn_number"] == 1
+        assert storage._read_turns(storage.SESSIONS_DIR / sid)[-1]["scene_output"] == "Сцена продолжается."
 
 
 def test_relationship_delta_uses_saved_baseline_and_is_not_double_applied():
@@ -564,7 +544,7 @@ def test_persisted_legacy_chronology_marker_does_not_repair_personal_memory():
         assert not memory["characters"]["npc"]["knowledge_journal"]
 
 
-def test_exact_duplicate_persisted_journal_rows_are_compacted_before_packet():
+def test_historical_duplicate_journal_rows_are_compacted_during_upgrade():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         sid = storage.create_session(base_novel())["session_id"]
@@ -578,6 +558,9 @@ def test_exact_duplicate_persisted_journal_rows_are_compacted_before_packet():
         ]
         storage._write_json(root / "memory.json", memory)
 
+        meta = storage._read_json(root / "meta.json", {})
+        meta["data_schema_version"] = 2
+        storage._write_json(root / "meta.json", meta)
         _, context = read_context(sid, "(посмотреть на NPC)")
         persisted = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
         rows = persisted["characters"]["npc"]["knowledge_journal"]
@@ -659,7 +642,7 @@ def test_chronology_mirror_does_not_duplicate_model_supplied_journal_fact():
         assert len(matching) == 1
 
 
-def test_incomplete_packet_error_precedes_writer_review_gate():
+def test_incomplete_packet_is_required_before_commit():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         sid = storage.create_session(base_novel())["session_id"]
@@ -676,8 +659,7 @@ def test_incomplete_packet_error_precedes_writer_review_gate():
             commit_turn_request(sid, payload)
 
         read_all(manifest, sid)
-        with pytest.raises(RuntimeError, match="SCENE_BUILDER_REVIEW_REQUIRED"):
-            commit_turn_request(sid, payload)
+        assert commit_turn_request(sid, payload)["turn_number"] == 1
 
 
 def test_preexisting_pending_packet_is_not_retroactively_writer_review_gated():
@@ -1208,7 +1190,7 @@ def test_turn_commit_schema_exposes_review_flags_without_exact_scene_format():
 
 
 
-def test_fifteenth_turn_creates_mandatory_audit_gate_and_manifest():
+def test_fifteenth_turn_offers_audit_without_blocking_native_gameplay():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         novel = base_novel()
@@ -1235,12 +1217,10 @@ def test_fifteenth_turn_creates_mandatory_audit_gate_and_manifest():
         )
         assert result["turn_number"] == 15
         assert result["audit_due"] is True
-        assert result["required_audit"]["audit_range"] == [1, 15]
-        assert result["required_audit"]["first_chunk_included"] is True
+        assert result["audit_blocking"] is False
+        assert "required_audit" not in result
         assert storage._read_json(root / "meta.json", {})["audit_required"] is True
-
-        with pytest.raises(RuntimeError, match="AUDIT_REQUIRED"):
-            session_runtime.prepare_turn_packet(sid, "Ход 16.")
+        assert session_runtime.prepare_turn_packet(sid, "Ход 16.")["prepared_for_turn"] == 16
 
 
 def test_last_turn_rollback_still_works_without_mandatory_audit():
@@ -1491,7 +1471,7 @@ def test_cast_registry_exposes_context_without_forced_return_pressure():
         registry = context["cast_registry"]
         row = next(x for x in registry["characters"] if x["character_id"] == "npc")
 
-        assert registry["mandatory_causal_review"] is True
+        assert "mandatory_causal_review" not in registry
         assert "return_pressure" not in registry
         assert "important_cast_return_required" not in registry
         assert "не задаёт очередь, квоту или таймер появления" in registry["instruction"]
@@ -2206,7 +2186,7 @@ def test_private_perception_is_saved_only_to_actual_recipient():
         assert "Ада" not in away_text
 
 
-def test_required_audit_roundtrip_uses_existing_chunk_and_commit_actions():
+def test_explicit_audit_roundtrip_uses_existing_chunk_and_commit_actions():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         novel = base_novel()
@@ -2224,7 +2204,7 @@ def test_required_audit_roundtrip_uses_existing_chunk_and_commit_actions():
             }
             for number in range(1, 15)
         ]
-        (root / "turns.jsonl").write_text(
+        storage.session_documents.file_path(root, "turns.jsonl").write_text(
             "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in prior_turns),
             encoding="utf-8",
         )
@@ -2246,7 +2226,8 @@ def test_required_audit_roundtrip_uses_existing_chunk_and_commit_actions():
             },
         )
 
-        audit = committed["required_audit"]
+        assert committed["audit_blocking"] is False
+        audit = fast_audit_runtime.get_audit_snapshot(sid)
         assert audit["first_chunk_included"] is True
 
         # A retry must resend chunk 0 because the previous HTTP response could

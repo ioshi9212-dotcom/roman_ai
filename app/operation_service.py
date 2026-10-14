@@ -118,7 +118,7 @@ def prepare_turn_request(
                 if opening_scene:
                     packet["opening_scene"] = True
                 storage._write_json(root / "turn_packet.json", packet)
-                result = dict(session_runtime.prepare_turn_packet(session_id, user_input))
+                result = dict(session_runtime.prepare_turn_packet(session_id, user_input, _migrated=True))
                 if identity:
                     result["request_id"] = identity
                 result["scene_archive_capable"] = bool(packet.get("scene_archive_capable"))
@@ -141,14 +141,14 @@ def prepare_turn_request(
             if duplicate is not None:
                 return duplicate_prepare_response(duplicate)
 
-        result = dict(session_runtime.prepare_turn_packet(session_id, user_input))
+        result = dict(session_runtime.prepare_turn_packet(session_id, user_input, _migrated=True))
         packet = storage._read_json(root / "turn_packet.json", {})
         if isinstance(packet, dict) and packet.get("packet_id"):
             if identity:
                 packet["request_id"] = identity
             packet["scene_archive_capable"] = bool(scene_archive_capable)
             packet["opening_scene"] = bool(opening_scene)
-            packet["writer_review_required"] = True
+            packet["writer_review_required"] = False
             for key in (
                 "relationship_review_required",
                 "relationship_review_details_required",
@@ -176,6 +176,11 @@ def prepare_turn_request(
 @session_documents.read_view()
 def commit_turn_request(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     root = _session_root(session_id)
+    with session_transaction(root):
+        return _commit_turn_locked(session_id, root, payload)
+
+
+def _commit_turn_locked(session_id: str, root, payload: Dict[str, Any]) -> Dict[str, Any]:
     session_migrations.ensure_current_session_data(session_id, invalidate_pending=False)
     packet_id = str(payload.get("packet_id") or "").strip()
     if not packet_id:
@@ -189,10 +194,8 @@ def commit_turn_request(session_id: str, payload: Dict[str, Any]) -> Dict[str, A
     )
     if replay is not None:
         replay.setdefault("already_committed", True)
-        if replay.get("audit_due") is True:
-            meta = storage._read_json(root / "meta.json", {})
-            if meta.get("audit_required"):
-                replay["required_audit"] = audit_runtime.get_audit_snapshot(session_id)
+        replay["audit_blocking"] = False
+        replay.pop("required_audit", None)
         return replay
 
     packet = storage._read_json(root / "turn_packet.json", {})
@@ -208,14 +211,6 @@ def commit_turn_request(session_id: str, payload: Dict[str, Any]) -> Dict[str, A
     packet_status = _packet_status(packet)
     if packet_status and packet_status.get("unread_chunk_indices"):
         raise RuntimeError("TURN_PACKET_INCOMPLETE")
-    if bool(packet.get("writer_review_required")):
-        extracted = payload.get("extracted") if isinstance(payload.get("extracted"), dict) else {}
-        if extracted.get("scene_builder_reviewed") is not True:
-            raise RuntimeError("SCENE_BUILDER_REVIEW_REQUIRED")
-        if extracted.get("persistence_reviewed") is not True:
-            raise RuntimeError("PERSISTENCE_REVIEW_REQUIRED")
-        if extracted.get("knowledge_reviewed") is not True:
-            raise RuntimeError("KNOWLEDGE_REVIEW_REQUIRED")
     prepared = deepcopy(payload)
     prepared["_operation_receipt"] = {
         "operation": "commit_turn",

@@ -72,14 +72,7 @@ def _deep_merge(target: Dict[str, Any], patch: Dict[str, Any]) -> Dict[str, Any]
 
 
 def _read_turns(root: Path) -> List[Dict[str, Any]]:
-    path = session_documents.file_path(root, "turns.jsonl")
-    if not path.exists():
-        return []
-    turns: List[Dict[str, Any]] = []
-    for line in path.read_text(encoding="utf-8").splitlines():
-        if line.strip():
-            turns.append(json.loads(line))
-    return turns
+    return session_documents.read_jsonl(session_documents.file_path(root, "turns.jsonl"))
 
 
 def _normalise_memory(memory: Dict[str, Any]) -> Dict[str, Any]:

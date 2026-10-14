@@ -333,8 +333,9 @@ def _compact_continuity_turn(turn: Dict[str, Any]) -> Dict[str, Any]:
     return result
 
 
-def _rolling_turn_context(root) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
-    turns = storage._read_turns(root)
+def _rolling_turn_context(root, *, turns=None) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    if turns is None:
+        turns = storage._read_turns(root)
     compacted = covered_turns(root)
     working_turns = [
         turn for turn in turns

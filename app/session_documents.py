@@ -53,6 +53,26 @@ def read(path: Path, default: Any = None) -> Any:
     return deepcopy(value)
 
 
+
+def read_jsonl(path: Path) -> list[dict]:
+    """Parse an archive once in a request; stat changes invalidate the cached view."""
+    if not path.is_file():
+        return []
+    stat = path.stat()
+    key = ("jsonl", str(path), stat.st_mtime_ns, stat.st_size)
+    cache = _CACHE.get()
+    if cache is not None and key in cache:
+        return deepcopy(cache[key])
+    rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    if cache is not None:
+        cache[key] = rows
+    return deepcopy(rows)
+
+
+def participant_memory(root: Path, ids: list[str]) -> dict:
+    return {"characters": {cid: memory_to_internal(read(root / "память" / (_id(cid) + ".json"), {}))
+                           for cid in ids if cid}}
+
 def template(name: str) -> dict:
     if name not in FILES:
         raise KeyError(name)
@@ -415,7 +435,29 @@ def _cards(root: Path) -> list[dict]:
     return [card_to_internal(read(root / "карточки" / (_id(row["id"]) + ".json"), {})) for row in roster]
 
 
+def invalidate_views(root: Path) -> None:
+    cache = _CACHE.get()
+    if cache is not None:
+        for key in list(cache):
+            if key[:2] == ("view", str(root.resolve())):
+                del cache[key]
+
+
 def compat_read(path: Path, default: Any) -> tuple[bool, Any]:
+    root = path.parent
+    if not is_native(root):
+        return False, None
+    key = ("view", str(root.resolve()), path.name)
+    cache = _CACHE.get()
+    if cache is not None and key in cache:
+        return True, deepcopy(cache[key])
+    handled, value = _compat_read(path, default)
+    if handled and cache is not None:
+        cache[key] = value
+    return handled, deepcopy(value)
+
+
+def _compat_read(path: Path, default: Any) -> tuple[bool, Any]:
     root, name = path.parent, path.name
     if not is_native(root):
         return False, None

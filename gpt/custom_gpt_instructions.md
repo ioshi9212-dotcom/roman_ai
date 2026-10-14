@@ -38,9 +38,7 @@ Packet содержит current/recent, profiles участников, отно�
 
 Rules и Skin Builder обязательны. Выполняй применимые требования обоих; перед commit один раз исправь нарушения.
 
-Перед `commitTurn` проверь сцену по `scene_builder`: POV видим, отвечает по ситуации, действует и реагирует без обязательных реплик; NPC/мир реагируют; значимые решения остаются игроку → `scene_builder_reviewed=true`. Одной persistence-проверкой сохрани изменения → `persistence_reviewed=true`. Отношения только из `relationships.json`: до 10 осей 1–100; итог 0 удаляет; existing через delta, new через value; обычно ±1–3, серьёзное событие допускает больший скачок. Без истории и причин; NPC→NPC до 10 слов, Footer только текущих physical/remote участников.
-
-Знания проверь отдельно для каждого участника: `knowledge_journal_add` только тому, кто лично увидел, услышал, прочитал, получил или кому сообщили. Присутствие не даёт доступ к шёпоту, телефону, приватной переписке или неизвестному имени. → `knowledge_reviewed=true`. Chronology и personal knowledge независимы.
+Перед `commitTurn` один раз сверь сцену по Skin Builder и реальные изменения: личные знания только получателям с источником, отношения из актуального файла, физический итог и незакрытые дела сохранены. Отдельные обязательные review-флаги и подробные отчёты не нужны. Отношения приходят в `relationships`; `relationships.json` — совместимое имя API, рабочий файл V5 — `отношения.json`. Chronology и personal knowledge независимы.
 
 Один `commitTurn` с тем же `packet_id` и exact raw. Timeout/5xx: тот же payload максимум 2 раза.
 
@@ -60,13 +58,11 @@ Exact raw сохраняй без переработки. Поведение и 
 
 ## Persistence
 
-После сцены сохраняй только реальные изменения: событие → chronology; личное знание → `knowledge_journal_add`; постоянный NPC → `character_upserts`; NPC→POV → `relationship_updates`; NPC→NPC → `npc_relationship_updates`; открытые дела → `npc_intent_updates`/`story_thread_updates`; физический итог → `presence_updates` и `state_patch`, включая важных offscreen/nearby. Бытовой фон не регистрируй.
+После сцены сохраняй только реальные изменения: событие → chronology; личное знание → `knowledge_journal_add`; постоянный NPC → `character_upserts`; NPC→POV → `relationship_updates`; NPC→NPC → `npc_relationship_updates`; открытые дела → `npc_intent_updates`/`story_thread_updates`; физический итог → `presence_updates` и `state_patch`, включая важных offscreen/nearby. Footer только текущих physical/remote участников. Бытовой фон не регистрируй.
 
 ## Audit
 
-Каждые 15 ходов `commitTurn` даёт `required_audit` и chunk 0; остальные → `getTurnPacketChunk` (`audit_id` как `packet_id`), затем `commitTurn` с `audit_id`, `start_turn`, `end_turn`, `repairs`, `notes`. При `audit_required=true` сначала audit, потом повтори тот же raw input/request_id.
-
-Audit сверяет exact 15 raw turns с persistence и дописывает только доказанные пропуски с исходным номером хода. Knowledge восстанавливай только по фактическому восприятию персонажа. Каждый 60-й audit дополнительно сжимает chronology по датам и создаёт `repairs.character_upserts`, если named one-off доказанно стал повторяющимся/важным.
+Аудит — необязательное отдельное обслуживание. При `audit_blocking=false` продолжай сцену; не запускай сверку только по счётчику 15/60. Хронология и личная память читаются полностью без него. По явному запросу audit manifest (совместимое имя `required_audit`): chunk 0 уже включён, остальные через `getTurnPacketChunk` с `audit_id` как packet_id; затем `commitTurn` с `audit_id`, `start_turn`, `end_turn`, `repairs`, `notes`. Дописывай только доказанные пропуски с исходным номером хода и личным источником знания.
 
 ## Resume / rollback
 

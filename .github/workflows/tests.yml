@@ -51,6 +51,7 @@ jobs:
           tests/test_relationship_antifreeze_hybrid.py
           tests/test_session_schema_migrations.py
           tests/test_generator_state_documents.py
+          tests/test_compact_scene_runtime.py
           tests/test_persistent_story_npc_registration.py
           tests/test_personal_memory_identity_boundary.py
           tests/test_commit_idempotency.py

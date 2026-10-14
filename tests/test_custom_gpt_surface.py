@@ -172,9 +172,7 @@ def test_custom_gpt_instruction_matches_rules_driven_transport():
         "opening_scene=true",
         'user_input=""',
         "packet_id",
-        "knowledge_reviewed=true",
         "relationships.json",
-        "серьёзное событие допускает больший скачок",
     ):
         assert required in text
 
@@ -195,6 +193,8 @@ def test_custom_gpt_instruction_matches_rules_driven_transport():
     ):
         assert removed not in text
 
+    assert "Отдельные обязательные review-флаги и подробные отчёты не нужны" in text
+    assert "audit_blocking=false" in text
     assert "стартовые знания" in text
     assert "turn=0" in text
     assert "Появление, частота и поведение NPC — по `scene_builder`" in text
