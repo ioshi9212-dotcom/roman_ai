@@ -63,7 +63,7 @@ def test_journalled_append_preserves_archive_on_later_write_failure(tmp_path, mo
     with pytest.raises(OSError, match="simulated write interruption"):
         transaction.write_batch(
             root, {"zz.json": '{"ok":true}'},
-            append_values={"history.jsonl": '{"turn_number":2}\n"},
+            append_values={"history.jsonl": '{"turn_number":2}\n'},
         )
     assert archive.read_text(encoding="utf-8") == '{"turn_number":1}\n'
     assert not (root / "zz.json").exists()
