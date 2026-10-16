@@ -132,8 +132,9 @@ def _current_pointer_guard(session_id: str) -> None:
 
 
 def _strip_legacy_pov_rule_from_session_source(root) -> None:
-    if session_documents.is_native(root):
-        return
+    # The obsolete "POV must be silent" rule is never gameplay canon, whether
+    # a session is native V5 or still uses legacy storage. RAW intake stays
+    # intact because it is excluded from the working-source cleanup below.
     source = storage._read_json(root / "source.json", {})
     if not isinstance(source, dict) or not source:
         return
