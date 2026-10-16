@@ -193,7 +193,7 @@ def test_scene_builder_keeps_pov_visible_without_forcing_speech():
     assert "Важные сцены, могут быть вообще без реплик" in builder
     assert "NPC не должен отступать, успокаиваться" in builder
     assert "Игровой ход" in instructions or "Игровой ход" in instructions.capitalize()
-    assert "Сцена" in instructions
+    assert "scene_builder" in instructions
     assert len(instructions) + 93 < 8000
 
 
