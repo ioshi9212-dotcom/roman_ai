@@ -120,8 +120,26 @@ def _refresh_session_familiarity(session_id: str) -> Dict[str, Any]:
     state = _canonicalize_state_character_refs(cards, original_state)
     memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
     chronology = storage._read_json(root / "chronology.json", [])
-    turns = storage._read_turns(root)
     meta = storage._read_json(root / "meta.json", {})
+    # First encounter/identity reconciliation scans the full archive once.
+    # Thereafter familiarity is persisted in state; only recent turns can add
+    # new encounter evidence. The chronology and POV memory remain complete.
+    info = state.get("characters") if isinstance(state.get("characters"), dict) else {}
+    pov = state.get("pov") if isinstance(state.get("pov"), dict) else {}
+    pov_id = str(pov.get("character_id") or "")
+    unindexed = any(
+        storage._card_id(card) != pov_id
+        and not isinstance(
+            (info.get(storage._card_id(card)) or {}).get("pov_familiarity")
+            if isinstance(info.get(storage._card_id(card)), dict) else None,
+            dict,
+        )
+        for card in cards if storage._card_id(card)
+    )
+    turns = (
+        storage._read_turns(root) if unindexed
+        else storage._read_turns_backwards(root, count=15)
+    )
     refreshed = refresh_pov_familiarity(
         cards,
         state,
