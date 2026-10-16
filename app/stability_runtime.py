@@ -15,7 +15,7 @@ from .rollback_snapshot_runtime import PREVIOUS2_SNAPSHOT_FILE, PREVIOUS_SNAPSHO
 from .scene_compaction_runtime import SCENE_MEMORY_FILE, apply_audit_compactions
 from .long_horizon_audit import apply_macro_chronology_compaction, macro_due
 from .transactional_storage import json_text, recover, session_transaction, write_batch
-from .turn_duplicate_guard import recent_duplicate_turn
+from .turn_duplicate_guard import REQUEST_INDEX_FILE, next_request_index, recent_duplicate_turn
 
 
 _ORIGINAL_PREPARE_TURN = None
@@ -313,6 +313,11 @@ def _atomic_commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, A
             "meta.json": json_text(meta),
             SNAPSHOT_FILE: json_text(pre_turn_snapshot),
         }
+        if native_append:
+            encoded_turn = json.dumps(entry, ensure_ascii=False) + "\n"
+            values[REQUEST_INDEX_FILE] = json_text(
+                next_request_index(root, entry, encoded_turn)
+            )
         # Commit the derived evidence index with the exact same transaction
         # as turns.jsonl. Rollback restores evidence by cache invalidation.
         values[private_knowledge_runtime.PRIVATE_INDEX_FILE] = json_text(
@@ -348,7 +353,7 @@ def _atomic_commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, A
             values["turns.jsonl"] = _turns_text(turns)
         write_batch(
             root, values,
-            append_values={"turns.jsonl": json.dumps(entry, ensure_ascii=False) + "\n"}
+            append_values={"turns.jsonl": encoded_turn}
             if native_append else None,
         )
         if not prior_snapshot_valid:
