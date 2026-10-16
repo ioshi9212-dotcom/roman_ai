@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 from copy import deepcopy
 from typing import Any, Dict, List
 
 from fastapi import HTTPException
 
-from . import personal_memory_transport, storage, writer_first_runtime
+from . import personal_memory_transport, session_documents, storage, writer_first_runtime
 
 
 _SPEECH_RE = re.compile(r"(?m)^\s*\*\*(?P<speaker>[^*\n]+)\*\*\s*[—-]\s*(?P<text>.*)$")
@@ -219,8 +221,13 @@ def _authorized_corpus(root, character_id: str, cards: List[Dict[str, Any]]) -> 
     pieces: List[str] = []
     if isinstance(card, dict):
         pieces.append(str(card))
-    memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
-    bucket = storage._memory_bucket(memory, character_id)
+    if session_documents.is_native(root):
+        # Never decode every character's memory merely to authorize one NPC.
+        own = session_documents.read(root / "память" / (character_id + ".json"), {})
+        bucket = session_documents.memory_to_internal(own) if isinstance(own, dict) else {}
+    else:
+        memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
+        bucket = storage._memory_bucket(memory, character_id)
     journal = bucket.get("knowledge_journal", [])
     if isinstance(journal, list):
         pieces.extend(str(row.get("text") or "") for row in journal if isinstance(row, dict))
@@ -398,22 +405,109 @@ def _source_turn_for_compact_row(
     return candidates[-1]
 
 
-def _private_records(root, cards: List[Dict[str, Any]], current_user_input: str = "") -> List[Dict[str, Any]]:
-    rows: List[Dict[str, Any]] = []
+PRIVATE_INDEX_FILE = ".runtime/private_comm_index.json"
+_PRIVATE_INDEX_VERSION = 1
+
+
+def _private_index_roster(cards: List[Dict[str, Any]]) -> str:
+    roster = [
+        [storage._card_id(card), sorted(storage._card_names(card))]
+        for card in cards if storage._card_id(card)
+    ]
+    return hashlib.sha256(json.dumps(roster, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
+
+
+def _private_turn_hash(turn: Dict[str, Any] | None) -> str:
+    if not turn:
+        return ""
+    value = json.dumps(turn, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(value.encode()).hexdigest()
+
+
+def _extract_private_turn(turn: Dict[str, Any], cards: List[Dict[str, Any]], pov_id: str) -> List[Dict[str, Any]]:
+    result = extract_private_communications(
+        str(turn.get("user_input") or ""), cards,
+        turn_number=int(turn.get("turn_number", 0) or 0),
+    )
+    result.extend(_historical_remote_records(turn, cards, pov_id=pov_id))
+    return result
+
+
+def _private_archive_index(root, cards: List[Dict[str, Any]], pov_id: str) -> Dict[str, Any]:
+    """Validated derived cache, rebuilt once for old sessions or after rollback.
+
+    Only actual archive data is indexed; the continuation handoff is considered
+    separately. A modified archive tail or roster invalidates the cache.
+    """
+    path = root / PRIVATE_INDEX_FILE
+    cached = storage._read_json(path, {})
+    meta = storage._read_json(root / "meta.json", {})
+    current_turn = int(meta.get("turn_number", 0) or 0)
+    tail = storage._read_turns_backwards(root, count=1)
+    last = tail[-1] if tail else None
+    last_number = int(last.get("turn_number", 0) or 0) if last else 0
+    roster_hash = _private_index_roster(cards)
+    signature = _private_turn_hash(last)
+    if (
+        isinstance(cached, dict)
+        and cached.get("version") == _PRIVATE_INDEX_VERSION
+        and cached.get("roster_hash") == roster_hash
+        and cached.get("last_turn") == last_number == current_turn
+        and cached.get("tail_hash") == signature
+        and isinstance(cached.get("records"), list)
+    ):
+        return cached
+
+    turns = storage._read_turns(root)
+    records: List[Dict[str, Any]] = []
+    for turn in turns:
+        records.extend(_extract_private_turn(turn, cards, pov_id))
+    index = {
+        "version": _PRIVATE_INDEX_VERSION,
+        "roster_hash": roster_hash,
+        "last_turn": last_number,
+        "tail_hash": signature,
+        "records": records,
+    }
+    # This is a recoverable performance cache, not part of the personal
+    # knowledge canon. Any archive/rollback mismatch rebuilds from evidence.
+    storage._write_json(path, index)
+    return index
+
+
+def next_private_archive_index(root, cards: List[Dict[str, Any]], turn: Dict[str, Any]) -> Dict[str, Any]:
+    """Advance the evidence cache in the same atomic batch as a committed turn."""
     state = storage._read_json(root / "state.json", {})
     pov_id = _pov_id(state)
-    for turn in _history_turns(root):
-        rows.extend(extract_private_communications(
-            str(turn.get("user_input") or ""),
-            cards,
-            turn_number=int(turn.get("turn_number", 0) or 0),
-        ))
-        rows.extend(_historical_remote_records(turn, cards, pov_id=pov_id))
+    current = _private_archive_index(root, cards, pov_id)
+    number = int(turn.get("turn_number", 0) or 0)
+    previous = int(current.get("last_turn", 0) or 0)
+    if number != previous + 1:
+        raise RuntimeError("PRIVATE_INDEX_TURN_MISMATCH")
+    return {
+        "version": _PRIVATE_INDEX_VERSION,
+        "roster_hash": _private_index_roster(cards),
+        "last_turn": number,
+        "tail_hash": _private_turn_hash(turn),
+        "records": [*current["records"], *_extract_private_turn(turn, cards, pov_id)],
+    }
+
+
+def _private_records(root, cards: List[Dict[str, Any]], current_user_input: str = "") -> List[Dict[str, Any]]:
+    state = storage._read_json(root / "state.json", {})
+    pov_id = _pov_id(state)
+    rows = list(_private_archive_index(root, cards, pov_id)["records"])
+    # Continuation handoff is not part of the current session's JSONL file.
+    handoff = storage._read_json(root / "handoff_tail.json", [])
+    if isinstance(handoff, dict):
+        handoff = handoff.get("turns") or handoff.get("recent_turns") or []
+    for turn in handoff if isinstance(handoff, list) else []:
+        if isinstance(turn, dict):
+            rows.extend(_extract_private_turn(turn, cards, pov_id))
     if current_user_input:
         meta = storage._read_json(root / "meta.json", {})
         rows.extend(extract_private_communications(
-            current_user_input,
-            cards,
+            current_user_input, cards,
             turn_number=int(meta.get("turn_number", 0) or 0) + 1,
         ))
     return rows
