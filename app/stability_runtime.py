@@ -6,7 +6,7 @@ from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Any, Dict
 
-from . import location_runtime, npc_intent, private_knowledge_runtime, relationship_file_runtime, session_recovery, session_runtime, storage, story_thread
+from . import location_runtime, npc_intent, private_knowledge_runtime, relationship_file_runtime, session_documents, session_recovery, session_runtime, storage, story_thread
 from .game_day import sync_game_day
 from .relationship_runtime import overwrite_relationship_snapshots
 from .relationship_file_runtime import FILE_NAME as RELATIONSHIPS_FILE
@@ -268,7 +268,13 @@ def _atomic_commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, A
         if isinstance(extracted.get("chronology"), list):
             chronology = [*chronology, *deepcopy(extracted["chronology"])]
 
-        turns = storage._read_turns(root)
+        native_append = session_documents.is_native(root)
+        # Finalization needs recent acquaintance evidence, not the full
+        # multi-year archive. Audits and rollback can still replay all turns.
+        turns = (
+            storage._read_turns_backwards(root, count=15)
+            if native_append else storage._read_turns(root)
+        )
         turns.append(entry)
         state = session_runtime._finalize_persisted_state(
             source=source,
@@ -300,7 +306,6 @@ def _atomic_commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, A
             result["request_id"] = str(packet.get("request_id"))
 
         values = {
-            "turns.jsonl": _turns_text(turns),
             "characters.json": json_text(cards),
             "state.json": json_text(state),
             "memory.json": json_text(memory),
@@ -339,7 +344,13 @@ def _atomic_commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, A
             )
             values[RECEIPTS_FILE] = json_text(ledger_with_receipt(root, receipt))
 
-        write_batch(root, values)
+        if not native_append:
+            values["turns.jsonl"] = _turns_text(turns)
+        write_batch(
+            root, values,
+            append_values={"turns.jsonl": json.dumps(entry, ensure_ascii=False) + "\n"}
+            if native_append else None,
+        )
         if not prior_snapshot_valid:
             (root / PREVIOUS_SNAPSHOT_FILE).unlink(missing_ok=True)
         if not prior_previous_valid:
