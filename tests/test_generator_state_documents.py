@@ -149,6 +149,30 @@ def test_private_evidence_index_rebuilds_on_archive_rewrite(story):
     assert not any("фуксия" in record.get("payload", "") for record in updated)
 
 
+def test_native_request_id_index_keeps_exact_retry_and_survives_rollback(story):
+    from app.turn_duplicate_guard import REQUEST_INDEX_FILE
+    sid, root = create(story)
+    manifest, _ = prepare(sid, request_id="req-777")
+    result, payload = commit(sid, manifest)
+    assert result["turn_number"] == 1
+    index = documents.read(root / REQUEST_INDEX_FILE, {})
+    assert index["requests"]["req-777"]["turn_number"] == 1
+    replay = operation_service.prepare_turn_request(
+        sid, payload["user_input"], request_id="req-777",
+    )
+    assert replay["already_committed_duplicate"] is True
+    assert replay["scene_output"] == payload["scene_output"]
+    operation_service.rollback_last_turn_request(sid, {
+        "expected_turn_number": 1,
+        "expected_turn_id": operation_service.current_turn_identity(root),
+        "confirm": True,
+    })
+    again = operation_service.prepare_turn_request(
+        sid, payload["user_input"], request_id="req-777",
+    )
+    assert again.get("already_committed_duplicate") is not True
+
+
 def test_exact_ten_template_set_and_native_session_files(story):
     assert {p.name for p in documents.TEMPLATE_ROOT.glob("*.json")} == set(documents.FILES)
     assert len(documents.FILES) == 10
