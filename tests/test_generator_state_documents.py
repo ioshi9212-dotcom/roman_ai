@@ -55,6 +55,124 @@ def commit(sid, manifest, **changes):
     return result, payload
 
 
+def test_native_turn_seed_skips_legacy_layers_without_losing_story_context(story):
+    sid, _ = create(story)
+    seed = session_runtime.build_turn_context(sid, "Продолжаю разговор", lean_native=True)
+    assert seed["runtime_rules"] and seed["scene_builder"]
+    assert seed["relevant_character_ids"] == ["pov", "ren"]
+    assert seed["novel"]["start"] == "Утро в кафе"
+    # The active pipeline loads these once from canonical participant documents.
+    for duplicate in ("scene_characters", "character_registry", "author_context",
+                      "character_memory", "relationship_policy", "persistence_contract"):
+        assert duplicate not in seed
+
+    _, packet = prepare(sid)
+    assert set(packet["character_memory"]) == {"pov", "ren"}
+    assert {row["character_id"] for row in packet["character_cards"]} == {"pov", "ren"}
+    assert packet["chronology"]["дни"] == {}
+    assert packet["runtime_rules"] and packet["scene_builder"]
+    assert "scene_characters" not in packet
+
+
+def test_native_familiarity_does_not_open_offscreen_personal_memory(story, monkeypatch):
+    sid, root = create(story)
+    original = documents.read
+    reads = []
+
+    def tracked(path, default=None):
+        reads.append(str(path))
+        if path.parent.name == "память" and path.name == "away.json":
+            raise AssertionError("Offscreen personal memory was read by native familiarity")
+        return original(path, default)
+
+    monkeypatch.setattr(documents, "read", tracked)
+    context = session_runtime.build_turn_context(sid, "Разговор с Реном", lean_native=True)
+    assert context["relevant_character_ids"] == ["pov", "ren"]
+    assert any(path.endswith("память/pov.json") for path in reads)
+    assert not any(path.endswith("память/away.json") for path in reads)
+
+
+def test_migrated_familiarity_rechecks_old_turns_despite_stored_status(story):
+    sid, root = create(story)
+    # An old session can have an already-filled but incomplete status.
+    state = storage._read_json(root / "state.json", {})
+    state.setdefault("characters", {}).setdefault("ren", {})["pov_familiarity"] = {
+        "status": "not_encountered", "source": "none",
+    }
+    storage._write_json(root / "state.json", state)
+    turns_path = documents.file_path(root, "turns.jsonl")
+    turns_path.write_text("".join(
+        json.dumps({"turn_number": n,
+                    "user_input": "Рен представился Елене" if n == 2 else "Другой ход",
+                    "scene_output": "Встреча" if n == 2 else "Текущие события",
+                    "extracted": {}}, ensure_ascii=False) + "\n"
+        for n in range(1, 101)
+    ), encoding="utf-8")
+    meta = storage._read_json(root / "meta.json", {})
+    meta["turn_number"] = 100
+    meta.pop("_familiarity_index_version", None)
+    storage._write_json(root / "meta.json", meta)
+    session_runtime.build_turn_context(sid, "Продолжаю", lean_native=True)
+    first = storage._read_json(root / "state.json", {})["characters"]["ren"]["pov_familiarity"]
+    assert first["status"] == "acquainted"
+    assert storage._read_json(root / "meta.json", {})["_familiarity_index_version"] == 1
+    session_runtime.build_turn_context(sid, "Продолжаю", lean_native=True)
+    later = storage._read_json(root / "state.json", {})["characters"]["ren"]["pov_familiarity"]
+    assert later["status"] == "acquainted"
+
+
+def test_private_evidence_index_rebuilds_on_archive_rewrite(story):
+    from app import private_knowledge_runtime as guard
+    sid, root = create(story)
+    source = storage._read_json(root / "source.json", {})
+    cards = storage._load_cards(root, source)
+    archive = documents.file_path(root, "turns.jsonl")
+    meta = storage._read_json(root / "meta.json", {})
+    meta["turn_number"] = 1
+    storage._write_json(root / "meta.json", meta)
+
+    def replace_message(word):
+        archive.write_text(json.dumps({
+            "turn_number": 1,
+            "user_input": f"(написать Рену: секретное слово {word})",
+            "scene_output": "Рен получил сообщение.",
+            "extracted": {},
+        }, ensure_ascii=False) + "\n", encoding="utf-8")
+
+    replace_message("фуксия")
+    original = guard._private_records(root, cards)
+    assert any("фуксия" in record.get("payload", "") for record in original)
+    assert (root / guard.PRIVATE_INDEX_FILE).is_file()
+    replace_message("бирюза")
+    updated = guard._private_records(root, cards)
+    assert any("бирюза" in record.get("payload", "") for record in updated)
+    assert not any("фуксия" in record.get("payload", "") for record in updated)
+
+
+def test_native_request_id_index_keeps_exact_retry_and_survives_rollback(story):
+    from app.turn_duplicate_guard import REQUEST_INDEX_FILE
+    sid, root = create(story)
+    manifest, _ = prepare(sid, request_id="req-777")
+    result, payload = commit(sid, manifest)
+    assert result["turn_number"] == 1
+    index = documents.read(root / REQUEST_INDEX_FILE, {})
+    assert index["requests"]["req-777"]["turn_number"] == 1
+    replay = operation_service.prepare_turn_request(
+        sid, payload["user_input"], request_id="req-777",
+    )
+    assert replay["already_committed_duplicate"] is True
+    assert replay["scene_output"] == payload["scene_output"]
+    operation_service.rollback_last_turn_request(sid, {
+        "expected_turn_number": 1,
+        "expected_turn_id": operation_service.current_turn_identity(root),
+        "confirm": True,
+    })
+    again = operation_service.prepare_turn_request(
+        sid, payload["user_input"], request_id="req-777",
+    )
+    assert again.get("already_committed_duplicate") is not True
+
+
 def test_exact_ten_template_set_and_native_session_files(story):
     assert {p.name for p in documents.TEMPLATE_ROOT.glob("*.json")} == set(documents.FILES)
     assert len(documents.FILES) == 10

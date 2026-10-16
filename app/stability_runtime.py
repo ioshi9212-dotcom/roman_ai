@@ -6,7 +6,7 @@ from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Any, Dict
 
-from . import location_runtime, npc_intent, relationship_file_runtime, session_recovery, session_runtime, storage, story_thread
+from . import location_runtime, npc_intent, private_knowledge_runtime, relationship_file_runtime, session_documents, session_recovery, session_runtime, storage, story_thread
 from .game_day import sync_game_day
 from .relationship_runtime import overwrite_relationship_snapshots
 from .relationship_file_runtime import FILE_NAME as RELATIONSHIPS_FILE
@@ -15,7 +15,7 @@ from .rollback_snapshot_runtime import PREVIOUS2_SNAPSHOT_FILE, PREVIOUS_SNAPSHO
 from .scene_compaction_runtime import SCENE_MEMORY_FILE, apply_audit_compactions
 from .long_horizon_audit import apply_macro_chronology_compaction, macro_due
 from .transactional_storage import json_text, recover, session_transaction, write_batch
-from .turn_duplicate_guard import recent_duplicate_turn
+from .turn_duplicate_guard import REQUEST_INDEX_FILE, next_request_index, recent_duplicate_turn
 
 
 _ORIGINAL_PREPARE_TURN = None
@@ -268,7 +268,13 @@ def _atomic_commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, A
         if isinstance(extracted.get("chronology"), list):
             chronology = [*chronology, *deepcopy(extracted["chronology"])]
 
-        turns = storage._read_turns(root)
+        native_append = session_documents.is_native(root)
+        # Finalization needs recent acquaintance evidence, not the full
+        # multi-year archive. Audits and rollback can still replay all turns.
+        turns = (
+            storage._read_turns_backwards(root, count=15)
+            if native_append else storage._read_turns(root)
+        )
         turns.append(entry)
         state = session_runtime._finalize_persisted_state(
             source=source,
@@ -300,7 +306,6 @@ def _atomic_commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, A
             result["request_id"] = str(packet.get("request_id"))
 
         values = {
-            "turns.jsonl": _turns_text(turns),
             "characters.json": json_text(cards),
             "state.json": json_text(state),
             "memory.json": json_text(memory),
@@ -308,6 +313,23 @@ def _atomic_commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, A
             "meta.json": json_text(meta),
             SNAPSHOT_FILE: json_text(pre_turn_snapshot),
         }
+        if native_append:
+            archive = session_documents.file_path(root, "turns.jsonl")
+            separator = ""
+            if archive.exists() and archive.stat().st_size:
+                with archive.open("rb") as handle:
+                    handle.seek(-1, 2)
+                    if handle.read(1) != b"\n":
+                        separator = "\n"
+            encoded_turn = separator + json.dumps(entry, ensure_ascii=False) + "\n"
+            values[REQUEST_INDEX_FILE] = json_text(
+                next_request_index(root, entry, encoded_turn)
+            )
+        # Commit the derived evidence index with the exact same transaction
+        # as turns.jsonl. Rollback restores evidence by cache invalidation.
+        values[private_knowledge_runtime.PRIVATE_INDEX_FILE] = json_text(
+            private_knowledge_runtime.next_private_archive_index(root, cards, entry)
+        )
         relationships_after = payload.get("_relationships_after")
         if isinstance(relationships_after, dict):
             values[RELATIONSHIPS_FILE] = json_text(relationships_after)
@@ -334,7 +356,13 @@ def _atomic_commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, A
             )
             values[RECEIPTS_FILE] = json_text(ledger_with_receipt(root, receipt))
 
-        write_batch(root, values)
+        if not native_append:
+            values["turns.jsonl"] = _turns_text(turns)
+        write_batch(
+            root, values,
+            append_values={"turns.jsonl": encoded_turn}
+            if native_append else None,
+        )
         if not prior_snapshot_valid:
             (root / PREVIOUS_SNAPSHOT_FILE).unlink(missing_ok=True)
         if not prior_previous_valid:

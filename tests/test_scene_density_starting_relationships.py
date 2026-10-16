@@ -187,23 +187,15 @@ def test_first_legacy_prepare_exposes_only_positive_relationship_values():
 def test_scene_builder_keeps_pov_visible_without_forcing_speech():
     builder = Path("runtime/scene_builder.md").read_text(encoding="utf-8")
     instructions = Path("gpt/custom_gpt_instructions.md").read_text(encoding="utf-8")
-
-    assert "POV должен оставаться живым и наблюдаемым участником сцены" in builder
-    assert "После выполнения user_input POV не превращается в молчащую камеру." in builder
-    assert "Запрещено делать пов молчаливым если с ним идёт диалог." in builder
-    assert "ПОВЕДЕНИЕ ПОВ БЕЗ УЧАСТИЯ ИГРОКА: пов может сам задать вопросы, вести диалог, пошутить, ответить, ответить уклончиво" in builder
-    assert "Камера направлена на всю сцену." in builder
-    assert "В сцене так же видно как выглядит пов, его мимика, жесты, обычные бытовые действия." in builder
-    assert "Обычная реплика POV не считается новым решением игрока." in builder
-    assert "Явная реплика игрока может содержать действие." in builder
-    assert "не продолжай дальше этого шага без нового решения игрока" in builder
-    assert "Намерение POV уйти, выйти, поехать или закончить разговор не гарантирует исход." in builder
-    assert "Несколько возможных обычных реплик сами по себе не требуют остановки" in builder
-    assert "Если в ней не меняются отношения, напряжение, информация, цель, риск или сюжет, это рутина" in builder
-    assert "Тихая сцена допустима." not in builder
-    assert "Обычно сцена может быть около 1800–3000 непробельных символов, но это не лимит и не цель." in builder
-    assert "POV остаётся активным и может говорить/реагировать" in instructions
+    assert "ПОВ не камера. Пов говорит, действует, его видно, слышно" in builder
+    assert "В кадре видно всех учавствующих персонажей в том числе и пов" in builder
+    assert "Делать POV молчаливым" in builder
+    assert "Важные сцены, могут быть вообще без реплик" in builder
+    assert "NPC не должен отступать, успокаиваться" in builder
+    assert "Игровой ход" in instructions or "Игровой ход" in instructions.capitalize()
+    assert "scene_builder" in instructions
     assert len(instructions) + 93 < 8000
+
 
 def test_new_scene_npc_without_starting_relationship_is_still_in_relationship_lens():
     with tempfile.TemporaryDirectory() as tmp:

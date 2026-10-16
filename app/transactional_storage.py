@@ -73,6 +73,16 @@ def _rollback(root: Path, transaction_dir: Path, manifest: Dict[str, Any]) -> No
     for entry in reversed(manifest.get("entries", [])):
         target = (root / _safe_relative(str(entry["target"]))).resolve()
         target.relative_to(root.resolve())
+        if entry.get("append"):
+            if entry.get("backup_exists"):
+                with target.open("r+b") as handle:
+                    handle.truncate(int(entry["previous_size"]))
+                    handle.flush()
+                    os.fsync(handle.fileno())
+            else:
+                target.unlink(missing_ok=True)
+            _fsync_dir(target.parent)
+            continue
         if entry.get("backup_exists"):
             backup = transaction_dir / str(entry["backup"])
             if not backup.exists():
@@ -140,18 +150,27 @@ def session_transaction(root: Path) -> Iterator[None]:
                     fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
-def write_batch(root: Path, values: Dict[str, str]) -> None:
-    if not values:
+def write_batch(
+    root: Path, values: Dict[str, str], *,
+    append_values: Dict[str, str] | None = None,
+) -> None:
+    if not values and not append_values:
         return
     root = root.resolve()
     with session_transaction(root):
-        from .session_documents import encode_batch
+        from .session_documents import encode_batch, file_path
         values = encode_batch(root, values)
+        append = {
+            str(file_path(root, name).relative_to(root)): text
+            for name, text in (append_values or {}).items()
+        }
+        if set(values) & set(append):
+            raise ValueError("Cannot replace and append to the same file in one transaction")
         # Canonical documents are not rewritten when the decoded content is unchanged.
         values = {name: text for name, text in values.items()
                   if ((root / name).is_file() if text is None else
                       not (root / name).is_file() or (root / name).read_text(encoding="utf-8") != text)}
-        if not values:
+        if not values and not append:
             return
         transactions = root / ".transactions"
         tx = transactions / uuid.uuid4().hex
@@ -164,17 +183,21 @@ def write_batch(root: Path, values: Dict[str, str]) -> None:
         manifest: Dict[str, Any] = {"version": 1, "state": "prepared", "entries": []}
         manifest_path = tx / "manifest.json"
         try:
-            for index, relative in enumerate(sorted(values)):
+            for index, relative in enumerate(sorted(set(values) | set(append))):
                 relative_path = _safe_relative(relative)
                 target = (root / relative_path).resolve()
                 target.relative_to(root)
                 target.parent.mkdir(parents=True, exist_ok=True)
                 staged = staged_dir / f"{index:04d}.txt"
                 backup = backup_dir / f"{index:04d}.txt"
-                if values[relative] is not None:
+                is_append = relative in append
+                if is_append:
+                    _write_text_atomic(staged, append[relative])
+                elif values[relative] is not None:
                     _write_text_atomic(staged, values[relative])
                 backup_exists = target.exists()
-                if backup_exists:
+                previous_size = target.stat().st_size if is_append and backup_exists else 0
+                if backup_exists and not is_append:
                     with target.open("rb") as source, backup.open("wb") as dest:
                         shutil.copyfileobj(source, dest)
                         dest.flush()
@@ -185,7 +208,9 @@ def write_batch(root: Path, values: Dict[str, str]) -> None:
                         "staged": str(staged.relative_to(tx)),
                         "backup": str(backup.relative_to(tx)),
                         "backup_exists": backup_exists,
-                        "delete": values[relative] is None,
+                        "previous_size": previous_size if is_append else None,
+                        "append": is_append,
+                        "delete": False if is_append else values[relative] is None,
                     }
                 )
             _fsync_dir(staged_dir)
@@ -195,7 +220,14 @@ def write_batch(root: Path, values: Dict[str, str]) -> None:
             for entry in manifest["entries"]:
                 target = (root / _safe_relative(str(entry["target"]))).resolve()
                 staged = tx / str(entry["staged"])
-                if entry.get("delete"):
+                if entry.get("append"):
+                    # The prepared journal can undo even a partial append on
+                    # crash by truncating to previous_size during recovery.
+                    with target.open("ab") as handle:
+                        handle.write(staged.read_bytes())
+                        handle.flush()
+                        os.fsync(handle.fileno())
+                elif entry.get("delete"):
                     target.unlink(missing_ok=True)
                 else:
                     os.replace(staged, target)

@@ -132,8 +132,9 @@ def _current_pointer_guard(session_id: str) -> None:
 
 
 def _strip_legacy_pov_rule_from_session_source(root) -> None:
-    if session_documents.is_native(root):
-        return
+    # The obsolete "POV must be silent" rule is never gameplay canon, whether
+    # a session is native V5 or still uses legacy storage. RAW intake stays
+    # intact because it is excluded from the working-source cleanup below.
     source = storage._read_json(root / "source.json", {})
     if not isinstance(source, dict) or not source:
         return
@@ -456,7 +457,7 @@ def _prepare_context(
         packet, context = _read_packet_context(root)
     else:
         packet = deepcopy(packet_override)
-        context = deepcopy(context_override)
+        context = context_override  # freshly built, single-use writer context
     if not context:
         return base
 
@@ -519,17 +520,21 @@ def _prepare_context(
     # Active cards preserve biography; current attitudes live in relationships only.
     # Do not render the same cards a second time into character_profiles.
 
-    memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
-    memory_buckets = memory.get("characters", {}) if isinstance(memory.get("characters"), dict) else {}
-    context["character_memory"] = {
-        cid: turn_context._working_memory_bucket(
-            memory_buckets.get(cid, {}),
-            current_turn,
-            character_id=cid,
-            cards=cards,
-        )
-        for cid in scene_ids
-    }
+    # Native sessions use full dated personal memory from writer_documents
+    # below. Rebuilding legacy memory buckets here duplicated parsing and
+    # conversion, only for the whole result to be overwritten.
+    if not session_documents.is_native(root):
+        memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
+        memory_buckets = memory.get("characters", {}) if isinstance(memory.get("characters"), dict) else {}
+        context["character_memory"] = {
+            cid: turn_context._working_memory_bucket(
+                memory_buckets.get(cid, {}),
+                current_turn,
+                character_id=cid,
+                cards=cards,
+            )
+            for cid in scene_ids
+        }
     pov = state.get("pov") if isinstance(state.get("pov"), dict) else {}
     relationship_store = relationship_file_runtime.load(
         root,
@@ -647,7 +652,7 @@ def prepare_turn_packet(session_id: str, user_input: str) -> Dict[str, Any]:
 
     # Build once in memory, then serialize only the final writer packet.
     # This avoids storage -> packet -> read -> rewrite -> packet round-trips.
-    context = session_runtime.build_turn_context(session_id, user_input)
+    context = session_runtime.build_turn_context(session_id, user_input, lean_native=True)
     packet = {
         "packet_id": secrets.token_urlsafe(12),
         "prepared_for_turn": expected_turn,

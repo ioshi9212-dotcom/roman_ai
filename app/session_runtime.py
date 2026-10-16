@@ -4,7 +4,7 @@ import json
 from copy import deepcopy
 from typing import Any, Dict, List
 
-from . import storage
+from . import session_documents, storage
 from .character_registry import build_character_registry, normalize_name, refresh_pov_familiarity, registry_instruction
 from .relationship_runtime import (
     overwrite_relationship_snapshots,
@@ -12,7 +12,8 @@ from .relationship_runtime import (
     repair_relationship_state,
     validate_relationship_footer,
 )
-from .turn_context import inject_required_turn_context
+from .turn_context import _compact_scene_state, inject_required_turn_context
+from .runtime_access import runtime_documents
 from .operation_receipts import current_turn_identity
 
 
@@ -109,7 +110,7 @@ def _finalize_persisted_state(
     )
 
 
-def _refresh_session_familiarity(session_id: str) -> Dict[str, Any]:
+def _refresh_session_familiarity(session_id: str, *, lean_native: bool = False) -> Dict[str, Any]:
     root = storage.SESSIONS_DIR / session_id
     if not root.exists():
         raise FileNotFoundError(session_id)
@@ -117,10 +118,34 @@ def _refresh_session_familiarity(session_id: str) -> Dict[str, Any]:
     cards = storage._load_cards(root, source)
     original_state = storage._read_json(root / "state.json", {})
     state = _canonicalize_state_character_refs(cards, original_state)
-    memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
-    chronology = storage._read_json(root / "chronology.json", [])
-    turns = storage._read_turns(root)
     meta = storage._read_json(root / "meta.json", {})
+    native = lean_native and session_documents.is_native(root)
+    if native:
+        # Familiarity needs POV memory only; virtual memory.json reads all NPC files.
+        pov = state.get("pov") if isinstance(state.get("pov"), dict) else {}
+        pov_id = str(pov.get("character_id") or "")
+        pov_path = root / "память" / (pov_id + ".json")
+        # The canonical writer_documents reader below owns missing-file errors
+        # and returns the stable SESSION_DOCUMENT_REQUIRED HTTP 409.
+        pov_document = session_documents.read(pov_path, {})
+        memory = {"characters": {pov_id: session_documents.memory_to_internal(pov_document)
+                                 if isinstance(pov_document, dict) else {}}}
+        info = state.get("characters") if isinstance(state.get("characters"), dict) else {}
+        unindexed = (
+            int(meta.get("_familiarity_index_version", 0) or 0) != 1
+            or any(
+                not isinstance((info.get(storage._card_id(card)) or {}).get("pov_familiarity"), dict)
+                for card in cards
+                if storage._card_id(card) and storage._card_id(card) != pov_id
+            )
+        )
+        chronology = storage._read_json(root / "chronology.json", []) if unindexed else []
+    else:
+        memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
+        chronology = storage._read_json(root / "chronology.json", [])
+        unindexed = False
+    # Reconcile complete history once for migrated sessions, then use new turns.
+    turns = storage._read_turns(root) if unindexed else storage._read_turns_backwards(root, count=15)
     refreshed = refresh_pov_familiarity(
         cards,
         state,
@@ -131,6 +156,9 @@ def _refresh_session_familiarity(session_id: str) -> Dict[str, Any]:
     )
     if refreshed != original_state:
         storage._write_json(root / "state.json", refreshed)
+    if native and unindexed:
+        meta["_familiarity_index_version"] = 1
+        storage._write_json(root / "meta.json", meta)
     return {
         "root": root,
         "source": source,
@@ -422,7 +450,46 @@ def _prepare_extracted_for_commit(
 
 
 
-def build_turn_context(session_id: str, user_input: str) -> Dict[str, Any]:
+def _native_writer_seed(snapshot: Dict[str, Any], user_input: str) -> Dict[str, Any]:
+    """One small, canonical scene seed. The pipeline adds participant data once.
+
+    The old builder below remains available for pre-V5 sessions and callers
+    that explicitly need its compatibility context.
+    """
+    state = snapshot["state"]
+    source = snapshot["source"]
+    meta = snapshot["meta"]
+    pov = state.get("pov") if isinstance(state.get("pov"), dict) else {}
+    scene_ids = list(dict.fromkeys([
+        *([str(pov["character_id"])] if pov.get("character_id") else []),
+        *(str(cid) for cid in storage._present_character_ids(state) if cid),
+        *(str(cid) for cid in storage._remote_character_ids(state) if cid),
+    ]))
+    documents = runtime_documents()
+    return {
+        "packet_version": 3,
+        "session": meta,
+        "expected_turn": int(meta.get("turn_number", 0)) + 1,
+        "user_input": user_input,
+        "scene_state": _compact_scene_state(state, scene_ids),
+        "relevant_character_ids": scene_ids,
+        "present_character_ids_at_turn_start": storage._present_character_ids(state),
+        "active_threads": state.get("threads", {}),
+        "runtime_rules": documents["rules"],
+        "scene_builder": documents["scene_builder"],
+        "starting_state": source.get("starting_state", {}),
+        "novel": source.get("novel", {}),
+        "novel_rules": source.get("rules", {}),
+        "novel_lore": source.get("lore", {}),
+        "hidden_lore": source.get("hidden_lore", {}),
+        "story_direction": source.get("story_direction", {}),
+        "world_canon": source.get("world", {}),
+    }
+
+
+def build_turn_context(
+    session_id: str, user_input: str, *, lean_native: bool = False
+) -> Dict[str, Any]:
     """Build the complete pre-writer turn context in memory without packet round-trips."""
     root = storage.SESSIONS_DIR / session_id
     if not root.exists():
@@ -436,7 +503,12 @@ def build_turn_context(session_id: str, user_input: str) -> Dict[str, Any]:
         raise RuntimeError("HANDOFF_REQUIRED")
 
     # One canonical snapshot for this preparation pass.
-    snapshot = _refresh_session_familiarity(session_id)
+    snapshot = _refresh_session_familiarity(session_id, lean_native=lean_native)
+    # New native sessions already have exactly one canonical file for each
+    # fact/memory/relationship. Do not construct legacy lenses and then throw
+    # them away in turn_pipeline._prepare_context.
+    if lean_native and session_documents.is_native(root):
+        return _native_writer_seed(snapshot, user_input)
     source = snapshot["source"]
     cards = snapshot["cards"]
     state = snapshot["state"]
