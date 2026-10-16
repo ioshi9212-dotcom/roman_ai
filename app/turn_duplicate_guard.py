@@ -120,7 +120,7 @@ def next_request_index(root, turn: Dict[str, Any], encoded_turn: str) -> Dict[st
     identity = str(turn.get("request_id") or "").strip()
     if identity:
         requests[identity] = {
-            "byte_offset": end_offset,
+            "byte_offset": end_offset + (1 if encoded_turn.startswith("\n") else 0),
             "turn_number": int(turn.get("turn_number", 0) or 0),
         }
     return {
