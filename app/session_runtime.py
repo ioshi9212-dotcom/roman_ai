@@ -125,12 +125,11 @@ def _refresh_session_familiarity(session_id: str, *, lean_native: bool = False) 
         pov = state.get("pov") if isinstance(state.get("pov"), dict) else {}
         pov_id = str(pov.get("character_id") or "")
         pov_path = root / "память" / (pov_id + ".json")
-        if not pov_path.is_file():
-            raise RuntimeError("POV_MEMORY_REQUIRED")
+        # The canonical writer_documents reader below owns missing-file errors
+        # and returns the stable SESSION_DOCUMENT_REQUIRED HTTP 409.
         pov_document = session_documents.read(pov_path, {})
-        if not isinstance(pov_document, dict):
-            raise RuntimeError("POV_MEMORY_REQUIRED")
-        memory = {"characters": {pov_id: session_documents.memory_to_internal(pov_document)}}
+        memory = {"characters": {pov_id: session_documents.memory_to_internal(pov_document)
+                                 if isinstance(pov_document, dict) else {}}}
         info = state.get("characters") if isinstance(state.get("characters"), dict) else {}
         unindexed = (
             int(meta.get("_familiarity_index_version", 0) or 0) != 1
