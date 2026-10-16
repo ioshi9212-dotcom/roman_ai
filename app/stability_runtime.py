@@ -314,7 +314,14 @@ def _atomic_commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, A
             SNAPSHOT_FILE: json_text(pre_turn_snapshot),
         }
         if native_append:
-            encoded_turn = json.dumps(entry, ensure_ascii=False) + "\n"
+            archive = session_documents.file_path(root, "turns.jsonl")
+            separator = ""
+            if archive.exists() and archive.stat().st_size:
+                with archive.open("rb") as handle:
+                    handle.seek(-1, 2)
+                    if handle.read(1) != b"\n":
+                        separator = "\n"
+            encoded_turn = separator + json.dumps(entry, ensure_ascii=False) + "\n"
             values[REQUEST_INDEX_FILE] = json_text(
                 next_request_index(root, entry, encoded_turn)
             )
