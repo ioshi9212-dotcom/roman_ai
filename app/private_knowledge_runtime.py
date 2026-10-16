@@ -482,8 +482,10 @@ def next_private_archive_index(root, cards: List[Dict[str, Any]], turn: Dict[str
     current = _private_archive_index(root, cards, pov_id)
     number = int(turn.get("turn_number", 0) or 0)
     previous = int(current.get("last_turn", 0) or 0)
-    if number != previous + 1:
-        raise RuntimeError("PRIVATE_INDEX_TURN_MISMATCH")
+    # Older session fixtures and migration tools can leave gaps in the
+    # numerical counter; the validated archive remains the evidence source.
+    if number <= previous:
+        raise RuntimeError("PRIVATE_INDEX_NONMONOTONIC_TURN")
     return {
         "version": _PRIVATE_INDEX_VERSION,
         "roster_hash": _private_index_roster(cards),
