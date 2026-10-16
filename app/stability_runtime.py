@@ -6,7 +6,7 @@ from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Any, Dict
 
-from . import location_runtime, npc_intent, relationship_file_runtime, session_recovery, session_runtime, storage, story_thread
+from . import location_runtime, npc_intent, private_knowledge_runtime, relationship_file_runtime, session_recovery, session_runtime, storage, story_thread
 from .game_day import sync_game_day
 from .relationship_runtime import overwrite_relationship_snapshots
 from .relationship_file_runtime import FILE_NAME as RELATIONSHIPS_FILE
@@ -308,6 +308,11 @@ def _atomic_commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, A
             "meta.json": json_text(meta),
             SNAPSHOT_FILE: json_text(pre_turn_snapshot),
         }
+        # Commit the derived evidence index with the exact same transaction
+        # as turns.jsonl. Rollback restores evidence by cache invalidation.
+        values[private_knowledge_runtime.PRIVATE_INDEX_FILE] = json_text(
+            private_knowledge_runtime.next_private_archive_index(root, cards, entry)
+        )
         relationships_after = payload.get("_relationships_after")
         if isinstance(relationships_after, dict):
             values[RELATIONSHIPS_FILE] = json_text(relationships_after)
