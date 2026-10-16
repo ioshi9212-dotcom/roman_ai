@@ -126,7 +126,7 @@ def _read_turns_backwards(
             step = min(position, 64 * 1024)
             position -= step
             handle.seek(position)
-            lines = (handle.read(step) + carry).split(b"\\n")
+            lines = (handle.read(step) + carry).split(b"\n")
             carry = lines[0]
             for raw in reversed(lines[1:]):
                 if accept(raw):
