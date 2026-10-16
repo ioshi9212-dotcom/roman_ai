@@ -43,3 +43,40 @@ def test_writer_window_and_targeted_privacy_history_are_bounded(tmp_path):
     assert [item["turn_number"] for item in continuity] == list(range(136, 149))
     assert [item["turn_number"] for item in _history_turns(root, {136, 150})] == [136, 150]
     assert len(_history_turns(root)) == 150
+
+
+def test_journalled_append_preserves_archive_on_later_write_failure(tmp_path, monkeypatch):
+    import pytest
+    from app import transactional_storage as transaction
+    root = tmp_path / "session"
+    root.mkdir()
+    archive = root / "history.jsonl"
+    archive.write_text('{"turn_number":1}\n', encoding="utf-8")
+    original_replace = transaction.os.replace
+
+    def fail_later(src, dst):
+        if str(dst).endswith("/zz.json"):
+            raise OSError("simulated write interruption")
+        return original_replace(src, dst)
+
+    monkeypatch.setattr(transaction.os, "replace", fail_later)
+    with pytest.raises(OSError, match="simulated write interruption"):
+        transaction.write_batch(
+            root, {"zz.json": '{"ok":true}'},
+            append_values={"history.jsonl": '{"turn_number":2}\n"},
+        )
+    assert archive.read_text(encoding="utf-8") == '{"turn_number":1}\n'
+    assert not (root / "zz.json").exists()
+
+
+def test_atomic_append_and_recovery_keep_original_turns(tmp_path):
+    from app import transactional_storage as transaction
+    root = tmp_path / "session"
+    root.mkdir()
+    transaction.write_batch(root, {}, append_values={"history.jsonl": "first\n"})
+    transaction.write_batch(root, {"state.json": '{"x":1}\n'},
+                            append_values={"history.jsonl": "second\n"})
+    assert (root / "history.jsonl").read_text() == "first\nsecond\n"
+    assert (root / "state.json").read_text() == '{"x":1}\n'
+    transaction.recover(root)
+    assert (root / "history.jsonl").read_text() == "first\nsecond\n"
