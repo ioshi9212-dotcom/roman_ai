@@ -334,12 +334,12 @@ def _compact_continuity_turn(turn: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _rolling_turn_context(root) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
-    turns = storage._read_turns(root)
+    # The editor needs at most the latest 15 uncovered turns, not every raw
+    # turn ever written. Full archives remain intact for auditing and rollback.
     compacted = covered_turns(root)
-    working_turns = [
-        turn for turn in turns
-        if int(turn.get("turn_number", 0) or 0) not in compacted
-    ]
+    working_turns = storage._read_turns_backwards(
+        root, count=CONTINUITY_WINDOW, excluded_numbers=compacted
+    )
     bridge = storage._read_json(root / "handoff_tail.json", [])
     if not isinstance(bridge, list):
         bridge = []
