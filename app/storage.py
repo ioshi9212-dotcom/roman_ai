@@ -82,6 +82,60 @@ def _read_turns(root: Path) -> List[Dict[str, Any]]:
     return turns
 
 
+def _read_turns_backwards(
+    root: Path, *, count: int | None = None,
+    wanted_numbers: set[int] | None = None,
+    excluded_numbers: set[int] | None = None,
+) -> List[Dict[str, Any]]:
+    """Read only the relevant JSONL tail, without parsing the entire archive.
+
+    Chronological full reads remain available through _read_turns for audits,
+    rollback and repairs. Writer context asks for only recent, uncovered turns.
+    """
+    if count is None and wanted_numbers is None:
+        raise ValueError("Specify a count or wanted turn numbers")
+    if count is not None and count <= 0:
+        return []
+    missing = set(wanted_numbers) if wanted_numbers is not None else None
+    if missing is not None and not missing:
+        return []
+    excluded = excluded_numbers or set()
+    path = session_documents.file_path(root, "turns.jsonl")
+    if not path.exists():
+        return []
+
+    newest: List[Dict[str, Any]] = []
+
+    def accept(raw: bytes) -> bool:
+        if not raw.strip():
+            return False
+        turn = json.loads(raw)
+        number = int(turn.get("turn_number", 0) or 0)
+        if number in excluded or (missing is not None and number not in missing):
+            return False
+        newest.append(turn)
+        if missing is not None:
+            missing.discard(number)
+        return (count is not None and len(newest) >= count) or (missing is not None and not missing)
+
+    with path.open("rb") as handle:
+        handle.seek(0, 2)
+        position = handle.tell()
+        carry = b""
+        while position > 0:
+            step = min(position, 64 * 1024)
+            position -= step
+            handle.seek(position)
+            lines = (handle.read(step) + carry).split(b"\\n")
+            carry = lines[0]
+            for raw in reversed(lines[1:]):
+                if accept(raw):
+                    return list(reversed(newest))
+        if carry.strip():
+            accept(carry)
+    return list(reversed(newest))
+
+
 def _normalise_memory(memory: Dict[str, Any]) -> Dict[str, Any]:
     if isinstance(memory.get("characters"), dict):
         return memory
