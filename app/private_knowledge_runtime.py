@@ -337,19 +337,27 @@ def _historical_remote_records(
     return result
 
 
-def _history_turns(root) -> List[Dict[str, Any]]:
+def _history_turns(root, turn_numbers: set[int] | None = None) -> List[Dict[str, Any]]:
     result: List[Dict[str, Any]] = []
     seen: set[tuple[int, str, str]] = set()
     handoff = storage._read_json(root / "handoff_tail.json", [])
     if isinstance(handoff, dict):
         handoff = handoff.get("turns") or handoff.get("recent_turns") or []
+    # Exact recent-turn redaction only needs referenced turns; the strict
+    # knowledge validator retains its full-history path by default.
+    archive = (
+        storage._read_turns_backwards(root, wanted_numbers=turn_numbers)
+        if turn_numbers is not None else storage._read_turns(root)
+    )
     sources = [
         handoff if isinstance(handoff, list) else [],
-        storage._read_turns(root),
+        archive,
     ]
     for source in sources:
         for turn in source:
             if not isinstance(turn, dict):
+                continue
+            if turn_numbers is not None and int(turn.get("turn_number", 0) or 0) not in turn_numbers:
                 continue
             key = (
                 int(turn.get("turn_number", 0) or 0),
@@ -996,7 +1004,13 @@ def redact_private_history(context: Dict[str, Any], *, root, cards: List[Dict[st
     state = storage._read_json(root / "state.json", {})
     pov_id = _pov_id(state)
     stored_turns: Dict[int, List[Dict[str, Any]]] = {}
-    for turn in _history_turns(root):
+    visible_numbers = {
+        int(row.get("turn_number", 0) or 0)
+        for key in ("recent_turns", "continuity_turns")
+        for row in (result.get(key) if isinstance(result.get(key), list) else [])
+        if isinstance(row, dict) and int(row.get("turn_number", 0) or 0) > 0
+    }
+    for turn in _history_turns(root, turn_numbers=visible_numbers):
         number = int(turn.get("turn_number", 0) or 0)
         if number > 0:
             stored_turns.setdefault(number, []).append(turn)
