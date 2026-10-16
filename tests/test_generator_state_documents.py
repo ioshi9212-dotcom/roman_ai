@@ -55,6 +55,25 @@ def commit(sid, manifest, **changes):
     return result, payload
 
 
+def test_native_turn_seed_skips_legacy_layers_without_losing_story_context(story):
+    sid, _ = create(story)
+    seed = session_runtime.build_turn_context(sid, "Продолжаю разговор", lean_native=True)
+    assert seed["runtime_rules"] and seed["scene_builder"]
+    assert seed["relevant_character_ids"] == ["pov", "ren"]
+    assert seed["novel"]["start"] == "Утро в кафе"
+    # The active pipeline loads these once from canonical participant documents.
+    for duplicate in ("scene_characters", "character_registry", "author_context",
+                      "character_memory", "relationship_policy", "persistence_contract"):
+        assert duplicate not in seed
+
+    _, packet = prepare(sid)
+    assert set(packet["character_memory"]) == {"pov", "ren"}
+    assert {row["character_id"] for row in packet["character_cards"]} == {"pov", "ren"}
+    assert packet["chronology"]["дни"] == {}
+    assert packet["runtime_rules"] and packet["scene_builder"]
+    assert "scene_characters" not in packet
+
+
 def test_exact_ten_template_set_and_native_session_files(story):
     assert {p.name for p in documents.TEMPLATE_ROOT.glob("*.json")} == set(documents.FILES)
     assert len(documents.FILES) == 10
