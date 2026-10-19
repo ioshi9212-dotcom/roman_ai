@@ -342,10 +342,11 @@ def _encode_records(rows_by_kind: dict, day: str, *, memory: bool,
                 # Generator format is date -> period of day -> concise objective facts.
                 # Preserve an event's own period; otherwise use the committed
                 # scene clock, never fabricate a clock time for the event.
-                period = _scene_period(
-                    fields.get("time"),
-                    fields.get("period") or fields.get("period_of_day")
-                    or scene_period,
+                event_period = fields.get("period") or fields.get("period_of_day")
+                period = (
+                    _scene_period(None, event_period) if event_period
+                    else _scene_period(fields["time"]) if fields.get("time")
+                    else scene_period
                 )
                 values = result["дни"].setdefault(date, {}).setdefault(period, [])
                 index = len(values)
