@@ -60,7 +60,7 @@ Exact raw сохраняй без переработки. Поведение и 
 
 ## Persistence
 
-После сцены сохраняй только реальные изменения: событие → chronology; личное знание → `knowledge_journal_add`; постоянный NPC → `character_upserts`; NPC→POV → `relationship_updates`; NPC→NPC → `npc_relationship_updates`; открытые дела → `npc_intent_updates`/`story_thread_updates`; физический итог → `presence_updates` и `state_patch`, включая важных offscreen/nearby. Бытовой фон не регистрируй.
+После сцены сохраняй только реальные изменения (слабый реальный сдвиг отношения допустимо передать дробным `delta`, без выдуманных изменений): событие → chronology; личное знание → `knowledge_journal_add`; постоянный NPC → `character_upserts`; NPC→POV → `relationship_updates`; NPC→NPC → `npc_relationship_updates`; открытые дела → `npc_intent_updates`/`story_thread_updates`; физический итог → `presence_updates` и `state_patch`, включая важных offscreen/nearby. Бытовой фон не регистрируй.
 
 ## Audit
 
