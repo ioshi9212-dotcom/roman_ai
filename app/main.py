@@ -846,8 +846,13 @@ def audit_commit(session_id: str, body: AuditCommit):
 
 
 @app.post("/sessions/{session_id}/resume", operation_id="resumeSession")
-def session_resume(session_id: str):
+def session_resume(session_id: str, prepare_audit: bool = False):
     try:
-        return continue_session(session_id)
+        result = continue_session(session_id)
+        # This is the only automatic-reader entry point for manually requested
+        # maintenance. An ordinary resume never opens audit chunks.
+        if prepare_audit and result.get("audit_available"):
+            result["audit_manifest"] = get_audit_snapshot(session_id)
+        return result
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Session not found")
