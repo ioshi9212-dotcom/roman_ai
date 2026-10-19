@@ -16,8 +16,11 @@ MAX_AUDIT_PRIOR_RELATED = 20
 
 
 def _audit_range(meta: Dict[str, Any]) -> tuple[int, int]:
-    end_turn = int(meta.get("turn_number", 0))
-    start_turn = max(int(meta.get("last_audit_turn", 0)) + 1, end_turn - 14)
+    # Deferred audits must not skip older unchecked turns. Process one
+    # contiguous 15-turn window at a time even after gameplay advances.
+    latest = int(meta.get("turn_number", 0) or 0)
+    start_turn = max(1, int(meta.get("last_audit_turn", 0) or 0) + 1)
+    end_turn = min(latest, start_turn + 14)
     return start_turn, end_turn
 
 
