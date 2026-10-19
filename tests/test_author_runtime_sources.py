@@ -95,7 +95,7 @@ def test_scene_motion_is_not_substituted_by_talk_or_offscreen_summary():
 
 def test_sleep_and_received_text_progress_without_empty_pov_choice():
     builder = (ROOT / "runtime" / "scene_builder.md").read_text(encoding="utf-8")
-    assert "закончить отрезок сценой, где POV уже проснулся" in builder
+    assert "закончи отрезок сценой, где POV уже проснулся" in builder
     assert "не требуй от игрока отдельного решения" in builder.casefold()
     assert "прочитать сообщение" in builder
     assert "конкретный текст и естественное прочтение POV" in builder
