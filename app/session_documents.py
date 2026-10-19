@@ -346,7 +346,7 @@ def _encode_records(rows_by_kind: dict, day: str, *, memory: bool,
                 period = (
                     _scene_period(None, event_period) if event_period
                     else _scene_period(fields["time"]) if fields.get("time")
-                    else scene_period
+                    else scene_period if date == _day(day) else "события"
                 )
                 values = result["дни"].setdefault(date, {}).setdefault(period, [])
                 index = len(values)
@@ -529,10 +529,10 @@ def encode_batch(root: Path, values: dict[str, str]) -> dict[str, str | None]:
         state = state_to_internal(current_native) if current_native else {}
     scene_current = state.get("current") if isinstance(state.get("current"), dict) else {}
     day = scene_current.get("date") or "без даты"
-    scene_period = _scene_period(
-        scene_current.get("time"),
-        scene_current.get("period"),
-    )
+    # Clock is authoritative if an old 'period' label was left behind in state.
+    scene_period = _scene_period(scene_current.get("time"))
+    if scene_period == "события":
+        scene_period = _scene_period(None, scene_current.get("period"))
     if "characters.json" in parsed:
         roster = template("персонажи.json")
         existing_roster = {row["id"]: row for row in read(root / "персонажи.json", {}).get("персонажи", [])}
