@@ -275,6 +275,7 @@ def get_audit_snapshot(session_id: str) -> Dict[str, Any]:
     if (
         isinstance(packet, dict)
         and packet.get("audit_range") == [start_turn, end_turn]
+        and packet.get("prepared_at_turn") == int(meta.get("turn_number", 0) or 0)
         and packet.get("audit_packet_version") == AUDIT_PACKET_VERSION
         and isinstance(packet.get("chunks"), list)
         and packet.get("chunks")
@@ -296,6 +297,7 @@ def get_audit_snapshot(session_id: str) -> Dict[str, Any]:
     packet = {
         "audit_id": secrets.token_urlsafe(12),
         "audit_range": [start_turn, end_turn],
+        "prepared_at_turn": int(meta.get("turn_number", 0) or 0),
         "audit_packet_version": AUDIT_PACKET_VERSION,
         "chunk_count": len(chunks),
         "read_chunks": [],
@@ -350,6 +352,11 @@ def require_complete_audit_read(
         raise RuntimeError("AUDIT_PACKET_REQUIRED")
     if audit_id is not None and str(packet.get("audit_id") or "") != str(audit_id):
         raise RuntimeError("AUDIT_PACKET_REQUIRED")
+    meta = storage._read_json(root / "meta.json", {})
+    if packet.get("prepared_at_turn") != int(meta.get("turn_number", 0) or 0):
+        raise RuntimeError("AUDIT_PACKET_STALE")
+    if packet.get("audit_range") != list(_audit_range(meta)):
+        raise RuntimeError("AUDIT_PACKET_STALE")
     chunks = packet.get("chunks", [])
     if len(set(packet.get("read_chunks", []))) < len(chunks):
         raise RuntimeError("AUDIT_PACKET_INCOMPLETE")
