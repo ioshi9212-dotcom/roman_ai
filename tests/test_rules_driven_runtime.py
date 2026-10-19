@@ -175,7 +175,7 @@ def test_legacy_story_rule_is_absent_from_actual_turn_packet():
         assert "если игрок не дал реплику" not in blob
         assert "не придумывать её" not in blob
         assert "npc действуют самостоятельно" in blob
-        assert "никто не существует только ради pov." in context["scene_builder"].casefold()
+        assert "а не существовать только ради pov" in context["scene_builder"].casefold()
 
         source_blob = json.dumps(
             storage._read_json(storage.SESSIONS_DIR / sid / "source.json", {}),
