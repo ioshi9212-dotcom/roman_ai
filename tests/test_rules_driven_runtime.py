@@ -84,7 +84,7 @@ def test_active_runtime_is_author_rules_plus_scene_builder():
     assert "Не задавай через Rules поведение персонажей" in rules
     assert "Skin Builder определяет поведение POV, NPC, мира" in rules
     assert builder.startswith("Формат scene_builder обязателен")
-    assert "Никто не существует только ради POV." in builder
+    assert "а не существовать только ради POV" in builder
     assert "Их поведение определяется характером, целями, желаниями" in builder
     assert "Не сглаживай настоящие эмоции и конфликты." in builder
 
@@ -95,7 +95,7 @@ def test_active_runtime_is_author_rules_plus_scene_builder():
     assert "state.characters[ID]" in rules
     assert "Не удаляй NPC из present_characters до реального leave." in rules
     assert "Незакрытая линия остаётся активной" in rules
-    assert "Если ПОВ ничего не делает, мир и другие НПС будут двигать сюжет сами" in builder
+    assert "мир развивается и без инициативы POV" in builder
     for removed in ("ROUTINE", "STANDARD", "CINEMATIC",
                     "ТОЧКА ОСТАНОВКИ СЦЕНЫ", "world_movement_context",
                     "structural_movement_due"):
@@ -107,17 +107,17 @@ def test_character_perception_and_scene_quality_stay_causal_without_pacing_modes
     builder, rules = docs["scene_builder"], docs["rules"]
     # These are the author's current compact rules, not obsolete verbatim
     # phrases from the earlier, significantly longer Scene Builder.
-    assert "ПОВ не камера. Пов говорит, действует, его видно, слышно" in builder
-    assert "В кадре видно всех учавствующих персонажей" in builder
-    assert "Никто не существует только ради POV." in builder
-    assert "Содержание сцены не шаблонизируй" in builder
-    assert "Сохраняй жанр, атмосферу, рейтинг, логику мира и причинность." in builder
+    assert "POV виден, а не служит камерой" in builder
+    assert "кто где находится, как повернут, что видит и делает" in builder
+    assert "а не существовать только ради POV" in builder
+    assert "содержание сцен не шаблонизируются" in builder
+    assert "в рамках установленного канона" in builder
     assert "Пропускать только скучную рутину" in builder
     assert "Романтические, интимные, чувственные" in builder
     assert "Не пропускать важные сцены." in builder
-    assert "Важные сцены, могут быть вообще без реплик" in builder
-    assert "Запрещены режисерские комментарии" in builder
-    assert "1800 - 3000 символов" in builder
+    assert "Важные сцены могут быть вообще без реплик" in builder
+    assert "авторские комментарии" in builder
+    assert "1800–3000 символов" in builder
     assert "Завершён должен быть игровой ход, а не обязательно действие" in rules
     for removed in ("ROUTINE", "STANDARD", "CINEMATIC", "ТОЧКА ОСТАНОВКИ СЦЕНЫ"):
         assert removed not in builder
@@ -1528,7 +1528,7 @@ def test_offscreen_npc_can_be_considered_without_saved_intent_or_forced_timer():
         assert "пишет вечером после работы" in row["habits"]
         assert context["relationships"]["npc_to_pov"]["npc"]["dimensions"]["привязанность"]["value"] == 65
         assert "Появление, звонок, сообщение, уход и возвращение персонажей выбирает режиссура сама" not in context["runtime_rules"]
-        assert "Самостоятельно развивай мир и создавай новых персонажей" in context["scene_builder"]
+        assert "Новые персонажи тоже могут возникать по ходу мира" in context["scene_builder"]
         assert "не задаёт очередь, квоту или таймер появления" in context["cast_registry"]["instruction"]
         assert "До реального участия offscreen NPC прочитай его полный character bundle." in context["cast_registry"]["instruction"]
 
@@ -1588,7 +1588,7 @@ def test_rules_keep_director_truth_separate_from_character_truth():
         "director-only",
     ):
         assert phrase in rules
-    assert "Запрещены режисерские комментарии" in builder
+    assert "авторские комментарии" in builder
     assert "Источник знания должен существовать до использования знания." in rules
 
     for removed_belief_rule in (
