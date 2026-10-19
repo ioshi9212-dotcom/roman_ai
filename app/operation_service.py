@@ -110,15 +110,20 @@ def prepare_turn_request(
             if same_input:
                 if identity and pending_id and identity != pending_id:
                     raise RuntimeError("TURN_IN_PROGRESS")
+                packet_changed = False
                 if identity and not pending_id:
                     packet["request_id"] = identity
+                    packet_changed = True
                 # Safe transport flags may be preserved/upgraded on an identical pending turn.
-                if scene_archive_capable:
+                if scene_archive_capable and not packet.get("scene_archive_capable"):
                     packet["scene_archive_capable"] = True
-                if opening_scene:
+                    packet_changed = True
+                if opening_scene and not packet.get("opening_scene"):
                     packet["opening_scene"] = True
-                storage._write_json(root / "turn_packet.json", packet)
-                result = dict(session_runtime.prepare_turn_packet(session_id, user_input))
+                    packet_changed = True
+                if packet_changed:
+                    storage._write_json(root / "turn_packet.json", packet)
+                result = dict(session_runtime.prepare_turn_packet(session_id, user_input, _migrated=True))
                 if identity:
                     result["request_id"] = identity
                 result["scene_archive_capable"] = bool(packet.get("scene_archive_capable"))
@@ -141,7 +146,7 @@ def prepare_turn_request(
             if duplicate is not None:
                 return duplicate_prepare_response(duplicate)
 
-        result = dict(session_runtime.prepare_turn_packet(session_id, user_input))
+        result = dict(session_runtime.prepare_turn_packet(session_id, user_input, _migrated=True))
         packet = storage._read_json(root / "turn_packet.json", {})
         if isinstance(packet, dict) and packet.get("packet_id"):
             if identity:
