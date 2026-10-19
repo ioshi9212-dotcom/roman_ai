@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 # main, not phrases retained from an older, superseded Skin Builder revision.
 AUTHOR_BLOB_SHA = {
     "rules.md": "f1929fd98ea25472572262866e03126a6eec5c7d",
-    "scene_builder.md": "4ce1edef92063bda7446010a257696f954746038",
+    "scene_builder.md": "b318814b127ebcb9ec1009f3a09482d30ca4d841",
 }
 
 
@@ -102,3 +102,21 @@ def test_sleep_and_received_text_progress_without_empty_pov_choice():
     assert "Прочитать не значит ответить" in builder
     assert "Если игрок прямо выбрал игнорировать сообщение" in builder
     assert "Если POV спит" in builder
+
+
+def test_npc_autonomy_has_no_permission_or_waiting_loop():
+    builder = (ROOT / "runtime" / "scene_builder.md").read_text(encoding="utf-8")
+    for required in (
+        "ЖЁСТКОЕ ПРАВИЛО: NPC НЕ ЖДУТ POV",
+        "Запрещены пассивные финалы",
+        "Дантэ ждёт дальнейших действий Ринаты",
+        "Теперь выбор за ней",
+        "Воля NPC и управление POV существуют одновременно",
+        "Эта возможность НЕ требует, чтобы NPC предварительно замер",
+        "не требуй второго подтверждения",
+        "Сцена идёт естественно, а не ходами очереди",
+        "это не приказ NPC ждать их выбора в мире истории",
+    ):
+        assert required in builder
+    assert "Он сам решает, что делать дальше" in builder
+    assert "Не пиши за POV нового значимого решения" in builder
