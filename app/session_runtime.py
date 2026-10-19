@@ -497,13 +497,17 @@ def build_turn_context(
 
     meta = storage._read_json(root / "meta.json", {})
     meta = _clear_legacy_handoff(root, meta)
-    if meta.get("audit_required"):
-        raise RuntimeError("AUDIT_REQUIRED")
     if meta.get("handoff_required"):
         raise RuntimeError("HANDOFF_REQUIRED")
 
     # One canonical snapshot for this preparation pass.
     snapshot = _refresh_session_familiarity(session_id, lean_native=lean_native)
+    snapshot["meta"] = {
+        **snapshot["meta"],
+        "audit_available": bool(snapshot["meta"].get("audit_required")),
+        "audit_required": False,
+        "audit_blocking": False,
+    }
     # New native sessions already have exactly one canonical file for each
     # fact/memory/relationship. Do not construct legacy lenses and then throw
     # them away in turn_pipeline._prepare_context.
