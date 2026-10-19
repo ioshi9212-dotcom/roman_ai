@@ -296,7 +296,7 @@ def _atomic_commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, A
             "audit_due": audit_due,
             "audit_available": bool(meta["audit_required"]),
             "audit_blocking": False,
-            "audit_range": audit_runtime._audit_range(meta) if meta["audit_required"] else None,
+            "audit_range": [int(meta.get("last_audit_turn", 0) or 0) + 1, min(turn_number, int(meta.get("last_audit_turn", 0) or 0) + 15)] if meta["audit_required"] else None,
             "handoff_required": False,
             "transactional_commit": True,
             "relationship_snapshots_atomic": True,
