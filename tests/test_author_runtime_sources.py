@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 # main, not phrases retained from an older, superseded Skin Builder revision.
 AUTHOR_BLOB_SHA = {
     "rules.md": "f1929fd98ea25472572262866e03126a6eec5c7d",
-    "scene_builder.md": "e48d2a4d1ca8bc57e2d3cf1a8299ef186deedf9c",
+    "scene_builder.md": "b318814b127ebcb9ec1009f3a09482d30ca4d841",
 }
 
 
@@ -51,24 +51,24 @@ def test_recurring_npcs_can_reenter_without_forced_events():
     builder = (ROOT / "runtime" / "scene_builder.md").read_text(encoding="utf-8")
     assert "Не удаляй NPC из present_characters до реального leave." in rules
     assert "Незакрытая линия остаётся активной" in rules
-    assert "ПОВ - не центр мира" in builder
-    assert "Самостоятельно развивай мир и создавай новых персонажей" in builder
+    assert "NPC действуют, а не запрашивают разрешение" in builder
+    assert "Новые персонажи тоже могут возникать по ходу мира" in builder
     assert "Cast registry даёт контекст" in rules or "cast_registry" in rules
 
 
 def test_waiting_is_not_a_repeatable_static_turn():
     builder = (ROOT / "runtime" / "scene_builder.md").read_text(encoding="utf-8")
-    assert "Если ПОВ ничего не делает, мир и другие НПС будут двигать сюжет сами" in builder
+    assert "мир развивается и без инициативы POV" in builder
     assert "Пропускать только скучную рутину, которая в сцене ничего не меняет." in builder
-    assert "Конец сцены: он всегда должен оставлять крючок." in builder
+    assert "Не приклеивай к каждому финалу искусственный «крючок»" in builder
 
 
 def test_npc_acts_independently_during_ongoing_contact():
     builder = (ROOT / "runtime" / "scene_builder.md").read_text(encoding="utf-8")
     rules = (ROOT / "runtime" / "rules.md").read_text(encoding="utf-8")
-    assert "Никто не существует только ради POV." in builder
+    assert "а не существовать только ради POV" in builder
     assert "Реакция определяется характером, желаниями, чувствами и отношениями" in builder
-    assert "Важные сцены, могут быть вообще без реплик" in builder
+    assert "Важные сцены могут быть вообще без реплик" in builder
     assert "Романтические, интимные, чувственные" in builder
     assert "Завершён должен быть игровой ход, а не обязательно действие" in rules
 
@@ -78,3 +78,45 @@ def test_pov_viewpoint_and_external_camera_are_not_contradictory():
     assert "Восприятие сцены привязано к POV" in builder
     assert "включая POV, описываются от третьего лица" in builder
     assert "От первого лица ПОВ. Но камера от третьего лица." not in builder
+
+
+def test_scene_motion_is_not_substituted_by_talk_or_offscreen_summary():
+    builder = (ROOT / "runtime" / "scene_builder.md").read_text(encoding="utf-8")
+    for instruction in (
+        "Показывай действие, а не называй его",
+        "передавай его последовательно, почти покадрово",
+        "Чувственность и ясная пространственная картинка",
+        "Диалог не является обязательным наполнителем",
+        "не обрывай уже начатое",
+    ):
+        assert instruction.casefold() in builder.casefold()
+    assert "технического подтверждения каждого шага" in builder
+
+
+def test_sleep_and_received_text_progress_without_empty_pov_choice():
+    builder = (ROOT / "runtime" / "scene_builder.md").read_text(encoding="utf-8")
+    assert "закончи отрезок сценой, где POV уже проснулся" in builder
+    assert "не требуй от игрока отдельного решения" in builder.casefold()
+    assert "прочитать сообщение" in builder
+    assert "конкретный текст и естественное прочтение POV" in builder
+    assert "Прочитать не значит ответить" in builder
+    assert "Если игрок прямо выбрал игнорировать сообщение" in builder
+    assert "Если POV спит" in builder
+
+
+def test_npc_autonomy_has_no_permission_or_waiting_loop():
+    builder = (ROOT / "runtime" / "scene_builder.md").read_text(encoding="utf-8")
+    for required in (
+        "ЖЁСТКОЕ ПРАВИЛО: NPC НЕ ЖДУТ POV",
+        "Запрещены пассивные финалы",
+        "Дантэ ждёт дальнейших действий Ринаты",
+        "Теперь выбор за ней",
+        "Воля NPC и управление POV существуют одновременно",
+        "Эта возможность НЕ требует, чтобы NPC предварительно замер",
+        "не требуй второго подтверждения",
+        "Сцена идёт естественно, а не ходами очереди",
+        "это не приказ NPC ждать их выбора в мире истории",
+    ):
+        assert required in builder
+    assert "Он сам решает, что делать дальше" in builder
+    assert "Не пиши за POV нового значимого решения" in builder
