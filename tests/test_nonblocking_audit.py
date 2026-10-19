@@ -66,3 +66,30 @@ def test_gameplay_resumes_past_fifteen_without_auto_audit(story):
     assert refreshed["audit_range"] == [1, 15]
     assert refreshed["audit_id"] != packet["audit_id"]
     assert len(storage._read_turns(root)) == 17
+
+    # A delayed audit reconciles the historical window without rolling back
+    # scene 17 or incorrectly marking later turns as already reviewed.
+    from app import main as main_api
+    from app.models import AuditCommit
+
+    for index in range(1, refreshed["chunk_count"]):
+        storage.get_turn_packet_chunk(sid, refreshed["audit_id"], index)
+    audit_saved = main_api.turns_commit(sid, AuditCommit(
+        audit_id=refreshed["audit_id"],
+        start_turn=1,
+        end_turn=15,
+        repairs={"scene_compactions": [{
+            "start_turn": 1,
+            "end_turn": 15,
+            "summary": "Рен и Елена продолжали последовательный разговор в кафе, не меняя внешних обстоятельств и не обмениваясь новыми значимыми сведениями.",
+            "status": "open",
+            "participants": ["pov", "ren"],
+            "location": "Кафе",
+        }]},
+        notes=[],
+    ))
+    assert audit_saved["audited_through"] == 15
+    assert storage._read_json(root / "meta.json", {})["turn_number"] == 17
+    assert storage._read_json(root / "meta.json", {})["last_audit_turn"] == 15
+    assert not storage._read_json(root / "meta.json", {})["audit_required"]
+    assert len(storage._read_turns(root)) == 17
