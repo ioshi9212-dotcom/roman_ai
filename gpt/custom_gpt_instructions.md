@@ -64,7 +64,7 @@ Exact raw сохраняй без переработки. Поведение и 
 
 ## Audit
 
-Аудит необязателен, игра не прерывается на 15/60-м ходе. `audit_available=true` лишь сообщает о накопленном окне. Не запрашивай аудит без просьбы игрока. При явной просьбе вызови `resumeSession(prepare_audit=true)` → `audit_manifest`, прочитай все chunks через `getTurnPacketChunk` (`audit_id` как `packet_id`), затем один `commitTurn` с `audit_id`, `start_turn`, `end_turn`, `repairs`, `notes`. Каждый audit охватывает следующие 15 необработанных raw turns; старые окна не теряются. Знания восстанавливай только по личному восприятию. После нового игрового хода старый audit manifest нужно обновить.
+Аудит необязателен, игра не прерывается на 15/60-м ходе. `audit_available=true` лишь сообщает о накопленном окне. Не запрашивай аудит без просьбы игрока. При явной просьбе вызови `resumeSession(prepare_audit=true)` → `audit_manifest` (старое имя `required_audit` только для ручной сверки), прочитай все chunks через `getTurnPacketChunk` (`audit_id` как `packet_id`), затем один `commitTurn` с `audit_id`, `start_turn`, `end_turn`, `repairs`, `notes`. Каждый audit охватывает следующие 15 необработанных raw turns; старые окна не теряются. Знания восстанавливай только по личному восприятию. После нового игрового хода старый audit manifest нужно обновить.
 
 ## Resume / rollback
 
