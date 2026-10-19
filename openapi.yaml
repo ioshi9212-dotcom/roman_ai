@@ -959,7 +959,7 @@ paths:
     post:
       operationId: resumeSession
       summary: Reconnect to the exact existing session
-      description: Compact checkpoint including exact last_committed_turn.scene_output. If current_recovery_required=true, call recoverSessionCurrent before prepareTurn. Full canon remains persistent. Maintenance is optional and never blocks gameplay. When explicitly asked, set prepare_audit=true to include an audit_manifest for the next 15 unaudited turns.
+      description: Compact resume with last_committed_turn.scene_output and recovery status. Audits never block scenes. On explicit maintenance request set prepare_audit=true to include the next contiguous 15-turn audit_manifest.
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
         - {in: query, name: prepare_audit, required: false, schema: {type: boolean, default: false}, description: "Only when explicitly requested. Include available audit manifest without interrupting gameplay."}
