@@ -1,56 +1,37 @@
-# roman_ai
+# Roman AI
 
-Backend for a persistent interactive novel generator using Railway Volume + Custom GPT Actions.
+Backend интерактивной новеллы для **Custom GPT Actions**. GPT пишет сцены и ведёт персонажей, FastAPI хранит состояние, хронологию, личные знания, отношения и точный архив ходов. **Основной хостинг: Amvera**, не Railway.
 
-## Railway
+## Развёртывание в Amvera
 
-Deploy this repository as a Railway service.
+В репозитории есть `amvera.yaml`:
 
-Attach a Railway Volume mounted at:
+- окружение: Python **3.11** и `pip`;
+- зависимости: `requirements.txt`;
+- запуск: `uvicorn app.main:app --host 0.0.0.0 --port 8080`;
+- порт контейнера: **8080**;
+- постоянный том: **`/data`** (`run.persistenceMount`).
 
-`/data`
+Приложение читает `DATA_DIR` из переменных окружения; по умолчанию используется `/data`. Для постоянных сохранений **подключите и не отключайте том `/data`**. Не используйте каталог исходного кода как место хранения историй.
 
-The app uses `DATA_DIR=/data` by default.
+Проверки после развёртывания:
 
-Start command is defined in `railway.json`.
+- `GET https://<домен-приложения>/health` → `{"ok":true}` (проверяет работу API, **не** наличие тома);
+- `GET https://<домен-приложения>/openapi.json` → актуальная схема Actions;
+- `GET https://<домен-приложения>/docs` → документация API.
 
-Health check:
+В настройках Custom GPT обновите схему Actions из фактического домена Amvera и инструкции из `gpt/custom_gpt_instructions.md`. Текст `runtime/rules.md` и `runtime/scene_builder.md` также доставляется в пакетах подготовки хода. `railway.json` остался только как исторический конфиг, **не** является инструкцией по текущему развёртыванию.
 
-`GET /health`
+## Где сохраняются данные
 
-FastAPI OpenAPI schema for Custom GPT Actions:
+| Данные | Путь на постоянном томе |
+|---|---|
+| Библиотека исходных новелл | `/data/library` |
+| Сессии и ходы | `/data/sessions/<session_id>/` |
 
-`https://YOUR-RAILWAY-DOMAIN/openapi.json`
+В `state/` находятся **ровно десять** JSON-шаблонов, перенесённых из `romance-novella-generator-api` (14.10.2026):
 
-## Persistent data
-
-Library novels:
-
-`/data/library`
-
-Sessions:
-
-`/data/sessions/<session_id>`
-
-Each session keeps:
-- immutable source novel snapshot;
-- live character registry;
-- current state and presence;
-- persistent directional NPC -> POV relationships;
-- per-character personal memory;
-- persistent NPC intents;
-- persistent active story threads;
-- chronology;
-- full raw turn archive;
-- audits.
-
-## Generator state documents
-
-The repository now has exactly ten JSON templates in `state/`, copied verbatim
-from `romance-novella-generator-api` at `4379d8d` (14 October 2026). The former
-`state_templates/` folder is replaced, not kept as a second template set.
-
-| Template | Live V5 session file |
+| Шаблон | Рабочий файл сессии |
 |---|---|
 | `сессия.json` | `сессия.json` |
 | `анкета.json` | `анкета.json` |
@@ -60,66 +41,60 @@ from `romance-novella-generator-api` at `4379d8d` (14 October 2026). The former
 | `локации.json` | `локации.json` |
 | `скрытый_лор_и_крючки.json` | `скрытый_лор_и_крючки.json` |
 | `хронология.json` | `хронология.json` |
-| `карточка_персонажа.json` | `карточки/<id>.json`, including POV |
-| `память_персонажа.json` | `память/<id>.json`, including POV |
+| `карточка_персонажа.json` | `карточки/<id>.json`, включая POV |
+| `память_персонажа.json` | `память/<id>.json`, включая POV |
 
-The JSON template count is ten. The number of actual personal files depends on
-the cast. RAW/source snapshots, exact turn archives, operation receipts and
-rollback records remain technical storage, not additional author templates.
+Число личных файлов зависит от размера каста. RAW, точный архив ходов, транзакционные квитанции и данные отката являются **техническими** файлами, а не одиннадцатым шаблоном.
 
-New V5/profile sessions use these files immediately. Existing V5 sessions move
-once when loaded, preserving their ID, original RAW, archive, original memory
-record IDs/turns and relationships. The move is transactional; old aggregate
-files are removed only after the new files are committed. Pre-V5 stories remain
-supported through their original format.
+Новые V5-сессии сразу используют этот формат. Существующие V5-сессии могут **однократно мигрировать при обращении**: ID и история сохраняются, но физическое расположение и структура сохранённых данных изменяются. Pre-V5 поддерживается режимом совместимости. Старые `memory.json`, `chronology.json`, `characters.json` и `meta.json` остаются совместимыми *API-представлениями*, а не вторыми независимыми файлами.
 
-`prepareTurn` includes the entire dated `хронология.json` as `chronology`, and
-the complete dated personal memories of physical/remote participants as
-`character_memory[id].знания` and `личные_события`. It does not drop the oldest
-knowledge or select only recent chronology entries. Offscreen character memory
-is loaded through the existing character-bundle actions. Missing chronology or
-participant memory returns `409 SESSION_DOCUMENT_REQUIRED`; a scene is never
-prepared with an invented empty replacement.
+## Хронология и персональная память
 
-Chronology is director-only. Personal facts retain their original wording,
-including attributed claims, uncertainty and lies; another character's memory
-does not become shared knowledge. `_runtime` preserves technical provenance for
-audit/replay/rollback and is removed from writer-facing documents.
+По принципу «Генератора новелл»:
 
-The existing Actions and `extracted` update fields remain compatible. Old
-English file names are internal views, not duplicate saved memories or
-chronologies. Numerical relationship behavior remains the current Roman AI
-contract, including zero-axis removal and causal deltas. A request-scoped read
-view avoids reopening the same native document for each compatibility helper.
+- **`хронология.json`**: общая объективная история для режиссёра, по игровым датам и периодам суток. Только значимые действия, решения, причины и последствия; без бытовых повторов, чужой личной памяти и превращения слухов в канон.
+- **`память/<id>.json`**: личные знания и пережитые события конкретного персонажа по игровым датам. Важны источник («со слов», «увидел», «предполагает»), точность услышанного и границы восприятия. POV тоже имеет собственный файл.
+- Режиссёрская хронология, скрытый лор и чужая память **не являются знаниями персонажа**. NPC не слышит мысли POV, личную переписку другого NPC и разговоры до собственного появления.
+- `prepareTurn` в V5 предоставляет **полную** хронологию и полные личные файлы активных участников. Для NPC вне сцены карточка и память загружаются отдельно через `prepareCharacterBundleRead` / `getCharacterBundleChunk`. Пропуск обязательного файла вызывает `409 SESSION_DOCUMENT_REQUIRED`, а не выдуманную пустую память.
+- Изменения сохраняются через существующий `commitTurn`: `chronology`, `knowledge_journal_add`, `experiences_add`, `dialogue_memory_add` и другие поля `extracted`. Техническая информация `_runtime` не выдаётся писателю как личные знания.
 
-Use the updated `gpt/custom_gpt_instructions.md` in the GPT configuration; the
-deployed runtime Rules explain the new packet paths. Scene Builder is unchanged.
+Архив исходных ходов сохраняется отдельно. Смысл истории нельзя восстановить одной общей хронологией без личной памяти каждого участника.
 
-## Turn cycle
+## Игровой цикл и продолжение
 
-Every gameplay turn uses a lossless chunked turn packet and is written back to the same Railway session.
+1. `prepareTurn`, чтение всех частей пакета.
+2. При необходимости полная догрузка участвующего NPC.
+3. Написание сцены по актуальному `scene_builder`, фиксация реальных изменений.
+4. `commitTurn`, затем вывод сохранённой сцены игроку.
 
-Technical audits are optional and do not block gameplay every 15 turns. Use them only when the client exposes the corresponding actions.
+Аудит после 15 неаудированных ходов **доступен, но не блокирует игру**. По явному запросу клиента используется `resumeSession(prepare_audit=true)`, затем чтение аудита и `commitTurn` для его фиксации. Промежуточные игровые ходы не стираются.
 
-There is no 60-turn transfer package and no copied handoff session. A session remains the same persistent object across chats.
+Для продолжения истории в новом чате используйте **тот же ID сессии**:
 
-Continuation text:
+```text
+CONTINUE SESSION: <session_id>
+```
 
-`CONTINUE SESSION: <session_id>`
+`resumeSession` возвращает текущую сессию. Не требуется переносить историю в новую сессию каждые 60 ходов.
 
-The new chat calls `resumeSession` for that same id. The next `prepareTurn` reloads current state, memory, chronology, character registry, relationships, NPC intents, story threads and runtime directly from persistent storage.
+## Обновление, резервная копия и откат
 
-## Runtime invariants
+**Откат кода в GitHub ≠ откат данных в Amvera.**
 
-- `scene_builder` defines character behavior, scene writing and format; `runtime_rules` defines reading and persistence.
-- Character card/source/chronology are author truth, not automatic character knowledge.
-- Personal knowledge is stored per character.
-- Relationships are `NPC -> POV`, persist across absences, and use `relationship_lens` as the authoritative model.
-- A relationship changed for an NPC who leaves before the visible footer can be persisted through `extracted.relationship_updates` without displaying an absent NPC.
-- Durable NPC questions/plans use `npc_intent_updates`; bounded live plot events use `story_thread_updates` and persist in `state.threads`.
-- The writer follows the active `scene_builder` and `runtime_rules` from the turn packet.
-- Audit chronology/memory repairs must keep the original turn where the event or knowledge actually occurred.
+Перед первым развёртыванием новой ветки на работающем проекте:
 
-## Custom GPT
+1. Сделайте **отдельную полную резервную копию** постоянного каталога `/data` (включая `sessions/` и `library/`). В Amvera: **Репозиторий → папка Data → Скачать данные**. На тарифах «Начальный Плюс» и выше также доступен раздел **Бэкапы** (сервис хранит резервные копии за последние два дня). Проверьте возможность прочитать скачанную копию; не считайте GitHub резервной копией сессий.
+2. По возможности сначала разворачивайте ветку на **отдельном тестовом приложении с отдельным томом** и копией *одной* сессии, а не на живом `/data`.
+3. Проверьте `/health`, `/openapi.json`, подготовку/сохранение хода, чтение личных знаний и хронологии, откат одного хода и поздний аудит.
+4. Только после проверки вливайте PR в `main` и обновляйте Amvera. Убедитесь, что фактическая ветка/ревизия развёрнутого приложения совпадает с ожидаемой.
+5. Если новая версия не подходит, предыдущий Git-коммит можно вернуть, **но уже мигрировавшие файлы могут требовать восстановления из резервной копии**. Перед восстановлением остановите записи в приложение; иначе потеряются ходы, сделанные после копии.
 
-Use `/openapi.json` as the Action schema and the current instructions in `gpt/custom_gpt_instructions.md`. Active runtime documents are delivered inside the turn packets.
+Сама функция «откат последнего хода» не заменяет резервного копирования и не отменяет миграцию формата.
+
+## Архитектурные инварианты
+
+- `scene_builder` определяет поведение персонажей, выразительность, формат сцены и остановку хода; `runtime_rules` определяет хранение и действия API.
+- Карточки, скрытый лор и хронология доступны режиссёру, но не автоматически персонажам.
+- Отношения NPC→POV сохраняются при отсутствии NPC; небольшие реальные изменения можно передавать дробными `delta`.
+- NPC имеют самостоятельные планы `npc_intent_updates`, общие сюжетные линии хранятся через `story_thread_updates`.
+- Никакой произвольной потери ранних ходов, личных фактов или состояний при подготовке нового контекста.

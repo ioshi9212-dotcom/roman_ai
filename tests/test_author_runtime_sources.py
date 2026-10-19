@@ -10,8 +10,8 @@ ROOT = Path(__file__).resolve().parents[1]
 # The author's two documents are byte-locked. These are the current blobs from
 # main, not phrases retained from an older, superseded Skin Builder revision.
 AUTHOR_BLOB_SHA = {
-    "rules.md": "78b229d43c5f51a379d1f3bff21e2c99279a35eb",
-    "scene_builder.md": "8e72aea9469fc2589f8158f2eb79e67d26e41774",
+    "rules.md": "f1929fd98ea25472572262866e03126a6eec5c7d",
+    "scene_builder.md": "e48d2a4d1ca8bc57e2d3cf1a8299ef186deedf9c",
 }
 
 
@@ -71,3 +71,10 @@ def test_npc_acts_independently_during_ongoing_contact():
     assert "Важные сцены, могут быть вообще без реплик" in builder
     assert "Романтические, интимные, чувственные" in builder
     assert "Завершён должен быть игровой ход, а не обязательно действие" in rules
+
+
+def test_pov_viewpoint_and_external_camera_are_not_contradictory():
+    builder = (ROOT / "runtime" / "scene_builder.md").read_text(encoding="utf-8")
+    assert "Восприятие сцены привязано к POV" in builder
+    assert "включая POV, описываются от третьего лица" in builder
+    assert "От первого лица ПОВ. Но камера от третьего лица." not in builder

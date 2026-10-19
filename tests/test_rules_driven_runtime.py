@@ -1187,7 +1187,7 @@ def test_turn_commit_schema_exposes_review_flags_without_exact_scene_format():
 
 
 
-def test_fifteenth_turn_creates_mandatory_audit_gate_and_manifest():
+def test_fifteenth_turn_exposes_optional_audit_without_blocking_next_turn():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         novel = base_novel()
@@ -1214,12 +1214,17 @@ def test_fifteenth_turn_creates_mandatory_audit_gate_and_manifest():
         )
         assert result["turn_number"] == 15
         assert result["audit_due"] is True
-        assert result["required_audit"]["audit_range"] == [1, 15]
-        assert result["required_audit"]["first_chunk_included"] is True
+        assert result["audit_available"] is True
+        assert result["audit_blocking"] is False
+        assert "required_audit" not in result
         assert storage._read_json(root / "meta.json", {})["audit_required"] is True
+        assert not (root / "audit_packet.json").exists()
 
-        with pytest.raises(RuntimeError, match="AUDIT_REQUIRED"):
-            session_runtime.prepare_turn_packet(sid, "Ход 16.")
+        next_manifest = session_runtime.prepare_turn_packet(sid, "Ход 16.")
+        assert next_manifest["prepared_for_turn"] == 16
+        audit = fast_audit_runtime.get_audit_snapshot(sid)
+        assert audit["audit_range"] == [1, 15]
+        assert audit["first_chunk_included"] is True
 
 
 def test_last_turn_rollback_still_works_without_mandatory_audit():
@@ -2185,7 +2190,7 @@ def test_private_perception_is_saved_only_to_actual_recipient():
         assert "Ада" not in away_text
 
 
-def test_required_audit_roundtrip_uses_existing_chunk_and_commit_actions():
+def test_explicit_audit_roundtrip_uses_existing_chunk_and_commit_actions():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         novel = base_novel()
@@ -2225,7 +2230,9 @@ def test_required_audit_roundtrip_uses_existing_chunk_and_commit_actions():
             },
         )
 
-        audit = committed["required_audit"]
+        assert committed["audit_available"] is True
+        assert "required_audit" not in committed
+        audit = fast_audit_runtime.get_audit_snapshot(sid)
         assert audit["first_chunk_included"] is True
 
         # A retry must resend chunk 0 because the previous HTTP response could

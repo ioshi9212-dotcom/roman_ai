@@ -470,13 +470,17 @@ def _prepare_context(
     if opening_scene:
         context["opening_scene"] = {"active": True}
 
-    # session_runtime/turn_context already gives full cards and complete factual knowledge
-    # only for POV + physical/remote scene participants. A name mention alone is excluded.
+    # The canonical V5 seed does not contain legacy full-state/character dossiers.
+    # The older transport scrub is needed only for pre-V5 compatibility contexts;
+    # running it on native sessions deep-copied the entire seed to delete fields
+    # which do not exist. Writer scoping/privacy checks remain on both paths.
+    native = session_documents.is_native(root)
     context = stability_runtime._compact_turn_context(context, source)
-    context = transport_scope_runtime._strip_legacy_full_payloads(
-        context,
-        persistent_state=state,
-    )
+    if not native:
+        context = transport_scope_runtime._strip_legacy_full_payloads(
+            context,
+            persistent_state=state,
+        )
     context = writer_first_runtime._rewrite_context(session_id, context)
     context = private_knowledge_runtime.redact_private_history(context, root=root, cards=cards)
     context = _clean_director_layers(context)
@@ -621,13 +625,14 @@ def _prepare_context(
     return result
 
 
-def prepare_turn_packet(session_id: str, user_input: str) -> Dict[str, Any]:
+def prepare_turn_packet(session_id: str, user_input: str, *, _migrated: bool = False) -> Dict[str, Any]:
     root = storage.SESSIONS_DIR / session_id
     if not root.exists():
         raise FileNotFoundError(session_id)
 
     stability_runtime._recover_session(session_id)
-    session_migrations.ensure_current_session_data(session_id, invalidate_pending=True)
+    if not _migrated:
+        session_migrations.ensure_current_session_data(session_id, invalidate_pending=True)
     _current_pointer_guard(session_id)
     _strip_legacy_pov_rule_from_session_source(root)
     game_day._sync_session_game_day(session_id)
@@ -974,8 +979,9 @@ def commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         if isinstance(prepared.get("extracted"), dict)
         else []
     )
-    if saved.get("audit_due") is True:
-        saved["required_audit"] = fast_audit_runtime.get_audit_snapshot(session_id)
+    # Creating an audit packet requires an explicit maintenance request.
+    saved.pop("required_audit", None)
+    saved["audit_blocking"] = False
     saved["turn_pipeline_version"] = PIPELINE_VERSION
     return saved
 
@@ -1016,11 +1022,10 @@ def continue_session(session_id: str) -> Dict[str, Any]:
         result["pending_turn"] = pending
 
     meta = storage._read_json(root / "meta.json", {})
-    if meta.get("audit_required"):
-        result["audit_required"] = True
-        result["required_audit"] = fast_audit_runtime.get_audit_snapshot(session_id)
-        result["instruction"] = "Complete required_audit before preparing the next gameplay turn."
-        return result
+    result["audit_available"] = bool(meta.get("audit_required"))
+    result["audit_blocking"] = False
+    result["audit_required"] = False
+    result.pop("required_audit", None)
 
     if result.get("current_recovery_required"):
         if pending:

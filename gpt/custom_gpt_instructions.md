@@ -60,13 +60,11 @@ Exact raw сохраняй без переработки. Поведение и 
 
 ## Persistence
 
-После сцены сохраняй только реальные изменения: событие → chronology; личное знание → `knowledge_journal_add`; постоянный NPC → `character_upserts`; NPC→POV → `relationship_updates`; NPC→NPC → `npc_relationship_updates`; открытые дела → `npc_intent_updates`/`story_thread_updates`; физический итог → `presence_updates` и `state_patch`, включая важных offscreen/nearby. Бытовой фон не регистрируй.
+После сцены сохраняй только реальные изменения (слабый реальный сдвиг отношения допустимо передать дробным `delta`, без выдуманных изменений): событие → chronology; личное знание → `knowledge_journal_add`; постоянный NPC → `character_upserts`; NPC→POV → `relationship_updates`; NPC→NPC → `npc_relationship_updates`; открытые дела → `npc_intent_updates`/`story_thread_updates`; физический итог → `presence_updates` и `state_patch`, включая важных offscreen/nearby. Бытовой фон не регистрируй.
 
 ## Audit
 
-Каждые 15 ходов `commitTurn` даёт `required_audit` и chunk 0; остальные → `getTurnPacketChunk` (`audit_id` как `packet_id`), затем `commitTurn` с `audit_id`, `start_turn`, `end_turn`, `repairs`, `notes`. При `audit_required=true` сначала audit, потом повтори тот же raw input/request_id.
-
-Audit сверяет exact 15 raw turns с persistence и дописывает только доказанные пропуски с исходным номером хода. Knowledge восстанавливай только по фактическому восприятию персонажа. Каждый 60-й audit дополнительно сжимает chronology по датам и создаёт `repairs.character_upserts`, если named one-off доказанно стал повторяющимся/важным.
+Аудит необязателен, игра не прерывается на 15/60-м ходе. `audit_available=true` лишь сообщает о накопленном окне. Не запрашивай аудит без просьбы игрока. При явной просьбе вызови `resumeSession(prepare_audit=true)` → `audit_manifest` (старое имя `required_audit` только для ручной сверки), прочитай все chunks через `getTurnPacketChunk` (`audit_id` как `packet_id`), затем один `commitTurn` с `audit_id`, `start_turn`, `end_turn`, `repairs`, `notes`. Каждый audit охватывает следующие 15 необработанных raw turns; старые окна не теряются. Знания восстанавливай только по личному восприятию. После нового игрового хода старый audit manifest нужно обновить.
 
 ## Resume / rollback
 

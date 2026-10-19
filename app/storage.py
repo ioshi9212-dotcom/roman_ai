@@ -668,8 +668,6 @@ def prepare_turn_packet(session_id: str, user_input: str) -> Dict[str, Any]:
     if not root.exists():
         raise FileNotFoundError(session_id)
     meta = _read_json(root / "meta.json", {})
-    if meta.get("audit_required"):
-        raise RuntimeError("AUDIT_REQUIRED")
     if meta.get("handoff_required"):
         raise RuntimeError("HANDOFF_REQUIRED")
 
@@ -772,8 +770,6 @@ def commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     if not root.exists():
         raise FileNotFoundError(session_id)
     meta = _read_json(root / "meta.json", {})
-    if meta.get("audit_required"):
-        raise RuntimeError("AUDIT_REQUIRED")
     if meta.get("handoff_required"):
         raise RuntimeError("HANDOFF_REQUIRED")
     turn_number = int(meta.get("turn_number", 0)) + 1
@@ -861,8 +857,6 @@ def build_resume_package(session_id: str) -> Dict[str, Any]:
     if not root.exists():
         raise FileNotFoundError(session_id)
     meta = _read_json(root / "meta.json", {})
-    if meta.get("audit_required"):
-        raise RuntimeError("AUDIT_REQUIRED")
     token = secrets.token_urlsafe(24)
     _write_json(root / "resume_token.json", {"token": token})
     source = _read_json(root / "source.json", {})
@@ -888,8 +882,6 @@ def confirm_resume(session_id: str, resume_token: str) -> Dict[str, Any]:
     if not saved or saved.get("token") != resume_token:
         raise PermissionError("INVALID_RESUME_TOKEN")
     meta = _read_json(root / "meta.json", {})
-    if meta.get("audit_required"):
-        raise RuntimeError("AUDIT_REQUIRED")
     meta["handoff_required"] = False
     meta["handoff_generation"] = int(meta.get("handoff_generation", 0)) + 1
     meta["last_resumed_at"] = datetime.now(timezone.utc).isoformat()

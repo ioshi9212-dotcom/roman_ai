@@ -357,3 +357,65 @@ def test_migration_failure_keeps_legacy_story_readable(story, monkeypatch):
     assert not documents.is_native(root)
     assert {p.relative_to(root): p.read_bytes() for p in root.glob("*.json")} == before
     assert storage._read_json(root / "source.json", {})["source_intake"] == source["source_intake"]
+
+
+
+def test_generator_chronology_groups_real_events_by_date_and_period(story):
+    """An omitted event period inherits the actual scene clock, never a made-up time."""
+    sid, root = create(story)
+    events = [
+        {"event_id": "morning", "event": "Рен отдал письмо.", "date": "14.10.2026"},
+        {"event_id": "night", "event": "Ночью пришёл ответ.", "date": "14.10.2026", "time": "22:15"},
+        {"event_id": "explicit", "event": "Вчера выяснилась причина.", "date": "13.10.2026", "period": "вечер"},
+        {"event_id": "old-unknown", "event": "Когда-то пропало письмо.", "date": "12.10.2026"},
+    ]
+    storage._write_json(root / "chronology.json", events)
+    native = documents.read(root / "хронология.json")
+    assert native["дни"]["14.10.2026"]["утро"] == ["Рен отдал письмо."]
+    assert native["дни"]["14.10.2026"]["ночь"] == ["Ночью пришёл ответ."]
+    assert native["дни"]["13.10.2026"]["вечер"] == ["Вчера выяснилась причина."]
+    assert native["дни"]["12.10.2026"]["события"] == ["Когда-то пропало письмо."]
+    assert storage._read_json(root / "chronology.json", []) == events
+    _, packet = prepare(sid)
+    assert packet["chronology"]["дни"] == native["дни"]
+
+
+def test_generator_personal_memory_keeps_attributed_claim_separate_from_world_truth(story):
+    sid, root = create(story)
+    memory = storage._read_json(root / "memory.json", {})
+    ren = memory["characters"]["ren"]
+    ren["knowledge_journal"].append({
+        "entry_id": "ren-heard", "date": "14.10.2026",
+        "text": "Со слов Елены: письмо привёз её брат; истинность не проверял.",
+    })
+    ren["experiences"].append({
+        "event_id": "ren-asked", "date": "14.10.2026",
+        "summary": "Спросил Елену о письме; она уклонилась от ответа. Причину не знает.",
+        "participants": ["pov", "ren"],
+    })
+    storage._write_json(root / "memory.json", memory)
+    _, packet = prepare(sid)
+    assert "Со слов Елены: письмо привёз её брат; истинность не проверял." in packet[
+        "character_memory"]["ren"]["знания"]["14.10.2026"]
+    assert packet["character_memory"]["ren"]["личные_события"]["14.10.2026"][-1]["с_кем"] == ["pov", "ren"]
+    assert "письмо привёз её брат" not in json.dumps(
+        packet["chronology"], ensure_ascii=False,
+    )
+    assert "письмо привёз её брат" not in json.dumps(
+        packet["character_memory"]["pov"], ensure_ascii=False,
+    )
+    assert storage._read_json(root / "memory.json", {}) == memory
+
+
+def test_scene_chronology_uses_clock_if_period_label_is_stale(story):
+    sid, root = create(story)
+    state = storage._read_json(root / "state.json", {})
+    state["current"]["time"] = "23:05"
+    state["current"]["period"] = "утро"
+    storage._write_json(root / "state.json", state)
+    storage._write_json(root / "chronology.json", [{
+        "event_id": "late-hour", "event": "За окном стемнело.",
+        "date": "14.10.2026",
+    }])
+    native = documents.read(root / "хронология.json")
+    assert native["дни"]["14.10.2026"]["ночь"] == ["За окном стемнело."]

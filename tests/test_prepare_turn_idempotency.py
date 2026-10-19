@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 from fastapi import HTTPException
 
-from app import session_runtime, storage
+from app import operation_service, session_migrations, session_runtime, storage
 from app.main import turn_packet_prepare
 from app.models import TurnPrepare
 from app.operation_service import prepare_turn_request
@@ -329,3 +329,42 @@ def test_retry_of_old_committed_request_does_not_disturb_newer_pending_turn():
         assert after == before
         assert after["packet_id"] == pending["packet_id"]
         assert after["request_id"] == "req-new-pending"
+
+
+def test_action_prepare_migrates_once_and_replay_does_not_rewrite_packet(monkeypatch):
+    """The Action service already holds the lock and migrates before the runtime call."""
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = make_session()
+        migrate_calls = []
+        old_migrate = session_migrations.ensure_current_session_data
+        old_write = storage._write_json
+        packet_writes = []
+
+        def traced_migrate(*args, **kwargs):
+            migrate_calls.append((args, kwargs))
+            return old_migrate(*args, **kwargs)
+
+        def traced_write(path, data):
+            if path.name == "turn_packet.json":
+                packet_writes.append(path)
+            return old_write(path, data)
+
+        monkeypatch.setattr(session_migrations, "ensure_current_session_data", traced_migrate)
+        monkeypatch.setattr(storage, "_write_json", traced_write)
+
+        first = operation_service.prepare_turn_request(
+            sid, "Один ход.", request_id="one-packet"
+        )
+        assert len(migrate_calls) == 1
+        assert first["packet_id"]
+        written_first = len(packet_writes)
+        assert written_first >= 1
+
+        replay = operation_service.prepare_turn_request(
+            sid, "Один ход.", request_id="one-packet"
+        )
+        assert replay["packet_id"] == first["packet_id"]
+        assert replay["reused_pending_packet"] is True
+        assert len(migrate_calls) == 2  # One validation per request.
+        assert len(packet_writes) == written_first  # Nothing changed to persist.
