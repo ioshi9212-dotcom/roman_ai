@@ -187,10 +187,10 @@ def test_first_legacy_prepare_exposes_only_positive_relationship_values():
 def test_scene_builder_keeps_pov_visible_without_forcing_speech():
     builder = Path("runtime/scene_builder.md").read_text(encoding="utf-8")
     instructions = Path("gpt/custom_gpt_instructions.md").read_text(encoding="utf-8")
-    assert "ПОВ не камера. Пов говорит, действует, его видно, слышно" in builder
-    assert "В кадре видно всех учавствующих персонажей в том числе и пов" in builder
-    assert "Делать POV молчаливым" in builder
-    assert "Важные сцены, могут быть вообще без реплик" in builder
+    assert "POV виден, а не служит камерой" in builder
+    assert "внешние действия и реакции всех участников, включая POV" in builder
+    assert "реплики нужны по ситуации, а не для заполнения паузы" in builder
+    assert "Важные сцены могут быть вообще без реплик" in builder
     assert "NPC не должен отступать, успокаиваться" in builder
     assert "Игровой ход" in instructions or "Игровой ход" in instructions.capitalize()
     assert "scene_builder" in instructions
