@@ -202,9 +202,7 @@ def _atomic_commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, A
 
     with session_transaction(root):
         meta = storage._read_json(root / "meta.json", {})
-        if meta.get("audit_required"):
-            raise RuntimeError("AUDIT_REQUIRED")
-
+        # Audit is maintenance, never a gameplay/commit gate.
         turn_number = int(meta.get("turn_number", 0)) + 1
         packet = storage._read_json(root / "turn_packet.json", {})
         packet_id = str(payload.get("packet_id") or "").strip()
@@ -288,14 +286,17 @@ def _atomic_commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, A
 
         audit_due = turn_number % 15 == 0
         meta["turn_number"] = turn_number
-        meta["audit_required"] = bool(audit_due)
+        # An unaudited interval remains available until it is reviewed.
+        meta["audit_required"] = turn_number - int(meta.get("last_audit_turn", 0) or 0) >= 15
         meta["handoff_required"] = False
 
         result = {
             "ok": True,
             "turn_number": turn_number,
             "audit_due": audit_due,
-            "audit_range": [max(1, turn_number - 14), turn_number] if audit_due else None,
+            "audit_available": bool(meta["audit_required"]),
+            "audit_blocking": False,
+            "audit_range": audit_runtime._audit_range(meta) if meta["audit_required"] else None,
             "handoff_required": False,
             "transactional_commit": True,
             "relationship_snapshots_atomic": True,
@@ -377,10 +378,15 @@ def _atomic_commit_audit(session_id: str, payload: Dict[str, Any]) -> Dict[str, 
 
     with session_transaction(root):
         meta = storage._read_json(root / "meta.json", {})
-        expected_end = int(meta.get("turn_number", 0))
+        current_turn = int(meta.get("turn_number", 0))
         if not meta.get("audit_required"):
             raise RuntimeError("AUDIT_NOT_REQUIRED")
-        if int(payload.get("end_turn", 0)) != expected_end:
+        from .audit_runtime import _audit_range
+        expected_start, expected_end = _audit_range(meta)
+        if (
+            int(payload.get("start_turn", 0)) != expected_start
+            or int(payload.get("end_turn", 0)) != expected_end
+        ):
             raise ValueError("AUDIT_RANGE_MISMATCH")
 
         repairs = deepcopy(payload.get("repairs", {})) if isinstance(payload.get("repairs"), dict) else {}
@@ -773,16 +779,18 @@ def _atomic_commit_audit(session_id: str, payload: Dict[str, Any]) -> Dict[str, 
             memory=memory,
             chronology=chronology,
             turns=turns,
-            turn_number=expected_end,
+            turn_number=current_turn,
         )
 
-        meta["last_audit_turn"] = payload["end_turn"]
-        meta["audit_required"] = False
+        meta["last_audit_turn"] = expected_end
+        meta["audit_required"] = current_turn - expected_end >= 15
         meta["handoff_required"] = False
 
         result = {
             "ok": True,
             "audited_through": payload["end_turn"],
+            "audit_available": bool(meta["audit_required"]),
+            "audit_blocking": False,
             "handoff_required": False,
             "transactional_commit": True,
             "relationship_snapshots_atomic": True,
