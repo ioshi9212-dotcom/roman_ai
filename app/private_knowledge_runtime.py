@@ -216,11 +216,41 @@ def _pov_id(state: Dict[str, Any]) -> str:
     return str(pov.get("character_id") or pov.get("id") or "")
 
 
+_SELF_HIDDEN_FLAGS = ("unknown_to_self", "hidden_from_self", "not_known_to_self")
+_SELF_DIRECTOR_ONLY_KEYS = {
+    "hidden_lore", "author_notes", "director_notes", "author_context",
+    "story_function", "unknown_to_self", "hidden_from_self",
+    "not_known_to_self", "known_to_self", "author_only",
+}
+
+
+def _self_known_card_view(value: Any) -> Any:
+    """Never use writer-only or explicitly self-hidden card data as proof of NPC knowledge."""
+    if isinstance(value, dict):
+        if (
+            any(value.get(marker) is True for marker in _SELF_HIDDEN_FLAGS)
+            or value.get("known_to_self") is False
+            or value.get("author_only") is True
+        ):
+            return None
+        return {
+            key: visible
+            for key, item in value.items()
+            if key not in _SELF_DIRECTOR_ONLY_KEYS
+            for visible in [_self_known_card_view(item)]
+            if visible is not None
+        }
+    if isinstance(value, list):
+        return [visible for item in value
+                for visible in [_self_known_card_view(item)] if visible is not None]
+    return value
+
+
 def _authorized_corpus(root, character_id: str, cards: List[Dict[str, Any]]) -> str:
     card = next((row for row in cards if storage._card_id(row) == character_id), None)
     pieces: List[str] = []
     if isinstance(card, dict):
-        pieces.append(str(card))
+        pieces.append(str(_self_known_card_view(card)))
     if session_documents.is_native(root):
         # Never decode every character's memory merely to authorize one NPC.
         own = session_documents.read(root / "память" / (character_id + ".json"), {})
