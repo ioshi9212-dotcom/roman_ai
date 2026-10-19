@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 # The author's two documents are byte-locked. These are the current blobs from
 # main, not phrases retained from an older, superseded Skin Builder revision.
 AUTHOR_BLOB_SHA = {
-    "rules.md": "001ddf3f5906c91fc4a68e5e15f38b54b09944e2",
+    "rules.md": "f1929fd98ea25472572262866e03126a6eec5c7d",
     "scene_builder.md": "e48d2a4d1ca8bc57e2d3cf1a8299ef186deedf9c",
 }
 
