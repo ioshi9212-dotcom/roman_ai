@@ -470,13 +470,17 @@ def _prepare_context(
     if opening_scene:
         context["opening_scene"] = {"active": True}
 
-    # session_runtime/turn_context already gives full cards and complete factual knowledge
-    # only for POV + physical/remote scene participants. A name mention alone is excluded.
+    # The canonical V5 seed does not contain legacy full-state/character dossiers.
+    # The older transport scrub is needed only for pre-V5 compatibility contexts;
+    # running it on native sessions deep-copied the entire seed to delete fields
+    # which do not exist. Writer scoping/privacy checks remain on both paths.
+    native = session_documents.is_native(root)
     context = stability_runtime._compact_turn_context(context, source)
-    context = transport_scope_runtime._strip_legacy_full_payloads(
-        context,
-        persistent_state=state,
-    )
+    if not native:
+        context = transport_scope_runtime._strip_legacy_full_payloads(
+            context,
+            persistent_state=state,
+        )
     context = writer_first_runtime._rewrite_context(session_id, context)
     context = private_knowledge_runtime.redact_private_history(context, root=root, cards=cards)
     context = _clean_director_layers(context)
