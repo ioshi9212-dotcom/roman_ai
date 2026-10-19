@@ -26,6 +26,7 @@ jobs:
           tests/test_prepare_turn_idempotency.py
           tests/test_writer_first_transport.py
           tests/test_turn_archive_tail.py
+          tests/test_nonblocking_audit.py
           tests/test_current_recovery.py
           tests/test_rollback_diagnostics.py
           tests/test_transactional_storage.py
