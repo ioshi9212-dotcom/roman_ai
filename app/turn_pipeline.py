@@ -621,13 +621,14 @@ def _prepare_context(
     return result
 
 
-def prepare_turn_packet(session_id: str, user_input: str) -> Dict[str, Any]:
+def prepare_turn_packet(session_id: str, user_input: str, *, _migrated: bool = False) -> Dict[str, Any]:
     root = storage.SESSIONS_DIR / session_id
     if not root.exists():
         raise FileNotFoundError(session_id)
 
     stability_runtime._recover_session(session_id)
-    session_migrations.ensure_current_session_data(session_id, invalidate_pending=True)
+    if not _migrated:
+        session_migrations.ensure_current_session_data(session_id, invalidate_pending=True)
     _current_pointer_guard(session_id)
     _strip_legacy_pov_rule_from_session_source(root)
     game_day._sync_session_game_day(session_id)
