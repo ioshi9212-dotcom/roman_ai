@@ -302,7 +302,27 @@ def state_to_internal(document: dict) -> dict:
     return result
 
 
-def _encode_records(rows_by_kind: dict, day: str, *, memory: bool) -> dict:
+def _scene_period(clock: Any, explicit: Any = None) -> str:
+    """Use the real scene clock for a dated chronology group when none is supplied."""
+    if isinstance(explicit, str) and explicit.strip():
+        return explicit.strip()
+    try:
+        hour = int(str(clock or "").split(":", 1)[0])
+    except (ValueError, TypeError):
+        return "события"
+    if not 0 <= hour <= 23:
+        return "события"
+    if 5 <= hour <= 11:
+        return "утро"
+    if 12 <= hour <= 16:
+        return "день"
+    if 17 <= hour <= 21:
+        return "вечер"
+    return "ночь"
+
+
+def _encode_records(rows_by_kind: dict, day: str, *, memory: bool,
+                    scene_period: str = "события") -> dict:
     result = template("память_персонажа.json" if memory else "хронология.json")
     metadata = []
     for kind, rows in rows_by_kind.items():
@@ -319,7 +339,14 @@ def _encode_records(rows_by_kind: dict, day: str, *, memory: bool) -> dict:
                 values.append(value)
                 pointer = [section, date, index]
             else:
-                period = str(fields.get("period") or fields.get("period_of_day") or "события")
+                # Generator format is date -> period of day -> concise objective facts.
+                # Preserve an event's own period; otherwise use the committed
+                # scene clock, never fabricate a clock time for the event.
+                period = _scene_period(
+                    fields.get("time"),
+                    fields.get("period") or fields.get("period_of_day")
+                    or scene_period,
+                )
                 values = result["дни"].setdefault(date, {}).setdefault(period, [])
                 index = len(values)
                 values.append(text)
@@ -499,7 +526,12 @@ def encode_batch(root: Path, values: dict[str, str]) -> dict[str, str | None]:
         put("state.json", native)
     else:
         state = state_to_internal(current_native) if current_native else {}
-    day = state.get("current", {}).get("date") or "без даты"
+    scene_current = state.get("current") if isinstance(state.get("current"), dict) else {}
+    day = scene_current.get("date") or "без даты"
+    scene_period = _scene_period(
+        scene_current.get("time"),
+        scene_current.get("period"),
+    )
     if "characters.json" in parsed:
         roster = template("персонажи.json")
         existing_roster = {row["id"]: row for row in read(root / "персонажи.json", {}).get("персонажи", [])}
@@ -530,7 +562,10 @@ def encode_batch(root: Path, values: dict[str, str]) -> dict[str, str | None]:
         for cid, bucket in memory.get("characters", memory).items():
             put("память/" + _id(cid) + ".json", memory_to_native(bucket, cid, day))
     if "chronology.json" in parsed:
-        put("хронология.json", _encode_records({"chronology": parsed["chronology.json"]}, day, memory=False))
+        put("хронология.json", _encode_records(
+            {"chronology": parsed["chronology.json"]}, day, memory=False,
+            scene_period=scene_period,
+        ))
     if "relationships.json" in parsed:
         put("отношения.json", relations_to_native(parsed["relationships.json"], read(root / "отношения.json", {}) or None))
     return result
