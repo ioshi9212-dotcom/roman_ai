@@ -23,6 +23,7 @@ jobs:
         run: >
           pytest -q
           tests/test_rules_driven_runtime.py
+          tests/test_pipeline_architecture.py
           tests/test_prepare_turn_idempotency.py
           tests/test_writer_first_transport.py
           tests/test_turn_archive_tail.py
