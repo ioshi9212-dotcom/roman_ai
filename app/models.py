@@ -36,6 +36,7 @@ class NovelDraftIntakeChunk(BaseModel):
     chunk_index: int = Field(ge=0)
     raw_text: str = Field(min_length=1)
     is_last: bool = False
+    full_raw: bool = False  # Generator-style complete RAW in a single request.
 
 
 class NovelDraftIntakeMapping(BaseModel):
