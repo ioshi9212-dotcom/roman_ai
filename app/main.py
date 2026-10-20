@@ -28,7 +28,7 @@ from .setup_draft_v3_runtime import confirm_reconciliation, set_launch_state
 from .runtime_access import runtime_chunk, runtime_manifest
 from .session_preview import get_session_preview
 from .session_recovery import recover_session_current
-from .session_runtime import continue_session, prepare_turn_packet
+from .turn_pipeline import continue_session
 from .scene_archive_read import get_scene_archive_chunk, prepare_scene_archive_read
 from .scene_knowledge_read import (
     get_character_knowledge_chunk,
