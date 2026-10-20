@@ -868,7 +868,7 @@ paths:
     post:
       operationId: appendDraftIntakeChunk
       summary: Save a complete novel RAW in one request or append fallback verbatim chunks
-      description: Save entire uploaded RAW in ONE request: full_raw=true, chunk_index=0, raw_text=FULL file. Verify complete, char_count, raw_sha256. Never mark a prefix complete. If tool size rejects full input, fallback full_raw=false, 4-6k chunks; is_last=true only on final. Retries are idempotent.
+      description: Save entire uploaded RAW in ONE request using full_raw=true, chunk_index=0, raw_text=FULL file. Verify complete, char_count, raw_sha256. Never mark a prefix complete. If tool size rejects full input, fallback full_raw=false, 4-6k chunks; is_last=true only on final. Retries are idempotent.
       parameters:
         - {in: path, name: draft_id, required: true, schema: {type: string}}
       requestBody:
