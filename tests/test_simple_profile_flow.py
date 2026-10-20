@@ -189,7 +189,7 @@ def test_finalized_source_keeps_verbatim_trigger_without_bloating_gameplay():
         assert probe["runtime_probe"] == "amvera-source-check-20261020-v2"
         source_path = Path(inspect.getfile(session_runtime))
         contents = source_path.read_bytes()
-        git_blob = b"blob " + str(len(contents)).encode("ascii") + b"\\0" + contents
+        git_blob = b"blob " + str(len(contents)).encode("ascii") + b"\0" + contents
         assert probe["session_runtime_blob_sha"] == hashlib.sha1(git_blob).hexdigest()
         # This incident was caused by the deployed function loading locals that
         # were never defined, first source_override and then state_override.
