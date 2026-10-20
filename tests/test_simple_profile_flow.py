@@ -171,7 +171,16 @@ def test_finalized_source_keeps_verbatim_trigger_without_bloating_gameplay():
             }, ensure_ascii=False),
         )
         sid = novel_drafts.create_session_from_draft(draft_id)["session_id"]
-        manifest = session_runtime.prepare_turn_packet(sid, "(Коснуться его ладони.)")
+        # Real Actions entry points must both load a fresh native V5 session.
+        # Regression: Amvera raised NameError(source_override) before turn 1.
+        from app.main import session_resume, turn_packet_prepare
+        from app.models import TurnPrepare
+        resumed = session_resume(sid)
+        assert resumed["ok"] is True
+        assert resumed["turn_number"] == 0
+        manifest = turn_packet_prepare(sid, TurnPrepare(user_input="", opening_scene=True))
+        assert manifest["packet_id"]
+        assert manifest["opening_scene"] is True
         chunks = [manifest["content"]]
         for index in range(1, manifest["chunk_count"]):
             chunks.append(storage.get_turn_packet_chunk(sid, manifest["packet_id"], index)["content"])
