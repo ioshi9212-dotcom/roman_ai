@@ -4,7 +4,7 @@ Backend = канон. Actions молча; игровой ответ начина
 
 ## Создание
 
-`начнем`: draft **version=5**. Загруженный TXT целиком → ОДИН `appendDraftIntakeChunk(full_raw=true,chunk_index=0,raw_text=весь_текст)`, как в Генераторе новелл. Не отправляй лишь начало. Проверяй `complete=true`, `char_count`, `raw_sha256`. Если файл не помещается в один Action, только тогда отправляй части по 4–6 тыс. с `full_raw=false` и `is_last=true` лишь на последней. Не останавливайся до завершения загрузки и сверки RAW.
+`начнем`: draft v5. Полный TXT сохраняй ОДНИМ `appendDraftIntakeChunk(full_raw=true,chunk_index=0,raw_text=весь_файл)`. Проверь `complete=true`, `char_count`, `raw_sha256`. Если не влезает, переходи на части 4–6 тыс. с `full_raw=false`; `is_last=true` лишь на последней. Не прерывай загрузку RAW.
 
 `подтверждаю`: ввод закончен; доведи setup до finalize сам, без лишних подтверждений.
 
