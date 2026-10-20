@@ -1,5 +1,7 @@
+import hashlib
 import json
 import os
+from pathlib import Path
 from threading import Thread
 
 from fastapi import FastAPI, HTTPException
@@ -69,7 +71,17 @@ def startup_session_migration():
 
 @app.get("/health", operation_id="health", include_in_schema=False)
 def health():
-    return {"ok": True}
+    # Public, non-sensitive proof of which Python source Amvera actually runs.
+    # This is the Git blob SHA for the loaded source file. Compare it to the
+    # app/session_runtime.py blob SHA on the intended GitHub branch.
+    source_file = Path(__file__).resolve().parent / "session_runtime.py"
+    content = source_file.read_bytes()
+    blob = b"blob " + str(len(content)).encode("ascii") + b"\0" + content
+    return {
+        "ok": True,
+        "runtime_probe": "amvera-source-check-20261020-v2",
+        "session_runtime_blob_sha": hashlib.sha1(blob).hexdigest(),
+    }
 
 
 @app.get("/migration-status", operation_id="getMigrationStatus", include_in_schema=False)

@@ -178,6 +178,27 @@ def test_finalized_source_keeps_verbatim_trigger_without_bloating_gameplay():
         resumed = session_resume(sid)
         assert resumed["ok"] is True
         assert resumed["turn_number"] == 0
+        # Verify that a deployed health endpoint identifies the exact Python file.
+        # The fingerprint lets us detect Amvera running a different checkout.
+        import ast
+        import hashlib
+        import inspect
+        from app.main import health
+        probe = health()
+        assert probe["ok"] is True
+        assert probe["runtime_probe"] == "amvera-source-check-20261020-v2"
+        source_path = Path(inspect.getfile(session_runtime))
+        contents = source_path.read_bytes()
+        git_blob = b"blob " + str(len(contents)).encode("ascii") + b"\0" + contents
+        assert probe["session_runtime_blob_sha"] == hashlib.sha1(git_blob).hexdigest()
+        # This incident was caused by the deployed function loading locals that
+        # were never defined, first source_override and then state_override.
+        refresher = ast.parse(inspect.getsource(session_runtime._refresh_session_familiarity))
+        free_overrides = {
+            node.id for node in ast.walk(refresher)
+            if isinstance(node, ast.Name) and node.id in {"source_override", "state_override"}
+        }
+        assert not free_overrides
         manifest = turn_packet_prepare(sid, TurnPrepare(user_input="", opening_scene=True))
         assert manifest["packet_id"]
         assert manifest["opening_scene"] is True
