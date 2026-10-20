@@ -16,7 +16,7 @@ Backend интерактивной новеллы для **Custom GPT Actions**.
 
 Проверки после развёртывания:
 
-- `GET https://<домен-приложения>/health` → `{"ok":true}` (проверяет работу API, **не** наличие тома);
+- `GET https://<домен-приложения>/health` → `ok=true`, `runtime_probe=amvera-source-check-20261020-v2`, `session_runtime_blob_sha` (проверяет работающую ревизию Python, **не** содержимое тома). Если `runtime_probe` отсутствует, Amvera запустила старый/другой код. Сверьте `session_runtime_blob_sha` со SHA файла `app/session_runtime.py` в GitHub `main` (Git blob SHA, не SHA коммита).
 - `GET https://<домен-приложения>/openapi.json` → актуальная схема Actions;
 - `GET https://<домен-приложения>/docs` → документация API.
 
