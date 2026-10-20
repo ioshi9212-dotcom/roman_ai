@@ -23,7 +23,7 @@ from .novel_drafts import (
     publish_draft_to_library,
     save_section,
 )
-from .draft_intake_runtime import append_intake_chunk, update_intake_mapping
+from .draft_intake_runtime import append_intake_chunk, save_complete_intake_raw, update_intake_mapping
 from .setup_draft_v3_runtime import confirm_reconciliation, set_launch_state
 from .runtime_access import runtime_chunk, runtime_manifest
 from .session_preview import get_session_preview
@@ -147,6 +147,15 @@ def novel_draft_section_save(draft_id: str, body: NovelDraftSection):
 @app.post("/novel-drafts/{draft_id}/intake/chunks", operation_id="appendDraftIntakeChunk")
 def novel_draft_intake_chunk_append(draft_id: str, body: NovelDraftIntakeChunk):
     try:
+        if body.full_raw:
+            if body.chunk_index != 0:
+                raise ValueError("INTAKE_FULL_RAW_INDEX_MUST_BE_ZERO")
+            return save_complete_intake_raw(
+                draft_id,
+                block_id=body.block_id,
+                stage=body.stage,
+                raw_text=body.raw_text,
+            )
         return append_intake_chunk(
             draft_id,
             block_id=body.block_id,
@@ -167,6 +176,8 @@ def novel_draft_intake_chunk_append(draft_id: str, body: NovelDraftIntakeChunk):
         if code == "INTAKE_CHUNK_TOO_LARGE":
             raise HTTPException(status_code=422, detail="raw_text chunk exceeds the 100000-character backend safety ceiling. Keep the same block_id/stage and split only the unsaved verbatim text into smaller consecutive chunks; do not ask the user to resend it.")
         messages = {
+            "INTAKE_FULL_RAW_INDEX_MUST_BE_ZERO": "For full_raw=true use chunk_index=0: one complete file in one call.",
+            "INTAKE_BLOCK_SOURCE_IMMUTABLE": "This RAW block_id already contains different text. Do not overwrite it: use the exact same source or a new block_id.",
             "INTAKE_UPLOAD_BLOCK_EXISTS": "This block_id already exists outside this upload. Use a new unique block_id.",
             "INTAKE_UPLOAD_STAGE_IMMUTABLE": "stage changed during the same intake upload. Retry with the exact original stage.",
             "INTAKE_UPLOAD_CHUNK_CONFLICT": "This chunk_index was already received with different content or is_last. Retry with the exact same chunk or continue with next_chunk_index.",
