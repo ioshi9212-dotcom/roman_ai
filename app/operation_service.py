@@ -4,7 +4,7 @@ from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Any, Dict
 
-from . import audit_runtime, session_migrations, session_runtime, storage, session_documents
+from . import audit_runtime, session_migrations, storage, session_documents, turn_pipeline
 from .operation_receipts import (
     OperationReceiptConflict,
     current_turn_identity,
@@ -123,7 +123,7 @@ def prepare_turn_request(
                     packet_changed = True
                 if packet_changed:
                     storage._write_json(root / "turn_packet.json", packet)
-                result = dict(session_runtime.prepare_turn_packet(session_id, user_input, _migrated=True))
+                result = dict(turn_pipeline.prepare_turn_packet(session_id, user_input, _migrated=True))
                 if identity:
                     result["request_id"] = identity
                 result["scene_archive_capable"] = bool(packet.get("scene_archive_capable"))
@@ -146,7 +146,7 @@ def prepare_turn_request(
             if duplicate is not None:
                 return duplicate_prepare_response(duplicate)
 
-        result = dict(session_runtime.prepare_turn_packet(session_id, user_input, _migrated=True))
+        result = dict(turn_pipeline.prepare_turn_packet(session_id, user_input, _migrated=True))
         packet = storage._read_json(root / "turn_packet.json", {})
         if isinstance(packet, dict) and packet.get("packet_id"):
             if identity:
@@ -227,7 +227,7 @@ def commit_turn_request(session_id: str, payload: Dict[str, Any]) -> Dict[str, A
         "identity": packet_id,
         "request_fingerprint": fingerprint,
     }
-    result = dict(session_runtime.commit_turn(session_id, prepared))
+    result = dict(turn_pipeline.commit_turn(session_id, prepared))
     result.setdefault("already_committed", False)
     result.setdefault("idempotent_replay", False)
     return result
@@ -261,7 +261,7 @@ def commit_audit_request(session_id: str, payload: Dict[str, Any]) -> Dict[str, 
         "identity": audit_id,
         "request_fingerprint": fingerprint,
     }
-    result = dict(session_runtime.commit_audit(session_id, prepared))
+    result = dict(turn_pipeline.commit_audit(session_id, prepared))
     audit_runtime.clear_audit_packet(session_id)
     result.setdefault("idempotent_replay", False)
     return result
