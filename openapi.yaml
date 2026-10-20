@@ -868,7 +868,7 @@ paths:
     post:
       operationId: appendDraftIntakeChunk
       summary: Save a complete novel RAW in one request or append fallback verbatim chunks
-      description: Prefer full_raw=true, chunk_index=0 and raw_text equal to the WHOLE uploaded source text, not a summary or first section. This saves the generator-style RAW immediately and returns complete=true plus raw_sha256 and char_count. Do not report completion unless complete=true. If the entire text cannot fit in one tool request, fallback to full_raw=false with 4000-6000 verbatim characters per chunk in order, and is_last=true ONLY on the last. Exact retries are idempotent. A pending chunk upload can be finished by a complete full_raw upload with the same block_id/stage if the previously stored prefix matches. Draft v5 keeps RAW verbatim and later marks each block reviewed with fact_ids=[].
+      description: Save entire uploaded RAW in ONE request: full_raw=true, chunk_index=0, raw_text=FULL file. Verify complete, char_count, raw_sha256. Never mark a prefix complete. If tool size rejects full input, fallback full_raw=false, 4-6k chunks; is_last=true only on final. Retries are idempotent.
       parameters:
         - {in: path, name: draft_id, required: true, schema: {type: string}}
       requestBody:
