@@ -114,7 +114,10 @@ def _refresh_session_familiarity(session_id: str, *, lean_native: bool = False) 
     root = storage.SESSIONS_DIR / session_id
     if not root.exists():
         raise FileNotFoundError(session_id)
-    source = storage._read_json(root / "source.json", {})
+    # Both resumeSession and prepareTurn read the persisted source here.
+    # No draft-local source_override is available or required at this stage.
+    source_path = root / "source.json"
+    source = storage._read_json(source_path, {})
     cards = storage._load_cards(root, source)
     original_state = storage._read_json(root / "state.json", {})
     state = _canonicalize_state_character_refs(cards, original_state)
