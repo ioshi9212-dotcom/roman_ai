@@ -456,6 +456,112 @@ def enrich_template_with_source_evidence(draft: Dict[str, Any], template: Dict[s
     return result
 
 
+def save_complete_intake_raw(
+    draft_id: str,
+    *,
+    block_id: str,
+    stage: str,
+    raw_text: str,
+) -> Dict[str, Any]:
+    """Generator-style RAW intake: one request, one durable draft write.
+
+    Like generator-api append_source, a complete source has a stable ID and
+    cannot silently be replaced by a different text. Unlike the legacy
+    chunk-by-chunk transport it never requires GPT to loop to finalise RAW.
+    Existing unfinished chunk uploads can be completed only when their
+    verbatim bytes match the start of the supplied complete source.
+    """
+    block_id = str(block_id or "").strip()
+    stage = str(stage or "").strip()
+    if not block_id or not stage or not isinstance(raw_text, str) or not raw_text.strip():
+        raise ValueError("INTAKE_UPLOAD_INVALID")
+    _assert_not_placeholder(raw_text)
+    digest = _sha256(raw_text)
+
+    with session_transaction(novel_drafts._drafts_dir()):
+        draft = novel_drafts._read(draft_id)
+        uploads = draft.get("intake_uploads")
+        uploads = deepcopy(uploads) if isinstance(uploads, dict) else {}
+        receipt = uploads.get(block_id)
+        existing_intake = draft.get("sections", {}).get("intake")
+        old = _normalise_intake(existing_intake) if isinstance(existing_intake, dict) else {"blocks": []}
+        blocks = {row["block_id"]: row for row in old["blocks"]}
+
+        if block_id in blocks:
+            current = blocks[block_id]
+            if current["stage"] != stage or current["raw_text"] != raw_text:
+                raise ValueError("INTAKE_BLOCK_SOURCE_IMMUTABLE")
+            if isinstance(receipt, dict) and not receipt.get("completed"):
+                raise ValueError("INTAKE_UPLOAD_CORRUPT")
+            return {
+                "draft_id": draft_id,
+                "block_id": block_id,
+                "complete": True,
+                "already_completed": True,
+                "chunk_count": int(receipt.get("chunk_count", 1)) if isinstance(receipt, dict) else 1,
+                "char_count": len(raw_text),
+                "raw_sha256": digest,
+                "draft_revision": int(draft.get("revision", 0) or 0),
+                "simple_profile_mode": int(draft.get("version", 1) or 1) >= 5,
+            }
+
+        if isinstance(receipt, dict):
+            if receipt.get("completed"):
+                raise ValueError("INTAKE_UPLOAD_CORRUPT")
+            if str(receipt.get("stage") or "") != stage:
+                raise ValueError("INTAKE_UPLOAD_STAGE_IMMUTABLE")
+            previous_chunks = receipt.get("chunks")
+            if not isinstance(previous_chunks, list) or not all(isinstance(part, str) for part in previous_chunks):
+                raise ValueError("INTAKE_UPLOAD_CORRUPT")
+            if not raw_text.startswith("".join(previous_chunks)):
+                raise ValueError("INTAKE_UPLOAD_CHUNK_CONFLICT")
+
+        incoming = {
+            "version": _VERSION,
+            "blocks": [{
+                "block_id": block_id,
+                "stage": stage,
+                "raw_text": raw_text,
+                "fact_ids": [],
+                "reviewed_against_raw": False,
+                "contains_no_facts": False,
+            }],
+        }
+        # Use the same canonical intake format as the existing chunk uploader.
+        # All fields and whitespace in raw_text are left untouched.
+        draft.setdefault("sections", {})["intake"] = _merge_intake(existing_intake, incoming)
+        draft["revision"] = int(draft.get("revision", 0) or 0) + 1
+        draft["finalized"] = False
+        draft.pop("finalized_template", None)
+        if int(draft.get("version", 1) or 1) >= 3:
+            for key in ("launch_state", "launch_state_hash", "launch_hint", "session_creation_receipt"):
+                draft.pop(key, None)
+        uploads[block_id] = {
+            "stage": stage,
+            "completed": True,
+            "chunk_count": 1,
+            "char_count": len(raw_text),
+            "hashes": [digest],
+            "lengths": [len(raw_text)],
+        }
+        draft["intake_uploads"] = uploads
+        novel_drafts._write(novel_drafts._draft_path(draft_id), draft)
+        revision = draft["revision"]
+
+    return {
+        "draft_id": draft_id,
+        "block_id": block_id,
+        "complete": True,
+        "already_completed": False,
+        "chunk_count": 1,
+        "char_count": len(raw_text),
+        "raw_sha256": digest,
+        "draft_revision": revision,
+        "simple_profile_mode": int(draft.get("version", 1) or 1) >= 5,
+        "instruction": "Full RAW stored verbatim in one operation. Continue profile extraction and independent source verification before finalize.",
+    }
+
+
 def append_intake_chunk(
     draft_id: str,
     *,

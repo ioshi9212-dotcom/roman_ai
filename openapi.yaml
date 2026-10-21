@@ -420,10 +420,14 @@ components:
         raw_text:
           type: string
           minLength: 1
-          maxLength: 6000
+          description: Exact verbatim source. For full_raw=true send the complete uploaded file once; never truncate or summarize. For fallback chunks use 4000-6000 characters per request.
         is_last:
           type: boolean
           default: false
+        full_raw:
+          type: boolean
+          default: false
+          description: Generator-style single-request source persistence. Set true with chunk_index=0 to save a whole raw file atomically and idempotently, without a multi-call chunk loop.
       additionalProperties: false
 
     NovelDraftIntakeMapping:
@@ -863,8 +867,8 @@ paths:
   /novel-drafts/{draft_id}/intake/chunks:
     post:
       operationId: appendDraftIntakeChunk
-      summary: Append one verbatim chunk of a large intake block
-      description: Prefer 4000-6000 verbatim characters per chunk, in order from 0. Exact retries are idempotent. Draft v5 keeps the RAW verbatim and later marks each block reviewed with fact_ids=[]. Legacy v4 retains source-unit/foundation mapping. On 422 split only unsaved text. Set is_last only on the final chunk.
+      summary: Save a complete novel RAW in one request or append fallback verbatim chunks
+      description: Save entire uploaded RAW in ONE request using full_raw=true, chunk_index=0, raw_text=FULL file. Verify complete, char_count, raw_sha256. Never mark a prefix complete. If tool size rejects full input, fallback full_raw=false, 4-6k chunks; is_last=true only on final. Retries are idempotent.
       parameters:
         - {in: path, name: draft_id, required: true, schema: {type: string}}
       requestBody:
