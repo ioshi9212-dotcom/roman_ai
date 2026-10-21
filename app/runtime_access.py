@@ -9,7 +9,7 @@ from . import storage
 
 
 RUNTIME_DIR = Path(__file__).resolve().parent.parent / "runtime"
-RUNTIME_VERSION = "3.2.0-mechanics-only"
+RUNTIME_VERSION = "3.3.0-scene-picker"
 AUTHOR_RUNTIME_FILES = ("rules.md", "scene_builder.md")
 ACTIVE_RUNTIME_FILES = {
     "rules": "rules.md",

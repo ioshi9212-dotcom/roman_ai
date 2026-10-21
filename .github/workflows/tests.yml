@@ -40,10 +40,14 @@ jobs:
           tests/test_cast_registry_integration.py
           tests/test_setup_flow.py
           tests/test_setup_actions_e2e.py
+          tests/test_scene_choices.py
+          tests/test_author_runtime_sources.py
           tests/test_setup_draft_v3.py
           tests/test_setup_lossless_v4.py
           tests/test_profile_templates.py
           tests/test_simple_profile_flow.py::test_finalized_source_keeps_verbatim_trigger_without_bloating_gameplay
+          tests/test_simple_profile_flow.py::test_v5_private_message_content_is_hard_blocked_for_bystander_but_allowed_for_recipient
+          tests/test_simple_profile_flow.py::test_v5_private_pov_name_does_not_become_bystander_knowledge
           tests/test_generator_raw_ingest.py
           tests/test_location_profiles_runtime.py
           tests/test_npc_intent_runtime.py
@@ -76,6 +80,17 @@ jobs:
         with:
           name: pytest-current-report
           path: pytest-current-report.xml
+
+  choice-ui:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install --no-save --package-lock=false playwright@1.62.1
+      - run: npx playwright install --with-deps chromium
+      - run: node tests/ui_scene_choices.cjs
 
   legacy-reference:
     runs-on: ubuntu-latest

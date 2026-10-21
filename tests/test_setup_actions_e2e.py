@@ -137,6 +137,32 @@ def scene(turn):
             f"Состояние: спокойствие\nОтношения:\nРен - доверие 25.5/{delta}\n\nХод {turn} · цикл {((turn-1)%15)+1}/15")
 
 
+def test_compact_header_survives_commit_resume_next_packet_and_choice_read(client):
+    from app.scene_choices import saved_scene_choices
+    from test_scene_choices import SCENE
+    sid = complete_setup(client)
+    base = f"/sessions/{sid}"
+    prepared = post(client, base + "/turn-packet", {
+        "opening_scene": True, "user_input": "", "request_id": "compact-opening"})
+    read_packet(client, sid, prepared)
+    output = SCENE.replace("Ход 2 · цикл 2/15", "Ход 1 · цикл 1/15")
+    post(client, base + "/turns", {
+        "packet_id": prepared["packet_id"], "user_input": "", "scene_output": output,
+        "extracted": {"scene_builder_reviewed": True, "persistence_reviewed": True, "knowledge_reviewed": True},
+    })
+    current = storage.load_session(sid)["state"]["current"]
+    assert current["date"] == "22.10.2026"
+    assert current["time"] == "14:20"
+    assert current["location"] == "мастерская"
+    assert current["game_day"] == 2
+    assert saved_scene_choices(sid, 1)["groups"][0]["items"][0]["text"] == "Подойти."
+    assert post(client, base + "/resume")["turn_number"] == 1
+    prepared = post(client, base + "/turn-packet", {
+        "user_input": "(Подойти.) Продолжай. (Интересно.)", "request_id": "compact-next"})
+    packet = read_packet(client, sid, prepared)
+    assert packet["scene_state"]["current"]["game_day"] == 2
+
+
 def test_anketa_to_61_http_turns_retry_resume_manual_audit_and_rollback(client):
     sid = complete_setup(client)
     base = f"/sessions/{sid}"

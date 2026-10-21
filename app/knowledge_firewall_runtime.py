@@ -42,7 +42,7 @@ _FORBIDDEN_SOURCE_KINDS = {
     "future_guidance",
 }
 
-_SPEECH_RE = re.compile(r"(?m)^\s*\*\*(?P<speaker>[^*\n]+)\*\*\s*[—-]\s*(?P<text>.*)$")
+_SPEECH_RE = re.compile(r"(?m)^\s*(?:>\s*)?\*\*(?P<speaker>[^*\n]+)\*\*\s*[—-]\s*(?P<text>.*)$")
 _NUMBER_RE = re.compile(r"(?<!\w)-?\d{2,4}(?!\w)")
 _KNOWLEDGE_TOPIC_ROOTS = {
     "meeting_plan": ("встреч", "свидан", "визит", "назнач", "брониров", "резервир", "планир"),
