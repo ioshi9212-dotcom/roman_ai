@@ -6,15 +6,11 @@ from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Tuple
 
 from . import storage
+from .scene_header import parse_scene_header
 
 
-_SCENE_HEADER_RE = re.compile(
-    r"🕒\s*День\s+\d+\s*·[^\n]*?(?P<date>\d{2}\.\d{2}\.\d{4}),\s*"
-    r"(?P<time>\d{1,2}:\d{2})\s*·\s*📍\s*(?P<location>.*?)(?:\s*🌦️|\n|$)"
-)
-_SCENE_NAME_RE = re.compile(r"^⚙️\s*Сцена:\s*(?P<scene>.+?)\s*$", re.MULTILINE)
 _RELATIONSHIP_LINE_RE = re.compile(r"^(.+?)\s+-\s+.+$", re.MULTILINE)
-_SPEAKER_RE = re.compile(r"^\s*\*\*(?P<name>[^*\n]+)\*\*\s+[—-]\s+", re.MULTILINE)
+_SPEAKER_RE = re.compile(r"^\s*(?:>\s*)?\*\*(?P<name>[^*\n]+)\*\*\s+[—-]\s+", re.MULTILINE)
 _MAIN_SCENE_SPLIT = "--------------------------------------------------------"
 _OPTIONS_MARKER = "Что я могу сделать:"
 
@@ -80,18 +76,7 @@ def _merge_current(current: Dict[str, Any], patch: Any, *, cards: Iterable[Dict[
 
 
 def _parse_scene_header(scene_output: Any) -> Dict[str, Any]:
-    if not isinstance(scene_output, str) or not scene_output.strip():
-        return {}
-    result: Dict[str, Any] = {}
-    match = _SCENE_HEADER_RE.search(scene_output)
-    if match:
-        result["date"] = match.group("date").strip()
-        result["time"] = match.group("time").strip()
-        result["location"] = match.group("location").strip()
-    scene_match = _SCENE_NAME_RE.search(scene_output)
-    if scene_match:
-        result["scene"] = scene_match.group("scene").strip()
-    return result
+    return parse_scene_header(scene_output)
 
 
 def _main_scene_text(scene_output: Any) -> str:

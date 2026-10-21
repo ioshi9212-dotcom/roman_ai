@@ -11,7 +11,7 @@ from fastapi import HTTPException
 from . import personal_memory_transport, session_documents, storage, writer_first_runtime
 
 
-_SPEECH_RE = re.compile(r"(?m)^\s*\*\*(?P<speaker>[^*\n]+)\*\*\s*[—-]\s*(?P<text>.*)$")
+_SPEECH_RE = re.compile(r"(?m)^\s*(?:>\s*)?\*\*(?P<speaker>[^*\n]+)\*\*\s*[—-]\s*(?P<text>.*)$")
 _COMMUNICATION_RE = re.compile(
     r"(?iu)\b(?:написать|ответить|отправить|переслать|сказать|сообщить|шепнуть|показать|позвонить)\s+([^\s,.;:()—-]+)"
 )

@@ -3,6 +3,7 @@ import json
 import os
 from pathlib import Path
 from threading import Thread
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
 
@@ -55,15 +56,30 @@ from .storage import (
 )
 from .turn_rollback import RollbackError
 from .startup_migration import read_migration_status, run_startup_session_migration
+from .choice_mcp import create_choice_mcp
+
+
+@asynccontextmanager
+async def lifespan(app):
+    startup_session_migration()
+    choice_mcp = create_choice_mcp()
+    app.state.choice_http_app = choice_mcp.streamable_http_app()
+    async with choice_mcp.session_manager.run():
+        yield
+
+
+async def choice_http_app(scope, receive, send):
+    await app.state.choice_http_app(scope, receive, send)
 
 app = FastAPI(
     title="Roman AI",
     version="1.17.0",
     description="Persistent interactive-novel sessions with rules-driven scenes, character-scoped knowledge, dynamic relationships, cast continuity, recovery, rollback and lossless setup intake.",
+    lifespan=lifespan,
 )
+app.mount("/mcp", choice_http_app)
 
 
-@app.on_event("startup")
 def startup_session_migration():
     if str(os.getenv("ROMAN_MIGRATE_SESSION_ID") or "").strip():
         Thread(target=run_startup_session_migration, daemon=True, name="roman-session-migration").start()

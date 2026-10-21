@@ -343,7 +343,7 @@ def _prepare_journal_entries(root, extracted: Dict[str, Any]) -> None:
 
 
 
-_SPEECH_RE = re.compile(r"(?m)^\s*\*\*(?P<speaker>[^*\n]+)\*\*\s*[—-]\s*(?P<text>.*)$")
+_SPEECH_RE = re.compile(r"(?m)^\s*(?:>\s*)?\*\*(?P<speaker>[^*\n]+)\*\*\s*[—-]\s*(?P<text>.*)$")
 _COMMUNICATION_RE = re.compile(
     r"(?iu)\b(?:написать|ответить|отправить|переслать|сказать|сообщить|шепнуть|показать|позвонить)\s+([^\s,.;:()—-]+)"
 )

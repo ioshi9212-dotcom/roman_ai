@@ -494,7 +494,8 @@ def _private_message_v5_novel():
     }
 
 
-def test_v5_private_message_content_is_hard_blocked_for_bystander_but_allowed_for_recipient():
+@pytest.mark.parametrize("quote", ["", "> "])
+def test_v5_private_message_content_is_hard_blocked_for_bystander_but_allowed_for_recipient(quote):
     with tempfile.TemporaryDirectory() as tmp:
         _setup(tmp)
         sid = storage.create_session(_private_message_v5_novel())["session_id"]
@@ -510,7 +511,7 @@ def test_v5_private_message_content_is_hard_blocked_for_bystander_but_allowed_fo
                 root,
                 {
                     "user_input": user_input,
-                    "scene_output": "**Энже** — Я тебе шоколадное пирожное принесла.",
+                    "scene_output": quote + "**Энже** — Я тебе шоколадное пирожное принесла.",
                     "extracted": {"knowledge_journal_add": []},
                 },
             )
@@ -522,7 +523,7 @@ def test_v5_private_message_content_is_hard_blocked_for_bystander_but_allowed_fo
             root,
             {
                 "user_input": user_input,
-                "scene_output": "**Дантэ** — Шоколадное пирожное привезу.",
+                "scene_output": quote + "**Дантэ** — Шоколадное пирожное привезу.",
                 "extracted": {"knowledge_journal_add": []},
             },
         )
@@ -531,13 +532,14 @@ def test_v5_private_message_content_is_hard_blocked_for_bystander_but_allowed_fo
             root,
             {
                 "user_input": user_input,
-                "scene_output": "**Энже** — Сладкое есть.",
+                "scene_output": quote + "**Энже** — Сладкое есть.",
                 "extracted": {"knowledge_journal_add": []},
             },
         )
 
 
-def test_v5_private_pov_name_does_not_become_bystander_knowledge():
+@pytest.mark.parametrize("quote", ["", "> "])
+def test_v5_private_pov_name_does_not_become_bystander_knowledge(quote):
     with tempfile.TemporaryDirectory() as tmp:
         _setup(tmp)
         sid = storage.create_session(_private_message_v5_novel())["session_id"]
@@ -548,7 +550,7 @@ def test_v5_private_pov_name_does_not_become_bystander_knowledge():
                 root,
                 {
                     "user_input": "(Сайлас. Фокусник хуев. Хрен тебе, а не реакция.) Я тебе номер не дам.",
-                    "scene_output": "**Эдриан** — Сайлас? Кто это?",
+                    "scene_output": quote + "**Эдриан** — Сайлас? Кто это?",
                     "extracted": {"knowledge_journal_add": []},
                 },
             )

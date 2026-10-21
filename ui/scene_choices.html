@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Варианты хода</title>
+<style>
+:root{color-scheme:light dark;--gold:#b69a75;--ink:light-dark(#342f29,#eee7dd);--muted:light-dark(#766e63,#b8afa1);--line:light-dark(#e5ddd1,#494238);--paper:light-dark(#fcfaf6,#25221e)}
+*{box-sizing:border-box}body{margin:0;padding:12px;font:15px/1.45 system-ui,sans-serif;color:var(--ink);background:var(--paper)}
+main{max-width:720px;margin:auto;padding:var(--safe-top,0px) var(--safe-right,0px) var(--safe-bottom,0px) var(--safe-left,0px)}
+fieldset{border:0;border-bottom:1px solid var(--line);padding:8px 0 10px;margin:0}legend{font-size:12px;font-weight:600;color:var(--muted);padding:0}
+label.option{display:flex;align-items:flex-start;gap:9px;padding:8px 2px;cursor:pointer}input[type=checkbox]{accent-color:var(--gold);width:18px;height:18px;flex-shrink:0;margin:2px 0 0}
+textarea{display:block;width:100%;min-height:112px;resize:vertical;margin:7px 0 10px;border:1px solid var(--line);border-radius:9px;background:transparent;color:inherit;padding:10px;font:inherit;font-size:16px}
+.caption{display:block;font-size:12px;color:var(--muted);margin-top:12px}.bottom{display:flex;align-items:center;gap:12px;justify-content:space-between}
+button{font:inherit;border:0;border-radius:8px;padding:10px 18px;background:var(--gold);color:#211c16;cursor:pointer;min-height:44px}button:disabled{opacity:.5;cursor:default}
+:focus-visible{outline:2px solid var(--gold);outline-offset:3px}#status{font-size:12px;color:var(--muted);white-space:pre-wrap}#turn{font-size:12px;color:var(--muted)}
+</style></head><body><main>
+<form id="choices"><div id="groups"></div><label class="caption" for="draft">Твой ход · можно изменить весь текст</label>
+<textarea id="draft" placeholder="Выбери варианты или напиши свой ход" aria-describedby="status"></textarea>
+<div class="bottom"><span id="turn"></span><button id="send" type="submit" disabled>Отправить</button></div>
+<p id="status" role="status" aria-live="polite">Загружаю варианты…</p></form>
+</main><script>/* CHOICE_APP */</script></body></html>

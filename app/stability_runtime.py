@@ -8,6 +8,7 @@ from typing import Any, Dict
 
 from . import location_runtime, npc_intent, private_knowledge_runtime, relationship_file_runtime, session_documents, session_recovery, session_runtime, storage, story_thread
 from .game_day import sync_game_day
+from .scene_header import parse_scene_header
 from .relationship_runtime import overwrite_relationship_snapshots
 from .relationship_file_runtime import FILE_NAME as RELATIONSHIPS_FILE
 from .operation_receipts import RECEIPTS_FILE, ledger_with_receipt, make_receipt
@@ -21,12 +22,6 @@ from .turn_duplicate_guard import REQUEST_INDEX_FILE, next_request_index, recent
 _ORIGINAL_PREPARE_TURN = None
 _ORIGINAL_CONTINUE_SESSION = None
 _ORIGINAL_RECOVER_CURRENT = None
-
-_HEADER_RE = re.compile(
-    r"🕒\s*День\s+(?P<day>\d+)\s*·[^\n]*?(?P<date>\d{2}\.\d{2}\.\d{4})\s*,\s*(?P<time>\d{1,2}:\d{2})\s*·\s*"
-    r"📍\s*(?P<location>.*?)(?:\s*🌦️|\n|$)",
-    re.IGNORECASE,
-)
 
 _SOURCE_STANDARD_KEYS = {
     "novel_id",
@@ -47,21 +42,8 @@ _SOURCE_STANDARD_KEYS = {
 
 
 def _scene_header_current(scene_output: str) -> Dict[str, Any]:
-    if not isinstance(scene_output, str):
-        return {}
-    match = _HEADER_RE.search(scene_output[:1200])
-    if not match:
-        return {}
-    result: Dict[str, Any] = {
-        "date": match.group("date").strip(),
-        "time": match.group("time").strip(),
-        "location": match.group("location").strip(),
-    }
-    try:
-        result["game_day"] = max(1, int(match.group("day")))
-    except (TypeError, ValueError):
-        pass
-    return result
+    return {key: value for key, value in parse_scene_header(scene_output).items()
+            if key in {"date", "time", "location", "game_day"}}
 
 
 def _turns_text(turns: list[dict[str, Any]]) -> str:
