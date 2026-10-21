@@ -34,8 +34,7 @@ def test_repeated_wait_count_has_no_forced_spawn_or_hard_gate():
     cue = _waiting_momentum_context("(продолжать ждать Данте)", prior)
     assert cue["kind"] == "passive_wait"
     assert cue["consecutive_wait_inputs"] == 5
-    assert "не обязан прибыть по квоте" in cue["writer_cue"]
-    assert "Не присваивай POV решение прекратить ждать" in cue["writer_cue"]
+    assert set(cue) == {"kind", "consecutive_wait_inputs"}
     assert _waiting_momentum_context("(обнять Данте)", prior) is None
     assert _waiting_momentum_context("(ждать Данте)", [
         {"user_input": "(ждать Данте)"},
@@ -43,7 +42,7 @@ def test_repeated_wait_count_has_no_forced_spawn_or_hard_gate():
     ])["consecutive_wait_inputs"] == 1
 
 
-def test_active_prepare_packet_contains_waiting_cue_without_story_drive(tmp_path, monkeypatch):
+def test_active_prepare_packet_contains_waiting_data_without_directing_prose(tmp_path, monkeypatch):
     monkeypatch.setattr(storage, "DATA_DIR", tmp_path)
     monkeypatch.setattr(storage, "LIBRARY_DIR", tmp_path / "library")
     monkeypatch.setattr(storage, "SESSIONS_DIR", tmp_path / "sessions")
@@ -76,7 +75,8 @@ def test_active_prepare_packet_contains_waiting_cue_without_story_drive(tmp_path
     ctx = json.loads("".join(parts))
     cue = ctx["waiting_momentum"]
     assert cue["consecutive_wait_inputs"] == 1
-    assert "действующие планы и доступность NPC" in cue["writer_cue"]
+    assert set(cue) == {"kind", "consecutive_wait_inputs"}
+    assert "Если POV выбрал ждать" in ctx["scene_builder"]
     assert "story_drive" not in ctx
     assert "story_pressure" not in ctx
     assert "scene_builder" in ctx

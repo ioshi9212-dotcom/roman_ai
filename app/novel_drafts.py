@@ -518,7 +518,7 @@ def _validate_template(template: Dict[str, Any]) -> tuple[Dict[str, Any], Dict[s
     return normalized, coverage
 
 
-def create_draft(novel_id: str, title: str, version: int = 1) -> Dict[str, Any]:
+def create_draft(novel_id: str, title: str, version: int = 5) -> Dict[str, Any]:
     draft_id = uuid.uuid4().hex
     draft = {
         "draft_id": draft_id,

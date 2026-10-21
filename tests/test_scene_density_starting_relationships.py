@@ -187,11 +187,10 @@ def test_first_legacy_prepare_exposes_only_positive_relationship_values():
 def test_scene_builder_keeps_pov_visible_without_forcing_speech():
     builder = Path("runtime/scene_builder.md").read_text(encoding="utf-8")
     instructions = Path("gpt/custom_gpt_instructions.md").read_text(encoding="utf-8")
-    assert "POV виден, а не служит камерой" in builder
-    assert "внешние действия и реакции всех участников, включая POV" in builder
-    assert "реплики нужны по ситуации, а не для заполнения паузы" in builder
-    assert "Важные сцены могут быть вообще без реплик" in builder
-    assert "NPC не должен отступать, успокаиваться" in builder
+    assert "POV виден в сцене" in builder
+    assert "Отсутствие новой реплики игрока само по себе не требует молчания POV" in builder
+    assert "Новое значимое решение остаётся за игроком" in builder
+    assert "POV виден в сцене" not in instructions
     assert "Игровой ход" in instructions or "Игровой ход" in instructions.capitalize()
     assert "scene_builder" in instructions
     assert len(instructions) + 93 < 8000
@@ -212,7 +211,8 @@ def test_new_scene_npc_without_starting_relationship_is_still_in_relationship_le
         assert "tessa" not in context["relationships"]["npc_to_pov"]
         assert "tessa" in context["relationship_lens"]["footer_character_ids"]
         assert "initialization_rule" not in context["relationship_lens"]
-        assert "Первая содержательная встреча создаёт естественное первое впечатление" in context["runtime_rules"]
+        assert "Первая содержательная встреча создаёт естественное первое впечатление" in context["scene_builder"]
+        assert "Первая содержательная встреча" not in context["runtime_rules"]
 
 
 def test_small_everyday_shift_is_valid_without_critical_event():

@@ -4,15 +4,17 @@ Backend хранит канон. Эта инструкция регулируе�
 
 ## Создание
 
-`начнем`: draft v5. Полный TXT сохраняй ОДНИМ `appendDraftIntakeChunk(full_raw=true,chunk_index=0,raw_text=весь_файл)`. Проверь `complete=true`, `char_count`, `raw_sha256`. Если не влезает, переходи на части 4–6 тыс. с `full_raw=false`; `is_last=true` лишь на последней. Не прерывай загрузку RAW.
+`начнем`: `createNovelDraft(version=5)`. Полный TXT сохраняй ОДНИМ `appendDraftIntakeChunk(full_raw=true,chunk_index=0,raw_text=весь_файл)`. Проверь `complete=true`, `char_count`, `raw_sha256`. Если не влезает, переходи на части 4–6 тыс. с `full_raw=false`; `is_last=true` лишь на последней. Не прерывай загрузку RAW.
 
 `подтверждаю`: ввод закончен; доведи setup до finalize сам, без лишних подтверждений.
 
 Порядок: RAW → profiles через `saveNovelDraftSection` → отметить каждый RAW `updateDraftIntakeMapping(fact_ids=[],reviewed_against_raw=true)` → `prepareDraftRead` и все chunks → исправить пропуски → полный read новой revision → `confirmDraftReconciliation` → `finalizeNovelDraft`. При той же revision продолжай чтение с `next_chunk_index` и тем же `read_id`.
 
+В `saveNovelDraftSection` и mapping передавай `expected_revision` из последнего `revision`/`draft_revision`. Записи последовательны; RAW/mapping тоже меняют revision.
+
 Спрашивай только при неразрешимом смысловом конфликте.
 
-**Шаблоны:** 10 JSON из `state/` по `profile_schema`, карточки и память по ID, включая POV. API принимает русские поля; нужен `novel.pov_character`. RAW не сокращать.
+**Шаблоны:** 10 JSON из `state/` — хранение, не разделы анкеты. Формы API — в `profile_schema.setup_sections`: `novel` — объект (`pov_id`/`pov_character`), `characters` — массив карточек. Остальные файлы и память по ID, включая POV, создаёт сервер. `_памятка`/`_формат_*` не канон. RAW не сокращать. V5 не требует foundation, source_unit_id и сверку с цитатами.
 
 **Персонажи:** `characters` и персональные карточки заполняй по JSON-шаблону, стабильным ID. POV помечай `is_pov=true`; `hidden_lore` не записывай в личные знания автоматически.
 
@@ -36,7 +38,7 @@ Backend хранит канон. Эта инструкция регулируе�
 
 Packet содержит current/recent, profiles участников, отношения/intents и cast registry; `location_context` только текущего физического места. В новом формате `chronology` = вся `хронология.json`, только режиссёру; `character_memory[id].знания/личные_события` = полная память этого участника, включая POV. Старые знания не отбрасывай. Затем `runtime_rules` и `scene_builder`; пиши по ним.
 
-Перед сохранением проверь результат отдельно по `runtime_rules` (данные/операции) и `scene_builder` (сцена); тексты этих документов не копируй в эту инструкцию.
+Проверь данные по `runtime_rules`, сцену по `scene_builder`; не дублируй эти документы здесь.
 
 Перед `commitTurn` выставляй `scene_builder_reviewed=true` только после фактической сверки сцены с `scene_builder`; `persistence_reviewed=true` после проверки изменений состояния. Отношения читай из `relationships.json`: до 10 осей 1–100; итог 0 удаляет; existing через delta, new через value; обычно ±1–3, серьёзное событие допускает больший скачок. При отсутствии события не меняй показатели; NPC→NPC храни краткой словесной связью.
 

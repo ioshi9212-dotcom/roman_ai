@@ -73,52 +73,33 @@ def read_all(manifest, session_id: str):
 
 def test_active_runtime_is_author_rules_plus_scene_builder():
     docs = runtime_access.runtime_documents()
-    sources = runtime_access.author_runtime_sources()
-    assert docs["rules"] == sources["rules"]
-    assert docs["scene_builder"] == sources["scene_builder"]
+    assert docs == runtime_access.author_runtime_sources()
+    assert set(docs) == {"rules", "scene_builder"}
     rules, builder = docs["rules"], docs["scene_builder"]
-
-    # Scene Builder remains the sole director of NPC/POV actions. Rules merely
-    # loads/saves canonical state and cannot add hidden behavioral gates.
     assert "Rules выполняет только техническую работу" in rules
     assert "Не задавай через Rules поведение персонажей" in rules
-    assert "Skin Builder определяет поведение POV, NPC, мира" in rules
     assert builder.startswith("Формат scene_builder обязателен")
-    assert "а не существовать только ради POV" in builder
-    assert "Их поведение определяется характером, целями, желаниями" in builder
-    assert "Не сглаживай настоящие эмоции и конфликты." in builder
-
+    assert "## ВВОД И ХОД СЦЕНЫ" in builder
     assert "Источник знания должен существовать до использования знания." in rules
     assert "Частичный факт остаётся частичным." in rules
     assert "npc_active_intents[ID]" in rules
-    assert "present_characters" in rules
-    assert "state.characters[ID]" in rules
     assert "Не удаляй NPC из present_characters до реального leave." in rules
     assert "Незакрытая линия остаётся активной" in rules
-    assert "мир развивается и без инициативы POV" in builder
-    for removed in ("ROUTINE", "STANDARD", "CINEMATIC",
-                    "ТОЧКА ОСТАНОВКИ СЦЕНЫ", "world_movement_context",
-                    "structural_movement_due"):
-        assert removed not in rules + "\n" + builder
+    for removed in ("ROUTINE", "STANDARD", "CINEMATIC", "ТОЧКА ОСТАНОВКИ СЦЕНЫ",
+                    "world_movement_context", "structural_movement_due"):
+        assert removed not in rules + builder
 
 
-def test_character_perception_and_scene_quality_stay_causal_without_pacing_modes():
+def test_character_perception_and_scene_quality_stay_in_builder_without_pacing_modes():
     docs = runtime_access.runtime_documents()
     builder, rules = docs["scene_builder"], docs["rules"]
-    # These are the author's current compact rules, not obsolete verbatim
-    # phrases from the earlier, significantly longer Scene Builder.
-    assert "POV виден, а не служит камерой" in builder
-    assert "кто где находится, как повернут, что видит и делает" in builder
-    assert "а не существовать только ради POV" in builder
+    # Test ownership rather than restoring a superseded author's wording.
+    for phrase in ("Мысли POV полностью приватны", "POV виден в сцене",
+                   "Завершён должен быть игровой ход, а не обязательно действие",
+                   "Если POV выбрал ждать", "## ВАРИАНТЫ"):
+        assert phrase in builder
+        assert phrase not in rules
     assert "содержание сцен не шаблонизируются" in builder
-    assert "в рамках установленного канона" in builder
-    assert "Пропускать только скучную рутину" in builder
-    assert "Романтические, интимные, чувственные" in builder
-    assert "Не пропускать важные сцены." in builder
-    assert "Важные сцены могут быть вообще без реплик" in builder
-    assert "авторские комментарии" in builder
-    assert "1800–3000 символов" in builder
-    assert "Завершён должен быть игровой ход, а не обязательно действие" in rules
     for removed in ("ROUTINE", "STANDARD", "CINEMATIC", "ТОЧКА ОСТАНОВКИ СЦЕНЫ"):
         assert removed not in builder
 
@@ -175,7 +156,7 @@ def test_legacy_story_rule_is_absent_from_actual_turn_packet():
         assert "если игрок не дал реплику" not in blob
         assert "не придумывать её" not in blob
         assert "npc действуют самостоятельно" in blob
-        assert "а не существовать только ради pov" in context["scene_builder"].casefold()
+        assert context["scene_builder"] == runtime_access.runtime_documents()["scene_builder"]
 
         source_blob = json.dumps(
             storage._read_json(storage.SESSIONS_DIR / sid / "source.json", {}),
@@ -1478,8 +1459,8 @@ def test_cast_registry_exposes_context_without_forced_return_pressure():
         assert registry["mandatory_causal_review"] is True
         assert "return_pressure" not in registry
         assert "important_cast_return_required" not in registry
-        assert "не задаёт очередь, квоту или таймер появления" in registry["instruction"]
-        assert "по scene_builder" in registry["instruction"]
+        assert "правила участия определяет scene_builder" in registry["instruction"]
+        assert "scene_builder" in registry["instruction"]
         assert row["story_function"] == "possible romance"
         assert "добиться ответа" in row["goals"]
         assert "initiative_cues" not in row
@@ -1528,8 +1509,8 @@ def test_offscreen_npc_can_be_considered_without_saved_intent_or_forced_timer():
         assert "пишет вечером после работы" in row["habits"]
         assert context["relationships"]["npc_to_pov"]["npc"]["dimensions"]["привязанность"]["value"] == 65
         assert "Появление, звонок, сообщение, уход и возвращение персонажей выбирает режиссура сама" not in context["runtime_rules"]
-        assert "Новые персонажи тоже могут возникать по ходу мира" in context["scene_builder"]
-        assert "не задаёт очередь, квоту или таймер появления" in context["cast_registry"]["instruction"]
+        assert "Новые NPC могут возникать по ходу истории" in context["scene_builder"]
+        assert "правила участия определяет scene_builder" in context["cast_registry"]["instruction"]
         assert "До реального участия offscreen NPC прочитай его полный character bundle." in context["cast_registry"]["instruction"]
 
 
@@ -2148,7 +2129,7 @@ def test_long_absent_core_cast_is_not_forced_back_by_recency_timer():
 
         assert "return_pressure" not in registry
         assert "important_cast_return_required" not in registry
-        assert "не задаёт очередь, квоту или таймер появления" in registry["instruction"]
+        assert "правила участия определяет scene_builder" in registry["instruction"]
 
 def test_private_perception_is_saved_only_to_actual_recipient():
     with tempfile.TemporaryDirectory() as tmp:

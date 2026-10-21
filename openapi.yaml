@@ -396,10 +396,11 @@ components:
           enum: [novel, characters, locations, canon_notes, lore, rules, hidden_lore, world, starting_state, story_direction, foundation, knowledge, intake]
         section_json:
           type: string
-          description: JSON string for the named section. locations stores short stable place profiles; canon_notes stores scoped durable facts; knowledge stores explicit pre-story character knowledge.
+          description: Use profile_schema.setup_sections. novel is an object with pov_id/pov_character; characters is an array of cards. The ten state templates are persisted files, not ten required API sections.
         expected_revision:
           type: integer
           minimum: 0
+          description: Required for draft v3+ including v5. Use the latest revision/draft_revision returned by any draft write; save sections sequentially.
       additionalProperties: false
 
     NovelDraftIntakeChunk:
@@ -844,6 +845,7 @@ paths:
     post:
       operationId: createNovelDraft
       summary: Start a staged session-only draft for a new novel
+      description: New drafts default to version 5. Read profile_schema.setup_sections for accepted API shapes. Server creates session files; do not submit all ten state templates as draft sections.
       requestBody:
         required: true
         content:
@@ -855,6 +857,7 @@ paths:
     post:
       operationId: saveNovelDraftSection
       summary: Save or replace one draft section; saving again may reopen a finalized draft for pre-game correction
+      description: Send expected_revision from the latest draft response. V5 needs novel, characters and reviewed RAW intake; other profile sections depend on source content. Launch state is set after finalize. Identical resaves do not change revision.
       parameters:
         - {in: path, name: draft_id, required: true, schema: {type: string}}
       requestBody:

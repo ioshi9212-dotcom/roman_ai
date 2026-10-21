@@ -88,9 +88,6 @@ def prepare_turn_request(
     session_migrations.ensure_current_session_data(session_id, invalidate_pending=True)
     identity = str(request_id or "").strip()
     if opening_scene:
-        meta = storage._read_json(root / "meta.json", {})
-        if int(meta.get("turn_number", 0) or 0) != 0:
-            raise RuntimeError("OPENING_SCENE_ONLY_BEFORE_TURN_ONE")
         user_input = ""
 
     with session_transaction(root):
@@ -100,6 +97,13 @@ def prepare_turn_request(
             committed = committed_request_turn(session_id, identity, user_input)
             if committed is not None:
                 return duplicate_prepare_response(committed)
+
+        # An exact retry of the opening request above is still valid after its
+        # commit. Only a genuinely new opening request is restricted to turn 0.
+        if opening_scene:
+            meta = storage._read_json(root / "meta.json", {})
+            if int(meta.get("turn_number", 0) or 0) != 0:
+                raise RuntimeError("OPENING_SCENE_ONLY_BEFORE_TURN_ONE")
 
         packet = storage._read_json(root / "turn_packet.json", {})
         status = _packet_status(packet)

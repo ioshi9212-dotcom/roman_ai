@@ -28,7 +28,7 @@ def test_scene_builder_uses_content_based_detail_without_mode_machine():
 
 def test_runtime_version_marks_rules_scene_builder_runtime():
     manifest = runtime_manifest()
-    assert manifest["runtime_version"] == "3.1.0-rules-scene-builder"
+    assert manifest["runtime_version"] == runtime_payload()["runtime_version"]
     assert manifest["chunk_count"] >= 1
     assert manifest["chunk_count"] <= 3
 

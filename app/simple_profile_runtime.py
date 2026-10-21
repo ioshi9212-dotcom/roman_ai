@@ -695,14 +695,14 @@ def _participation_bundle(session_id: str, character_id: str) -> Dict[str, Any]:
             "rule": (
                 "Персонаж знает self-known части собственной биографии/profile и собственный knowledge journal. "
                 "Каждая запись знания частична ровно до сообщённых деталей: неизвестные время, место, участник, причина или план "
-                "не достраиваются вероятными значениями. Нужную неизвестную деталь можно уточнить вопросом; предположение остаётся "
+                "не достраиваются вероятными значениями. Предположение остаётся "
                 "предположением до подтверждения. Явно скрытые от него ветки своего profile, чужие профили, чужая память, chronology, "
                 "hidden lore и приватные мысли POV знанием не становятся."
             ),
         },
         "instruction": (
             "Этот bundle полностью готов для участия offscreen-персонажа: own profile + own complete knowledge "
-            "+ relationship + current state. relationship берётся только из relationships.json. npc_relationships_director_only влияет на режиссуру поведения, но не является "
+            "+ relationship + current state. relationship берётся только из relationships.json. npc_relationships_director_only не является "
             "личным factual knowledge и не сообщает персонажу неизвестные факты о другом NPC. Используй только явно известные "
             "детали; не дополняй частичный факт скрытыми или вероятными подробностями. Отдельный knowledge-read не нужен."
         ),

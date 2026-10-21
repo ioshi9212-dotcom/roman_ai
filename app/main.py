@@ -283,7 +283,9 @@ def novel_draft_finalize(draft_id: str):
             "DRAFT_LOCATION_CHARACTER_UNKNOWN": "A linked location character must reference an existing character.",
             "DRAFT_LOCATION_CHARACTER_AMBIGUOUS": "A linked location character name matches more than one existing character; use character_id.",
         }
-        raise HTTPException(status_code=409, detail=core_errors.get(code, "Draft is incomplete"))
+        # Preserve actionable setup blockers (read, revision, POV, relation
+        # shape) instead of turning every failure into an indistinct loop.
+        raise HTTPException(status_code=409, detail=core_errors.get(code, code))
     except RuntimeError:
         raise HTTPException(status_code=500, detail="Final draft verification failed")
 
@@ -797,16 +799,8 @@ def turns_commit(session_id: str, body: CommitTurnRequest):
             "SCENE_BUILDER_REVIEW_REQUIRED": "Review the complete final scene against scene_builder before retrying the same commitTurn.",
             "PERSISTENCE_REVIEW_REQUIRED": "Review durable persistence for the completed scene before retrying the same commitTurn.",
             "KNOWLEDGE_REVIEW_REQUIRED": "Review what every participating character learned or retained before retrying the same commitTurn.",
-            "RELATIONSHIP_REVIEW_REQUIRED": "Review every participating NPC->POV relationship after the completed scene. Persist each real causal change through relationship_updates, then retry the same commitTurn with relationship_reviewed=true.",
-            "RELATIONSHIP_REVIEW_DETAIL_REQUIRED": "Send exactly one relationship_review row for every physical or remote NPC who participated in this turn.",
-            "RELATIONSHIP_REVIEW_DETAIL_INVALID": "relationship_review must contain unique known NPC character_id values and boolean changed flags.",
-            "RELATIONSHIP_REVIEW_CHANGED_WITHOUT_UPDATE": "A relationship_review row marked changed=true requires a matching causal relationship_updates row.",
-            "RELATIONSHIP_REVIEW_UPDATE_CONTRADICTION": "A relationship_review row marked changed=false cannot have a relationship_updates row for that NPC.",
-            "RELATIONSHIP_FOOTER_ABSENT_NPC": "The visible Relationships footer may contain only NPCs physically present at scene end. Remove remote, departed or offscreen NPC rows and retry the same commitTurn.",
             "RELATIONSHIP_UPDATE_FOR_UNSEEN_NPC": "relationship_updates may target only NPCs who physically or remotely participated in this turn.",
-            "RELATIONSHIP_REVIEW_REASON_REQUIRED": "Every relationship_review row on a new turn needs a concrete current-scene reason, including changed=false.",
             "RELATIONSHIP_UPDATE_REASON_REQUIRED": "A changed relationship requires a non-empty causal reason in relationship_updates.",
-            "RELATIONSHIP_REVIEW_CHANGED_WITHOUT_EFFECT": "changed=true requires an actual canonical relationship effect, not an empty or no-op update.",
             "RELATIONSHIP_EXISTING_DIMENSION_DELTA_REQUIRED": "An established relationship dimension must change through a non-zero delta from the saved value.",
             "RELATIONSHIP_NEW_DIMENSION_VALUE_REQUIRED": "A new relationship dimension must include an absolute numeric value.",
             "RELATIONSHIP_DIMENSION_DUPLICATE": "Do not send the same relationship dimension more than once in one NPC update.",
@@ -858,7 +852,7 @@ def audit_commit(session_id: str, body: AuditCommit):
             "MEMORY_COMPACTION_SOURCE_REUSED": "One source memory record cannot be compacted into multiple canonical records in the same audit.",
             "MEMORY_COMPACTION_SOURCE_UNKNOWN": "A memory_compaction referenced a missing or already superseded source record.",
             "MEMORY_COMPACTION_SOURCE_OUT_OF_RANGE": "memory_compactions may only supersede records created inside this exact audit range.",
-            "MACRO_CHRONOLOGY_COMPACTION_REQUIRED": "The scheduled 60-turn macro audit is incomplete. Retry the same audit_id with repairs.chronology_compactions; the next gameplay turn remains blocked until it is saved.",
+            "MACRO_CHRONOLOGY_COMPACTION_REQUIRED": "The requested macro audit is incomplete. Retry the same audit_id with repairs.chronology_compactions. Gameplay remains available without completing this optional audit.",
             "MACRO_CHRONOLOGY_COMPACTION_INVALID": "repairs.chronology_compactions is malformed. Each row needs DD.MM.YYYY date and a 20-1800 character summary.",
             "MACRO_CHRONOLOGY_IMPORTANT_DATE_MISSING": "The macro compaction omitted a story date that contains major/anchor/critical chronology. Add a dated summary for every important date and retry the same audit_id.",
         }

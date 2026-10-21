@@ -21,13 +21,16 @@ class NovelRawSave(BaseModel):
 class NovelDraftCreate(BaseModel):
     novel_id: str
     title: str
-    version: int = 1
+    version: int = 5
 
 
 class NovelDraftSection(BaseModel):
     section_name: str
     section_json: str
-    expected_revision: Optional[int] = Field(default=None, ge=0)
+    expected_revision: Optional[int] = Field(
+        default=None, ge=0,
+        description="Required for draft v3+ including v5; use the latest revision/draft_revision from the previous draft response.",
+    )
 
 
 class NovelDraftIntakeChunk(BaseModel):
