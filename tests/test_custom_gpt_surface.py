@@ -197,15 +197,24 @@ def test_custom_gpt_instruction_matches_rules_driven_transport():
 
     assert "стартовые знания" in text
     assert "turn=0" in text
-    assert "Появление, частота и поведение NPC — по `scene_builder`" in text
+    builder = (ROOT / "runtime" / "scene_builder.md").read_text(encoding="utf-8")
+    assert "NPC действуют, а не запрашивают разрешение" in builder
     assert "Chronology и personal knowledge независимы" in text
     assert "required_audit" in text
     assert "Intent из bundle принадлежит только его владельцу" in text
     assert "показывай `session_id`" in text
     assert "`packet_id`, `read_id`, chunk-статусы и сверки не показывай" in text
-    assert "первый видимый текст = сама сцена" in text
-    assert "не выводи планы/анализ/пояснения" in text
-    assert "Техпояснения только на техвопрос" in text
+    # The Custom GPT instruction contains no scene or POV writing rules.
+    # All scene form, NPC behavior, POV actions and answer alternatives are
+    # authored exclusively in scene_builder.md.
+    assert "Правила сцен, поведения NPC/POV" in text
+    assert "POV видим, отвечает по ситуации" not in text
+    assert "первый видимый текст = сама сцена" not in text
+    assert "Появление, частота и поведение NPC" not in text
+    assert "Footer только текущих" not in text
+    assert "интерфейсные данные" in text
+    assert "ВАРИАНТЫ" in builder
+    assert "POV виден, а не служит камерой" in builder
     assert "не смягчай, не обобщай" in text
     assert "Все постоянные персонажи из RAW" in text
     assert "включая важных offscreen/nearby" in text
@@ -265,13 +274,17 @@ def test_static_schema_avoids_actions_parser_traps():
     collect_refs(schema)
     assert set(refs) <= set(schemas)
 
-def test_optional_chat_picker_preserves_turn_raw_and_scene_output():
-    text = (ROOT / "gpt" / "custom_gpt_instructions.md").read_text(encoding="utf-8")
-    assert text.count("## Интерфейс чата") == 1
-    ui = text.split("## Интерфейс чата", 1)[1].split("## Offscreen персонаж", 1)[0]
-    assert "если доступны интерактивные элементы" in ui
-    assert "несколько действий, реплик и мыслей" in ui
-    assert "raw user_input следующего prepareTurn" in ui
-    assert "действия и мысли в ( ), речь без скобок" in ui
-    assert "Без виджетов оставь текстовые варианты" in ui
-    assert "UI не добавляй в scene_output или канон" in ui
+def test_optional_chat_picker_only_transports_selected_user_input():
+    instructions = (ROOT / "gpt" / "custom_gpt_instructions.md").read_text(encoding="utf-8")
+    builder = (ROOT / "runtime" / "scene_builder.md").read_text(encoding="utf-8")
+    assert instructions.count("## Передача ввода игрока") == 1
+    transport = instructions.split("## Передача ввода игрока", 1)[1].split("## Данные отсутствующих персонажей", 1)[0]
+    assert "raw user_input" in transport
+    assert "в указанном порядке" in transport
+    assert "действия и мысли в ( ), речь без скобок" in transport
+    assert "интерфейсные данные в `scene_output` или канон" in transport
+    assert "покажи под сценой" not in instructions
+    assert "Без виджетов оставь текстовые варианты" not in instructions
+    assert "Что я могу сделать:" in builder
+    assert "Что я могу сказать:" in builder
+    assert "Что я могу подумать:" in builder

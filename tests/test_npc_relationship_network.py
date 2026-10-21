@@ -196,7 +196,9 @@ def test_relationship_contract_keeps_npc_to_npc_qualitative_and_footer_scene_sco
     assert "`relationships.json` — один файл актуальных отношений" in rules
     assert "Одна связь — до 10 слов" in rules
     assert "физически или через актуальный звонок/переписку" in rules
-    assert "Footer только текущих physical/remote участников" in instructions
+    # Scene display belongs to scene_builder, not to the GPT Action guide.
+    assert "Показывай физических участников и участников актуального звонка/переписки" in builder
+    assert "Footer только текущих physical/remote участников" not in instructions
     assert "все его активные NPC→POV показатели из relationships.json" in builder
     assert "at most 10 words" in schema
     assert "relationship_review:" not in schema
