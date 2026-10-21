@@ -54,7 +54,7 @@ def test_large_library_novel_is_verified_without_full_response_and_can_be_read_i
 def test_finalize_keeps_large_draft_out_of_library_and_allows_chunked_verification():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
-        draft = create_draft("draft_large", "Draft Large")
+        draft = create_draft("draft_large", "Draft Large", version=1)
         draft_id = draft["draft_id"]
         save_section(draft_id, "novel", json.dumps({"pov_character": "rina"}))
         save_section(draft_id, "characters", json.dumps([{"character_id": "rina", "name": "Rina", "is_pov": True}]))

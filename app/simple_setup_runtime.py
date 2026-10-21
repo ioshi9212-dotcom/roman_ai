@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 from copy import deepcopy
 from typing import Any, Dict, List
 
@@ -195,9 +196,11 @@ def _update_intake_mapping(
 def _normalise_simple_section(draft: Dict[str, Any], section_name: str, value: Any) -> Any:
     name = str(section_name or "").strip()
     if name == "novel":
+        if not isinstance(value, dict):
+            raise TypeError("novel must be a JSON object")
         return normalize_novel_profile(value, title=str(draft.get("title") or ""))
     if name == "characters":
-        return normalize_character_profiles(value)
+        return _validated_character_profiles(value)
     if name == "hidden_lore":
         return normalize_hidden_lore(value)
     if name == "locations":
@@ -206,7 +209,9 @@ def _normalise_simple_section(draft: Dict[str, Any], section_name: str, value: A
         return normalize_canon_notes(value)
     if name == "knowledge":
         # Optional explicit pre-story knowledge. Runtime knowledge learned later is appended during play.
-        return deepcopy(value) if isinstance(value, dict) else {}
+        if not isinstance(value, dict):
+            raise TypeError("knowledge must be a JSON object keyed by character_id")
+        return deepcopy(value)
     if name == "lore":
         if isinstance(value, dict):
             return deepcopy(value)
@@ -214,6 +219,28 @@ def _normalise_simple_section(draft: Dict[str, Any], section_name: str, value: A
             return {}
         return {"text": str(value)}
     return deepcopy(value)
+
+
+def _validated_character_profiles(value: Any) -> List[Dict[str, Any]]:
+    if not isinstance(value, list) or any(not isinstance(row, dict) for row in value):
+        raise TypeError("characters must be a JSON array of profile objects")
+    result: List[Dict[str, Any]] = []
+    seen: set[str] = set()
+    for row in value:
+        profiles = normalize_character_profiles([row])
+        if not profiles or not str(profiles[0].get("name") or "").strip():
+            raise ValueError("DRAFT_CHARACTER_ID_AND_NAME_REQUIRED")
+        profile = profiles[0]
+        cid = str(profile.get("character_id") or "").strip()
+        # IDs become file names in native sessions. Reject invalid ones at
+        # intake rather than failing only after finalization/session creation.
+        from .session_documents import _id
+        _id(cid)
+        if cid in seen:
+            raise ValueError("DRAFT_CHARACTER_ID_DUPLICATE")
+        seen.add(cid)
+        result.append(profile)
+    return result
 
 
 def _save_section(
@@ -240,6 +267,8 @@ def _save_section(
     sections = draft.get("sections") if isinstance(draft.get("sections"), dict) else {}
     existing = sections.get(section_name.strip())
     current_revision = int(draft.get("revision", 0) or 0)
+    if expected_revision is None:
+        raise ValueError("DRAFT_SECTION_REVISION_REQUIRED")
     if expected_revision is not None and int(expected_revision) != current_revision:
         raise ValueError("DRAFT_SECTION_REVISION_MISMATCH")
     if existing == normalized:
@@ -355,16 +384,21 @@ def _content_template(draft: Dict[str, Any]) -> Dict[str, Any]:
 def _resolve_pov(template: Dict[str, Any]) -> str | None:
     characters = template.get("characters") if isinstance(template.get("characters"), list) else []
     novel = template.get("novel") if isinstance(template.get("novel"), dict) else {}
-    ref = str(novel.get("pov_character") or "").casefold().strip()
-    for card in characters:
-        if not isinstance(card, dict):
-            continue
-        cid = str(card.get("character_id") or "")
-        name = str(card.get("name") or "")
-        full = " ".join(part for part in (name, str(card.get("surname") or "")) if part)
-        if card.get("is_pov") is True or ref in {cid.casefold(), name.casefold(), full.casefold()}:
-            return cid
-    return None
+    ref = _relationship_identity(novel.get("pov_character"))
+    marked = [str(card.get("character_id")) for card in characters if card.get("is_pov") is True]
+    if len(marked) > 1:
+        raise ValueError("DRAFT_POV_AMBIGUOUS")
+    if ref:
+        matches = _character_alias_index(characters).get(ref, set())
+        if not matches:
+            raise ValueError("DRAFT_POV_UNKNOWN")
+        if len(matches) != 1:
+            raise ValueError("DRAFT_POV_AMBIGUOUS")
+        resolved = next(iter(matches))
+        if marked and marked[0] != resolved:
+            raise ValueError("DRAFT_POV_CONFLICT")
+        return resolved
+    return marked[0] if marked else None
 
 
 def _location_identity_key(value: Any) -> str:
@@ -497,7 +531,7 @@ def _relationship_dimensions(raw: Any) -> List[Dict[str, Any]]:
         if not label or not isinstance(value, (int, float)) or isinstance(value, bool):
             raise ValueError("DRAFT_CHARACTER_RELATIONSHIP_DIMENSIONS_INVALID")
         numeric = float(value)
-        if numeric < 0 or numeric > 100:
+        if not math.isfinite(numeric) or numeric < 0 or numeric > 100:
             raise ValueError("DRAFT_CHARACTER_RELATIONSHIP_DIMENSIONS_INVALID")
         if numeric == 0:
             continue
@@ -644,7 +678,7 @@ def _canonicalize_character_relationships(
 
 def _validate_simple_content(template: Dict[str, Any]) -> tuple[Dict[str, Any], Dict[str, Any]]:
     normalized = deepcopy(template)
-    normalized["characters"] = normalize_character_profiles(normalized.get("characters", []))
+    normalized["characters"] = _validated_character_profiles(normalized.get("characters", []))
     normalized["novel"] = _ensure_core_cast(
         normalize_novel_profile(normalized.get("novel", {}), title=str(normalized.get("title") or "")),
         normalized["characters"],
@@ -652,6 +686,9 @@ def _validate_simple_content(template: Dict[str, Any]) -> tuple[Dict[str, Any], 
     pov_id = _resolve_pov(normalized)
     if not pov_id:
         raise ValueError("DRAFT_POV_REQUIRED")
+    normalized["novel"]["pov_character"] = pov_id
+    for card in normalized["characters"]:
+        card["is_pov"] = card["character_id"] == pov_id
     normalized["characters"] = _canonicalize_character_relationships(
         normalized["characters"],
         pov_id,
@@ -775,6 +812,7 @@ def _draft_status(draft_id: str) -> Dict[str, Any]:
         "reconciliation_receipt": deepcopy(draft.get("reconciliation_receipt", {})),
         "finalized": finalized,
         "content_finalized": finalized,
+        "finalized_revision": draft.get("finalized_revision") if finalized else None,
         "launch_state_ready": bool(launch_ready),
         "launch_state_blocker": launch_blocker,
         "awaiting_launch_start": finalized and not launch_ready,
@@ -860,6 +898,8 @@ def _finalize_draft(draft_id: str) -> Dict[str, Any]:
     return {
         "ok": True,
         "draft_id": draft_id,
+        "revision": int(draft.get("revision", 0) or 0),
+        "finalized_revision": draft["finalized_revision"],
         "verification": verification,
         "foundation_coverage": coverage,
         "intake_coverage": status.get("intake_coverage"),

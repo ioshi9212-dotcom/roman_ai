@@ -1,3 +1,4 @@
+"""Legacy V1 setup requires starting_state before finalize; V5 launches separately."""
 import json
 import tempfile
 from pathlib import Path
@@ -42,7 +43,7 @@ def save_base(draft_id: str):
 def test_starting_state_is_required_before_finalize():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
-        draft_id = create_draft("missing_start", "Missing Start")["draft_id"]
+        draft_id = create_draft("missing_start", "Missing Start", version=1)["draft_id"]
         save_base(draft_id)
         status = draft_status(draft_id)
         assert "starting_state" in status["missing_required_sections"]
@@ -55,7 +56,7 @@ def test_starting_state_is_required_before_finalize():
 def test_status_exposes_starting_state_blocker_before_finalize():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
-        draft_id = create_draft("blocked_start", "Blocked Start")["draft_id"]
+        draft_id = create_draft("blocked_start", "Blocked Start", version=1)["draft_id"]
         save_base(draft_id)
         save_section(
             draft_id,
@@ -73,7 +74,7 @@ def test_status_exposes_starting_state_blocker_before_finalize():
 def test_finalize_rejects_start_without_scene_pointer():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
-        draft_id = create_draft("empty_start", "Empty Start")["draft_id"]
+        draft_id = create_draft("empty_start", "Empty Start", version=1)["draft_id"]
         save_base(draft_id)
         save_section(
             draft_id,
@@ -90,7 +91,7 @@ def test_finalize_rejects_start_without_scene_pointer():
 def test_flat_gpt_starting_state_is_normalized_into_usable_current():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
-        draft_id = create_draft("flat_start", "Flat Start")["draft_id"]
+        draft_id = create_draft("flat_start", "Flat Start", version=1)["draft_id"]
         save_base(draft_id)
         save_section(
             draft_id,
@@ -115,7 +116,7 @@ def test_flat_gpt_starting_state_is_normalized_into_usable_current():
 def test_common_gpt_aliases_are_normalized_before_finalize():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
-        draft_id = create_draft("alias_start", "Alias Start")["draft_id"]
+        draft_id = create_draft("alias_start", "Alias Start", version=1)["draft_id"]
         save_base(draft_id)
         save_section(
             draft_id,
@@ -139,7 +140,7 @@ def test_common_gpt_aliases_are_normalized_before_finalize():
 def test_present_character_ids_alias_is_normalized():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
-        draft_id = create_draft("ids_alias_start", "IDs Alias Start")["draft_id"]
+        draft_id = create_draft("ids_alias_start", "IDs Alias Start", version=1)["draft_id"]
         save_base(draft_id)
         save_section(
             draft_id,
@@ -162,7 +163,7 @@ def test_present_character_ids_alias_is_normalized():
 def test_time_only_pointer_matches_recovery_contract():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
-        draft_id = create_draft("time_start", "Time Start")["draft_id"]
+        draft_id = create_draft("time_start", "Time Start", version=1)["draft_id"]
         save_base(draft_id)
         save_section(
             draft_id,
@@ -178,7 +179,7 @@ def test_time_only_pointer_matches_recovery_contract():
 def test_create_session_revalidates_old_finalized_broken_draft():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
-        draft_id = create_draft("legacy_broken", "Legacy Broken")["draft_id"]
+        draft_id = create_draft("legacy_broken", "Legacy Broken", version=1)["draft_id"]
         save_base(draft_id)
         save_section(draft_id, "starting_state", json.dumps({"current": {"location": "room", "present_characters": ["rina"]}}))
         finalize_draft(draft_id)

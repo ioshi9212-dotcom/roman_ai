@@ -9,7 +9,7 @@ from typing import Any, Dict, Iterable, List
 PROFILE_ROOT = Path(__file__).resolve().parent.parent / "state"
 
 
-PROFILE_VERSION = 2
+PROFILE_VERSION = 3
 
 # In-memory compatibility shapes for the existing draft API; no duplicate template files.
 _INTERNAL_SHAPES = {'character': {'character_id': None,
@@ -120,6 +120,7 @@ _LOCATION_ALIASES = {
 
 _NOVEL_ALIASES = {
     "pov": "pov_character",
+    "pov_id": "pov_character",
     "pov_character_id": "pov_character",
     "main_pov": "pov_character",
     "genres_list": "genres",
@@ -206,6 +207,9 @@ def _merge_known_fields(
     result = deepcopy(base)
     additional: Dict[str, Any] = {}
     for raw_key, raw_value in raw.items():
+        # Template notes and internal metadata describe storage, not canon.
+        if str(raw_key).startswith("_"):
+            continue
         key = aliases.get(_norm_key(raw_key), str(raw_key))
         if key in result and key != "additional":
             result[key] = deepcopy(raw_value)
@@ -470,6 +474,8 @@ def normalize_location_profiles(raw: Any) -> List[Dict[str, Any]]:
     if isinstance(raw, dict):
         expanded = []
         for key, value in raw.items():
+            if str(key).startswith("_"):
+                continue
             if isinstance(value, dict):
                 row = deepcopy(value)
                 row.setdefault("location_id", str(key))
@@ -506,6 +512,7 @@ def normalize_canon_notes(raw: Any) -> List[Dict[str, Any]]:
                 if not isinstance(value, dict)
                 else {"note_id": str(key), **deepcopy(value)}
                 for key, value in raw.items()
+                if not str(key).startswith("_")
             ]
     if not isinstance(raw, list):
         return []
@@ -556,7 +563,7 @@ def normalize_hidden_lore(raw: Any) -> Dict[str, Any]:
             entries = [
                 f"{key}: {value}"
                 for key, value in raw.items()
-                if value not in (None, "", [], {})
+                if not str(key).startswith("_") and value not in (None, "", [], {})
             ]
     else:
         entries = [str(raw)]
@@ -695,6 +702,23 @@ def profile_manifest() -> Dict[str, Any]:
         "state_template_count": len(FILES),
         "state_files": list(FILES),
         "state_fields": {name: list(public(template(name))) for name in FILES},
+        "state_files_are_persistence_layout": True,
+        "default_draft_version": 5,
+        "save_requires_expected_revision": True,
+        "setup_sections": {
+            "novel": {"type": "object", "template": "анкета.json", "pov_field": "pov_id / pov_character"},
+            "characters": {"type": "array", "items_template": "карточка_персонажа.json", "identity_fields": ["id", "имя"]},
+            "locations": {"type": "array", "items_template": "локации.json._формат_локации"},
+            "hidden_lore": {"type": "object", "shape": {"entries": ["director-only text"]}},
+            "knowledge": {"type": "object", "shape": {"character_id": ["personally known starting fact"]}},
+            "canon_notes": {"type": "array", "item_fields": ["note_id", "text", "subjects"]},
+            "lore": {"type": "object"},
+        },
+        "character_relationship_example": {
+            "target_character_id": "pov_id",
+            "relationship_context": "Only the relationship given in RAW",
+            "dimensions": [{"label": "author-selected axis", "value": 25}],
+        },
         "version": PROFILE_VERSION,
         "novel_fields": list(load_profile_template("novel").keys()),
         "character_fields": list(load_profile_template("character").keys()),
@@ -702,5 +726,12 @@ def profile_manifest() -> Dict[str, Any]:
         "knowledge_entry_fields": list(load_profile_template("knowledge_entry").keys()),
         "location_fields": list(load_profile_template("location").keys()),
         "canon_note_fields": list(load_profile_template("canon_note").keys()),
-        "rule": "Templates are fixed. Missing fields may stay empty; do not invent new top-level profile shapes.",
+        "rule": (
+            "Save only named API sections through saveNovelDraftSection with the latest expected_revision. "
+            "The ten state files describe persisted session layout, not ten required draft sections. "
+            "Do not send template notes or format examples as canon. "
+            "Missing optional fields may stay empty. V5 needs novel, characters and reviewed RAW intake; "
+            "starting_state is supplied through setDraftLaunchState after finalize. "
+            "NPC-to-NPC relationships use text without dimensions. No foundation/source-unit ledger or startup quote audit is required."
+        ),
     }

@@ -111,6 +111,7 @@ CARD_FIELDS = {
 }
 NOVEL_FIELDS = {
     "title": "название", "genres": "жанры", "category": "возрастная_категория",
+    "pov_character": "pov_id",
     "setting": "сеттинг", "premise": "завязка", "tone": "тон_и_атмосфера",
     "story_rules": "правила_новеллы", "start": "начальная_ситуация", "notes": "дополнительно",
     "start_year": "год_начала", "start_date": "дата_начала", "lore": "открытый_лор",

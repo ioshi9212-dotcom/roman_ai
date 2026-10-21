@@ -51,7 +51,7 @@ _BASE_PARTICIPATION_BUNDLE = character_chunk_read._participation_bundle
 _BASE_CREATE_SESSION = storage.create_session
 _BASE_RECOVER_CURRENT = session_recovery.recover_session_current
 
-PIPELINE_VERSION = 20
+PIPELINE_VERSION = 21
 
 def _packet_manifest(packet: Dict[str, Any], *, reused: bool) -> Dict[str, Any]:
     chunks = packet.get("chunks", []) if isinstance(packet.get("chunks"), list) else []
@@ -398,7 +398,7 @@ def _wait_input(raw: Any) -> bool:
 
 
 def _waiting_momentum_context(user_input: Any, recent_turns: Any) -> Dict[str, Any] | None:
-    """Read-only director cue: passive waiting must not create identical turns."""
+    """Describe input history; all decisions about pacing live in Scene Builder."""
     if not _wait_input(user_input):
         return None
     consecutive = 1
@@ -409,15 +409,6 @@ def _waiting_momentum_context(user_input: Any, recent_turns: Any) -> Dict[str, A
     return {
         "kind": "passive_wait",
         "consecutive_wait_inputs": consecutive,
-        "writer_cue": (
-            "POV уже выбрал ждать. Не создавай новый ход только с тем же ожиданием. "
-            "Проверь текущее время, действующие планы и доступность NPC, незакрытые дела, "
-            "расписание и события мира; сожми пустой промежуток до ближайшего причинного "
-            "изменения или действительно значимого выбора POV. "
-            "Ни один NPC не обязан прибыть по квоте: учитывай его собственные дела и путь. "
-            "Если ожидание продолжается, покажи фактическое изменение ситуации, а не "
-            "повтор предыдущего кадра. Не присваивай POV решение прекратить ждать."
-        ),
     }
 
 
@@ -562,8 +553,8 @@ def _prepare_context(
             "rule": "The bundle may be read to decide whether a candidate should participate; complete it before actual participation.",
         },
         "instruction": (
-            "Перед сценой просмотри постоянный NPC-каст и relationships. "
-            "Cast registry даёт контекст и не задаёт очередь, квоту или таймер появления; решение о появлении/контакте — по scene_builder. "
+            "Прочитай cast_registry.characters и relationships. Реестр — director-only индекс ID; "
+            "правила участия определяет scene_builder. "
             "До реального участия offscreen NPC прочитай его полный character bundle."
         ),
         "characters": _cast_registry_rows(state, cards, source, current_turn, npc_network, relationship_store),

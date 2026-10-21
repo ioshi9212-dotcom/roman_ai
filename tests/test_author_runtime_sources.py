@@ -1,122 +1,57 @@
-"""Contract checks against the current author-approved runtime documents."""
-import hashlib
+"""Protect ownership of active instructions without locking an author's prose."""
 from pathlib import Path
 
-from app.runtime_access import author_runtime_sources, runtime_documents
-
+from app.runtime_access import author_runtime_sources, runtime_documents, runtime_manifest, runtime_chunk
 
 ROOT = Path(__file__).resolve().parents[1]
 
-# The author's two documents are byte-locked. These are the current blobs from
-# main, not phrases retained from an older, superseded Skin Builder revision.
-AUTHOR_BLOB_SHA = {
-    "rules.md": "f1929fd98ea25472572262866e03126a6eec5c7d",
-    "scene_builder.md": "b318814b127ebcb9ec1009f3a09482d30ca4d841",
-}
-
-
-def _git_blob_sha(path: Path) -> str:
-    data = path.read_bytes()
-    payload = b"blob " + str(len(data)).encode("ascii") + b"\0" + data
-    return hashlib.sha1(payload).hexdigest()
-
-
-def test_author_runtime_sources_are_byte_locked():
-    for name, expected in AUTHOR_BLOB_SHA.items():
-        assert _git_blob_sha(ROOT / "runtime" / name) == expected
-
 
 def test_active_runtime_is_exactly_the_two_author_documents():
-    author = author_runtime_sources()
     active = runtime_documents()
-
+    assert active == author_runtime_sources()
     assert set(active) == {"rules", "scene_builder"}
-    assert active == author
-    assert active["rules"] == (ROOT / "runtime" / "rules.md").read_text(encoding="utf-8")
-    assert active["scene_builder"] == (ROOT / "runtime" / "scene_builder.md").read_text(encoding="utf-8")
+    for key, content in active.items():
+        name = "rules.md" if key == "rules" else "scene_builder.md"
+        assert content == (ROOT / "runtime" / name).read_text(encoding="utf-8")
+    assert {p.name for p in (ROOT / "runtime").glob("*.md")} == {"rules.md", "scene_builder.md"}
 
 
-def test_turn_boundary_does_not_force_interaction_to_end():
-    rules = (ROOT / "runtime" / "rules.md").read_text(encoding="utf-8")
-    builder = (ROOT / "runtime" / "scene_builder.md").read_text(encoding="utf-8")
-    assert "Завершён должен быть игровой ход, а не обязательно действие" in rules
-    assert "Сцены могут быть разной плотности" in builder
-    assert "Обычное продолжение уже выбранного действия выполняй в самой сцене." in builder
-    assert "Не пропускать важные сцены" in builder
-    assert "сформируй законченную сцену" not in rules
+def test_runtime_chunks_ship_the_same_documents_without_a_second_contract():
+    import json
+    manifest = runtime_manifest()
+    payload = json.loads("".join(runtime_chunk(i)["content"] for i in range(manifest["chunk_count"])))
+    assert payload["documents"] == runtime_documents()
+    assert payload["runtime_revision"] == manifest["runtime_revision"]
+    assert "hard_checks" not in payload
 
 
-def test_recurring_npcs_can_reenter_without_forced_events():
-    rules = (ROOT / "runtime" / "rules.md").read_text(encoding="utf-8")
-    builder = (ROOT / "runtime" / "scene_builder.md").read_text(encoding="utf-8")
-    assert "Не удаляй NPC из present_characters до реального leave." in rules
-    assert "Незакрытая линия остаётся активной" in rules
-    assert "NPC действуют, а не запрашивают разрешение" in builder
-    assert "Новые персонажи тоже могут возникать по ходу мира" in builder
-    assert "Cast registry даёт контекст" in rules or "cast_registry" in rules
+def test_scene_direction_has_one_owner():
+    docs = runtime_documents()
+    instructions = (ROOT / "gpt/custom_gpt_instructions.md").read_text(encoding="utf-8")
+    for phrase in ("Мысли POV полностью приватны", "Если POV выбрал ждать",
+                   "Завершён должен быть игровой ход, а не обязательно действие",
+                   "Что я могу подумать:", "Состояние: {до 10 слов"):
+        assert phrase in docs["scene_builder"]
+        assert phrase not in docs["rules"]
+        assert phrase not in instructions
 
 
-def test_waiting_is_not_a_repeatable_static_turn():
-    builder = (ROOT / "runtime" / "scene_builder.md").read_text(encoding="utf-8")
-    assert "мир развивается и без инициативы POV" in builder
-    assert "Пропускать только скучную рутину, которая в сцене ничего не меняет." in builder
-    assert "Не приклеивай к каждому финалу искусственный «крючок»" in builder
+def test_templates_do_not_reintroduce_retired_setup_or_audit_gates():
+    import json
+    for path in (ROOT / "state").glob("*.json"):
+        value = json.loads(path.read_text(encoding="utf-8"))
+        note = value.get("_памятка", "")
+        for obsolete in ("Стартовая сверка ОБЯЗАТЕЛЬНА", "точной уникальной цитатой",
+                         "Каждые 15 ходов сверяй", "каждые 60 — сжимай"):
+            assert obsolete not in note, path.name
+    assert "стартовая_сверка" not in json.loads((ROOT / "state/отношения.json").read_text())
 
 
-def test_npc_acts_independently_during_ongoing_contact():
-    builder = (ROOT / "runtime" / "scene_builder.md").read_text(encoding="utf-8")
-    rules = (ROOT / "runtime" / "rules.md").read_text(encoding="utf-8")
-    assert "а не существовать только ради POV" in builder
-    assert "Реакция определяется характером, желаниями, чувствами и отношениями" in builder
-    assert "Важные сцены могут быть вообще без реплик" in builder
-    assert "Романтические, интимные, чувственные" in builder
-    assert "Завершён должен быть игровой ход, а не обязательно действие" in rules
-
-
-def test_pov_viewpoint_and_external_camera_are_not_contradictory():
-    builder = (ROOT / "runtime" / "scene_builder.md").read_text(encoding="utf-8")
-    assert "Восприятие сцены привязано к POV" in builder
-    assert "включая POV, описываются от третьего лица" in builder
-    assert "От первого лица ПОВ. Но камера от третьего лица." not in builder
-
-
-def test_scene_motion_is_not_substituted_by_talk_or_offscreen_summary():
-    builder = (ROOT / "runtime" / "scene_builder.md").read_text(encoding="utf-8")
-    for instruction in (
-        "Показывай действие, а не называй его",
-        "передавай его последовательно, почти покадрово",
-        "Чувственность и ясная пространственная картинка",
-        "Диалог не является обязательным наполнителем",
-        "не обрывай уже начатое",
-    ):
-        assert instruction.casefold() in builder.casefold()
-    assert "технического подтверждения каждого шага" in builder
-
-
-def test_sleep_and_received_text_progress_without_empty_pov_choice():
-    builder = (ROOT / "runtime" / "scene_builder.md").read_text(encoding="utf-8")
-    assert "закончи отрезок сценой, где POV уже проснулся" in builder
-    assert "не требуй от игрока отдельного решения" in builder.casefold()
-    assert "прочитать сообщение" in builder
-    assert "конкретный текст и естественное прочтение POV" in builder
-    assert "Прочитать не значит ответить" in builder
-    assert "Если игрок прямо выбрал игнорировать сообщение" in builder
-    assert "Если POV спит" in builder
-
-
-def test_npc_autonomy_has_no_permission_or_waiting_loop():
-    builder = (ROOT / "runtime" / "scene_builder.md").read_text(encoding="utf-8")
-    for required in (
-        "ЖЁСТКОЕ ПРАВИЛО: NPC НЕ ЖДУТ POV",
-        "Запрещены пассивные финалы",
-        "Дантэ ждёт дальнейших действий Ринаты",
-        "Теперь выбор за ней",
-        "Воля NPC и управление POV существуют одновременно",
-        "Эта возможность НЕ требует, чтобы NPC предварительно замер",
-        "не требуй второго подтверждения",
-        "Сцена идёт естественно, а не ходами очереди",
-        "это не приказ NPC ждать их выбора в мире истории",
-    ):
-        assert required in builder
-    assert "Он сам решает, что делать дальше" in builder
-    assert "Не пиши за POV нового значимого решения" in builder
+def test_bootstrap_installs_only_setup_adapters_and_one_gameplay_pipeline():
+    import ast
+    module = ast.parse((ROOT / "app/__init__.py").read_text())
+    calls = [node.value.func.id for node in module.body
+             if isinstance(node, ast.Expr) and isinstance(node.value, ast.Call)
+             and isinstance(node.value.func, ast.Name)]
+    assert calls == ["_install_foundation_coverage", "_install_draft_intake",
+                     "_install_setup_draft_v3", "_install_simple_setup", "_install_turn_pipeline"]

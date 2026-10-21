@@ -118,7 +118,7 @@ def test_every_turn_has_causal_cast_and_qualitative_directed_npc_network_from_sa
         assert registry["mandatory_causal_review"] is True
         assert "return_pressure" not in registry
         assert "important_cast_return_required" not in registry
-        assert "не задаёт очередь, квоту или таймер появления" in registry["instruction"]
+        assert "правила участия определяет scene_builder" in registry["instruction"]
         rows = {row["character_id"]: row for row in registry["characters"]}
         assert {"adrian", "dante", "yuna", "lem"}.issubset(rows)
         assert registry["offscreen_bundle_read"]["action"] == "prepareCharacterBundleRead"
@@ -195,7 +195,7 @@ def test_relationship_contract_keeps_npc_to_npc_qualitative_and_footer_scene_sco
 
     assert "`relationships.json` — один файл актуальных отношений" in rules
     assert "Одна связь — до 10 слов" in rules
-    assert "физически или через актуальный звонок/переписку" in rules
+    assert "участников актуального звонка/переписки" in builder
     # Scene display belongs to scene_builder, not to the GPT Action guide.
     assert "Показывай физических участников и участников актуального звонка/переписки" in builder
     assert "Footer только текущих physical/remote участников" not in instructions

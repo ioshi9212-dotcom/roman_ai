@@ -47,6 +47,16 @@ def test_novel_profile_shape_is_fixed():
     assert profile["additional"]["weird_custom_rule"] == "дождь важен"
 
 
+def test_template_notes_are_not_stored_as_story_facts():
+    from app.profile_templates import normalize_novel_profile
+    meta = {"_памятка": "Служебная инструкция", "_формат_записи": {"пример": "не канон"}}
+    assert normalize_character_profile({"id": "pov", "name": "POV", **meta})["additional"] == {}
+    assert normalize_novel_profile({"pov_id": "pov", **meta})["additional"] == {}
+    assert normalize_hidden_lore(meta) == {"entries": []}
+    assert normalize_canon_notes(meta) == []
+    assert normalize_location_profiles(meta) == []
+
+
 def test_legacy_pov_silence_story_rule_is_removed_but_other_rules_stay():
     profile = normalize_novel_profile({
         "story_rules": (
