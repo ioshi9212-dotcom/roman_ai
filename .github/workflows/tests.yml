@@ -44,6 +44,7 @@ jobs:
           tests/test_profile_templates.py
           tests/test_simple_profile_flow.py::test_finalized_source_keeps_verbatim_trigger_without_bloating_gameplay
           tests/test_generator_raw_ingest.py
+          tests/test_large_v5_opening_regression.py
           tests/test_location_profiles_runtime.py
           tests/test_npc_intent_runtime.py
           tests/test_custom_gpt_surface.py
