@@ -1,0 +1,20 @@
+name: large V5 opening regression
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  opening-regression:
+    runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: .
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install -r requirements.txt pytest
+      - name: V5 draft to opening prepare with large RAW and 18 characters
+        run: pytest -q tests/test_large_v5_opening_regression.py
