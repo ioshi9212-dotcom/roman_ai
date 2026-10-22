@@ -49,6 +49,7 @@ jobs:
           tests/test_simple_profile_flow.py::test_v5_private_message_content_is_hard_blocked_for_bystander_but_allowed_for_recipient
           tests/test_simple_profile_flow.py::test_v5_private_pov_name_does_not_become_bystander_knowledge
           tests/test_generator_raw_ingest.py
+          tests/test_large_v5_opening_regression.py
           tests/test_location_profiles_runtime.py
           tests/test_npc_intent_runtime.py
           tests/test_custom_gpt_surface.py
