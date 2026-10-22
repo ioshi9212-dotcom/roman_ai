@@ -44,8 +44,8 @@ from . import (
 from .transactional_storage import session_transaction
 
 
-_BASE_PREPARE = session_runtime.prepare_turn_packet
-_BASE_AUDIT = session_runtime.commit_audit
+# The legacy resume implementation is the only base handler still needed.
+# Gameplay prepare/commit/audit are defined only in this module.
 _BASE_CONTINUE = session_runtime.continue_session
 _BASE_PARTICIPATION_BUNDLE = character_chunk_read._participation_bundle
 _BASE_CREATE_SESSION = storage.create_session
