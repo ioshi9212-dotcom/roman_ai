@@ -61,14 +61,19 @@ def validate_scene_output(scene_output: Any) -> str:
 
     # The current minimalist builder uses a fine line and a dotted separator;
     # the older builder used the 56-hyphen line. Both are just separators.
-    divider = re.search(r"(?m)^(?:-{20,}|─{8,})\s*$", text)
+    separators = list(re.finditer(r"(?m)^(?:-{20,}|─{8,})\s*$", text))
+    # The new builder may include a decorative thin line *inside* its header.
+    # The actual scene divider is the last separator before the option groups.
+    first_option = text.find(OPTION_MARKERS[0])
+    candidates = [match for match in separators if first_option < 0 or match.start() < first_option]
+    divider = candidates[-1] if candidates else None
     if divider is None:
         errors.append("divider")
     else:
         divider_line = text[:divider.start()].count("\n")
-        if any(_first_line_index(lines, prefix) > divider_line for prefix in (
-            CURRENT_PREFIXES if nonempty and nonempty[0].startswith("**◈ ") else LEGACY_PREFIXES
-        ) if _first_line_index(lines, prefix) >= 0):
+        prefixes = CURRENT_PREFIXES if nonempty and nonempty[0].startswith("**◈ ") else LEGACY_PREFIXES
+        if any(_first_line_index(lines, prefix) > divider_line for prefix in prefixes
+               if _first_line_index(lines, prefix) >= 0):
             errors.append("header_order")
 
     positions = [text.find(marker) for marker in OPTION_MARKERS]
