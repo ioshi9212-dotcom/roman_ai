@@ -14,7 +14,7 @@ from .transactional_storage import session_transaction
 _ORIGINAL_PREPARE = None
 WRITER_FIRST_VERSION = 15
 WRITER_PACKET_CHARS = 16000
-RECENT_FULL_TURNS = 2
+RECENT_FULL_TURNS = 4
 CONTINUITY_WINDOW = 15
 MAX_WORKING_KNOWLEDGE = 12
 MAX_WORKING_EXPERIENCES = 10
@@ -326,10 +326,13 @@ def _compact_continuity_turn(turn: Dict[str, Any]) -> Dict[str, Any]:
     current = extracted.get("state_patch", {}).get("current") if isinstance(extracted.get("state_patch"), dict) else None
     if isinstance(current, dict) and current:
         result["current_patch"] = deepcopy(current)
-    if len(result) == 2:
-        scene = " ".join(_strip_relationship_display(turn.get("scene_output")).split())
-        if scene:
-            result["scene_tail"] = scene[-700:]
+    # A compact event/chronology entry rarely preserves the voice, concrete
+    # promise or teasing exchange from an ongoing scene. Keep a short exact
+    # excerpt in *addition* to structured facts. The privacy layer redacts
+    # scene_tail before transport to the writer.
+    scene = " ".join(_strip_relationship_display(turn.get("scene_output")).split())
+    if scene:
+        result["scene_tail"] = scene[-1000:]
     return result
 
 
