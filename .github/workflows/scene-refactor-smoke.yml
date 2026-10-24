@@ -2,7 +2,7 @@ name: scene refactor smoke checks
 
 on:
   push:
-    branches: [main, refactor/skin-builder-author-freedom-20261012]
+    branches: [main, refactor/skin-builder-author-freedom-20261012, novel-foundation-rebuild-2026-10-24]
   pull_request:
     paths:
       - 'runtime/scene_builder.md'
@@ -25,4 +25,4 @@ jobs:
       - run: python -m pip install --upgrade pip
       - run: pip install -r requirements.txt pytest pyyaml httpx
       - name: Author documents and GPT surface
-        run: pytest -q tests/test_author_runtime_sources.py tests/test_custom_gpt_surface.py tests/test_waiting_momentum.py
+        run: pytest -q tests/test_scene_format_current_builder.py tests/test_author_runtime_sources.py tests/test_custom_gpt_surface.py tests/test_waiting_momentum.py
