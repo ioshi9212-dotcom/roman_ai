@@ -7,9 +7,9 @@ from copy import deepcopy
 from typing import Any, Dict, List
 
 from fastapi import HTTPException
+from .scene_speech import iter_scene_speech
 
 from . import (
-from .scene_speech import iter_scene_speech
     audit_runtime,
     cast_registry_runtime,
     character_chunk_read,
