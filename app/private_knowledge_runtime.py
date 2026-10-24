@@ -9,9 +9,9 @@ from typing import Any, Dict, List
 from fastapi import HTTPException
 
 from . import personal_memory_transport, session_documents, storage, writer_first_runtime
+from .scene_speech import iter_scene_speech
 
 
-_SPEECH_RE = re.compile(r"(?m)^\s*(?:>\s*)?\*\*(?P<speaker>[^*\n]+)\*\*\s*[—-]\s*(?P<text>.*)$")
 _COMMUNICATION_RE = re.compile(
     r"(?iu)\b(?:написать|ответить|отправить|переслать|сказать|сообщить|шепнуть|показать|позвонить)\s+([^\s,.;:()—-]+)"
 )
@@ -301,15 +301,15 @@ def _resolve_speaker_label(label: str, exact: Dict[str, str], stems: Dict[str, s
 def _speaker_units(scene_output: str, cards: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     exact, stems, _ = _alias_maps(cards)
     result: List[Dict[str, Any]] = []
-    for match in _SPEECH_RE.finditer(str(scene_output or "")):
-        speaker_label = match.group("speaker").strip()
+    for line in iter_scene_speech(str(scene_output or "")):
+        speaker_label = line["speaker"]
         cid = _resolve_speaker_label(speaker_label, exact, stems)
         if cid:
             result.append({
                 "character_id": cid,
                 "speaker_label": speaker_label,
-                "text": match.group("text").strip(),
-                "position": match.start(),
+                "text": line["text"],
+                "position": line["position"],
             })
     return result
 
