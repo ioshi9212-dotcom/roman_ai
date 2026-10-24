@@ -46,3 +46,14 @@
 Исходники для сравнения: `state/карточка_персонажа.json` из Roman AI и `state_templates/characters/card.json` из AI Novella.
 
 При разработке общей анкеты учитываем действующий `state/анкета.json` (Roman AI) и `state_templates/novel.json` (AI Novella), но **ничего в этих рабочих файлах не заменяем**.
+
+## Текущая сборка после первого технического аудита (24.10.2026)
+
+- **Изолированные черновики v1:** `personal_memory.v1.json`, `relationships.v1.json`, `scene_state.v1.json`, `chronology.v1.json`, `hidden_lore_threads.v1.json`, `locations.v1.json`, а также ранее подготовленные `character_card.v1.json` и `novel_profile.v1.json`.
+- **Действующая логика в этой ветке:** `app/scene_format.py` принимает минималистичный формат текущего Skin Builder и исторический; `app/profile_templates.py` не изменяет оригинальное авторское `story_rules` при записи; `app/writer_first_runtime.py` передаёт диалоговый отрывок из *тела* предыдущей сцены в непрерывность, отделяя его от ещё не выбранных вариантов.
+- **Skin Builder:** `runtime/scene_builder.md` переписан для живых диалогов, самостоятельного поведения NPC и точного порядка ввода; сняты сюжетные квоты и инструкция рисовать CSS в тексте; общий `runtime/rules.md` оставлен как технический документ записи и API.
+- **Тесты:** `tests/test_scene_format_current_builder.py`, `tests/test_verbatim_canon_preservation.py`, `tests/test_continuity_dialogue_excerpt.py` плюс большая существующая матрица в `.github/workflows/tests.yml`. Не считай GitHub Actions успешным до завершения проверки **текущего SHA**.
+- **Полный аудит двух репозиториев и повторная проверка ветки:** `docs/audit_roman_ai_vs_ai_novella_2026-10-24.md`.
+- **Пока не готово:** v1 JSON-схемы не встроены в API; нет отдельного тестового deployment Amvera, подтверждённой новой сессии и доказательной автоматической проверки смысловой полноты RAW. 
+
+**Никаких изменений `roman_ai/main`, публичного `ai_novella`, живых пользовательских томов или их историй. Не сливать branch без отдельного решения пользователя.**
