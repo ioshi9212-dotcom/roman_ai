@@ -327,7 +327,7 @@ def _scene_body_excerpt(value: Any, *, limit: int = 1200) -> str:
     choice = scene.find("Что я могу сделать:")
     cutoff = choice if choice >= 0 else len(scene)
     prefix = scene[:cutoff]
-    separators = list(re.finditer(r"(?m)^(?:-{20,}|─{8,})\\s*$", prefix))
+    separators = list(re.finditer(r"(?m)^(?:-{20,}|─{8,})[ ]*$", prefix))
     if separators:
         start = separators[-1].end()
     body = " ".join(scene[start:cutoff].split()).strip()
