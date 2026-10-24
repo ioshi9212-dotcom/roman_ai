@@ -113,8 +113,8 @@ def test_instruction_limit_including_crlf_and_npc_rules_preserved():
     text = (root / "gpt/custom_gpt_instructions.md").read_text()
     assert len(text.replace("\n", "\r\n")) <= 8000
     builder = (root / "runtime/scene_builder.md").read_text()
-    assert "Запрещено делать их понимающими границы. Они могут действовать не удобно и неправильно." in builder
-    assert "**3. Запрет принудительного смягчения.**" in builder
+    assert "NPC может действовать неудобно или неправильно" in builder
+    assert "не превращай всех NPC в одинаковых агрессоров" in builder
 
 
 def test_multiline_choice_is_not_truncated():
