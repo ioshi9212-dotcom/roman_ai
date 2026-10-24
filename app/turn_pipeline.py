@@ -9,6 +9,7 @@ from typing import Any, Dict, List
 from fastapi import HTTPException
 
 from . import (
+from .scene_speech import iter_scene_speech
     audit_runtime,
     cast_registry_runtime,
     character_chunk_read,
@@ -748,8 +749,8 @@ def _relationship_scene_participants(
         if isinstance(row, dict):
             add(row.get("recipient_id"))
 
-    for match in re.finditer(r"(?m)^\s*(?:>\s*)?\*\*(?P<speaker>[^*\n]+)\*\*\s*[—-]\s*", str(scene_output or "")):
-        add(match.group("speaker"))
+    for speech in iter_scene_speech(str(scene_output or "")):
+        add(speech["speaker"])
 
     pov = state_after.get("pov") if isinstance(state_after.get("pov"), dict) else {}
     pov_id = str(pov.get("character_id") or "")
