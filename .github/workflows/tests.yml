@@ -2,7 +2,7 @@ name: tests
 
 on:
   push:
-    branches: [main]
+    branches: [main, novel-foundation-rebuild-2026-10-24]
   pull_request:
 
 jobs:
@@ -22,6 +22,7 @@ jobs:
       - name: current runtime tests
         run: >
           pytest -q
+          tests/test_scene_format_current_builder.py
           tests/test_rules_driven_runtime.py
           tests/test_prepare_turn_idempotency.py
           tests/test_writer_first_transport.py
