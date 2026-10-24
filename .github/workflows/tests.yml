@@ -22,6 +22,7 @@ jobs:
       - name: current runtime tests
         run: >
           pytest -q
+          tests/test_italic_dialogue_persistence.py
           tests/test_continuity_dialogue_excerpt.py
           tests/test_verbatim_canon_preservation.py
           tests/test_scene_format_current_builder.py
