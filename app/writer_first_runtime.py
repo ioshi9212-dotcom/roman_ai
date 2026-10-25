@@ -363,9 +363,18 @@ def _rolling_turn_context(root) -> tuple[List[Dict[str, Any]], List[Dict[str, An
     # Looking further back for "uncovered" entries scanned the entire archive
     # immediately after each full 15-turn scene compaction.
     tail = storage._read_turns_backwards(root, count=CONTINUITY_WINDOW)
+    # Audit compaction is an archival summary, NOT permission to erase the
+    # two most recent full scenes from the writer's working context. Keep them
+    # even if an audit has just covered the last turn. Older audited turns are
+    # still represented by scene_history and remain available in raw archives.
+    latest_numbers = {
+        int(turn.get("turn_number", 0) or 0)
+        for turn in tail[-RECENT_FULL_TURNS:]
+    }
     working_turns = [
         turn for turn in tail
-        if int(turn.get("turn_number", 0) or 0) not in compacted
+        if int(turn.get("turn_number", 0) or 0) in latest_numbers
+        or int(turn.get("turn_number", 0) or 0) not in compacted
     ]
     bridge = storage._read_json(root / "handoff_tail.json", [])
     if not isinstance(bridge, list):
