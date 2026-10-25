@@ -132,23 +132,6 @@ def _current_pointer_guard(session_id: str) -> None:
     )
 
 
-def _strip_legacy_pov_rule_from_session_source(root) -> None:
-    # The obsolete "POV must be silent" rule is never gameplay canon, whether
-    # a session is native V5 or still uses legacy storage. RAW intake stays
-    # intact because it is excluded from the working-source cleanup below.
-    source = storage._read_json(root / "source.json", {})
-    if not isinstance(source, dict) or not source:
-        return
-    # The archived author input must remain verbatim, including whitespace and
-    # old wording. Only the working canon receives the legacy-rule cleanup.
-    working_source = {key: value for key, value in source.items() if key != "source_intake"}
-    cleaned = profile_templates._strip_legacy_pov_silence_rule(working_source)
-    if "source_intake" in source:
-        cleaned["source_intake"] = deepcopy(source["source_intake"])
-    if cleaned != source:
-        storage._write_json(root / "source.json", cleaned)
-
-
 def _scene_ids(state: Dict[str, Any], cards: List[Dict[str, Any]]) -> List[str]:
     values = [str(value) for value in storage._present_character_ids(state) if value]
     values.extend(str(value) for value in storage._remote_character_ids(state) if value)
@@ -626,7 +609,6 @@ def prepare_turn_packet(session_id: str, user_input: str, *, _migrated: bool = F
     if not _migrated:
         session_migrations.ensure_current_session_data(session_id, invalidate_pending=True)
     _current_pointer_guard(session_id)
-    _strip_legacy_pov_rule_from_session_source(root)
     game_day._sync_session_game_day(session_id)
     knowledge_persistence_runtime.dedupe_persisted_knowledge_journal(session_id)
 
