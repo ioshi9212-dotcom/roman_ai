@@ -490,7 +490,7 @@ components:
 
     NovelDraftIntakeChunk:
       type: object
-      required: [block_id, stage, chunk_index, raw_text]
+      required: [block_id, stage, chunk_index]
       properties:
         block_id:
           type: string
@@ -503,17 +503,22 @@ components:
         chunk_index:
           type: integer
           minimum: 0
+        openaiFileIdRefs:
+          type: array
+          description: PREFERRED for an uploaded user .txt file. Attach exactly ONE TXT from this conversation; ChatGPT inserts a signed download_link automatically. Do not invent a URL, transcribe or summarize the file.
+          items:
+            type: string
         raw_text:
           type: string
           minLength: 1
-          description: Actual verbatim TXT contents, NEVER a file link, name, placeholder or summary. For sources over 16000 characters send successive exact 4000-6000 character chunks.
+          description: Fallback only when file references are unavailable. Exact verbatim TXT part; do not send placeholders, summaries or links.
         is_last:
           type: boolean
           default: false
         full_raw:
           type: boolean
           default: false
-          description: Use true only when the entire RAW fits safely in one Actions call (usually under 16000 chars); otherwise leave false and send ordered chunks.
+          description: Set true with chunk_index=0 and openaiFileIdRefs for a single attachment, or for all verbatim raw_text in one request. For manual chunks use false and is_last=true only on last.
       additionalProperties: false
 
     NovelDraftIntakeProgress:
@@ -987,7 +992,7 @@ paths:
     post:
       operationId: appendDraftIntakeChunk
       summary: Save a complete novel RAW in one request or append fallback verbatim chunks
-      description: For TXT over 16000 chars send exact text in 4000-6000-character chunks with full_raw=false, sequential chunk_index, shared block_id/stage; is_last=true only at end. Keep calling automatically on incomplete responses; never ask user to approve again. Verify complete, char_count and raw_sha256.
+      description: Prefer the attached user TXT via openaiFileIdRefs (exactly one file, full_raw=true, chunk_index=0) for one-operation byte-exact ingestion. This avoids manual transcription. Only if file refs are unavailable use exact raw_text chunks. Verify complete, char_count and raw_sha256.
       parameters:
         - {in: path, name: draft_id, required: true, schema: {type: string}}
       requestBody:
