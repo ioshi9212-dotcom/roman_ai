@@ -112,10 +112,21 @@ def _append_intake_chunk(
     result.pop("source_units", None)
     result.pop("source_unit_count", None)
     result["simple_profile_mode"] = True
-    result["instruction"] = (
-        "RAW сохранён дословно. Не создавай fact_id/source_unit_id. После команды «подтверждаю» "
-        "разложи весь RAW по фиксированным профилям и отметь этот блок reviewed_against_raw=true."
-    )
+    if not result.get("complete"):
+        result["instruction"] = (
+            "Это промежуточный ответ загрузки, НЕ завершение подготовки. "
+            "Продолжай автоматически передавать точный следующий кусок RAW с next_chunk_index "
+            "и теми же block_id/stage; не отвечай игроку и не жди повторного подтверждения. "
+            "На последней части is_last=true, затем сверь полный char_count и raw_sha256."
+        )
+    else:
+        result["instruction"] = (
+            "RAW сохранён дословно. Сверь char_count/raw_sha256 с ПОЛНЫМ исходником. "
+            "Если игрок уже сказал «подтверждаю», продолжай сейчас без промежуточного ответа: "
+            "заполни фиксированные профили и знания, прочитай полный черновик, "
+            "исправь пропуски, подтверди reconciliation и finalizeNovelDraft. "
+            "Не создавай fact_id/source_unit_id и не проси повторного подтверждения."
+        )
     return result
 
 

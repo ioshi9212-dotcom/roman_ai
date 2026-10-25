@@ -22,6 +22,7 @@ jobs:
       - name: current runtime tests
         run: >
           pytest -q
+          tests/test_autonomous_raw_upload.py
           tests/test_draft_id_recovery.py
           tests/test_foundation_audit_regressions.py
           tests/test_memory_coverage_runtime.py
