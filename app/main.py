@@ -20,6 +20,7 @@ from .novel_drafts import (
     create_session_from_draft,
     draft_status,
     finalize_draft,
+    find_drafts_by_title,
     prepare_draft_read,
     publish_draft_to_library,
     save_section,
@@ -128,7 +129,15 @@ def runtime_chunk_get(chunk_index: int):
 
 @app.post("/novel-drafts", operation_id="createNovelDraft")
 def novel_draft_create(body: NovelDraftCreate):
-    return create_draft(body.novel_id, body.title, body.version)
+    try:
+        return create_draft(
+            body.novel_id, body.title, body.version,
+            request_id=body.request_id,
+        )
+    except ValueError as exc:
+        if str(exc) == "DRAFT_CREATE_REQUEST_CONFLICT":
+            raise HTTPException(status_code=409, detail=str(exc))
+        raise
 
 
 @app.post("/novel-drafts/{draft_id}/sections", operation_id="saveNovelDraftSection")
@@ -342,8 +351,16 @@ def novel_draft_publish(draft_id: str):
 
 
 @app.get("/novels", operation_id="listNovels")
-def novels_list():
-    return {"novels": list_novels()}
+def novels_list(include_drafts: bool = False, draft_title: str | None = None):
+    result = {"novels": list_novels()}
+    if include_drafts:
+        if not draft_title or not draft_title.strip():
+            raise HTTPException(
+                status_code=422,
+                detail="draft_title is required when include_drafts=true; do not enumerate all drafts.",
+            )
+        result["drafts"] = find_drafts_by_title(draft_title)
+    return result
 
 
 @app.post("/novels", operation_id="saveNovel", include_in_schema=False)

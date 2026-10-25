@@ -6,7 +6,7 @@
 
 ## Создание
 
-`начнем`: `createNovelDraft(version=5)`. Полный TXT сохраняй ОДНИМ `appendDraftIntakeChunk(full_raw=true,chunk_index=0,raw_text=весь_файл)`. Проверь `complete=true`, `char_count`, `raw_sha256`. Если не влезает, переходи на части 4–6 тыс. с `full_raw=false`; `is_last=true` лишь на последней. Не прерывай загрузку RAW.
+`начнем`: ищи черновик через `listNovels(include_drafts=true,draft_title=точное_название)`. Если найден, используй его `draft_id`, не создавай дубль. Иначе `createNovelDraft(version=5,request_id=постоянный_ключ)`. При 503 повтори с ТЕМ ЖЕ `request_id`; ответ должен содержать `draft_id`. TXT: `appendDraftIntakeChunk(full_raw=true,chunk_index=0,raw_text=весь_файл)`. Проверь `complete`, `char_count`, `raw_sha256`. При лимите шли по 4–6 тыс. с `full_raw=false`, `is_last=true` только в конце.
 
 `подтверждаю`: ввод закончен; доведи setup до finalize сам, без лишних подтверждений.
 
@@ -16,11 +16,11 @@
 
 Спрашивай только при неразрешимом смысловом конфликте.
 
-**Шаблоны:** 10 JSON из `state/` — хранение, не разделы анкеты. Формы API — в `profile_schema.setup_sections`: `novel` — объект (`pov_id`/`pov_character`), `characters` — массив карточек. Остальные файлы и память по ID, включая POV, создаёт сервер. `_памятка`/`_формат_*` не канон. RAW не сокращать. V5 не требует foundation, source_unit_id и сверку с цитатами.
+**Шаблоны:** 10 JSON из `state/` — хранилище, не API. `profile_schema.setup_sections`: `novel` — объект (`pov_id`/`pov_character`), `characters` — массив. Память по ID и файлы создаёт сервер. `_памятка`/`_формат_*` не канон. RAW дословно. V5 без foundation/source_unit_id.
 
 **Персонажи:** `characters` и персональные карточки заполняй по JSON-шаблону, стабильным ID. POV помечай `is_pov=true`; `hidden_lore` не записывай в личные знания автоматически.
 
-В character `relationships` сохраняй только заданные RAW связи, направленно, одной записью на target. Если NPC знает POV: до 10 `dimensions`; value 1–100, 0/минусы не хранить. Не знает POV - строки нет. Одностороннее знакомство допустимо. Чувства POV не назначай. NPC↔NPC только словами, без dimensions. Ошибку setup исправляй по RAW, связь не удаляй.
+`relationships` из RAW: одна направленная связь на target. Знает POV: до 10 `dimensions`, 1–100 (0/минусы не хранить); не знает: нет строки. Не назначай чувств POV. NPC↔NPC словами, без dimensions. Ошибки setup исправляй по RAW, связь не удаляй.
 
 **Location profile:** ID, название, общий вид и важная планировка по шаблону.
 

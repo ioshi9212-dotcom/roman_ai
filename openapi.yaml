@@ -385,6 +385,91 @@ components:
           type: integer
           default: 5
           description: Use version 5 for new simple-profile drafts.
+        request_id:
+          type: string
+          minLength: 1
+          maxLength: 120
+          description: Stable for one draft creation attempt. Retry the same request_id, novel_id, title and version after 503/timeout; never generate a new key for a retry.
+      additionalProperties: false
+
+    NovelDraftMetadata:
+      type: object
+      required: [draft_id, novel_id, title, version, revision, saved_sections, finalized, raw_intake_present]
+      properties:
+        draft_id:
+          type: string
+          description: Permanent server-generated draft identifier. Reuse it for intake, status and finalize.
+        novel_id:
+          type: string
+        title:
+          type: string
+        version:
+          type: integer
+        revision:
+          type: integer
+        saved_sections:
+          type: array
+          items:
+            type: string
+        finalized:
+          type: boolean
+        raw_intake_present:
+          type: boolean
+      additionalProperties: false
+
+    NovelDraftStatus:
+      type: object
+      required: [draft_id, novel_id, title, version, revision, saved_sections, missing_required_sections, character_count, ready_to_finalize, finalized]
+      properties:
+        draft_id:
+          type: string
+          description: REQUIRED response field. Save and reuse for all draft Actions; not novel_id.
+        novel_id:
+          type: string
+        title:
+          type: string
+        version:
+          type: integer
+        revision:
+          type: integer
+        saved_sections:
+          type: array
+          items:
+            type: string
+        missing_required_sections:
+          type: array
+          items:
+            type: string
+        character_count:
+          type: integer
+        ready_to_finalize:
+          type: boolean
+        finalized:
+          type: boolean
+        published_to_library:
+          type: boolean
+      additionalProperties: true
+
+    NovelListWithDraftRecovery:
+      type: object
+      required: [novels]
+      properties:
+        novels:
+          type: array
+          items:
+            type: object
+            properties:
+              novel_id:
+                type: string
+              title:
+                type: string
+              version:
+                type: integer
+        drafts:
+          type: array
+          description: Present only with include_drafts=true and exact draft_title. Metadata only, no RAW.
+          items:
+            $ref: '#/components/schemas/NovelDraftMetadata'
       additionalProperties: false
 
     NovelDraftSection:
@@ -845,14 +930,19 @@ paths:
     post:
       operationId: createNovelDraft
       summary: Start a staged session-only draft for a new novel
-      description: New drafts default to version 5. Read profile_schema.setup_sections for accepted API shapes. Server creates session files; do not submit all ten state templates as draft sections.
+      description: New drafts default to version 5. Supply a stable request_id; on timeout reuse it to retrieve the SAME draft_id without duplicate creation. If an earlier draft lost its ID, call listNovels with include_drafts=true and exact draft_title BEFORE creating another. The response always contains draft_id.
       requestBody:
         required: true
         content:
           application/json:
             schema: {$ref: '#/components/schemas/NovelDraftCreate'}
       responses:
-        '200': {description: "Draft status with draft_id"}
+        '200':
+          description: Created or replayed draft status with mandatory draft_id
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/NovelDraftStatus'}
+        '409': {description: "request_id was previously used for a different novel/title/version"}
   /novel-drafts/{draft_id}/sections:
     post:
       operationId: saveNovelDraftSection
@@ -1142,9 +1232,18 @@ paths:
   /novels:
     get:
       operationId: listNovels
-      summary: List reusable saved novels
+      summary: List reusable saved novels or recover exact-title unfinalized drafts without creating new ones
+      description: For lost createNovelDraft results call include_drafts=true with draft_title equal to the exact novel title. The response includes candidate draft_id values, revisions and saved_sections. Choose the matching existing draft instead of POSTing another creation. By default behavior is unchanged.
+      parameters:
+        - {in: query, name: include_drafts, required: false, schema: {type: boolean, default: false}}
+        - {in: query, name: draft_title, required: false, schema: {type: string}}
       responses:
-        '200': {description: "Saved novel list"}
+        '200':
+          description: Novels and optional exact-title draft recovery metadata
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/NovelListWithDraftRecovery'}
+        '422': {description: "Exact draft_title required when include_drafts=true"}
   /sessions:
     post:
       operationId: createSession

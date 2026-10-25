@@ -518,20 +518,81 @@ def _validate_template(template: Dict[str, Any]) -> tuple[Dict[str, Any], Dict[s
     return normalized, coverage
 
 
-def create_draft(novel_id: str, title: str, version: int = 5) -> Dict[str, Any]:
-    draft_id = uuid.uuid4().hex
-    draft = {
-        "draft_id": draft_id,
-        "novel_id": novel_id,
-        "title": title,
-        "version": version,
-        "revision": 0,
-        "sections": {},
-        "finalized": False,
-        "published_to_library": False,
-    }
-    _write(_draft_path(draft_id), draft)
-    return draft_status(draft_id)
+def find_drafts_by_title(title: str, *, limit: int = 25) -> list[Dict[str, Any]]:
+    """Metadata-only exact-title recovery. Never return RAW or section bodies."""
+    if not isinstance(title, str) or not title.strip():
+        raise ValueError("DRAFT_TITLE_REQUIRED")
+    found: list[tuple[int, str, Dict[str, Any]]] = []
+    for path in _drafts_dir().glob("*.json"):
+        try:
+            draft = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if not isinstance(draft, dict) or str(draft.get("title") or "").strip().casefold() != title.strip().casefold():
+            continue
+        draft_id = str(draft.get("draft_id") or "")
+        if not draft_id or path.stem != draft_id:
+            continue
+        sections = draft.get("sections") if isinstance(draft.get("sections"), dict) else {}
+        found.append((
+            int(path.stat().st_mtime_ns), draft_id,
+            {
+                "draft_id": draft_id,
+                "novel_id": str(draft.get("novel_id") or ""),
+                "title": str(draft.get("title") or ""),
+                "version": int(draft.get("version", 1) or 1),
+                "revision": int(draft.get("revision", 0) or 0),
+                "saved_sections": sorted(sections),
+                "finalized": bool(draft.get("finalized")),
+                "raw_intake_present": bool(
+                    isinstance(sections.get("intake"), dict)
+                    and sections["intake"].get("blocks")
+                ),
+            }
+        ))
+    found.sort(key=lambda row: (row[0], row[1]), reverse=True)
+    return [item for _, _, item in found[:limit]]
+
+
+def create_draft(
+    novel_id: str, title: str, version: int = 5, *, request_id: str | None = None
+) -> Dict[str, Any]:
+    """Create once per caller-provided request_id, even when the response is lost.
+
+    Older calls without request_id keep their original create-new behavior.
+    """
+    with session_transaction(_drafts_dir()):
+        if request_id:
+            for path in _drafts_dir().glob("*.json"):
+                try:
+                    existing = json.loads(path.read_text(encoding="utf-8"))
+                except (OSError, ValueError):
+                    continue
+                if not isinstance(existing, dict) or existing.get("create_request_id") != request_id:
+                    continue
+                if (
+                    existing.get("novel_id") != novel_id
+                    or existing.get("title") != title
+                    or int(existing.get("version", 1) or 1) != int(version)
+                ):
+                    raise ValueError("DRAFT_CREATE_REQUEST_CONFLICT")
+                return draft_status(str(existing["draft_id"]))
+
+        draft_id = uuid.uuid4().hex
+        draft = {
+            "draft_id": draft_id,
+            "novel_id": novel_id,
+            "title": title,
+            "version": version,
+            "revision": 0,
+            "sections": {},
+            "finalized": False,
+            "published_to_library": False,
+        }
+        if request_id:
+            draft["create_request_id"] = request_id
+        _write(_draft_path(draft_id), draft)
+        return draft_status(draft_id)
 
 
 def save_section(
