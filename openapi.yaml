@@ -506,15 +506,41 @@ components:
         raw_text:
           type: string
           minLength: 1
-          description: Exact verbatim source. For full_raw=true send the complete uploaded file once; never truncate or summarize. For fallback chunks use 4000-6000 characters per request.
+          description: Actual verbatim TXT contents, NEVER a file link, name, placeholder or summary. For sources over 16000 characters send successive exact 4000-6000 character chunks.
         is_last:
           type: boolean
           default: false
         full_raw:
           type: boolean
           default: false
-          description: Generator-style single-request source persistence. Set true with chunk_index=0 to save a whole raw file atomically and idempotently, without a multi-call chunk loop.
+          description: Use true only when the entire RAW fits safely in one Actions call (usually under 16000 chars); otherwise leave false and send ordered chunks.
       additionalProperties: false
+
+    NovelDraftIntakeProgress:
+      type: object
+      required: [draft_id, block_id, complete, char_count]
+      properties:
+        draft_id:
+          type: string
+        block_id:
+          type: string
+        complete:
+          type: boolean
+          description: If false, immediately send next_chunk_index without waiting for user.
+        next_chunk_index:
+          type: integer
+          description: Index of next chunk to upload. Ignore if complete=true.
+        char_count:
+          type: integer
+          description: Total exact stored Unicode characters so far.
+        raw_sha256:
+          type: string
+          description: SHA-256 of assembled UTF-8 RAW, present at completion, including an idempotent replay.
+        draft_revision:
+          type: integer
+        instruction:
+          type: string
+      additionalProperties: true
 
     NovelDraftIntakeMapping:
       type: object
@@ -961,7 +987,7 @@ paths:
     post:
       operationId: appendDraftIntakeChunk
       summary: Save a complete novel RAW in one request or append fallback verbatim chunks
-      description: Save entire uploaded RAW in ONE request using full_raw=true, chunk_index=0, raw_text=FULL file. Verify complete, char_count, raw_sha256. Never mark a prefix complete. If tool size rejects full input, fallback full_raw=false, 4-6k chunks; is_last=true only on final. Retries are idempotent.
+      description: For TXT over 16000 chars send exact text in 4000-6000-character chunks with full_raw=false, sequential chunk_index, shared block_id/stage; is_last=true only at end. Keep calling automatically on incomplete responses; never ask user to approve again. Verify complete, char_count and raw_sha256.
       parameters:
         - {in: path, name: draft_id, required: true, schema: {type: string}}
       requestBody:
@@ -970,7 +996,11 @@ paths:
           application/json:
             schema: {$ref: '#/components/schemas/NovelDraftIntakeChunk'}
       responses:
-        '200': {description: "Upload progress or completed immutable intake block"}
+        '200':
+          description: Upload progress (continue automatically) or completed immutable RAW with checksum
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/NovelDraftIntakeProgress'}
   /novel-drafts/{draft_id}/intake/{block_id}/mapping:
     post:
       operationId: updateDraftIntakeMapping
