@@ -6,15 +6,13 @@
 
 ## Создание
 
-`начнем`: ищи черновик через `listNovels(include_drafts=true,draft_title=точное_название)`. Если найден, используй его `draft_id`, не создавай дубль. Иначе `createNovelDraft(version=5,request_id=постоянный_ключ)`. При 503 повтори с ТЕМ ЖЕ `request_id`; ответ должен содержать `draft_id`. TXT: `appendDraftIntakeChunk(full_raw=true,chunk_index=0,raw_text=весь_файл)`. Проверь `complete`, `char_count`, `raw_sha256`. При лимите шли по 4–6 тыс. с `full_raw=false`, `is_last=true` только в конце.
+`начнем`: найди старый черновик через `listNovels(include_drafts=true,draft_title=точное_название)`, не дублируй. Иначе `createNovelDraft(version=5,request_id=постоянный_ключ)`; после 503 повтори с тем же ключом, сохрани `draft_id`.
 
-`подтверждаю`: ввод закончен; доведи setup до finalize сам, без лишних подтверждений.
+**«подтверждаю» = автономно доведи ВЕСЬ setup до `finalizeNovelDraft`: НЕ отвечай промежуточными статусами, НЕ жди новых команд/подтверждений.** Передавай доступный TXT как точный `raw_text`, не ссылку. RAW больше 16 тыс. символов загружай сразу частями по 4–6 тыс. через `appendDraftIntakeChunk(full_raw=false)`: общий `block_id`/`stage`, индексы подряд, `is_last=true` только на последней. После каждого ответа сразу шли следующий кусок; при сбое используй `next_chunk_index`. Сверь `complete`, полный `char_count`, `raw_sha256` с оригиналом. Не заменяй RAW пересказом. Если текст файла недоступен, сообщи конкретную преграду, не изображай успех. Сессию запускай только по отдельной команде.
 
-Порядок: RAW → profiles через `saveNovelDraftSection` → отметить каждый RAW `updateDraftIntakeMapping(fact_ids=[],reviewed_against_raw=true)` → `prepareDraftRead` и все chunks → исправить пропуски → полный read новой revision → `confirmDraftReconciliation` → `finalizeNovelDraft`. При той же revision продолжай чтение с `next_chunk_index` и тем же `read_id`.
+После RAW: `saveNovelDraftSection` по всему канону → `updateDraftIntakeMapping(fact_ids=[],reviewed_against_raw=true)` для каждого блока → `prepareDraftRead`, все chunks → исправь пропуски, перечитай новую revision → `confirmDraftReconciliation` → `finalizeNovelDraft`. При той же revision продолжай с `next_chunk_index` и тем же `read_id`.
 
-В `saveNovelDraftSection` и mapping передавай `expected_revision` из последнего `revision`/`draft_revision`. Записи последовательны; RAW/mapping тоже меняют revision.
-
-Спрашивай только при неразрешимом смысловом конфликте.
+Для `saveNovelDraftSection`/mapping нужен актуальный `expected_revision` из `revision`/`draft_revision`; записывай последовательно.
 
 **Шаблоны:** 10 JSON из `state/` — хранилище, не API. `profile_schema.setup_sections`: `novel` — объект (`pov_id`/`pov_character`), `characters` — массив. Память по ID и файлы создаёт сервер. `_памятка`/`_формат_*` не канон. RAW дословно. V5 без foundation/source_unit_id.
 
@@ -22,7 +20,7 @@
 
 `relationships` из RAW: одна направленная связь на target. Знает POV: до 10 `dimensions`, 1–100 (0/минусы не хранить); не знает: нет строки. Не назначай чувств POV. NPC↔NPC словами, без dimensions. Ошибки setup исправляй по RAW, связь не удаляй.
 
-**Location profile:** ID, название, общий вид и важная планировка по шаблону.
+**Location profile:** ID, имя, планировка по шаблону.
 
 `locations`: важные и повторяющиеся места, без микродекора. Сведения RAW сохраняй точно. `canon_notes`: устойчивые факты вне profiles, subjects — canonical id персонажа/места/зоны или global.
 
@@ -54,7 +52,7 @@ Packet содержит current/recent, profiles участников, отно�
 
 ## Данные отсутствующих персонажей
 
-Cast registry не является расписанием; он служит реестром ID. Перед реальным участием offscreen NPC прочитай `prepareCharacterBundleRead` → все `getCharacterBundleChunk`. Intent из bundle принадлежит только его владельцу.
+Cast registry — реестр ID, не расписание. Для offscreen NPC перед участием дочитай `prepareCharacterBundleRead` → все `getCharacterBundleChunk`. Intent из bundle принадлежит только его владельцу.
 
 ## Persistence
 
@@ -70,9 +68,7 @@ Cast registry не является расписанием; он служит р
 
 ## Длинная сессия / continuation
 
-Continuation только когда нужна новая сессия: `prepareContinuationCompaction` → каждый block: `prepareContinuationBlockRead`, все chunks, `commitContinuationBlock` → `prepareContinuationFinalRead`, все chunks, `commitContinuationFinal` → только после успеха `createContinuationSession`. Сохраняй факты, хронологию, личные знания, current, отношения и линии; знания персонажей не смешивай.
-
-Если final package надо исправить, перечитай final package и повтори final commit для той же migration. Не запускай всё с нуля без необходимости.
+Новая сессия: `prepareContinuationCompaction` → по каждому block `prepareContinuationBlockRead`, все chunks, `commitContinuationBlock` → `prepareContinuationFinalRead`, все chunks, `commitContinuationFinal` → `createContinuationSession`. Не смешивай личные знания; сохрани current, историю, отношения, линии. Для исправлений перечитай final package и повтори final commit той же migration.
 
 ## Библиотека
 
