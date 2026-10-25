@@ -44,17 +44,32 @@ class NovelDraftIntakeChunk(BaseModel):
     raw_text: str = ""
     openaiFileIdRefs: List[Any] = Field(
         default_factory=list,
-        description="For attached user TXT: official GPT Actions file references, each with download_link. Use exactly ONE file. Do not transcribe its text manually.",
+        description="For attached user TXT: official GPT Actions file references. Send one actual user file.",
     )
+    chunk_b64: Optional[str] = Field(
+        default=None, min_length=1, max_length=16384,
+        description="Fallback: base64 of up to 12288 ORIGINAL file bytes, not a paraphrase.",
+    )
+    total_parts: Optional[int] = Field(default=None, ge=1, le=82)
+    expected_bytes: Optional[int] = Field(default=None, ge=1, le=1000000)
+    expected_sha256: Optional[str] = Field(default=None, pattern=r"^[a-f0-9]{64}$")
     is_last: bool = False
-    full_raw: bool = False  # Single-request source persistence.
+    full_raw: bool = False
 
     @model_validator(mode="after")
     def require_one_raw_source(self):
-        if bool(self.raw_text) == bool(self.openaiFileIdRefs):
-            raise ValueError("Send either raw_text OR exactly one openaiFileIdRefs TXT attachment.")
+        if sum(bool(value) for value in (self.raw_text, self.openaiFileIdRefs, self.chunk_b64)) != 1:
+            raise ValueError("Provide exactly one: raw_text, openaiFileIdRefs, or verified chunk_b64.")
         if self.openaiFileIdRefs and (self.chunk_index != 0 or not self.full_raw or self.is_last):
             raise ValueError("TXT file references require full_raw=true, chunk_index=0, is_last=false.")
+        if self.chunk_b64:
+            if (
+                self.full_raw or self.is_last or self.total_parts is None
+                or self.expected_bytes is None or self.expected_sha256 is None
+            ):
+                raise ValueError("Base64 parts require total_parts, expected_bytes, expected_sha256 and full_raw=false.")
+        elif any(value is not None for value in (self.total_parts, self.expected_bytes, self.expected_sha256)):
+            raise ValueError("Base64 metadata is only permitted with chunk_b64.")
         return self
 
 
