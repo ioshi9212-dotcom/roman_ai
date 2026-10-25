@@ -7,6 +7,7 @@ hosts, redirects, credentials, unsupported file formats, or large files.
 from __future__ import annotations
 
 from typing import Any
+import re
 from urllib.parse import urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 from urllib.error import HTTPError, URLError
@@ -43,11 +44,29 @@ def read_gpt_txt_file_refs(refs: list[Any]) -> str:
     raw_url = ref.get("download_link")
     if not isinstance(raw_url, str):
         raise HTTPException(status_code=422, detail="Missing signed GPT Actions file download link.")
+    # The Actions runtime occasionally sends a sandbox path instead of an
+    # externally fetchable signed URL. Diagnose that precisely rather than
+    # silently widening the network allowlist to arbitrary untrusted hosts.
+    if raw_url.startswith(("/mnt/data/", "sandbox:/mnt/data/", "file:///")):
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "GPT_FILE_REF_LOCAL_PATH",
+                "link_kind": "local_sandbox_path",
+                "message": (
+                    "ChatGPT supplied a local sandbox path, not an HTTPS download_link. "
+                    "The Amvera server cannot read ChatGPT's /mnt/data. Do not retry "
+                    "this same path; request a genuine signed GPT Actions file URL "
+                    "or continue the exact stored RAW using raw_text chunks."
+                ),
+            },
+        )
     try:
         uri = urlsplit(raw_url)
+        host = uri.hostname
         allowed = (
             uri.scheme == "https"
-            and uri.hostname == OFFICIAL_HOST
+            and host == OFFICIAL_HOST
             and uri.port in (None, 443)
             and not uri.username
             and not uri.password
@@ -55,11 +74,32 @@ def read_gpt_txt_file_refs(refs: list[Any]) -> str:
             and not uri.fragment
         )
     except ValueError:
+        host = None
         allowed = False
     if not allowed:
+        # Hostnames are safe to display; the complete signed URL, path, query
+        # and fragment might contain private data or credentials and must
+        # never appear in the Action result or logs.
+        public_host = (
+            host if isinstance(host, str)
+            and re.fullmatch(r"[a-z0-9.-]{1,253}", host) else None
+        )
         raise HTTPException(
             status_code=422,
-            detail="Unsupported or unsafe GPT Actions file download host.",
+            detail={
+                "code": "GPT_FILE_REF_UNSUPPORTED_OR_UNSAFE_URL",
+                "link_kind": "external_https_url" if raw_url.startswith("https://") else "non_https_or_invalid",
+                "received_host": public_host,
+                "expected_host": OFFICIAL_HOST,
+                "message": (
+                    "The GPT Actions file reference was not an approved signed "
+                    "HTTPS download URL. Only the hostname is reported; URL "
+                    "path/query/signature are secret. Do not invent download "
+                    "URLs or enable unrestricted hosts. Use the exact original "
+                    "RAW text in consecutive chunks if the official file "
+                    "reference transport is unavailable."
+                ),
+            },
         )
 
     # Do not leak the short-lived signature to application logs or errors.
