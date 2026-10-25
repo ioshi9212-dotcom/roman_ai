@@ -222,7 +222,7 @@ def novel_draft_intake_chunk_append(draft_id: str, body: NovelDraftIntakeChunk):
             "RAW_BASE64_PART_TOO_LARGE": "One decoded part may contain at most 12288 original bytes.",
             "RAW_BASE64_PART_COUNT_INVALID": "total_parts cannot hold the expected original byte count.",
             "RAW_BASE64_LENGTH_MISMATCH": "Complete byte count differs from expected_bytes. RAW was not committed.",
-            "RAW_BASE64_SHA256_MISMATCH": "Complete SHA-256 mismatch. RAW was not committed.",
+            "RAW_BASE64_SHA256_MISMATCH": "RAW_BASE64_SHA256_MISMATCH: complete SHA-256 mismatch, RAW not committed.",
             "RAW_BASE64_NOT_UTF8": "File is not valid UTF-8. RAW was not committed.",
             "INTAKE_FULL_RAW_INDEX_MUST_BE_ZERO": "For full_raw=true use chunk_index=0: one complete file in one call.",
             "INTAKE_BLOCK_SOURCE_IMMUTABLE": "This RAW block_id already contains different text. Do not overwrite it: use the exact same source or a new block_id.",
