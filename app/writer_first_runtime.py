@@ -315,6 +315,25 @@ def _compact_full_turn(turn: Dict[str, Any]) -> Dict[str, Any]:
     return result
 
 
+def _scene_body_excerpt(value: Any, *, limit: int = 1200) -> str:
+    """Keep actual scene dialogue/action, never the choices/footer as continuity.
+
+    Both Roman's minimalist header and the legacy emoji header use separators.
+    When the message has no recognized header, retain its plain prose instead.
+    Privacy redaction is applied afterwards to this excerpt by the packet layer.
+    """
+    scene = _strip_relationship_display(value)
+    start = 0
+    choice = scene.find("Что я могу сделать:")
+    cutoff = choice if choice >= 0 else len(scene)
+    prefix = scene[:cutoff]
+    separators = list(re.finditer(r"(?m)^(?:-{20,}|─{8,})[ ]*$", prefix))
+    if separators:
+        start = separators[-1].end()
+    body = " ".join(scene[start:cutoff].split()).strip()
+    return body[-limit:] if body else ""
+
+
 def _compact_continuity_turn(turn: Dict[str, Any]) -> Dict[str, Any]:
     extracted = turn.get("extracted") if isinstance(turn.get("extracted"), dict) else {}
     result: Dict[str, Any] = {"turn_number": int(turn.get("turn_number", 0) or 0), "user_input": str(turn.get("user_input") or "")[:700]}
@@ -326,10 +345,13 @@ def _compact_continuity_turn(turn: Dict[str, Any]) -> Dict[str, Any]:
     current = extracted.get("state_patch", {}).get("current") if isinstance(extracted.get("state_patch"), dict) else None
     if isinstance(current, dict) and current:
         result["current_patch"] = deepcopy(current)
-    if len(result) == 2:
-        scene = " ".join(_strip_relationship_display(turn.get("scene_output")).split())
-        if scene:
-            result["scene_tail"] = scene[-700:]
+    # A compact event/chronology entry rarely preserves the voice, concrete
+    # promise or teasing exchange from an ongoing scene. Keep a short exact
+    # excerpt in *addition* to structured facts. The privacy layer redacts
+    # scene_tail before transport to the writer.
+    scene_excerpt = _scene_body_excerpt(turn.get("scene_output"))
+    if scene_excerpt:
+        result["scene_tail"] = scene_excerpt
     return result
 
 
@@ -341,9 +363,18 @@ def _rolling_turn_context(root) -> tuple[List[Dict[str, Any]], List[Dict[str, An
     # Looking further back for "uncovered" entries scanned the entire archive
     # immediately after each full 15-turn scene compaction.
     tail = storage._read_turns_backwards(root, count=CONTINUITY_WINDOW)
+    # Audit compaction is an archival summary, NOT permission to erase the
+    # two most recent full scenes from the writer's working context. Keep them
+    # even if an audit has just covered the last turn. Older audited turns are
+    # still represented by scene_history and remain available in raw archives.
+    latest_numbers = {
+        int(turn.get("turn_number", 0) or 0)
+        for turn in tail[-RECENT_FULL_TURNS:]
+    }
     working_turns = [
         turn for turn in tail
-        if int(turn.get("turn_number", 0) or 0) not in compacted
+        if int(turn.get("turn_number", 0) or 0) in latest_numbers
+        or int(turn.get("turn_number", 0) or 0) not in compacted
     ]
     bridge = storage._read_json(root / "handoff_tail.json", [])
     if not isinstance(bridge, list):

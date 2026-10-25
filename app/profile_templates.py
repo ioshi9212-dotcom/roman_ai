@@ -332,7 +332,10 @@ def normalize_novel_profile(raw: Any, *, title: str | None = None) -> Dict[str, 
         genres = []
     profile["genres"] = [str(value) for value in genres if value not in (None, "")]
 
-    profile["story_rules"] = _strip_legacy_pov_silence_rule(profile.get("story_rules"))
+    # Author questionnaire is canon. Do not rewrite its prose during intake.
+    # Any retired runtime command is removed only from the *writer view*
+    # by turn_pipeline._clean_director_layers, never from stored source.
+    # This preserves punctuation, explicit harsh wording and original spacing.
 
     core_cast = profile.get("core_cast")
     if not isinstance(core_cast, list):

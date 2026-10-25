@@ -7,10 +7,10 @@ from typing import Any, Dict, Iterable, List, Tuple
 
 from . import storage
 from .scene_header import parse_scene_header
+from .scene_speech import iter_scene_speech
 
 
 _RELATIONSHIP_LINE_RE = re.compile(r"^(.+?)\s+-\s+.+$", re.MULTILINE)
-_SPEAKER_RE = re.compile(r"^\s*(?:>\s*)?\*\*(?P<name>[^*\n]+)\*\*\s+[—-]\s+", re.MULTILINE)
 _MAIN_SCENE_SPLIT = "--------------------------------------------------------"
 _OPTIONS_MARKER = "Что я могу сделать:"
 
@@ -117,8 +117,8 @@ def _footer_present_ids(scene_output: Any, *, cards: Iterable[Dict[str, Any]]) -
 def _speaker_present_ids(scene_output: Any, *, cards: Iterable[Dict[str, Any]]) -> List[str]:
     text = _main_scene_text(scene_output)
     result: List[str] = []
-    for match in _SPEAKER_RE.finditer(text):
-        resolved = _resolve_character_id(cards, match.group("name").strip())
+    for speech in iter_scene_speech(text):
+        resolved = _resolve_character_id(cards, speech["speaker"])
         if resolved:
             result.append(resolved)
     return list(dict.fromkeys(result))

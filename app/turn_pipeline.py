@@ -7,6 +7,7 @@ from copy import deepcopy
 from typing import Any, Dict, List
 
 from fastapi import HTTPException
+from .scene_speech import iter_scene_speech
 
 from . import (
     audit_runtime,
@@ -18,6 +19,7 @@ from . import (
     knowledge_firewall_runtime,
     knowledge_persistence_runtime,
     location_runtime,
+    memory_coverage_runtime,
     memory_integrity_runtime,
     npc_intent,
     npc_intent_runtime,
@@ -129,23 +131,6 @@ def _current_pointer_guard(session_id: str) -> None:
             "instruction": "Repair the technical current scene pointer before preparing another gameplay turn.",
         },
     )
-
-
-def _strip_legacy_pov_rule_from_session_source(root) -> None:
-    # The obsolete "POV must be silent" rule is never gameplay canon, whether
-    # a session is native V5 or still uses legacy storage. RAW intake stays
-    # intact because it is excluded from the working-source cleanup below.
-    source = storage._read_json(root / "source.json", {})
-    if not isinstance(source, dict) or not source:
-        return
-    # The archived author input must remain verbatim, including whitespace and
-    # old wording. Only the working canon receives the legacy-rule cleanup.
-    working_source = {key: value for key, value in source.items() if key != "source_intake"}
-    cleaned = profile_templates._strip_legacy_pov_silence_rule(working_source)
-    if "source_intake" in source:
-        cleaned["source_intake"] = deepcopy(source["source_intake"])
-    if cleaned != source:
-        storage._write_json(root / "source.json", cleaned)
 
 
 def _scene_ids(state: Dict[str, Any], cards: List[Dict[str, Any]]) -> List[str]:
@@ -625,7 +610,6 @@ def prepare_turn_packet(session_id: str, user_input: str, *, _migrated: bool = F
     if not _migrated:
         session_migrations.ensure_current_session_data(session_id, invalidate_pending=True)
     _current_pointer_guard(session_id)
-    _strip_legacy_pov_rule_from_session_source(root)
     game_day._sync_session_game_day(session_id)
     knowledge_persistence_runtime.dedupe_persisted_knowledge_journal(session_id)
 
@@ -748,8 +732,8 @@ def _relationship_scene_participants(
         if isinstance(row, dict):
             add(row.get("recipient_id"))
 
-    for match in re.finditer(r"(?m)^\s*(?:>\s*)?\*\*(?P<speaker>[^*\n]+)\*\*\s*[—-]\s*", str(scene_output or "")):
-        add(match.group("speaker"))
+    for speech in iter_scene_speech(str(scene_output or "")):
+        add(speech["speaker"])
 
     pov = state_after.get("pov") if isinstance(state_after.get("pov"), dict) else {}
     pov_id = str(pov.get("character_id") or "")
@@ -948,6 +932,7 @@ def commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     prepared = private_knowledge_runtime.normalize_dialogue_memory_modes(session_id, prepared)
     prepared = private_knowledge_runtime.add_scene_remote_communication_memory(session_id, prepared)
     private_knowledge_runtime.validate_private_knowledge(session_id, prepared)
+    memory_coverage_runtime.validate_durable_dialogue_coverage(prepared)
     prepared = _strip_relationship_review(prepared)
     prepared = _apply_story_and_intent_updates(session_id, prepared)
     prepared = _apply_npc_relationship_updates(session_id, prepared)

@@ -57,18 +57,21 @@ def test_template_notes_are_not_stored_as_story_facts():
     assert normalize_location_profiles(meta) == []
 
 
-def test_legacy_pov_silence_story_rule_is_removed_but_other_rules_stay():
-    profile = normalize_novel_profile({
-        "story_rules": (
-            "Если игрок не дал реплику, не придумывать её. "
-            "NPC действуют самостоятельно. Романтика остаётся основной линией."
-        )
-    })
-
-    assert "если игрок не дал реплику" not in str(profile["story_rules"]).casefold()
-    assert "не придумывать её" not in str(profile["story_rules"]).casefold()
-    assert "NPC действуют самостоятельно" in profile["story_rules"]
-    assert "Романтика остаётся основной линией" in profile["story_rules"]
+def test_legacy_pov_silence_story_rule_is_preserved_in_author_canon_but_not_writer_view():
+    from app.profile_templates import _strip_legacy_pov_silence_rule
+    raw = (
+        "Если игрок не дал реплику, не придумывать её. "
+        "NPC действуют самостоятельно. Романтика остаётся основной линией."
+    )
+    profile = normalize_novel_profile({"story_rules": raw})
+    # Saving must never silently mutate an author's original wording.
+    assert profile["story_rules"] == raw
+    # A separate, disposable context view may ignore superseded gameplay directions.
+    writer_view = _strip_legacy_pov_silence_rule(profile["story_rules"])
+    assert "если игрок не дал реплику" not in writer_view.casefold()
+    assert "не придумывать её" not in writer_view.casefold()
+    assert "NPC действуют самостоятельно" in writer_view
+    assert "Романтика остаётся основной линией" in writer_view
 
 
 def test_render_character_profile_is_plain_human_readable_text():
