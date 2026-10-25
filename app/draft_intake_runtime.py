@@ -185,16 +185,24 @@ def _intake_upload_status(draft: Dict[str, Any]) -> Dict[str, Any]:
     for block_id, raw in uploads.items():
         if not isinstance(raw, dict):
             continue
+        is_base64 = raw.get("encoding") == "base64"
+        parts = raw.get("chunks_b64" if is_base64 else "chunks")
+        count = len(parts) if isinstance(parts, list) else 0
         row = {
             "block_id": str(block_id),
             "stage": str(raw.get("stage") or ""),
-            "chunk_count": int(raw.get("chunk_count", len(raw.get("chunks", []))) or 0),
-            "char_count": int(raw.get("char_count", sum(raw.get("lengths", []))) or 0),
+            "chunk_count": int(raw.get("chunk_count", count) or 0),
+            "char_count": int(raw.get("char_count", 0 if is_base64 else sum(raw.get("lengths", []))) or 0),
         }
+        if is_base64:
+            row["transfer"] = "base64"
+            row["received_parts"] = count if not raw.get("completed") else int(raw.get("chunk_count", 0) or 0)
+            row["total_parts"] = int(raw.get("total_parts", 0) or 0)
+            row["byte_count"] = sum(raw.get("lengths", [])) if not raw.get("completed") else int(raw.get("expected_bytes", 0) or 0)
         if raw.get("completed"):
             completed.append(row)
         else:
-            row["next_chunk_index"] = len(raw.get("chunks", [])) if isinstance(raw.get("chunks"), list) else 0
+            row["next_chunk_index"] = count
             pending.append(row)
     return {
         "pending": pending,

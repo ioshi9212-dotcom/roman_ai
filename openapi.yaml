@@ -512,6 +512,25 @@ components:
           type: string
           minLength: 1
           description: Fallback only when file references are unavailable. Exact verbatim TXT part; do not send placeholders, summaries or links.
+        chunk_b64:
+          type: string
+          minLength: 1
+          maxLength: 16384
+          description: Verified fallback when file refs are local/unsupported; encode up to 12288 ORIGINAL UTF-8 file BYTES, not a text excerpt. Use raw bytes read from uploaded file.
+        total_parts:
+          type: integer
+          minimum: 1
+          maximum: 82
+          description: Total exact number of base64 byte parts; fixed for this block_id.
+        expected_bytes:
+          type: integer
+          minimum: 1
+          maximum: 1000000
+          description: Exact original file byte length; fixed for this block_id.
+        expected_sha256:
+          type: string
+          pattern: '^[a-f0-9]{64}$'
+          description: Exact original full-file SHA-256; canonical RAW written only after matching digest.
         is_last:
           type: boolean
           default: false
@@ -538,6 +557,15 @@ components:
         char_count:
           type: integer
           description: Total exact stored Unicode characters so far.
+        byte_count:
+          type: integer
+          description: Original UTF-8 bytes received, or exact total when complete.
+        received_parts:
+          type: integer
+          description: Count of verified Base64 chunks saved for this block.
+        total_parts:
+          type: integer
+          description: Required number of Base64 chunks for this block.
         raw_sha256:
           type: string
           description: SHA-256 of assembled UTF-8 RAW, present at completion, including an idempotent replay.
@@ -992,7 +1020,7 @@ paths:
     post:
       operationId: appendDraftIntakeChunk
       summary: Save a complete novel RAW in one request or append fallback verbatim chunks
-      description: Prefer the attached user TXT via openaiFileIdRefs (exactly one file, full_raw=true, chunk_index=0) for one-operation byte-exact ingestion. This avoids manual transcription. Only if file refs are unavailable use exact raw_text chunks. Verify complete, char_count and raw_sha256.
+      description: Prefer openaiFileIdRefs (one TXT, full_raw=true, chunk_index=0). If ChatGPT provides a local path or unsupported URL, send original file bytes in base64 chunk_b64 parts with total_parts, expected_bytes, expected_sha256. Do not invent bytes. Same block_id and sequential chunk_index.
       parameters:
         - {in: path, name: draft_id, required: true, schema: {type: string}}
       requestBody:
