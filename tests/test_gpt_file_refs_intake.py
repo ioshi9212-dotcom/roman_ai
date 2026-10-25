@@ -110,6 +110,33 @@ def test_download_blocks_unsafe_urls_without_network(url):
     assert exc.value.status_code == 422
 
 
+def test_local_sandbox_file_ref_provides_specific_recovery_code_without_leaking_path():
+    from app.gpt_file_refs import read_gpt_txt_file_refs
+    for local in ("/mnt/data/private setup.txt", "sandbox:/mnt/data/private setup.txt",
+                  "file:///mnt/data/private setup.txt"):
+        with pytest.raises(HTTPException) as err:
+            read_gpt_txt_file_refs([{**REF, "download_link": local}])
+        assert err.value.status_code == 422
+        detail = err.value.detail
+        assert detail["code"] == "GPT_FILE_REF_LOCAL_PATH"
+        assert detail["link_kind"] == "local_sandbox_path"
+        assert local not in str(detail)
+        assert "raw_text" in detail["message"]
+
+
+def test_unapproved_host_is_diagnosed_without_leaking_signed_url():
+    from app.gpt_file_refs import read_gpt_txt_file_refs
+    sensitive = "https://another.example.org/private/secret.txt?sig=VERY_PRIVATE_TOKEN"
+    with pytest.raises(HTTPException) as err:
+        read_gpt_txt_file_refs([{**REF, "download_link": sensitive}])
+    detail = err.value.detail
+    assert detail["code"] == "GPT_FILE_REF_UNSUPPORTED_OR_UNSAFE_URL"
+    assert detail["received_host"] == "another.example.org"
+    assert detail["expected_host"] == "files.oaiusercontent.com"
+    assert "VERY_PRIVATE_TOKEN" not in str(detail)
+    assert "/private/secret.txt" not in str(detail)
+
+
 def test_missing_file_or_mixed_raw_rejected_before_any_download():
     with pytest.raises(ValidationError):
         NovelDraftIntakeChunk(block_id="a",stage="setup",chunk_index=0)
