@@ -19,6 +19,7 @@ from . import (
     knowledge_firewall_runtime,
     knowledge_persistence_runtime,
     location_runtime,
+    memory_coverage_runtime,
     memory_integrity_runtime,
     npc_intent,
     npc_intent_runtime,
@@ -931,6 +932,7 @@ def commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     prepared = private_knowledge_runtime.normalize_dialogue_memory_modes(session_id, prepared)
     prepared = private_knowledge_runtime.add_scene_remote_communication_memory(session_id, prepared)
     private_knowledge_runtime.validate_private_knowledge(session_id, prepared)
+    memory_coverage_runtime.validate_durable_dialogue_coverage(prepared)
     prepared = _strip_relationship_review(prepared)
     prepared = _apply_story_and_intent_updates(session_id, prepared)
     prepared = _apply_npc_relationship_updates(session_id, prepared)
