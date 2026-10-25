@@ -73,7 +73,7 @@ def test_card_writer_view_keeps_complete_author_relationship_prose_but_not_stale
     assert "relationships" not in writer
     entry = writer["relationship_background_director_only"]["entries"][0]
     assert entry["relationship_context"] == full
-    assert entry["current_dynamic"] == "Они постоянно подначивают друг друга."
+    assert "current_dynamic" not in entry  # current attitude must come from the live file
     assert "dimensions" not in entry
     assert source["relationships"][0]["dimensions"][0]["value"] == 19
 
