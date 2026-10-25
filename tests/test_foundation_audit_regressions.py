@@ -3,7 +3,7 @@ import json
 import tempfile
 from pathlib import Path
 
-from app import session_runtime, storage
+from app import session_documents, session_runtime, storage
 from app import relationship_file_runtime
 from app.scene_compaction_runtime import SCENE_MEMORY_FILE
 from app.writer_first_runtime import _rolling_turn_context
@@ -55,7 +55,7 @@ def test_prepare_does_not_modify_saved_author_canon_on_disk():
         _storage(tmp)
         sid = storage.create_session(_novel())["session_id"]
         root = storage.SESSIONS_DIR / sid
-        source_path = root / "source.json"
+        source_path = session_documents.file_path(root, "source.json")
         before = source_path.read_bytes()
         original = storage._read_json(source_path, {})
         assert "  не смягчай" in str(original)
