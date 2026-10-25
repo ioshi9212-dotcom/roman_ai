@@ -41,9 +41,21 @@ class NovelDraftIntakeChunk(BaseModel):
     block_id: str = Field(min_length=1, max_length=120)
     stage: str = Field(min_length=1, max_length=120)
     chunk_index: int = Field(ge=0)
-    raw_text: str = Field(min_length=1)
+    raw_text: str = ""
+    openaiFileIdRefs: List[Any] = Field(
+        default_factory=list,
+        description="For attached user TXT: official GPT Actions file references, each with download_link. Use exactly ONE file. Do not transcribe its text manually.",
+    )
     is_last: bool = False
-    full_raw: bool = False  # Generator-style complete RAW in a single request.
+    full_raw: bool = False  # Single-request source persistence.
+
+    @model_validator(mode="after")
+    def require_one_raw_source(self):
+        if bool(self.raw_text) == bool(self.openaiFileIdRefs):
+            raise ValueError("Send either raw_text OR exactly one openaiFileIdRefs TXT attachment.")
+        if self.openaiFileIdRefs and (self.chunk_index != 0 or not self.full_raw or self.is_last):
+            raise ValueError("TXT file references require full_raw=true, chunk_index=0, is_last=false.")
+        return self
 
 
 class NovelDraftIntakeMapping(BaseModel):
