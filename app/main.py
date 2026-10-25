@@ -26,6 +26,7 @@ from .novel_drafts import (
     save_section,
 )
 from .draft_intake_runtime import append_intake_chunk, save_complete_intake_raw, update_intake_mapping
+from .gpt_file_refs import read_gpt_txt_file_refs
 from .setup_draft_v3_runtime import confirm_reconciliation, set_launch_state
 from .runtime_access import runtime_chunk, runtime_manifest
 from .session_preview import get_session_preview
@@ -172,6 +173,14 @@ def novel_draft_section_save(draft_id: str, body: NovelDraftSection):
 @app.post("/novel-drafts/{draft_id}/intake/chunks", operation_id="appendDraftIntakeChunk")
 def novel_draft_intake_chunk_append(draft_id: str, body: NovelDraftIntakeChunk):
     try:
+        if body.openaiFileIdRefs:
+            # Official GPT Actions attachment transfer: fetch exact UTF-8 TXT
+            # and persist it as one immutable source, without model transcription.
+            raw_text = read_gpt_txt_file_refs(body.openaiFileIdRefs)
+            return save_complete_intake_raw(
+                draft_id, block_id=body.block_id, stage=body.stage,
+                raw_text=raw_text,
+            )
         if body.full_raw:
             if body.chunk_index != 0:
                 raise ValueError("INTAKE_FULL_RAW_INDEX_MUST_BE_ZERO")
