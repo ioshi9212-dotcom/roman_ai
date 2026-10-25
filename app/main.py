@@ -26,6 +26,7 @@ from .novel_drafts import (
     save_section,
 )
 from .draft_intake_runtime import append_intake_chunk, save_complete_intake_raw, update_intake_mapping
+from .base64_intake_runtime import append_base64_intake_chunk
 from .gpt_file_refs import read_gpt_txt_file_refs
 from .setup_draft_v3_runtime import confirm_reconciliation, set_launch_state
 from .runtime_access import runtime_chunk, runtime_manifest
@@ -173,6 +174,13 @@ def novel_draft_section_save(draft_id: str, body: NovelDraftSection):
 @app.post("/novel-drafts/{draft_id}/intake/chunks", operation_id="appendDraftIntakeChunk")
 def novel_draft_intake_chunk_append(draft_id: str, body: NovelDraftIntakeChunk):
     try:
+        if body.chunk_b64 is not None:
+            return append_base64_intake_chunk(
+                draft_id, block_id=body.block_id, stage=body.stage,
+                chunk_index=body.chunk_index, chunk_b64=body.chunk_b64,
+                total_parts=body.total_parts, expected_bytes=body.expected_bytes,
+                expected_sha256=body.expected_sha256,
+            )
         if body.openaiFileIdRefs:
             # Official GPT Actions attachment transfer: fetch exact UTF-8 TXT
             # and persist it as one immutable source, without model transcription.
@@ -210,6 +218,12 @@ def novel_draft_intake_chunk_append(draft_id: str, body: NovelDraftIntakeChunk):
         if code == "INTAKE_CHUNK_TOO_LARGE":
             raise HTTPException(status_code=422, detail="raw_text chunk exceeds the 100000-character backend safety ceiling. Keep the same block_id/stage and split only the unsaved verbatim text into smaller consecutive chunks; do not ask the user to resend it.")
         messages = {
+            "RAW_BASE64_INVALID": "Malformed Base64 RAW part or missing verified metadata.",
+            "RAW_BASE64_PART_TOO_LARGE": "One decoded part may contain at most 12288 original bytes.",
+            "RAW_BASE64_PART_COUNT_INVALID": "total_parts cannot hold the expected original byte count.",
+            "RAW_BASE64_LENGTH_MISMATCH": "Complete byte count differs from expected_bytes. RAW was not committed.",
+            "RAW_BASE64_SHA256_MISMATCH": "Complete SHA-256 mismatch. RAW was not committed.",
+            "RAW_BASE64_NOT_UTF8": "File is not valid UTF-8. RAW was not committed.",
             "INTAKE_FULL_RAW_INDEX_MUST_BE_ZERO": "For full_raw=true use chunk_index=0: one complete file in one call.",
             "INTAKE_BLOCK_SOURCE_IMMUTABLE": "This RAW block_id already contains different text. Do not overwrite it: use the exact same source or a new block_id.",
             "INTAKE_UPLOAD_BLOCK_EXISTS": "This block_id already exists outside this upload. Use a new unique block_id.",
