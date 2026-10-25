@@ -95,8 +95,39 @@ def _qualitative_relation(row: Dict[str, Any]) -> str:
 
 
 def card_for_context(card: Dict[str, Any]) -> Dict[str, Any]:
-    """Keep the source intact; transport attitudes only from the current file."""
+    """Transport verbatim *source relationship backstory* without stale numbers.
+
+    relationships.json is the authority for CURRENT numeric attitudes and brief
+    current directed links. It does not replace what the author wrote about how
+    two people first met, their history, triggers or contradictory feelings.
+    Those original descriptive fields must still reach the scene writer.
+    These are director-only background, never automatic personal knowledge.
+    """
     result = deepcopy(card)
+    raw = result.get("relationships")
+    source_rows = _relationship_rows(card)
+    backgrounds = []
+    for row in source_rows:
+        # Discard only numeric, mutable value snapshots. All author-authored
+        # text is copied unchanged: no 10-word limit, rewriting or smoothing.
+        background = {
+            key: deepcopy(value) for key, value in row.items()
+            if key not in {"dimensions", "value", "delta"}
+        }
+        if background:
+            backgrounds.append(background)
+    if backgrounds:
+        result["relationship_background_director_only"] = {
+            "provenance": "author_card_source; historical backstory only",
+            "note": "Verbatim author relationship history; current attitudes and values come from relationships.json. This does not grant knowledge to any character.",
+            "entries": backgrounds,
+        }
+    elif isinstance(raw, str) and raw:
+        result["relationship_background_director_only"] = {
+            "provenance": "author_card_source; historical backstory only",
+            "note": "Exact author text, not current scores or automatic character knowledge.",
+            "text": raw,
+        }
     for key in ("relationships", "relationship_documents", "relationship_schemas", "npc_relationships"):
         result.pop(key, None)
     return result
