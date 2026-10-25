@@ -162,7 +162,9 @@ def test_legacy_story_rule_is_absent_from_actual_turn_packet():
             storage._read_json(storage.SESSIONS_DIR / sid / "source.json", {}),
             ensure_ascii=False,
         ).casefold()
-        assert "если игрок не дал реплику" not in source_blob
+        # Stored author source is immutable, even when a legacy gameplay
+        # directive is filtered out of the disposable writer packet.
+        assert "если игрок не дал реплику" in source_blob
         assert "npc действуют самостоятельно" in source_blob
 
 def test_active_character_receives_complete_knowledge_journal_in_packet():
