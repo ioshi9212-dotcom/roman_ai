@@ -110,9 +110,17 @@ def card_for_context(card: Dict[str, Any]) -> Dict[str, Any]:
     for row in source_rows:
         # Discard only numeric, mutable value snapshots. All author-authored
         # text is copied unchanged: no 10-word limit, rewriting or smoothing.
+        # current_dynamic/description/behavioral_pattern are mutable old
+        # snapshots and may be stale. Preserve only historical author-provided
+        # backstory, not yesterday's current attitude or old numeric values.
+        stable_fields = {
+            "target_character_id", "target_id", "target", "with",
+            "relationship_type", "relationship_context",
+            "background", "backstory", "history", "past", "origin",
+        }
         background = {
             key: deepcopy(value) for key, value in row.items()
-            if key not in {"dimensions", "value", "delta"}
+            if key in stable_fields
         }
         if background:
             backgrounds.append(background)
