@@ -47,7 +47,7 @@ def test_author_character_wording_verbatim_and_generated_details_are_separate():
         assert saved["sections"]["characters"][0]["generated_details"]["habit"] == "Крутит кольцо"
 
         card["generated_details"]["habit"] = "Поправляет волосы"
-        update = _save(did, "characters", [card], result["draft_revision"])
+        update = _save(did, "characters", [card], result["revision"])
         assert update["section_changed"] is True
         assert novel_drafts._read(did)["verbatim_locks"]["characters"]["/0/character"] == phrase
 
