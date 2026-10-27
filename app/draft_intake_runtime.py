@@ -863,6 +863,7 @@ def _save_section(
     section_name: str,
     section_json: str,
     expected_revision: int | None = None,
+    source_quotes: Dict[str, str] | None = None,
 ) -> Dict[str, Any]:
     if section_name.strip() != "intake":
         return _ORIGINAL_SAVE_SECTION(
@@ -870,6 +871,7 @@ def _save_section(
             section_name,
             section_json,
             expected_revision=expected_revision,
+            source_quotes=source_quotes,
         )
 
     with session_transaction(novel_drafts._drafts_dir()):
