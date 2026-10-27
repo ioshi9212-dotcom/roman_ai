@@ -31,6 +31,10 @@ class NovelDraftCreate(BaseModel):
 class NovelDraftSection(BaseModel):
     section_name: str
     section_json: str
+    source_quotes: Dict[str, str] = Field(
+        default_factory=dict,
+        description="RAW-exact author phrases keyed by JSON Pointer to a section field. Server checks and locks them against paraphrasing; keep invented additions in generated_details.",
+    )
     expected_revision: Optional[int] = Field(
         default=None, ge=0,
         description="Required for draft v3+ including v5; use the latest revision/draft_revision from the previous draft response.",

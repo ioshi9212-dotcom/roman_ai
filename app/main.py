@@ -2,6 +2,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+from time import perf_counter
 from threading import Thread
 from contextlib import asynccontextmanager
 
@@ -150,6 +151,7 @@ def novel_draft_section_save(draft_id: str, body: NovelDraftSection):
             body.section_name,
             body.section_json,
             expected_revision=body.expected_revision,
+            source_quotes=body.source_quotes,
         )
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Draft not found")
@@ -616,8 +618,9 @@ def audit_snapshot_chunk_get(session_id: str, audit_id: str, chunk_index: int):
 
 @app.post("/sessions/{session_id}/turn-packet", operation_id="prepareTurn")
 def turn_packet_prepare(session_id: str, body: TurnPrepare):
+    started = perf_counter()
     try:
-        return prepare_turn_request(
+        result = prepare_turn_request(
             session_id,
             body.user_input,
             body.request_id,
@@ -625,6 +628,10 @@ def turn_packet_prepare(session_id: str, body: TurnPrepare):
             scene_archive_capable=bool(body.scene_archive_capable),
             replace_pending=bool(body.replace_pending),
         )
+        if isinstance(result, dict):
+            result = dict(result)
+            result["server_prepare_ms"] = round((perf_counter() - started) * 1000, 2)
+        return result
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Session not found")
     except RuntimeError as exc:
@@ -809,8 +816,13 @@ def turns_commit(session_id: str, body: CommitTurnRequest):
         scene_output=body.scene_output,
         extracted=body.extracted,
     )
+    started = perf_counter()
     try:
-        return commit_turn_request(session_id, turn_body.model_dump())
+        result = commit_turn_request(session_id, turn_body.model_dump())
+        if isinstance(result, dict):
+            result = dict(result)
+            result["server_commit_ms"] = round((perf_counter() - started) * 1000, 2)
+        return result
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Session not found")
     except OperationReceiptConflict:

@@ -259,6 +259,7 @@ def _save_section(
     section_name: str,
     section_json: str,
     expected_revision: int | None = None,
+    source_quotes: Dict[str, str] | None = None,
 ) -> Dict[str, Any]:
     draft = novel_drafts._read(draft_id)
     if not _is_simple_draft(draft) or section_name.strip() == "intake":
@@ -267,6 +268,7 @@ def _save_section(
             section_name,
             section_json,
             expected_revision=expected_revision,
+            source_quotes=source_quotes,
         )
 
     raw = novel_drafts._parse_one_json(section_json)
@@ -282,7 +284,14 @@ def _save_section(
         raise ValueError("DRAFT_SECTION_REVISION_REQUIRED")
     if expected_revision is not None and int(expected_revision) != current_revision:
         raise ValueError("DRAFT_SECTION_REVISION_MISMATCH")
-    if existing == normalized:
+    previous_quotes = draft.get("verbatim_locks", {}).get(section_name.strip(), {})
+    needs_new_quote_locks = bool(source_quotes) and (
+        not isinstance(previous_quotes, dict)
+        or any(previous_quotes.get(path) != quote for path, quote in source_quotes.items())
+    )
+    if existing == normalized and not needs_new_quote_locks:
+        # Even unchanged values must respect old locks. The normal
+        # save_section checks them when modifications are submitted.
         result = dict(_draft_status(draft_id))
         result.update({
             "section_name": section_name.strip(),
@@ -297,6 +306,7 @@ def _save_section(
         section_name,
         json.dumps(normalized, ensure_ascii=False),
         expected_revision=expected_revision,
+        source_quotes=source_quotes,
     ))
     result["section_name"] = section_name.strip()
     result["section_changed"] = True

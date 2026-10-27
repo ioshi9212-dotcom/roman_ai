@@ -9,6 +9,7 @@ from . import storage
 from .novel_access import prepare_template_read, verify_template
 from .operation_receipts import canonical_hash
 from .transactional_storage import session_transaction
+from .verbatim_canon import verify_verbatim_fields
 
 
 REQUIRED_SECTIONS = ("novel", "characters", "lore", "starting_state")
@@ -600,6 +601,7 @@ def save_section(
     section_name: str,
     section_json: str,
     expected_revision: int | None = None,
+    source_quotes: Dict[str, str] | None = None,
 ) -> Dict[str, Any]:
     with session_transaction(_drafts_dir()):
         draft = _read(draft_id)
@@ -623,6 +625,26 @@ def save_section(
             raise TypeError("starting_state must be a JSON object")
         if section_name == "foundation" and not isinstance(parsed, dict):
             raise TypeError("foundation must be a JSON object")
+        locks_by_section = draft.get("verbatim_locks")
+        locks_by_section = locks_by_section if isinstance(locks_by_section, dict) else {}
+        previous_locks = locks_by_section.get(section_name, {})
+        if not isinstance(previous_locks, dict):
+            raise ValueError("CANON_LOCK_CORRUPT")
+        intake = draft.get("sections", {}).get("intake")
+        blocks = intake.get("blocks", []) if isinstance(intake, dict) else []
+        # Verbatim sources are not compressed/summarized. Source quote tests
+        # use the original raw_text and are run only when evidence is supplied
+        # or a previously locked field is being modified.
+        original_raw = "\n".join(
+            str(row.get("raw_text") or "") for row in blocks if isinstance(row, dict)
+        )
+        updated_locks = verify_verbatim_fields(
+            parsed, source_quotes, original_raw, previously_locked=previous_locks,
+        )
+        if updated_locks:
+            locks_by_section = deepcopy(locks_by_section)
+            locks_by_section[section_name] = updated_locks
+            draft["verbatim_locks"] = locks_by_section
         draft["sections"][section_name] = parsed
         draft["revision"] = current_revision + 1
         draft["finalized"] = False
