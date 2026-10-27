@@ -485,6 +485,7 @@ components:
         source_quotes:
           type: object
           description: RAW-exact author sentences keyed by JSON Pointer into this section (e.g. /0/character). The pointer's field must equal the exact quote; GPT additions belong in generated_details instead. Previously locked author wording may never be overwritten.
+          properties: {}
           additionalProperties:
             type: string
         expected_revision:
