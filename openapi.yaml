@@ -482,6 +482,11 @@ components:
         section_json:
           type: string
           description: Use profile_schema.setup_sections. novel is an object with pov_id/pov_character; characters is an array of cards. The ten state templates are persisted files, not ten required API sections.
+        source_quotes:
+          type: object
+          description: RAW-exact author sentences keyed by JSON Pointer into this section (e.g. /0/character). The pointer's field must equal the exact quote; GPT additions belong in generated_details instead. Previously locked author wording may never be overwritten.
+          additionalProperties:
+            type: string
         expected_revision:
           type: integer
           minimum: 0
