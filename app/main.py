@@ -150,6 +150,7 @@ def novel_draft_section_save(draft_id: str, body: NovelDraftSection):
             body.section_name,
             body.section_json,
             expected_revision=body.expected_revision,
+            source_quotes=body.source_quotes,
         )
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Draft not found")
