@@ -21,7 +21,7 @@ def _setup(folder):
     result = draft_intake_runtime.save_complete_intake_raw(
         did, block_id="whole_raw", stage="setup", raw_text=original,
     )
-    return did, original, result["draft_revision"]
+    return did, original, result["revision"]
 
 
 def _save(did, section, data, revision, quotes=None):
@@ -53,7 +53,7 @@ def test_author_character_wording_verbatim_and_generated_details_are_separate():
 
         card["character"] = "Рината ревнива, но не признаётся."
         with pytest.raises(HTTPException) as error:
-            _save(did, "characters", [card], update["draft_revision"])
+            _save(did, "characters", [card], update["revision"])
         assert error.value.status_code == 422
         assert "CANON_LOCK_CHANGED" in str(error.value.detail)
         assert novel_drafts._read(did)["sections"]["characters"][0]["character"] == phrase
