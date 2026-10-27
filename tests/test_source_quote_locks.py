@@ -21,7 +21,7 @@ def _setup(folder):
     result = draft_intake_runtime.save_complete_intake_raw(
         did, block_id="whole_raw", stage="setup", raw_text=original,
     )
-    return did, original, result["revision"]
+    return did, original, result["draft_revision"]
 
 
 def _save(did, section, data, revision, quotes=None):
