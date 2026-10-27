@@ -43,6 +43,8 @@ Rules выполняет только техническую работу:
 
 1. Сохрани весь RAW через `appendDraftIntakeChunk(full_raw=true, chunk_index=0)`. Проверь `complete`, `char_count`, `raw_sha256`. При загрузке частями сохраняй точный порядок, тот же block_id/stage и `is_last=true` только в конце.
 2. Сохрани профили через `saveNovelDraftSection`. В КАЖДОЙ записи передавай `expected_revision` из последнего ответа `revision` или `draft_revision`. Сохранения последовательны; RAW и mapping тоже могут увеличить revision. При конфликте прочитай текущий черновик, не повторяй старую revision вслепую.
+
+**Дословность авторского канона:** каждый перенесённый из TXT текстовый фрагмент сохраняй без смягчения, сокращения, замены лексики или изменения пробелов. В `saveNovelDraftSection` передавай `source_quotes`: JSON Pointer (например `/0/character` для массива персонажей) → точная цитата из RAW, полностью совпадающая со значением поля. Сервер проверяет источник и защищает цитату при следующих правках. Новые придуманные GPT подробности допустимы только в отдельных `generated_details` и не являются авторским каноном. Пустой `source_quotes` НЕ подтверждает, что все поля переписаны без ошибок; нужна самостоятельная сверка с RAW.
 3. Отметь каждый RAW-блок через `updateDraftIntakeMapping(fact_ids=[], reviewed_against_raw=true, expected_revision=...)` после переноса его содержания в профили.
 4. `prepareDraftRead` → каждый `getNovelReadChunk`, включая индекс 0. Для той же revision продолжай тот же read_id с next_chunk_index. Реальное исправление профиля требует нового полного чтения; идентичная повторная запись не меняет revision.
 5. `confirmDraftReconciliation(expected_revision=..., confirmed_against_raw=true, unresolved_conflicts=[])` → `finalizeNovelDraft`.
