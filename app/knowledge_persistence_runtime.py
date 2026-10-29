@@ -17,12 +17,17 @@ def _journal_event_key(row: Dict[str, Any]) -> tuple[str, ...]:
     # attributed quote/report can be heard again in another turn, and the new
     # occasion must not be silently erased. This keeps existing compact bare
     # fact semantics, without losing time/source provenance of real testimony.
-    turn = _norm(row.get("turn") or row.get("learned_turn") or row.get("source_turn")) if source else ""
+    phrase = _norm(row.get("text") or row.get("fact") or row.get("summary"))
+    if not source:
+        # Legacy *unattributed* durable facts are a set, even when a later
+        # turn auto-fills a new date. A second actual witnessed report must
+        # identify its source to preserve its distinct occurrence.
+        return phrase, "", "", "", "", ""
     return (
-        _norm(row.get("text") or row.get("fact") or row.get("summary")),
+        phrase,
         _norm(row.get("date")),
         _norm(row.get("period")),
-        turn,
+        _norm(row.get("turn") or row.get("learned_turn") or row.get("source_turn")),
         source,
         _norm(row.get("source_type") or row.get("channel")),
     )
