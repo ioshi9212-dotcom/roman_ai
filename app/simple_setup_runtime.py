@@ -16,6 +16,7 @@ from .profile_templates import (
     profile_manifest,
 )
 from .transactional_storage import session_transaction
+from .source_line_coverage import source_line_coverage
 
 
 SIMPLE_PROFILE_DRAFT_VERSION = 5
@@ -781,6 +782,11 @@ def _draft_status(draft_id: str) -> Dict[str, Any]:
     characters = sections.get("characters", [])
     uploads = draft_intake_runtime._intake_upload_status(draft)
     intake_coverage = _simple_intake_coverage(draft)
+    intake = sections.get("intake") if isinstance(sections.get("intake"), dict) else {}
+    literal_coverage = source_line_coverage(
+        intake.get("blocks", []),
+        {name: value for name, value in sections.items() if name != "intake"},
+    )
     revision = int(draft.get("revision", 0) or 0)
     last_read = novel_access.completed_working_draft_revision(draft_id)
     full_read_current = last_read == revision
@@ -829,6 +835,7 @@ def _draft_status(draft_id: str) -> Dict[str, Any]:
             "full_read_current": full_read_current,
         },
         "intake_uploads": uploads,
+        "literal_raw_coverage": literal_coverage,
         "reconciliation_current": _reconciliation_current(draft),
         "reconciliation_receipt": deepcopy(draft.get("reconciliation_receipt", {})),
         "finalized": finalized,
