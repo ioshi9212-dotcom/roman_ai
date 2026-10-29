@@ -368,3 +368,34 @@ def test_action_prepare_migrates_once_and_replay_does_not_rewrite_packet(monkeyp
         assert replay["reused_pending_packet"] is True
         assert len(migrate_calls) == 2  # One validation per request.
         assert len(packet_writes) == written_first  # Nothing changed to persist.
+
+
+def test_repeated_cached_prepare_skips_knowledge_journal_cleanup(monkeypatch):
+    from app import knowledge_persistence_runtime
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = make_session()
+        root = storage.SESSIONS_DIR / sid
+        runs = []
+        original = knowledge_persistence_runtime.dedupe_persisted_knowledge_journal
+
+        def recorded(session_id):
+            runs.append(session_id)
+            return original(session_id)
+
+        monkeypatch.setattr(
+            knowledge_persistence_runtime, "dedupe_persisted_knowledge_journal", recorded
+        )
+        first = session_runtime.prepare_turn_packet(sid, "Всё ещё тот же вопрос.")
+        assert runs == [sid]
+        before = (root / "memory.json").read_bytes()
+        second = session_runtime.prepare_turn_packet(sid, "Всё ещё тот же вопрос.")
+        assert second["reused_pending_packet"] is True
+        assert second["packet_id"] == first["packet_id"]
+        assert runs == [sid]
+        assert (root / "memory.json").read_bytes() == before
+
+        # New player input actually needs a fresh context and runs maintenance.
+        third = session_runtime.prepare_turn_packet(sid, "Другой ход.")
+        assert third["reused_pending_packet"] is False
+        assert len(runs) == 2
