@@ -10,6 +10,29 @@ def _norm(value: Any) -> str:
     return " ".join(str(value or "").casefold().replace("ё", "е").split())
 
 
+def _journal_event_key(row: Dict[str, Any]) -> tuple[str, ...]:
+    """Bare repeated facts collapse; source-attributed repeat testimony keeps its turn."""
+    source = _norm(row.get("speaker_id") or row.get("source_character_id") or row.get("source"))
+    # A generic repeated *fact* isn't an observed second event. A genuinely
+    # attributed quote/report can be heard again in another turn, and the new
+    # occasion must not be silently erased. This keeps existing compact bare
+    # fact semantics, without losing time/source provenance of real testimony.
+    phrase = _norm(row.get("text") or row.get("fact") or row.get("summary"))
+    if not source:
+        # Legacy *unattributed* durable facts are a set, even when a later
+        # turn auto-fills a new date. A second actual witnessed report must
+        # identify its source to preserve its distinct occurrence.
+        return phrase, "", "", "", "", ""
+    return (
+        phrase,
+        _norm(row.get("date")),
+        _norm(row.get("period")),
+        _norm(row.get("turn") or row.get("learned_turn") or row.get("source_turn")),
+        source,
+        _norm(row.get("source_type") or row.get("channel")),
+    )
+
+
 def dedupe_persisted_knowledge_journal(session_id: str) -> int:
     """Remove only exact normalized duplicate durable facts already stored for one character."""
     root = storage.SESSIONS_DIR / session_id
@@ -26,19 +49,19 @@ def dedupe_persisted_knowledge_journal(session_id: str) -> int:
         rows = bucket.get("knowledge_journal")
         if not isinstance(rows, list) or len(rows) < 2:
             continue
-        seen: set[str] = set()
+        seen: set[tuple[str, ...]] = set()
         clean: List[Dict[str, Any]] = []
         for row in rows:
             if not isinstance(row, dict):
                 continue
-            text = _norm(row.get("text") or row.get("fact") or row.get("summary") or "")
-            if not text:
+            key = _journal_event_key(row)
+            if not key[0]:
                 clean.append(deepcopy(row))
                 continue
-            if text in seen:
+            if key in seen:
                 removed += 1
                 continue
-            seen.add(text)
+            seen.add(key)
             clean.append(deepcopy(row))
         bucket["knowledge_journal"] = clean
 
@@ -61,19 +84,18 @@ def dedupe_new_journal_against_persisted(
     root = storage.SESSIONS_DIR / session_id
     memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
     characters = memory.get("characters") if isinstance(memory.get("characters"), dict) else {}
-    known: Dict[str, set[str]] = {}
+    known: Dict[str, set[tuple[str, ...]]] = {}
 
-    def texts_for(character_id: str) -> set[str]:
+    def events_for(character_id: str) -> set[tuple[str, ...]]:
         if character_id in known:
             return known[character_id]
         bucket = characters.get(character_id) if isinstance(characters.get(character_id), dict) else {}
         existing = bucket.get("knowledge_journal") if isinstance(bucket, dict) else []
         values = {
-            _norm(row.get("text") or row.get("fact") or row.get("summary") or "")
+            _journal_event_key(row)
             for row in existing
             if isinstance(row, dict)
         } if isinstance(existing, list) else set()
-        values.discard("")
         known[character_id] = values
         return values
 
@@ -82,14 +104,14 @@ def dedupe_new_journal_against_persisted(
         if not isinstance(row, dict):
             continue
         cid = str(row.get("character_id") or "").strip()
-        text = _norm(row.get("text") or row.get("fact") or row.get("summary") or "")
-        if not cid or not text:
+        key = _journal_event_key(row)
+        if not cid or not key[0]:
             clean.append(deepcopy(row))
             continue
-        seen = texts_for(cid)
-        if text in seen:
+        seen = events_for(cid)
+        if key in seen:
             continue
-        seen.add(text)
+        seen.add(key)
         clean.append(deepcopy(row))
 
     extracted["knowledge_journal_add"] = clean

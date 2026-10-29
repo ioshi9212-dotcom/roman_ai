@@ -611,7 +611,6 @@ def prepare_turn_packet(session_id: str, user_input: str, *, _migrated: bool = F
         session_migrations.ensure_current_session_data(session_id, invalidate_pending=True)
     _current_pointer_guard(session_id)
     game_day._sync_session_game_day(session_id)
-    knowledge_persistence_runtime.dedupe_persisted_knowledge_journal(session_id)
 
     with session_transaction(root):
         meta = storage._read_json(root / "meta.json", {})
@@ -629,6 +628,12 @@ def prepare_turn_packet(session_id: str, user_input: str, *, _migrated: bool = F
                 return _packet_manifest(pending, reused=True)
             (root / "turn_packet.json").unlink(missing_ok=True)
             pending = {}
+
+    # A repeated prepare must only replay its exact already-built packet.
+    # The legacy journal cleanup reads memory.json and can write it back;
+    # defer that maintenance until we actually need to build a NEW packet.
+    # This also avoids touching the knowledge journal during retry reads.
+    knowledge_persistence_runtime.dedupe_persisted_knowledge_journal(session_id)
 
     # Build once in memory, then serialize only the final writer packet.
     # This avoids storage -> packet -> read -> rewrite -> packet round-trips.
