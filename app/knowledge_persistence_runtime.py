@@ -11,13 +11,19 @@ def _norm(value: Any) -> str:
 
 
 def _journal_event_key(row: Dict[str, Any]) -> tuple[str, ...]:
-    """Same words on a different day, turn or from a different source aren't duplicates."""
+    """Bare repeated facts collapse; source-attributed repeat testimony keeps its turn."""
+    source = _norm(row.get("speaker_id") or row.get("source_character_id") or row.get("source"))
+    # A generic repeated *fact* isn't an observed second event. A genuinely
+    # attributed quote/report can be heard again in another turn, and the new
+    # occasion must not be silently erased. This keeps existing compact bare
+    # fact semantics, without losing time/source provenance of real testimony.
+    turn = _norm(row.get("turn") or row.get("learned_turn") or row.get("source_turn")) if source else ""
     return (
         _norm(row.get("text") or row.get("fact") or row.get("summary")),
         _norm(row.get("date")),
         _norm(row.get("period")),
-        _norm(row.get("turn") or row.get("learned_turn") or row.get("source_turn")),
-        _norm(row.get("speaker_id") or row.get("source_character_id") or row.get("source")),
+        turn,
+        source,
         _norm(row.get("source_type") or row.get("channel")),
     )
 
