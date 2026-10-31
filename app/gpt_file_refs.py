@@ -16,6 +16,14 @@ from fastapi import HTTPException
 
 MAX_TXT_BYTES = 1_000_000
 OFFICIAL_HOST = "files.oaiusercontent.com"
+# Actions also delivers user attachments through regional OpenAI file hosts.
+# Match one complete DNS label; never trust arbitrary oaiusercontent subdomains
+# or a hostname which merely contains/starts with an approved hostname.
+_REGIONAL_FILE_HOST = re.compile(r"sdmntpr[a-z0-9]{1,56}\.oaiusercontent\.com")
+
+
+def _is_official_file_host(host: str | None) -> bool:
+    return host == OFFICIAL_HOST or bool(host and _REGIONAL_FILE_HOST.fullmatch(host))
 
 
 class _NoRedirect(HTTPRedirectHandler):
@@ -66,7 +74,7 @@ def read_gpt_txt_file_refs(refs: list[Any]) -> str:
         host = uri.hostname
         allowed = (
             uri.scheme == "https"
-            and host == OFFICIAL_HOST
+            and _is_official_file_host(host)
             and uri.port in (None, 443)
             and not uri.username
             and not uri.password
@@ -91,6 +99,7 @@ def read_gpt_txt_file_refs(refs: list[Any]) -> str:
                 "link_kind": "external_https_url" if raw_url.startswith("https://") else "non_https_or_invalid",
                 "received_host": public_host,
                 "expected_host": OFFICIAL_HOST,
+                "accepted_host_patterns": [OFFICIAL_HOST, "sdmntpr<region>.oaiusercontent.com"],
                 "message": (
                     "The GPT Actions file reference was not an approved signed "
                     "HTTPS download URL. Only the hostname is reported; URL "
