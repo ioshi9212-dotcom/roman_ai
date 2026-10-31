@@ -9,16 +9,21 @@ from urllib.error import HTTPError
 import pytest
 import yaml
 from fastapi import HTTPException
+from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from app import novel_drafts, storage
-from app.main import novel_draft_intake_chunk_append
+from app.main import app, novel_draft_intake_chunk_append
 from app.models import NovelDraftIntakeChunk
 
 
 URL = "https://files.oaiusercontent.com/file-abc123?se=shortlived&sig=secret"
 REF = {"id": "file-abc123", "name": "Пока мир не сгорит.txt",
        "mime_type": "text/plain", "download_link": URL}
+REGIONAL_URL = (
+    "https://sdmntprnortheu.oaiusercontent.com/files/"
+    "00000000-0000-0000-0000-000000000001/raw?se=shortlived&sig=TEST_ONLY"
+)
 
 
 class Response:
@@ -35,10 +40,11 @@ class Response:
 
 
 class Opener:
-    def __init__(self, data):
+    def __init__(self, data, url=URL):
         self.data = data
+        self.url = url
     def open(self, request, timeout=None):
-        assert request.full_url == URL
+        assert request.full_url == self.url
         assert timeout <= 15
         return Response(self.data)
 
@@ -95,19 +101,72 @@ def test_attached_full_source_preserves_prior_completed_prefix_as_separate_block
 
 
 @pytest.mark.parametrize("url", [
+    REGIONAL_URL,
+    REGIONAL_URL.replace("sdmntprnortheu", "sdmntpreastus2"),
+])
+def test_regional_txt_import_preserves_existing_profiles_and_exact_bytes(url):
+    raw = "\ufeff  Исходный канон.\r\nНе смягчай формулировки.  \n" * 1700
+    binary = raw.encode("utf-8")
+    with tempfile.TemporaryDirectory() as tmp:
+        _setup(tmp)
+        did = novel_drafts.create_draft("regional-source", "Проверка импорта", 5)["draft_id"]
+        novel_drafts.save_section(
+            did, "characters", json.dumps([
+                {"character_id": "rina", "name": "Рина", "is_pov": True},
+            ], ensure_ascii=False), expected_revision=0,
+        )
+        before = novel_drafts._read(did)
+        payload = {
+            "block_id": "original_txt", "stage": "source", "chunk_index": 0,
+            "openaiFileIdRefs": [{**REF, "download_link": url}],
+            "full_raw": True, "is_last": False,
+        }
+        with TestClient(app) as client, patch(
+            "app.gpt_file_refs.build_opener", return_value=Opener(binary, url),
+        ):
+            response = client.post(f"/novel-drafts/{did}/intake/chunks", json=payload)
+            assert response.status_code == 200
+            saved = response.json()
+            replay = client.post(f"/novel-drafts/{did}/intake/chunks", json=payload)
+            # The screenshot's empty-ref retry still must not write empty RAW.
+            empty = client.post(f"/novel-drafts/{did}/intake/chunks", json={
+                **payload, "openaiFileIdRefs": [],
+            })
+        assert saved["complete"] is True
+        assert saved["raw_sha256"] == hashlib.sha256(binary).hexdigest()
+        assert saved["char_count"] == len(raw)
+        assert replay.status_code == 200 and replay.json()["already_completed"] is True
+        assert empty.status_code == 422
+        after = novel_drafts._read(did)
+        assert after["sections"]["characters"] == before["sections"]["characters"]
+        assert after["sections"]["intake"]["blocks"][0]["raw_text"] == raw
+        assert after["revision"] == before["revision"] + 1
+
+
+@pytest.mark.parametrize("url", [
     "http://files.oaiusercontent.com/file-x",
     "https://files.oaiusercontent.com.evil.test/file-x",
     "https://127.0.0.1/file-x",
     "https://files.oaiusercontent.com:8443/file-x",
     "https://user:pw@files.oaiusercontent.com/file-x",
     "https://files.oaiusercontent.com/file-x#fragment",
+    "http://sdmntprnortheu.oaiusercontent.com/files/file-x/raw",
+    "https://sdmntprnortheu.oaiusercontent.com.evil.test/file-x",
+    "https://evil.sdmntprnortheu.oaiusercontent.com/file-x",
+    "https://sdmntprnortheu-oaiusercontent.com/file-x",
+    "https://sdmntprnortheu.oaiusercontent.com:8443/file-x",
+    "https://user:pw@sdmntprnortheu.oaiusercontent.com/file-x",
+    "https://sdmntprnortheu.oaiusercontent.com/file-x#fragment",
+    "https://other.oaiusercontent.com/file-x",
+    "https://sdmntpr.oaiusercontent.com/file-x",
 ])
 def test_download_blocks_unsafe_urls_without_network(url):
     ref = {**REF, "download_link": url}
-    with pytest.raises(HTTPException) as exc:
+    with patch("app.gpt_file_refs.build_opener") as network, pytest.raises(HTTPException) as exc:
         from app.gpt_file_refs import read_gpt_txt_file_refs
         read_gpt_txt_file_refs([ref])
     assert exc.value.status_code == 422
+    network.assert_not_called()
 
 
 def test_local_sandbox_file_ref_provides_specific_recovery_code_without_leaking_path():
