@@ -2,7 +2,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import secrets
+from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 from typing import Any, Dict, List
 
 from . import storage
@@ -16,6 +21,51 @@ ACTIVE_RUNTIME_FILES = {
     "scene_builder": "scene_builder.md",
 }
 
+# The author's GitHub main is the live source for new scenes, even before a
+# hosting provider redeploys. No downloaded builder is written to session files.
+_SCENE_BUILDER_URL = (
+    "https://raw.githubusercontent.com/ioshi9212-dotcom/"
+    "roman_ai/main/runtime/scene_builder.md"
+)
+_SCENE_BUILDER_MAX_BYTES = 250_000
+_REQUEST_DOCS: ContextVar[Dict[str, str] | None] = ContextVar(
+    "roman_runtime_documents_for_request", default=None
+)
+
+
+class _NoRedirect(HTTPRedirectHandler):
+    def redirect_request(self, request, fp, code, msg, headers, newurl):
+        raise RuntimeError("SCENE_BUILDER_GITHUB_UNAVAILABLE:unexpected_redirect")
+
+
+@contextmanager
+def runtime_read_view():
+    """Freeze one fresh builder for a prepare/commit request, never across turns."""
+    token = _REQUEST_DOCS.set({})
+    try:
+        yield
+    finally:
+        _REQUEST_DOCS.reset(token)
+
+
+def _fetch_github_scene_builder() -> str:
+    # A unique query defeats edge cache reuse after an author edits the file.
+    url = _SCENE_BUILDER_URL + "?live=" + secrets.token_hex(12)
+    request = Request(
+        url,
+        headers={"Cache-Control": "no-cache", "Pragma": "no-cache", "Accept": "text/plain"},
+        method="GET",
+    )
+    try:
+        with build_opener(_NoRedirect).open(request, timeout=6) as response:
+            binary = response.read(_SCENE_BUILDER_MAX_BYTES + 1)
+        if not binary or len(binary) > _SCENE_BUILDER_MAX_BYTES:
+            raise ValueError("scene_builder is empty or exceeds the size limit")
+        return binary.decode("utf-8-sig")
+    except (OSError, UnicodeError, ValueError, RuntimeError) as exc:
+        # Do not silently serve an older bundled builder when GitHub is down.
+        raise RuntimeError("SCENE_BUILDER_GITHUB_UNAVAILABLE") from exc
+
 
 def author_runtime_sources() -> Dict[str, str]:
     result: Dict[str, str] = {}
@@ -28,12 +78,27 @@ def author_runtime_sources() -> Dict[str, str]:
 
 
 def runtime_documents() -> Dict[str, str]:
+    # Read once per prepared turn, and again for the next turn. This cache
+    # exists only inside runtime_read_view(), never in persisted session state.
+    cached = _REQUEST_DOCS.get()
+    if cached:
+        return dict(cached)
+
+    mode = os.getenv("ROMAN_SCENE_BUILDER_SOURCE", "github").strip().lower()
+    if mode not in {"github", "file"}:
+        raise RuntimeError("SCENE_BUILDER_SOURCE_INVALID")
+
     result: Dict[str, str] = {}
     for key, name in ACTIVE_RUNTIME_FILES.items():
+        if key == "scene_builder" and mode == "github":
+            result[key] = _fetch_github_scene_builder()
+            continue
         path = RUNTIME_DIR / name
         if not path.exists():
             raise RuntimeError(f"RUNTIME_FILE_MISSING:{name}")
         result[key] = path.read_text(encoding="utf-8")
+    if cached is not None:
+        _REQUEST_DOCS.set(dict(result))
     return result
 
 
