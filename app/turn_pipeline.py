@@ -133,9 +133,14 @@ def _current_pointer_guard(session_id: str) -> None:
     )
 
 
-def _scene_ids(state: Dict[str, Any], cards: List[Dict[str, Any]]) -> List[str]:
+def _scene_ids(
+    state: Dict[str, Any], cards: List[Dict[str, Any]], *, opening_scene: bool = False
+) -> List[str]:
     values = [str(value) for value in storage._present_character_ids(state) if value]
-    values.extend(str(value) for value in storage._remote_character_ids(state) if value)
+    # The opening scene loads complete dossiers only for physically present
+    # characters; the cast registry still lists known offscreen IDs.
+    if not opening_scene:
+        values.extend(str(value) for value in storage._remote_character_ids(state) if value)
     pov = state.get("pov") if isinstance(state.get("pov"), dict) else {}
     if pov.get("character_id"):
         values.insert(0, str(pov["character_id"]))
@@ -464,7 +469,7 @@ def _prepare_context(
     # writer-facing cast_index so recency metadata cannot compete with causal selection.
     context.pop("cast_index", None)
 
-    scene_ids = _scene_ids(state, cards)
+    scene_ids = _scene_ids(state, cards, opening_scene=opening_scene)
     context["relevant_character_ids"] = scene_ids
 
     location_context = location_runtime.build_location_context(
