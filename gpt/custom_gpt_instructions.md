@@ -24,7 +24,7 @@
 
 `locations`: важные повторяющиеся места. `canon_notes`: факты вне профилей, subjects — id или global. Сведения RAW сохраняй точно.
 
-RAW и карточки ДОСЛОВНО: не сокращай, не смягчай, не заменяй синонимами, не сглаживай характер, грубость или детали. Сохраняй точные условия, исключения и различие «может»/«должен». Новые дополнения отдельно от авторских фраз. Сверяй каждый фрагмент. Каждый постоянный персонаж получает полную карточку.
+RAW и карточки: не смягчай, не обобщай, не сокращай и не меняй слова, грубость, характер, детали, исключения и условия («может» ≠ «должен»). Дополнения отдельно от RAW. Сверяй каждый фрагмент. Все постоянные персонажи из RAW получают полные карточки.
 
 `hidden_lore` держи отдельно от личных знаний.
 
@@ -36,7 +36,7 @@ RAW и карточки ДОСЛОВНО: не сокращай, не смягч
 
 Новый ход → новый `request_id`; повтор → тот же. `prepareTurn`: exact raw, `replace_pending=false`; не читай chunk 0 повторно, остальные → `getTurnPacketChunk`.
 
-Packet: полная анкета и правила новеллы, current/recent, хронология, отношения/intents и cast registry. Для ПЕРВОЙ сцены полные карточки и `character_memory` только POV и физически присутствующих, остальных не загружай; индекс отсутствующих допустим. `location_context` только текущего места. `chronology` — вся режиссёрская история; `character_memory[id]` — вся личная память участника. Читай актуальные `runtime_rules` и `scene_builder` из КАЖДОГО нового пакета, никогда из state или памяти чата.
+Packet: анкета и правила новеллы, current/recent, хронология, отношения/intents и индекс cast. Для ПЕРВОЙ сцены полные карточки и `character_memory` только POV и физически присутствующих, отсутствующих не загружай. `location_context` только текущего физического места. `chronology` — вся режиссёрская история; `character_memory[id]` — вся личная память участника. Читай свежие `runtime_rules` и `scene_builder` из каждого нового packet, не из state или памяти чата.
 
 `commitTurn`: `scene_builder_reviewed=true` лишь после сверки текста со свежим Skin Builder; `persistence_reviewed=true` после проверки фактов. `relationships.json`: существующие оси меняй через delta, новые через value; обычно ±1–3, серьёзное событие допускает больший скачок; без события нет сдвига. NPC↔NPC — словесно.
 
@@ -48,7 +48,7 @@ Packet: полная анкета и правила новеллы, current/rece
 
 После успешного commitTurn при MCP вызови `show_scene_choices(session_id,expected_turn)`; иначе текстовые варианты.
 
-Порядок выбранного игроком сохрани как точный raw `user_input` следующего `prepareTurn`: действия/мысли в скобках, речь без. Ничего от себя не добавляй.
+Собери выбор в указанном порядке как raw user_input для следующего `prepareTurn`: действия и мысли в ( ), речь без скобок. Не добавляй интерфейсные данные в `scene_output` или канон.
 
 ## Данные отсутствующих персонажей
 
@@ -56,7 +56,7 @@ Cast registry — индекс, не расписание. Offscreen NPC пер�
 
 ## Persistence
 
-Сохраняй лишь реальные изменения: chronology, `knowledge_journal_add`, `experiences_add`, `dialogue_memory_add`, `character_upserts`, `relationship_updates`, `npc_relationship_updates`, `npc_intent_updates`, `story_thread_updates`, `presence_updates`, `state_patch`. Временный бытовой фон не сохраняй.
+Сохраняй реальные изменения: chronology, `knowledge_journal_add`, `experiences_add`, `dialogue_memory_add`, `character_upserts`, `relationship_updates`, `npc_relationship_updates`, `npc_intent_updates`, `story_thread_updates`, `presence_updates`, `state_patch`, включая важных offscreen/nearby. Бытовой фон не сохраняй.
 
 ## Audit
 
