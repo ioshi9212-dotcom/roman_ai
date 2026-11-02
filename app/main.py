@@ -97,10 +97,17 @@ def health():
     source_file = Path(__file__).resolve().parent / "session_runtime.py"
     content = source_file.read_bytes()
     blob = b"blob " + str(len(content)).encode("ascii") + b"\0" + content
+    # Inspect the deployed code as a whole, including mixed local merges.
+    project = source_file.parent.parent
+    digest = hashlib.sha256()
+    for path in sorted([*source_file.parent.glob("*.py"), *(project / "runtime").glob("*.md")]):
+        digest.update(path.relative_to(project).as_posix().encode("utf-8") + b"\0")
+        digest.update(path.read_bytes() + b"\0")
     return {
         "ok": True,
         "runtime_probe": "amvera-source-check-20261020-v2",
         "session_runtime_blob_sha": hashlib.sha1(blob).hexdigest(),
+        "deployed_source_sha256": digest.hexdigest(),
     }
 
 

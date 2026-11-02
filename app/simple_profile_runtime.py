@@ -7,7 +7,8 @@ from typing import Any, Dict, List
 
 from fastapi import HTTPException
 
-from . import character_chunk_read, relationship_file_runtime, session_runtime, storage, writer_first_runtime
+from . import character_chunk_read, personal_memory_transport, relationship_file_runtime, session_runtime, storage, writer_first_runtime
+from .npc_intent import active_intents_for
 from .profile_templates import (
     normalize_character_profile,
     render_character_profile,
@@ -682,6 +683,15 @@ def _participation_bundle(session_id: str, character_id: str) -> Dict[str, Any]:
         ),
         "knowledge_journal": journal,
         "legacy_knowledge": legacy_knowledge,
+        "experiences": deepcopy(bucket.get("experiences", [])),
+        "dialogue_memory": personal_memory_transport.personal_dialogue_rows(
+            bucket.get("dialogue_memory", []), owner_id=character_id, cards=cards,
+        ),
+        "active_intents": active_intents_for(
+            state, [character_id],
+            current_turn=int(storage._read_json(root / "meta.json", {}).get("turn_number", 0) or 0),
+            max_per_character=None,
+        ).get(character_id, []),
         "knowledge_complete": True,
         "knowledge_scope": {
             "own_card_is_self_known_except_explicit_hidden_branches": True,

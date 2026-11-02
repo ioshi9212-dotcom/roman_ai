@@ -20,7 +20,6 @@ MAX_WORKING_KNOWLEDGE = 12
 MAX_WORKING_EXPERIENCES = 10
 MAX_WORKING_DIALOGUE = 10
 MAX_HISTORICAL_KNOWLEDGE_CATALOG = 8
-MAX_ACTIVE_THREADS = 12
 MAX_OFFSCREEN_INTENT_CANDIDATES = 12
 MAX_RECENT_CHRONOLOGY = 12
 MAX_CHARACTER_CHRONOLOGY = 4
@@ -113,28 +112,33 @@ def _priority(value: Any) -> int:
     return {"critical": 100, "high": 75, "medium": 50, "normal": 50, "low": 25}.get(str(raw or "").casefold(), 0)
 
 
-def _compact_thread(item: Any) -> Any:
+def _compact_thread(item: Any, *, notes_chars: int = 700) -> Any:
     result = deepcopy(item)
     if not isinstance(result, dict):
         return result
     # Keep all structural thread fields, but do not let old free-form notes dominate every turn packet.
     # Full persistent thread state remains in Railway.
     notes = result.get("notes")
-    if isinstance(notes, str) and len(notes) > 700:
-        result["notes"] = notes[:700]
+    if isinstance(notes, str) and len(notes) > notes_chars:
+        result["notes"] = notes[:notes_chars]
         result["notes_truncated_in_writer_context"] = True
     return result
 
 
 def _active_threads(value: Any) -> Any:
     if isinstance(value, dict):
-        rows = [(str(key), _compact_thread(item)) for key, item in value.items() if _status(item) not in _TERMINAL]
+        active = [(str(key), item) for key, item in value.items() if _status(item) not in _TERMINAL]
+        # Keep every open line; share a small budget for auxiliary prose notes.
+        notes_chars = min(700, 6000 // max(1, len(active)))
+        rows = [(key, _compact_thread(item, notes_chars=notes_chars)) for key, item in active]
         rows.sort(key=lambda pair: _priority(pair[1]), reverse=True)
-        return {key: item for key, item in rows[:MAX_ACTIVE_THREADS]}
+        return dict(rows)
     if isinstance(value, list):
-        rows = [_compact_thread(item) for item in value if _status(item) not in _TERMINAL]
+        active = [item for item in value if _status(item) not in _TERMINAL]
+        notes_chars = min(700, 6000 // max(1, len(active)))
+        rows = [_compact_thread(item, notes_chars=notes_chars) for item in active]
         rows.sort(key=_priority, reverse=True)
-        return rows[:MAX_ACTIVE_THREADS]
+        return rows
     return deepcopy(value)
 
 
@@ -509,7 +513,7 @@ def _rewrite_context(session_id: str, context: Dict[str, Any]) -> Dict[str, Any]
         "scene_history": {"one_dense_sentence_per_audited_scene": True, "raw_turns_remain_persistent": True},
         "working_memory_caps": {"knowledge": "complete", "experiences": MAX_WORKING_EXPERIENCES, "dialogue_memory": MAX_WORKING_DIALOGUE, "historical_knowledge_catalog": 0},
         "active_character_knowledge_complete": True,
-        "active_thread_cap": MAX_ACTIVE_THREADS,
+        "active_thread_cap": "complete",
         "runtime_documents_per_turn": ["runtime_rules", "scene_builder"],
         "future_guidance_is_not_history": True,
         "npc_intents_are_persistent": True,

@@ -904,41 +904,42 @@ def _confirm_reconciliation(
 
 
 def _finalize_draft(draft_id: str) -> Dict[str, Any]:
-    draft = novel_drafts._read(draft_id)
-    if not _is_simple_draft(draft):
-        return dict(_ORIGINAL_FINALIZE(draft_id))
+    with session_transaction(novel_drafts._drafts_dir()):
+        draft = novel_drafts._read(draft_id)
+        if not _is_simple_draft(draft):
+            return dict(_ORIGINAL_FINALIZE(draft_id))
 
-    status = _draft_status(draft_id)
-    if not status.get("ready_to_finalize"):
-        raise ValueError(status.get("finalize_blocker") or "DRAFT_INCOMPLETE")
+        status = _draft_status(draft_id)
+        if not status.get("ready_to_finalize"):
+            raise ValueError(status.get("finalize_blocker") or "DRAFT_INCOMPLETE")
 
-    template, coverage = _validate_simple_content(_content_template(draft))
-    verification = novel_drafts.verify_template(template)
-    if not verification.get("ok"):
-        raise RuntimeError("FINAL_VERIFICATION_FAILED")
+        template, coverage = _validate_simple_content(_content_template(draft))
+        verification = novel_drafts.verify_template(template)
+        if not verification.get("ok"):
+            raise RuntimeError("FINAL_VERIFICATION_FAILED")
 
-    draft["finalized"] = True
-    draft["finalized_revision"] = int(draft.get("revision", 0) or 0)
-    draft["finalized_template"] = template
-    novel_drafts._write(novel_drafts._draft_path(draft_id), draft)
+        draft["finalized"] = True
+        draft["finalized_revision"] = int(draft.get("revision", 0) or 0)
+        draft["finalized_template"] = template
+        novel_drafts._write(novel_drafts._draft_path(draft_id), draft)
 
-    launch_ready, _ = setup_draft_v3_runtime._launch_state_status(draft)
-    return {
-        "ok": True,
-        "draft_id": draft_id,
-        "revision": int(draft.get("revision", 0) or 0),
-        "finalized_revision": draft["finalized_revision"],
-        "verification": verification,
-        "foundation_coverage": coverage,
-        "intake_coverage": status.get("intake_coverage"),
-        "reconciliation_current": True,
-        "content_finalized": True,
-        "session_ready": bool(launch_ready),
-        "awaiting_launch_start": not launch_ready,
-        "saved_to_library": False,
-        "simple_profile_mode": True,
-        "instruction": "Профили полностью записаны и сверены с RAW. Следующая пользовательская команда: «запускай первую сцену».",
-    }
+        launch_ready, _ = setup_draft_v3_runtime._launch_state_status(draft)
+        return {
+            "ok": True,
+            "draft_id": draft_id,
+            "revision": int(draft.get("revision", 0) or 0),
+            "finalized_revision": draft["finalized_revision"],
+            "verification": verification,
+            "foundation_coverage": coverage,
+            "intake_coverage": status.get("intake_coverage"),
+            "reconciliation_current": True,
+            "content_finalized": True,
+            "session_ready": bool(launch_ready),
+            "awaiting_launch_start": not launch_ready,
+            "saved_to_library": False,
+            "simple_profile_mode": True,
+            "instruction": "Новелла сохранена. Следующая пользовательская команда: «запускай первую сцену».",
+        }
 
 
 def install() -> None:

@@ -198,7 +198,7 @@ def test_custom_gpt_instruction_matches_rules_driven_transport():
     assert "стартовые знания" in text
     assert "turn=0" in text
     builder = (ROOT / "runtime" / "scene_builder.md").read_text(encoding="utf-8")
-    assert "## ВВОД И ХОД СЦЕНЫ" in builder
+    assert "`player_input_map.ordered_segments`" in builder
     assert "Chronology и personal knowledge независимы" in text
     assert "required_audit" in text
     assert "Intent из bundle принадлежит только его владельцу" in text
@@ -213,8 +213,8 @@ def test_custom_gpt_instruction_matches_rules_driven_transport():
     assert "Появление, частота и поведение NPC" not in text
     assert "Footer только текущих" not in text
     assert "интерфейсные данные" in text
-    assert "ВАРИАНТЫ" in builder
-    assert "POV виден в сцене" in builder
+    assert "Что я могу подумать:" in builder
+    assert "POV всегда присутствует как живой персонаж" in builder
     assert "не смягчай, не обобщай" in text
     assert "Все постоянные персонажи из RAW" in text
     assert "включая важных offscreen/nearby" in text

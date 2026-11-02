@@ -22,7 +22,7 @@ _TRANSFER_RE = re.compile(
     r"(?iu)\b(?:переслать|показать|скинуть|дать\s+прочитать)\s+([^\s,.;:()—-]+)"
 )
 _REMOTE_MARKER_RE = re.compile(
-    r"(?iu)\b(?:сообщен\w*|переписк\w*|чат\w*|смс|звон\w*|телефон\w*|трубк\w*|голосов\w*|видеосвяз\w*|мессендж\w*)\b"
+    r"(?iu)\b(?:сообщен\w*|переписк\w*|чат\w*|смс|sms|звон\w*|телефон\w*|раци\w*|трубк\w*|голосов\w*|видеосвяз\w*|мессендж\w*)\b"
 )
 _ACTION_PREFIXES = {
     "встать", "сесть", "подойти", "отойти", "пойти", "уйти", "вернуться", "взять", "достать",
@@ -303,6 +303,8 @@ def _speaker_units(scene_output: str, cards: List[Dict[str, Any]]) -> List[Dict[
     result: List[Dict[str, Any]] = []
     for line in iter_scene_speech(str(scene_output or "")):
         speaker_label = line["speaker"]
+        if line.get("channel"):
+            speaker_label += f" ({line['channel']})"
         cid = _resolve_speaker_label(speaker_label, exact, stems)
         if cid:
             result.append({

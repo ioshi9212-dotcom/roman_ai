@@ -697,26 +697,27 @@ def draft_status(draft_id: str) -> Dict[str, Any]:
 
 
 def finalize_draft(draft_id: str) -> Dict[str, Any]:
-    draft = _read(draft_id)
-    status = draft_status(draft_id)
-    if not status["ready_to_finalize"]:
-        raise ValueError(status.get("finalize_blocker") or "DRAFT_INCOMPLETE")
-    template, coverage = _validate_template(_build_template(draft))
-    verification = verify_template(template)
-    if not verification["ok"]:
-        raise RuntimeError("FINAL_VERIFICATION_FAILED")
-    draft["finalized"] = True
-    draft["finalized_revision"] = int(draft.get("revision", 0) or 0)
-    draft["finalized_template"] = template
-    _write(_draft_path(draft_id), draft)
-    return {
-        "ok": True,
-        "draft_id": draft_id,
-        "verification": verification,
-        "foundation_coverage": coverage,
-        "saved_to_library": False,
-        "instruction": "Draft is verified but NOT added to the library. Read it with prepareDraftRead, then createSessionFromDraft. If setup omissions are found before the first gameplay turn, save corrected sections to this same draft_id to reopen it, re-read, re-verify and re-finalize before creating a replacement session.",
-    }
+    with session_transaction(_drafts_dir()):
+        draft = _read(draft_id)
+        status = draft_status(draft_id)
+        if not status["ready_to_finalize"]:
+            raise ValueError(status.get("finalize_blocker") or "DRAFT_INCOMPLETE")
+        template, coverage = _validate_template(_build_template(draft))
+        verification = verify_template(template)
+        if not verification["ok"]:
+            raise RuntimeError("FINAL_VERIFICATION_FAILED")
+        draft["finalized"] = True
+        draft["finalized_revision"] = int(draft.get("revision", 0) or 0)
+        draft["finalized_template"] = template
+        _write(_draft_path(draft_id), draft)
+        return {
+            "ok": True,
+            "draft_id": draft_id,
+            "verification": verification,
+            "foundation_coverage": coverage,
+            "saved_to_library": False,
+            "instruction": "Draft is verified but NOT added to the library. Read it with prepareDraftRead, then createSessionFromDraft. If setup omissions are found before the first gameplay turn, save corrected sections to this same draft_id to reopen it, re-read, re-verify and re-finalize before creating a replacement session.",
+        }
 
 
 def _finalized_template(draft_id: str) -> Dict[str, Any]:
