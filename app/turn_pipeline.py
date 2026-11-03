@@ -53,7 +53,7 @@ _BASE_PARTICIPATION_BUNDLE = character_chunk_read._participation_bundle
 _BASE_CREATE_SESSION = storage.create_session
 _BASE_RECOVER_CURRENT = session_recovery.recover_session_current
 
-PIPELINE_VERSION = 21
+PIPELINE_VERSION = 23
 
 def _packet_manifest(packet: Dict[str, Any], *, reused: bool) -> Dict[str, Any]:
     chunks = packet.get("chunks", []) if isinstance(packet.get("chunks"), list) else []
@@ -298,7 +298,8 @@ def _clean_relationship_lens(context: Dict[str, Any]) -> None:
 
 
 def _clean_director_layers(context: Dict[str, Any]) -> Dict[str, Any]:
-    result = deepcopy(context)
+    # This packet is request-owned; do not copy the whole context again.
+    result = context
 
     # relationships.json is the sole relationship canon. Base compatibility
     # builders may still have copied legacy relationship stores into the packet
@@ -403,7 +404,7 @@ def _waiting_momentum_context(user_input: Any, recent_turns: Any) -> Dict[str, A
 
 
 def _move_runtime_documents_last(context: Dict[str, Any]) -> Dict[str, Any]:
-    result = deepcopy(context)
+    result = context
     rules = result.pop("runtime_rules", None)
     builder = result.pop("scene_builder", None)
     result["read_order"] = [
@@ -539,14 +540,8 @@ def _prepare_context(
         "mandatory_causal_review": True,
         "offscreen_bundle_read": {
             "action": "prepareCharacterBundleRead",
-            "then": "read all getCharacterBundleChunk chunks before material participation",
-            "rule": "The bundle may be read to decide whether a candidate should participate; complete it before actual participation.",
+            "then": "getCharacterBundleChunk",
         },
-        "instruction": (
-            "Прочитай cast_registry.characters и relationships. Реестр — director-only индекс ID; "
-            "правила участия определяет scene_builder. "
-            "До реального участия offscreen NPC прочитай его полный character bundle."
-        ),
         "characters": _cast_registry_rows(state, cards, source, current_turn, npc_network, relationship_store),
     }
     context.pop("npc_relationship_network", None)
@@ -673,6 +668,11 @@ def prepare_turn_packet(session_id: str, user_input: str, *, _migrated: bool = F
 def _validate_technical_state_patch(payload: Dict[str, Any]) -> None:
     extracted = payload.get("extracted") if isinstance(payload.get("extracted"), dict) else {}
     patch = extracted.get("state_patch") if isinstance(extracted.get("state_patch"), dict) else {}
+    if "npc_intents" in patch:
+        raise HTTPException(status_code=409, detail={
+            "code": "NPC_INTENTS_UPDATE_PATH_REQUIRED",
+            "message": "Use extracted.npc_intent_updates; state_patch cannot replace the NPC intent store.",
+        })
     if "current" not in patch:
         return
     current = patch.get("current")
@@ -890,11 +890,16 @@ def _prepare_profile_persistence(session_id: str, payload: Dict[str, Any]) -> Di
         state_patch.pop(key, None)
     extracted["state_patch"] = state_patch
 
-    if simple_profile_runtime._simple_session(root):
-        simple_profile_runtime._prepare_journal_entries(root, extracted)
+    simple = simple_profile_runtime._simple_session(root)
+    if simple:
         simple_profile_runtime._normalize_upserts(root, extracted)
 
     result["extracted"] = extracted
+    # Canonicalize owners before V5 journal conversion or knowledge checks.
+    # Otherwise owner_character_id rows could be silently dropped by conversion.
+    result = memory_integrity_runtime._canonicalize_memory_payload(session_id, result, audit=False)
+    if simple:
+        simple_profile_runtime._prepare_journal_entries(root, result["extracted"])
     return result
 
 
@@ -942,7 +947,7 @@ def commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     prepared = private_knowledge_runtime.normalize_dialogue_memory_modes(session_id, prepared)
     prepared = private_knowledge_runtime.add_scene_remote_communication_memory(session_id, prepared)
     private_knowledge_runtime.validate_private_knowledge(session_id, prepared)
-    memory_coverage_runtime.validate_durable_dialogue_coverage(prepared)
+    memory_coverage_runtime.preserve_durable_dialogue(session_id, prepared)
     prepared = _strip_relationship_review(prepared)
     prepared = _apply_story_and_intent_updates(session_id, prepared)
     prepared = _apply_npc_relationship_updates(session_id, prepared)
@@ -953,12 +958,6 @@ def commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         session_id,
         prepared,
     )
-    prepared = memory_integrity_runtime._canonicalize_memory_payload(
-        session_id,
-        prepared,
-        audit=False,
-    )
-
     saved = dict(stability_runtime._atomic_commit_turn(session_id, prepared))
     saved["saved_chronology_events"] = len(
         prepared.get("extracted", {}).get("chronology", [])

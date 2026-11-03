@@ -7,13 +7,11 @@ from typing import Any, Dict, Iterable, List
 
 from fastapi import HTTPException
 
-from . import relationship_runtime, session_runtime, storage, writer_first_runtime
+from . import relationship_runtime, storage, writer_first_runtime
 from .living_world_runtime import RELATIONSHIP_DIMENSIONS
 from .transactional_storage import session_transaction
 
 
-_ORIGINAL_PREPARE = None
-_ORIGINAL_COMMIT = None
 _VERSION = 2
 
 _META_KEYS = (
@@ -568,22 +566,3 @@ def _rewrite_packet(session_id: str, base_result: Dict[str, Any]) -> Dict[str, A
             }
         )
         return result
-
-
-def _prepare_turn(session_id: str, user_input: str) -> Dict[str, Any]:
-    return _rewrite_packet(session_id, dict(_ORIGINAL_PREPARE(session_id, user_input)))
-
-
-def _commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
-    prepared = _validate_relationship_commit(session_id, payload)
-    return dict(_ORIGINAL_COMMIT(session_id, prepared))
-
-
-def install() -> None:
-    global _ORIGINAL_PREPARE, _ORIGINAL_COMMIT
-    if _ORIGINAL_PREPARE is not None:
-        return
-    _ORIGINAL_PREPARE = session_runtime.prepare_turn_packet
-    _ORIGINAL_COMMIT = session_runtime.commit_turn
-    session_runtime.prepare_turn_packet = _prepare_turn
-    session_runtime.commit_turn = _commit_turn

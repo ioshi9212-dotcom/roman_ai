@@ -7,14 +7,11 @@ from typing import Any, Dict, Iterable
 
 from fastapi import HTTPException
 
-from . import session_runtime, storage, writer_first_runtime
+from . import storage, writer_first_runtime
 from .story_thread import apply_updates, active_threads
 from .transactional_storage import session_transaction
 
 
-_ORIGINAL_PREPARE = None
-_ORIGINAL_COMMIT_TURN = None
-_ORIGINAL_COMMIT_AUDIT = None
 _STORY_ENGINE_VERSION = 8
 _STAGNATION_LIMIT = 3
 _WORLD_STAGNATION_LIMIT = 10
@@ -412,27 +409,3 @@ def _rewrite_story_drive(session_id: str, base: Dict[str, Any]) -> Dict[str, Any
             "story_engine_version": _STORY_ENGINE_VERSION,
         })
         return result
-
-
-def _prepare_turn(session_id: str, user_input: str) -> Dict[str, Any]:
-    return _rewrite_story_drive(session_id, dict(_ORIGINAL_PREPARE(session_id, user_input)))
-
-
-def _commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
-    return _ORIGINAL_COMMIT_TURN(session_id, _with_story_patch(session_id, payload, audit=False))
-
-
-def _commit_audit(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
-    return _ORIGINAL_COMMIT_AUDIT(session_id, _with_story_patch(session_id, payload, audit=True))
-
-
-def install() -> None:
-    global _ORIGINAL_PREPARE, _ORIGINAL_COMMIT_TURN, _ORIGINAL_COMMIT_AUDIT
-    if _ORIGINAL_PREPARE is not None:
-        return
-    _ORIGINAL_PREPARE = session_runtime.prepare_turn_packet
-    _ORIGINAL_COMMIT_TURN = session_runtime.commit_turn
-    _ORIGINAL_COMMIT_AUDIT = session_runtime.commit_audit
-    session_runtime.prepare_turn_packet = _prepare_turn
-    session_runtime.commit_turn = _commit_turn
-    session_runtime.commit_audit = _commit_audit

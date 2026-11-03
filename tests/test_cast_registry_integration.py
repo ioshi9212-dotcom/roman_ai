@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from app import cast_registry_runtime, storage, story_thread_runtime
+from app import cast_registry_runtime, scene_presence_runtime, storage, story_thread_runtime
 from app.turn_rollback import _apply_saved_turn, _initial_replay_state
 
 
@@ -144,7 +144,8 @@ def test_registry_uses_canonical_presence_contract_for_direct_roster_patch():
                 "state_patch": {"current": {"present_characters": ["pov", "liam"]}},
             },
         }
-        prepared = cast_registry_runtime._with_registry_patch(sid, payload)
+        normalized = scene_presence_runtime._apply_presence_contract(payload, root=storage.SESSIONS_DIR / sid)
+        prepared = cast_registry_runtime._with_registry_patch(sid, normalized)
         current_patch = prepared["extracted"]["state_patch"]["current"]
         assert current_patch["present_characters"] == ["pov", "liam"]
         assert "liam" in current_patch["entered_characters"]

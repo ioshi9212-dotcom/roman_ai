@@ -10,7 +10,6 @@ from .scene_compaction_runtime import audit_scene_context
 from .long_horizon_audit import build_macro_payload, cast_audit, macro_due, relationship_audit
 
 
-_ORIGINAL_GET_AUDIT = None
 FAST_AUDIT_PACKET_VERSION = 12
 AUDIT_PACKET_CHARS = 16000
 
@@ -40,7 +39,6 @@ def _turn_evidence(turn: Dict[str, Any]) -> Dict[str, Any]:
     if scene:
         result["scene_output"] = scene
     return result
-
 
 
 def _continuity_audit(
@@ -300,11 +298,3 @@ def get_audit_snapshot(session_id: str) -> Dict[str, Any]:
     }
     storage._write_json(path, packet)
     return _response(packet, include_first=True)
-
-
-def install() -> None:
-    global _ORIGINAL_GET_AUDIT
-    if _ORIGINAL_GET_AUDIT is not None:
-        return
-    _ORIGINAL_GET_AUDIT = audit_runtime.get_audit_snapshot
-    audit_runtime.get_audit_snapshot = get_audit_snapshot

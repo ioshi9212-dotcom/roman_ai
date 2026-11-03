@@ -143,7 +143,7 @@ def active_intents_for(
     character_ids: Iterable[str],
     *,
     current_turn: int,
-    max_per_character: int = MAX_ACTIVE_INTENTS_PER_CHARACTER,
+    max_per_character: int | None = MAX_ACTIVE_INTENTS_PER_CHARACTER,
 ) -> Dict[str, List[Dict[str, Any]]]:
     store = normalise_store(state)
     game_day = _game_day(state)
@@ -172,5 +172,5 @@ def active_intents_for(
             reverse=True,
         )
         if candidates:
-            result[character_id] = candidates[:max_per_character]
+            result[character_id] = candidates if max_per_character is None else candidates[:max_per_character]
     return result

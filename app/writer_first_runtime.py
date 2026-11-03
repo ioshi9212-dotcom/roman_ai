@@ -1,17 +1,15 @@
 from __future__ import annotations
 
-import json
 import re
 from copy import deepcopy
 from typing import Any, Dict, List
 
-from . import session_runtime, storage
-from .npc_intent import active_intents_for, normalise_store
+from . import session_documents, storage
+from .npc_intent import active_intents_for
 from .scene_compaction_runtime import active_memory_records, complete_knowledge_records, covered_turns, load_scene_history
-from .transactional_storage import session_transaction
+from .scene_speech import scene_body_text
 
 
-_ORIGINAL_PREPARE = None
 WRITER_FIRST_VERSION = 15
 WRITER_PACKET_CHARS = 16000
 RECENT_FULL_TURNS = 2
@@ -20,8 +18,6 @@ MAX_WORKING_KNOWLEDGE = 12
 MAX_WORKING_EXPERIENCES = 10
 MAX_WORKING_DIALOGUE = 10
 MAX_HISTORICAL_KNOWLEDGE_CATALOG = 8
-MAX_ACTIVE_THREADS = 12
-MAX_OFFSCREEN_INTENT_CANDIDATES = 12
 MAX_RECENT_CHRONOLOGY = 12
 MAX_CHARACTER_CHRONOLOGY = 4
 MAX_LOCATION_CHRONOLOGY = 4
@@ -83,19 +79,6 @@ def _parse_player_input(text: str) -> Dict[str, Any]:
     }
 
 
-def _compact_cast_index(value: Any) -> List[Dict[str, Any]]:
-    if not isinstance(value, list):
-        return []
-    keep = {"character_id", "name", "full_name", "role", "is_pov", "present", "location", "pov_familiarity", "last_seen_turn", "last_interaction_turn"}
-    result = []
-    for row in value:
-        if isinstance(row, dict):
-            compact = {key: deepcopy(row[key]) for key in keep if key in row and row[key] not in (None, "", [], {})}
-            if compact:
-                result.append(compact)
-    return result
-
-
 def _status(value: Any) -> str:
     if isinstance(value, dict):
         for key in ("status", "state", "phase"):
@@ -113,28 +96,33 @@ def _priority(value: Any) -> int:
     return {"critical": 100, "high": 75, "medium": 50, "normal": 50, "low": 25}.get(str(raw or "").casefold(), 0)
 
 
-def _compact_thread(item: Any) -> Any:
+def _compact_thread(item: Any, *, notes_chars: int = 700) -> Any:
     result = deepcopy(item)
     if not isinstance(result, dict):
         return result
     # Keep all structural thread fields, but do not let old free-form notes dominate every turn packet.
-    # Full persistent thread state remains in Railway.
+    # Full persistent thread state remains in storage.
     notes = result.get("notes")
-    if isinstance(notes, str) and len(notes) > 700:
-        result["notes"] = notes[:700]
+    if isinstance(notes, str) and len(notes) > notes_chars:
+        result["notes"] = notes[:notes_chars]
         result["notes_truncated_in_writer_context"] = True
     return result
 
 
 def _active_threads(value: Any) -> Any:
     if isinstance(value, dict):
-        rows = [(str(key), _compact_thread(item)) for key, item in value.items() if _status(item) not in _TERMINAL]
+        active = [(str(key), item) for key, item in value.items() if _status(item) not in _TERMINAL]
+        # Keep every open line; share a small budget for auxiliary prose notes.
+        notes_chars = min(700, 6000 // max(1, len(active)))
+        rows = [(key, _compact_thread(item, notes_chars=notes_chars)) for key, item in active]
         rows.sort(key=lambda pair: _priority(pair[1]), reverse=True)
-        return {key: item for key, item in rows[:MAX_ACTIVE_THREADS]}
+        return dict(rows)
     if isinstance(value, list):
-        rows = [_compact_thread(item) for item in value if _status(item) not in _TERMINAL]
+        active = [item for item in value if _status(item) not in _TERMINAL]
+        notes_chars = min(700, 6000 // max(1, len(active)))
+        rows = [_compact_thread(item, notes_chars=notes_chars) for item in active]
         rows.sort(key=_priority, reverse=True)
-        return rows[:MAX_ACTIVE_THREADS]
+        return rows
     return deepcopy(value)
 
 
@@ -322,10 +310,9 @@ def _scene_body_excerpt(value: Any, *, limit: int = 1200) -> str:
     When the message has no recognized header, retain its plain prose instead.
     Privacy redaction is applied afterwards to this excerpt by the packet layer.
     """
-    scene = _strip_relationship_display(value)
+    scene = scene_body_text(_strip_relationship_display(value))
     start = 0
-    choice = scene.find("Что я могу сделать:")
-    cutoff = choice if choice >= 0 else len(scene)
+    cutoff = len(scene)
     prefix = scene[:cutoff]
     separators = list(re.finditer(r"(?m)^(?:-{20,}|─{8,})[ ]*$", prefix))
     if separators:
@@ -456,15 +443,16 @@ def _rewrite_context(session_id: str, context: Dict[str, Any]) -> Dict[str, Any]
     result["continuity_turns"] = continuity
     result["scene_history"] = load_scene_history(root)
     result["active_threads"] = _active_threads(result.get("active_threads"))
-    result["cast_index"] = _compact_cast_index(result.get("cast_index"))
-    _compact_memory(result)
 
     character_ids = _scene_ids(result)
-    current = result.get("scene_state", {}).get("current", {}) if isinstance(result.get("scene_state"), dict) else {}
-    location = (current.get("location") or current.get("place")) if isinstance(current, dict) else None
-    chronology_source = result.get("chronology_recent")
-    result["chronology_anchor_catalog"] = _anchor_catalog(chronology_source)
-    result["chronology_recent"] = _compact_chronology(chronology_source, character_ids, location)
+    # V5 uses complete canonical documents; only legacy needs compaction.
+    if not session_documents.is_native(root):
+        _compact_memory(result)
+        current = result.get("scene_state", {}).get("current", {}) if isinstance(result.get("scene_state"), dict) else {}
+        location = (current.get("location") or current.get("place")) if isinstance(current, dict) else None
+        chronology_source = result.get("chronology_recent")
+        result["chronology_anchor_catalog"] = _anchor_catalog(chronology_source)
+        result["chronology_recent"] = _compact_chronology(chronology_source, character_ids, location)
     current_turn = int(meta.get("turn_number", 0) or 0)
     result["npc_active_intents"] = active_intents_for(
         state,
@@ -472,113 +460,4 @@ def _rewrite_context(session_id: str, context: Dict[str, Any]) -> Dict[str, Any]
         current_turn=current_turn,
     )
 
-    # Offscreen intents are director triggers only. Do not expose their summary/planned_action
-    # before that character is actually loaded, otherwise another scene character can
-    # accidentally "know" an offscreen person's private future plan.
-    store_ids = list(normalise_store(state).keys())
-    offscreen_ids = [cid for cid in store_ids if cid not in set(character_ids)]
-    offscreen = active_intents_for(state, offscreen_ids, current_turn=current_turn)
-    candidates = []
-    for character_id, intents in offscreen.items():
-        if not isinstance(intents, list) or not intents:
-            continue
-        eligible = [item for item in intents if isinstance(item, dict) and item.get("eligible_now") is True]
-        if not eligible:
-            continue
-        candidates.append({
-            "character_id": character_id,
-            "has_active_intent": True,
-            "highest_priority": max([int(item.get("priority") or 0) for item in eligible] or [0]),
-            "eligible_intent_count": len(eligible),
-        })
-    candidates.sort(
-        key=lambda item: (int(item.get("highest_priority") or 0), int(item.get("eligible_intent_count") or 0)),
-        reverse=True,
-    )
-    result["offscreen_intent_candidates"] = {
-        "director_only": True,
-        "characters": candidates[:MAX_OFFSCREEN_INTENT_CANDIDATES],
-    }
-
-    contract = result.get("working_context_contract") if isinstance(result.get("working_context_contract"), dict) else {}
-    contract.update({
-        "writer_first_version": WRITER_FIRST_VERSION,
-        "recent_full_turns": RECENT_FULL_TURNS,
-        "continuity_window": CONTINUITY_WINDOW,
-        "chronology_selection": {"recent": 12, "per_character": 4, "location": 4, "full_recent_anchors": 12, "audited_scene_events_replaced_by_scene_history": True},
-        "scene_history": {"one_dense_sentence_per_audited_scene": True, "raw_turns_remain_persistent": True},
-        "working_memory_caps": {"knowledge": "complete", "experiences": MAX_WORKING_EXPERIENCES, "dialogue_memory": MAX_WORKING_DIALOGUE, "historical_knowledge_catalog": 0},
-        "active_character_knowledge_complete": True,
-        "active_thread_cap": MAX_ACTIVE_THREADS,
-        "runtime_documents_per_turn": ["runtime_rules", "scene_builder"],
-        "future_guidance_is_not_history": True,
-        "npc_intents_are_persistent": True,
-        "full_npc_intent_store_in_packet": False,
-        "offscreen_active_intents_in_packet": False,
-        "offscreen_intent_candidates_in_packet": True,
-        "offscreen_intent_candidate_cap": MAX_OFFSCREEN_INTENT_CANDIDATES,
-        "first_packet_chunk_in_prepare_response": True,
-    })
-    result["working_context_contract"] = contract
     return result
-
-
-def _next_unread(packet: Dict[str, Any]) -> int | None:
-    chunks = packet.get("chunks", []) if isinstance(packet.get("chunks"), list) else []
-    read = {int(value) for value in packet.get("read_chunks", []) if isinstance(value, int)}
-    for index in range(1, len(chunks)):
-        if index not in read:
-            return index
-    return None
-
-
-def _manifest(packet: Dict[str, Any], base: Dict[str, Any]) -> Dict[str, Any]:
-    chunks = packet.get("chunks", []) if isinstance(packet.get("chunks"), list) else []
-    result = dict(base)
-    result.update({
-        "packet_id": packet.get("packet_id"),
-        "prepared_for_turn": int(packet.get("prepared_for_turn", 0) or 0),
-        "chunk_count": len(chunks),
-        "total_chars": sum(len(str(chunk)) for chunk in chunks),
-        "writer_first": True,
-        "writer_first_version": WRITER_FIRST_VERSION,
-        "chunk_chars_max": WRITER_PACKET_CHARS,
-        "first_chunk_included": bool(chunks),
-        "next_chunk_index": _next_unread(packet),
-        "instruction": "Chunk 0 is included here. Read only remaining unread chunks, then write and commit once.",
-    })
-    if chunks:
-        result["chunk_index"] = 0
-        result["content"] = chunks[0]
-        result["all_chunks_read"] = len(set(packet.get("read_chunks", []))) >= len(chunks)
-    return result
-
-
-def _prepare_turn(session_id: str, user_input: str) -> Dict[str, Any]:
-    base = dict(_ORIGINAL_PREPARE(session_id, user_input))
-    root = storage.SESSIONS_DIR / session_id
-    with session_transaction(root):
-        packet = storage._read_json(root / "turn_packet.json", {})
-        if not isinstance(packet, dict) or not packet.get("chunks"):
-            return base
-        if packet.get("writer_first_version") == WRITER_FIRST_VERSION:
-            return _manifest(packet, base)
-        raw = "".join(str(chunk) for chunk in packet.get("chunks", []))
-        context = _rewrite_context(session_id, json.loads(raw))
-        text = json.dumps(context, ensure_ascii=False, separators=(",", ":"))
-        chunks = [text[index:index + WRITER_PACKET_CHARS] for index in range(0, len(text), WRITER_PACKET_CHARS)] or ["{}"]
-        packet["chunks"] = chunks
-        packet["chunk_count"] = len(chunks)
-        packet["read_chunks"] = [0]
-        packet["writer_first_version"] = WRITER_FIRST_VERSION
-        packet["writer_first_payload_chars"] = len(text)
-        storage._write_json(root / "turn_packet.json", packet)
-        return _manifest(packet, base)
-
-
-def install() -> None:
-    global _ORIGINAL_PREPARE
-    if _ORIGINAL_PREPARE is not None:
-        return
-    _ORIGINAL_PREPARE = session_runtime.prepare_turn_packet
-    session_runtime.prepare_turn_packet = _prepare_turn

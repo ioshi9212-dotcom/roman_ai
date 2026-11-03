@@ -4,7 +4,6 @@ import json
 from copy import deepcopy
 from typing import Any, Dict, List
 
-from . import session_runtime
 
 
 _ORIGINAL_SELECT = None
@@ -59,9 +58,3 @@ def _select_chronology_context(
         combined.values(),
         key=lambda event: (_event_turn(event), str(event.get("event_id") or "")),
     )
-
-
-def install() -> None:
-    global _ORIGINAL_SELECT
-    _ORIGINAL_SELECT = session_runtime._select_chronology_context
-    session_runtime._select_chronology_context = _select_chronology_context

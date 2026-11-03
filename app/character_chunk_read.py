@@ -6,7 +6,7 @@ from copy import deepcopy
 from typing import Any, Dict, List
 
 from .character_access import get_character_bundle
-from . import personal_memory_transport, relationship_file_runtime, storage, session_runtime
+from . import personal_memory_transport, relationship_file_runtime, storage
 from .scene_compaction_runtime import active_memory_records, complete_knowledge_records
 
 
@@ -17,7 +17,6 @@ CHARACTER_WORKING_DIALOGUE = 12
 CHARACTER_HISTORICAL_CATALOG = 8
 CHARACTER_MEMORY_TEXT_CHARS = 900
 MAX_INTENT_SOURCE_FACTS = 12
-_ORIGINAL_INJECT = None
 
 
 def _bundle_knowledge_scope(character_id: str) -> Dict[str, Any]:
@@ -40,7 +39,6 @@ def _bundle_knowledge_scope(character_id: str) -> Dict[str, Any]:
             "POV private thoughts",
             "own card branches marked unknown_to_self/hidden_from_self/not_known_to_self/known_to_self=false/author_only",
         ],
-        "instruction": "Персонаж знает self-known части своей карточки и свою память. Явно скрытые от него ветки собственной карточки и чужой канон знанием не становятся.",
     }
 
 
@@ -192,7 +190,6 @@ def _participation_bundle(session_id: str, character_id: str) -> Dict[str, Any]:
         "active_intents": deepcopy(full.get("active_intents", [])),
         "working_bundle": True,
         "persistent_lifetime_memory_complete": True,
-        "instruction": "Собственная card — self-known биография кроме явно hidden/unknown-to-self веток. personal_memory.knowledge/knowledge_journal — выученные факты. relationship_to_pov и npc_relationships_director_only берутся только из relationships.json. npc_relationships_director_only задаёт режиссёрскую динамику владельца связи, но НЕ является личным factual knowledge и не даёт неизвестных фактов о target. Частичный факт остаётся частичным: неизвестные время/место/человек/причина не достраиваются вероятными значениями; нужную деталь уточняют или оставляют догадкой до подтверждения. experiences/dialogue могут быть bounded.",
     }
 
 
@@ -243,26 +240,3 @@ def get_character_bundle_chunk(
         "content": chunks[chunk_index],
         "next_chunk_index": None if chunk_index + 1 >= len(chunks) else chunk_index + 1,
     }
-
-
-def install() -> None:
-    """Keep dormant dossiers out of normal packets while advertising the safe retrieval path."""
-    global _ORIGINAL_INJECT
-    if _ORIGINAL_INJECT is not None:
-        return
-    from . import session_runtime
-
-    _ORIGINAL_INJECT = session_runtime.inject_required_turn_context
-
-    def wrapped(context, cards, state):
-        result = _ORIGINAL_INJECT(context, cards, state)
-        result["character_context_instruction"] = "Карточку подходящего offscreen NPC можно загрузить по cast_registry или state/intents/threads, чтобы решить, появится ли он. До участия прочитай prepareCharacterBundleRead и все chunks."
-        contract = result.get("working_context_contract") if isinstance(result.get("working_context_contract"), dict) else {}
-        contract["dormant_character_retrieval"] = "bounded_chunked_when_relevant"
-        contract["remote_communication_requires_loaded_dossier"] = True
-        contract["character_read_first_chunk_inline"] = True
-        contract["direct_character_bundle_action_allowed"] = False
-        result["working_context_contract"] = contract
-        return result
-
-    session_runtime.inject_required_turn_context = wrapped

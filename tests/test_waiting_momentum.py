@@ -76,7 +76,7 @@ def test_active_prepare_packet_contains_waiting_data_without_directing_prose(tmp
     cue = ctx["waiting_momentum"]
     assert cue["consecutive_wait_inputs"] == 1
     assert set(cue) == {"kind", "consecutive_wait_inputs"}
-    assert "Если POV выбрал ждать" in ctx["scene_builder"]
+    assert "Не бросай важное действие и не заполняй паузы искусственными событиями" in ctx["scene_builder"]
     assert "story_drive" not in ctx
     assert "story_pressure" not in ctx
     assert "scene_builder" in ctx

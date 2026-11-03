@@ -28,9 +28,9 @@ def test_runtime_chunks_ship_the_same_documents_without_a_second_contract():
 def test_scene_direction_has_one_owner():
     docs = runtime_documents()
     instructions = (ROOT / "gpt/custom_gpt_instructions.md").read_text(encoding="utf-8")
-    for phrase in ("Мысли POV полностью приватны", "Если POV выбрал ждать",
-                   "Завершён должен быть игровой ход, а не обязательно действие",
-                   "Что я могу подумать:", "Состояние: {до 10 слов"):
+    for phrase in ("Мысли POV полностью приватны", "уместная пауза допустима",
+                   "Не бросай важное действие",
+                   "Что я могу подумать:", "макс до 7 слов"):
         assert phrase in docs["scene_builder"]
         assert phrase not in docs["rules"]
         assert phrase not in instructions

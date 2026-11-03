@@ -478,17 +478,3 @@ def _continue_session(session_id: str) -> Dict[str, Any]:
             "Call recoverSessionCurrent(session_id) before prepareTurn. Recovery must not create a gameplay turn or rewrite chronology/memory/canon."
         )
     return result
-
-
-def install() -> None:
-    relationship_runtime._parse_footer = _parse_footer_compat
-    base._parse_footer = _parse_footer_compat
-    base._rewrite_turn_packet = _rewrite_turn_packet
-    base._validate_dimensions = _validate_dimensions
-    base._validate_visible_footer = _validate_visible_footer
-    base._hidden_relationship_scene = _hidden_relationship_scene
-    base.relationship_patch_from_scene = _relationship_patch_from_scene
-    base._prepare_extracted_for_commit = _prepare_extracted_for_commit
-    base.prepare_turn_packet = _prepare_turn_packet
-    base.continue_session = _continue_session
-    base.install()

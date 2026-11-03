@@ -163,7 +163,7 @@ def test_offscreen_physical_state_survives_without_loading_dossier():
         assert runtime["clothing"] == "джинсы и куртка"
         assert runtime["inventory"] == ["телефон"]
         assert "private_blob" not in runtime
-        assert "offscreen_physical_state_rule" in context["scene_state"]
+        assert "offscreen_physical_state_rule" not in context["scene_state"]
 
 
 def test_thread_membership_alone_does_not_transport_full_dossier():

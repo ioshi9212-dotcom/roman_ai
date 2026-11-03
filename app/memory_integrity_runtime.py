@@ -5,11 +5,7 @@ from typing import Any, Dict, Iterable, List
 
 from fastapi import HTTPException
 
-from . import session_runtime, storage
-
-
-_ORIGINAL_COMMIT_TURN = None
-_ORIGINAL_COMMIT_AUDIT = None
+from . import storage
 
 
 def _error(code: str, message: str) -> None:
@@ -140,21 +136,3 @@ def _canonicalize_memory_payload(session_id: str, payload: Dict[str, Any], *, au
 
     result[container_key] = container
     return result
-
-
-def _commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
-    prepared = _canonicalize_memory_payload(session_id, payload, audit=False)
-    return _ORIGINAL_COMMIT_TURN(session_id, prepared)
-
-
-def _commit_audit(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
-    prepared = _canonicalize_memory_payload(session_id, payload, audit=True)
-    return _ORIGINAL_COMMIT_AUDIT(session_id, prepared)
-
-
-def install() -> None:
-    global _ORIGINAL_COMMIT_TURN, _ORIGINAL_COMMIT_AUDIT
-    _ORIGINAL_COMMIT_TURN = session_runtime.commit_turn
-    _ORIGINAL_COMMIT_AUDIT = session_runtime.commit_audit
-    session_runtime.commit_turn = _commit_turn
-    session_runtime.commit_audit = _commit_audit

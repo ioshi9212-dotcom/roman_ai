@@ -289,11 +289,6 @@ def _compact_scene_state(state: Dict[str, Any], scene_ids: List[str]) -> Dict[st
             if physical:
                 compact[cid] = physical
         result["characters"] = compact
-    result["offscreen_physical_state_rule"] = (
-        "scene_state.characters may include compact physical continuity for offscreen characters "
-        "without loading their dossier. Use location/clothing/items only as state continuity. "
-        "Offscreen physical state may itself make participation natural; if so, load that character bundle before material participation."
-    )
     return result
 
 

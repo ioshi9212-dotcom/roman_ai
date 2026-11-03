@@ -1,5 +1,5 @@
 """Native turn context avoids legacy copies; relationship values can progress subtly."""
-from app import relationship_file_runtime, transport_scope_runtime
+from app import relationship_file_runtime, transport_scope_runtime, writer_first_runtime
 from test_generator_state_documents import create, prepare, story
 
 
@@ -13,6 +13,8 @@ def test_canonical_v5_turn_skips_legacy_full_payload_scrubber(story, monkeypatch
         transport_scope_runtime, "_strip_legacy_full_payloads",
         forbidden_legacy_scrub,
     )
+    for name in ("_compact_memory", "_compact_chronology", "_anchor_catalog"):
+        monkeypatch.setattr(writer_first_runtime, name, forbidden_legacy_scrub)
     _, packet = prepare(sid)
     assert packet["scene_builder"] and packet["runtime_rules"]
     assert set(packet["character_memory"]) == {"pov", "ren"}

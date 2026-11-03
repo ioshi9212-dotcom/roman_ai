@@ -807,21 +807,3 @@ def clear_audit_packet(session_id: str) -> None:
 def continue_session(session_id: str) -> Dict[str, Any]:
     with _session_lock(session_id):
         return _ORIGINAL_CONTINUE_SESSION(session_id)
-
-
-def install() -> None:
-    # main.py imports these module attributes after app.__init__ runs, so the public
-    # API keeps the same operationIds while using the corrected runtime behavior.
-    legacy_runtime.prepare_turn_packet = prepare_turn_packet
-    legacy_runtime.commit_turn = commit_turn
-    legacy_runtime.commit_audit = commit_audit
-    legacy_runtime.continue_session = continue_session
-
-    audit_runtime.get_audit_snapshot = get_audit_snapshot
-    audit_runtime.get_audit_snapshot_chunk = get_audit_snapshot_chunk
-    audit_runtime.require_complete_audit_read = require_complete_audit_read
-    audit_runtime.clear_audit_packet = clear_audit_packet
-
-    storage.get_turn_packet_chunk = get_turn_packet_chunk
-    storage.save_novel = save_novel
-    storage.get_novel = get_novel

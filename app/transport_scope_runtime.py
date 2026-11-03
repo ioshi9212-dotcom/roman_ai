@@ -1,13 +1,9 @@
 from __future__ import annotations
 
-import json
 from copy import deepcopy
 from typing import Any, Dict
 
-from . import session_runtime, storage
-from .transactional_storage import session_transaction
 
-_ORIGINAL_PREPARE = None
 _MAX_THREAD_TEXT = 1200
 _MAX_MEMORY_FIELD_TEXT = 700
 
@@ -170,71 +166,3 @@ def _strip_legacy_full_payloads(context: Dict[str, Any], *, persistent_state: Di
     )
     result["working_context_contract"] = contract
     return result
-
-
-def _pending_manifest(packet: Dict[str, Any]) -> Dict[str, Any]:
-    chunks = packet.get("chunks", []) if isinstance(packet.get("chunks"), list) else []
-    return {
-        "packet_id": packet.get("packet_id"),
-        "prepared_for_turn": int(packet.get("prepared_for_turn", 0) or 0),
-        "chunk_count": len(chunks),
-        "total_chars": sum(len(str(chunk)) for chunk in chunks),
-        "relevant_character_ids": [str(value) for value in packet.get("relevant_character_ids", []) if value],
-        "working_context": True,
-        "reused_pending_packet": True,
-        "read_chunks": list(packet.get("read_chunks", [])),
-        "instruction": "Pending packet переиспользован. Дочитай unread chunks и сделай один commit.",
-    }
-
-
-def _prepare_turn(session_id: str, user_input: str) -> Dict[str, Any]:
-    root = storage.SESSIONS_DIR / session_id
-    if not root.exists():
-        raise FileNotFoundError(session_id)
-
-    with session_transaction(root):
-        meta = storage._read_json(root / "meta.json", {})
-        expected_turn = int(meta.get("turn_number", 0) or 0) + 1
-        packet = storage._read_json(root / "turn_packet.json", {})
-        if (
-            isinstance(packet, dict)
-            and packet.get("packet_id")
-            and int(packet.get("prepared_for_turn", 0) or 0) == expected_turn
-            and packet.get("user_input") == user_input
-            and isinstance(packet.get("chunks"), list)
-            and packet.get("chunks")
-        ):
-            return _pending_manifest(packet)
-
-        manifest = dict(_ORIGINAL_PREPARE(session_id, user_input))
-        packet = storage._read_json(root / "turn_packet.json", {})
-        raw = "".join(packet.get("chunks", []))
-        if not raw:
-            return manifest
-        persistent_state = storage._read_json(root / "state.json", {})
-        context = _strip_legacy_full_payloads(json.loads(raw), persistent_state=persistent_state)
-        text = json.dumps(context, ensure_ascii=False, separators=(",", ":"))
-        chunks = [text[i : i + storage.MAX_PACKET_CHARS] for i in range(0, len(text), storage.MAX_PACKET_CHARS)] or ["{}"]
-        packet["chunks"] = chunks
-        packet["chunk_count"] = len(chunks)
-        packet["read_chunks"] = []
-        packet["transport_scope_version"] = 6
-        storage._write_json(root / "turn_packet.json", packet)
-        manifest["chunk_count"] = len(chunks)
-        manifest["total_chars"] = len(text)
-        manifest["working_context"] = True
-        manifest["relevant_character_ids"] = [str(value) for value in context.get("relevant_character_ids", []) if value]
-        manifest["reused_pending_packet"] = False
-        manifest["instruction"] = (
-            "Прочитай все turn packet chunks. Packet bounded; полный канон остаётся в Railway. "
-            "Load an absent registered character bundle before any entrance, speech, message, call, remote reaction or other material action."
-        )
-        return manifest
-
-
-def install() -> None:
-    global _ORIGINAL_PREPARE
-    if _ORIGINAL_PREPARE is not None:
-        return
-    _ORIGINAL_PREPARE = session_runtime.prepare_turn_packet
-    session_runtime.prepare_turn_packet = _prepare_turn

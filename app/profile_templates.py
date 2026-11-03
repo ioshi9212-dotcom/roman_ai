@@ -296,20 +296,13 @@ _LEGACY_POV_SILENCE_RE = re.compile(
 
 def _strip_legacy_pov_silence_rule(value: Any) -> Any:
     if isinstance(value, str):
-        cleaned = _LEGACY_POV_SILENCE_RE.sub(" ", value)
-        return " ".join(cleaned.split()).strip(" ;")
+        return _LEGACY_POV_SILENCE_RE.sub("", value)
     if isinstance(value, list):
-        result = []
-        for item in value:
-            cleaned = _strip_legacy_pov_silence_rule(item)
-            if cleaned not in (None, "", [], {}):
-                result.append(cleaned)
-        return result
+        return [_strip_legacy_pov_silence_rule(item) for item in value]
     if isinstance(value, dict):
         return {
-            key: cleaned
+            key: _strip_legacy_pov_silence_rule(item)
             for key, item in value.items()
-            if (cleaned := _strip_legacy_pov_silence_rule(item)) not in (None, "", [], {})
         }
     return deepcopy(value)
 

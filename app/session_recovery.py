@@ -118,6 +118,8 @@ def _speaker_present_ids(scene_output: Any, *, cards: Iterable[Dict[str, Any]]) 
     text = _main_scene_text(scene_output)
     result: List[str] = []
     for speech in iter_scene_speech(text):
+        if speech.get("channel"):
+            continue  # A phone/message speaker is not evidence of physical presence.
         resolved = _resolve_character_id(cards, speech["speaker"])
         if resolved:
             result.append(resolved)

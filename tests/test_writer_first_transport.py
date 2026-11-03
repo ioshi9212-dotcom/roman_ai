@@ -5,7 +5,6 @@ from pathlib import Path
 from app import session_runtime, storage
 from app.writer_first_runtime import (
     CONTINUITY_WINDOW,
-    MAX_ACTIVE_THREADS,
     MAX_HISTORICAL_KNOWLEDGE_CATALOG,
     RECENT_FULL_TURNS,
     _parse_player_input,
@@ -98,7 +97,7 @@ def test_writer_first_packet_has_small_runtime_surface_and_first_chunk_inline():
             assert removed not in context
         assert len(context["recent_turns"]) == RECENT_FULL_TURNS
         assert len(context["continuity_turns"]) == CONTINUITY_WINDOW - RECENT_FULL_TURNS
-        assert len(context["active_threads"]) <= MAX_ACTIVE_THREADS
+        assert set(context["active_threads"]) == {f"thread-{index}" for index in range(8, 30)}
         assert all(item.get("status") != "closed" for item in context["active_threads"].values())
         npc_knowledge = context["character_memory"]["npc"]["knowledge"]
         assert len(npc_knowledge) == 249

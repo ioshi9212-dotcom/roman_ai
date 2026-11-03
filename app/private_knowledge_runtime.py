@@ -22,7 +22,7 @@ _TRANSFER_RE = re.compile(
     r"(?iu)\b(?:переслать|показать|скинуть|дать\s+прочитать)\s+([^\s,.;:()—-]+)"
 )
 _REMOTE_MARKER_RE = re.compile(
-    r"(?iu)\b(?:сообщен\w*|переписк\w*|чат\w*|смс|звон\w*|телефон\w*|трубк\w*|голосов\w*|видеосвяз\w*|мессендж\w*)\b"
+    r"(?iu)\b(?:сообщен\w*|переписк\w*|чат\w*|смс|sms|звон\w*|телефон\w*|раци\w*|трубк\w*|голосов\w*|видеосвяз\w*|мессендж\w*)\b"
 )
 _ACTION_PREFIXES = {
     "встать", "сесть", "подойти", "отойти", "пойти", "уйти", "вернуться", "взять", "достать",
@@ -303,6 +303,8 @@ def _speaker_units(scene_output: str, cards: List[Dict[str, Any]]) -> List[Dict[
     result: List[Dict[str, Any]] = []
     for line in iter_scene_speech(str(scene_output or "")):
         speaker_label = line["speaker"]
+        if line.get("channel"):
+            speaker_label += f" ({line['channel']})"
         cid = _resolve_speaker_label(speaker_label, exact, stems)
         if cid:
             result.append({
@@ -686,7 +688,49 @@ def validate_private_knowledge(session_id: str, payload: Dict[str, Any]) -> None
     cards = storage._load_cards(root, source)
     state = storage._read_json(root / "state.json", {})
     pov_id = _pov_id(state)
+    extracted = payload.get("extracted") if isinstance(payload.get("extracted"), dict) else {}
+    rows = [row for field in ("knowledge_journal_add", "knowledge_add")
+            for row in (extracted.get(field) or []) if isinstance(row, dict)]
+    hidden = source.get("hidden_lore")
+    if hidden and rows:
+        # Catch invisible copies of director-only facts, not the meaning of every
+        # new fact. Existing personal history and actual scene text remain valid
+        # evidence; hypothetical choices and a reviewed flag are not evidence.
+        protected = json.dumps(hidden, ensure_ascii=False)
+        protected_terms = _terms(protected)
+        scene = str(payload.get("scene_output") or "")
+        scene_terms = _terms(writer_first_runtime._scene_body_excerpt(scene, limit=len(scene)))
+        after = storage._deep_merge(state, extracted.get("state_patch") or {})
+        participants = set(storage._scene_participant_ids(state)) | set(storage._scene_participant_ids(after))
+        exact, stems, _ = _alias_maps(cards)
+        participants.update(unit["character_id"] for unit in _speaker_units(scene, cards))
+        known_by_owner = {}
+        for row in rows:
+            cid = _resolve_speaker_label(str(row.get("character_id") or ""), exact, stems)
+            if not cid:
+                continue  # The existing memory-owner validation rejects unknown IDs.
+            if cid not in known_by_owner:
+                known = _terms(_authorized_corpus(root, cid, cards))
+                if session_documents.is_native(root):
+                    own = session_documents.memory_to_internal(session_documents.read(root / "память" / (cid + ".json"), {}))
+                else:
+                    own = storage._memory_bucket(storage._normalise_memory(storage._read_json(root / "memory.json", {})), cid)
+                known.update(_terms(str(own.get("experiences", []))))
+                if cid in participants:
+                    known.update(scene_terms)
+                known_by_owner[cid] = known
+            text = str(row.get("text") or row.get("fact") or row.get("summary") or "")
+            leaked = _leaked_terms(text, protected_terms, known_by_owner[cid], protected_payload=protected)
+            if leaked:
+                raise HTTPException(status_code=409, detail={
+                    "code": "DIRECTOR_ONLY_JOURNAL_LEAK", "character_id": cid,
+                    "leaked_terms": leaked,
+                    "instruction": "Do not copy hidden_lore into personal knowledge without existing own memory or an actual scene disclosure. Keep the same packet_id and correct the knowledge update.",
+                })
     records = _private_records(root, cards, str(payload.get("user_input") or ""))
+    # Communication generated in this scene is private too, before it enters
+    # the archive. Reuse the existing participant-scoped dialogue records.
+    records.extend(_historical_remote_records(payload, cards, pov_id=pov_id))
     if not records:
         return
 
@@ -711,7 +755,8 @@ def validate_private_knowledge(session_id: str, payload: Dict[str, Any]) -> None
         if not cid:
             continue
         if cid == pov_id:
-            earlier_public_speech.append(text)
+            if not _REMOTE_MARKER_RE.search(str(unit.get("speaker_label") or "")):
+                earlier_public_speech.append(text)
             continue
 
         corpus = _authorized_corpus(root, cid, cards)
@@ -1190,9 +1235,5 @@ def redact_private_history(context: Dict[str, Any], *, root, cards: List[Dict[st
 
     result["private_communication_boundary"] = {
         "historical_private_segments_redacted": total,
-        "rule": (
-            "Private messages/calls/shown content from prior turns are not shared character knowledge. "
-            "Their content is available only through the personal memory of characters who actually received it."
-        ),
     }
     return result

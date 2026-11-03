@@ -2,10 +2,9 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
-from . import session_runtime, storage
+from . import storage
 
 
-_ORIGINAL_CONTINUE_SESSION = None
 _HEAVY_RESUME_FIELDS = ("chronology_context", "relationships", "relationship_documents")
 
 
@@ -72,41 +71,3 @@ def _last_committed_turn(root) -> Dict[str, Any] | None:
             "handoff_source": "durable_backup",
         }
     return None
-
-
-def _continue_session(session_id: str) -> Dict[str, Any]:
-    result = dict(_ORIGINAL_CONTINUE_SESSION(session_id))
-    result["resume_payload_counts"] = {
-        field: _size(result.get(field)) for field in _HEAVY_RESUME_FIELDS
-    }
-    for field in _HEAVY_RESUME_FIELDS:
-        result.pop(field, None)
-    result["resume_payload_compact"] = True
-    root = storage.SESSIONS_DIR / session_id
-    result["last_committed_turn"] = _last_committed_turn(root)
-    pending = _pending_turn(root)
-    if pending:
-        result["pending_turn"] = pending
-    if result.get("current_recovery_required"):
-        if pending:
-            result["pending_turn_before_current_recovery"] = pending
-    elif pending:
-        result["instruction"] = (
-            "An uncommitted turn packet already exists. last_committed_turn.scene_output is the exact latest committed scene. "
-            "Do not start or replace another gameplay turn. Reuse pending_turn with the same request_id, read only unread_chunk_indices, then commit once. "
-            "recoverSessionCurrent is not a turn-packet recovery tool."
-        )
-    else:
-        result["instruction"] = (
-            "Continue this exact existing session. last_committed_turn.scene_output is the exact latest saved scene and may be shown verbatim when the user asks for the last scene. "
-            "The resume response stays compact; full canon remains in persistent storage. On the next gameplay input call prepareTurn for this same session_id."
-        )
-    return result
-
-
-def install() -> None:
-    global _ORIGINAL_CONTINUE_SESSION
-    if _ORIGINAL_CONTINUE_SESSION is not None:
-        return
-    _ORIGINAL_CONTINUE_SESSION = session_runtime.continue_session
-    session_runtime.continue_session = _continue_session

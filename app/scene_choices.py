@@ -7,7 +7,7 @@ from . import storage
 
 GROUPS = (("action", "Что я могу сделать"), ("speech", "Что я могу сказать"),
           ("thought", "Что я могу подумать"))
-_MARKER = re.compile(r"^\s*(?:\*\*)?(Что я могу (?:сделать|сказать|подумать)):(?:\*\*)?\s*$", re.MULTILINE)
+_MARKER = re.compile(r"^\s*(?:\*\*)?(Что я могу (?:сделать|сказать|подумать))(?:[ \t]+\([^\r\n)]*\))?:(?:\*\*)?\s*$", re.MULTILINE)
 _ITEM = re.compile(r"^[ \t]*(?:[1-3][.)]|[-*]\s*\[[ xX]\])[ \t]+", re.MULTILINE)
 
 

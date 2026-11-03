@@ -6,7 +6,7 @@ from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Any, Dict
 
-from . import location_runtime, npc_intent, private_knowledge_runtime, relationship_file_runtime, session_documents, session_recovery, session_runtime, storage, story_thread
+from . import location_runtime, npc_intent, private_knowledge_runtime, relationship_file_runtime, session_documents, session_runtime, storage, story_thread
 from .game_day import sync_game_day
 from .scene_header import parse_scene_header
 from .relationship_runtime import overwrite_relationship_snapshots
@@ -19,8 +19,6 @@ from .transactional_storage import json_text, recover, session_transaction, writ
 from .turn_duplicate_guard import REQUEST_INDEX_FILE, next_request_index, recent_duplicate_turn
 
 
-_ORIGINAL_PREPARE_TURN = None
-_ORIGINAL_CONTINUE_SESSION = None
 _ORIGINAL_RECOVER_CURRENT = None
 
 _SOURCE_STANDARD_KEYS = {
@@ -149,31 +147,7 @@ def _compact_turn_context(context: Dict[str, Any], source: Dict[str, Any]) -> Di
         "registered_character_names",
     ):
         author.pop(duplicate, None)
-    author["instruction"] = (
-        "Auxiliary author-only metadata. Canonical working data lives at the top-level scene_builder paths: "
-        "scene_state, location_context, canon_notes_context, character_cards, character_memory, cast_registry, novel/novel_rules/novel_lore/hidden_lore/world_canon/story_direction, chronology_recent and recent_turns."
-    )
     context["author_context"] = author
-    context["transport_context_paths"] = {
-        "state": "scene_state",
-        "cards": "character_cards",
-        "memory": "character_memory",
-        "registry": "cast_registry",
-        "chronology": "chronology_recent",
-        "starting_state": "starting_state",
-        "location": "location_context",
-        "canon_notes": "canon_notes_context",
-    }
-    contract = context.get("working_context_contract") if isinstance(context.get("working_context_contract"), dict) else {}
-    contract.update(
-        {
-            "persistent_storage_is_complete": True,
-            "turn_packet_is_scene_scoped": True,
-            "single_copy_transport": True,
-            "scene_builder_paths_are_canonical": True,
-        }
-    )
-    context["working_context_contract"] = contract
     return context
 
 
@@ -818,58 +792,6 @@ def _recover_session(session_id: str) -> None:
             recover(root)
 
 
-def _prepare_turn(session_id: str, user_input: str) -> Dict[str, Any]:
-    _recover_session(session_id)
-    result = dict(_ORIGINAL_PREPARE_TURN(session_id, user_input))
-    result.pop("full_character_card_count", None)
-    root = storage.SESSIONS_DIR / session_id
-    packet = storage._read_json(root / "turn_packet.json", {})
-    try:
-        context = json.loads("".join(packet.get("chunks", [])))
-        instruction = str(context.get("relationship_lens_instruction", ""))
-        if "do not output an empty relationship block" not in instruction:
-            context["relationship_lens_instruction"] = (
-                instruction.rstrip()
-                + " For every present NPC, do not output an empty relationship block merely because no numeric baseline existed before this scene."
-            ).strip()
-        scene_presence = context.get("scene_presence") if isinstance(context.get("scene_presence"), dict) else {}
-        roster = scene_presence.get("roster") if isinstance(scene_presence.get("roster"), list) else []
-        for row in roster:
-            if not isinstance(row, dict) or not row.get("character_id"):
-                continue
-            character_id = str(row["character_id"])
-            row["full_card_path"] = f"character_cards[character_id={character_id}]"
-            row["memory_path"] = f"character_memory[{character_id}]"
-
-        source = storage._read_json(root / "source.json", {})
-        context = _compact_turn_context(context, source)
-        text = json.dumps(context, ensure_ascii=False, separators=(",", ":"))
-        chunks = [text[i:i + storage.MAX_PACKET_CHARS] for i in range(0, len(text), storage.MAX_PACKET_CHARS)] or ["{}"]
-        packet["chunks"] = chunks
-        packet["chunk_count"] = len(chunks)
-        packet["read_chunks"] = []
-        packet["stability_context_version"] = 2
-        storage._write_json(root / "turn_packet.json", packet)
-        result["chunk_count"] = len(chunks)
-        result["scene_character_card_count"] = len(context.get("character_cards", []))
-        result["working_context"] = True
-        result["total_chars"] = len(text)
-    except (TypeError, ValueError, json.JSONDecodeError):
-        pass
-    result["instruction"] = (
-        "Read every packet chunk before writing. scene_builder and runtime rules are mandatory. "
-        "Use the stable scene_builder paths scene_state, character_cards and character_memory. Full persistent storage remains in Railway; "
-        "the packet contains the complete current-scene working set without duplicate dormant dossiers. If another registered character enters, "
-        "load getCharacterBundle before writing that character. Persist every durable new fact before commit."
-    )
-    return result
-
-
-def _continue(session_id: str) -> Dict[str, Any]:
-    _recover_session(session_id)
-    return _ORIGINAL_CONTINUE_SESSION(session_id)
-
-
 def _recover_current(session_id: str) -> Dict[str, Any]:
     _recover_session(session_id)
     root = storage.SESSIONS_DIR / session_id
@@ -882,16 +804,3 @@ def _recover_current(session_id: str) -> Dict[str, Any]:
         if synced != state:
             storage._write_json(root / "state.json", synced)
     return result
-
-
-def install() -> None:
-    global _ORIGINAL_PREPARE_TURN, _ORIGINAL_CONTINUE_SESSION, _ORIGINAL_RECOVER_CURRENT
-    _ORIGINAL_PREPARE_TURN = session_runtime.prepare_turn_packet
-    _ORIGINAL_CONTINUE_SESSION = session_runtime.continue_session
-    _ORIGINAL_RECOVER_CURRENT = session_recovery.recover_session_current
-
-    storage.commit_turn = _atomic_commit_turn
-    storage.commit_audit = _atomic_commit_audit
-    session_runtime.prepare_turn_packet = _prepare_turn
-    session_runtime.continue_session = _continue
-    session_recovery.recover_session_current = _recover_current

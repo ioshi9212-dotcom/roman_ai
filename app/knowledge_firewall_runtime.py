@@ -7,16 +7,13 @@ from typing import Any, Dict, Iterable, List
 
 from fastapi import HTTPException
 
-from . import character_chunk_read, session_runtime, storage, writer_first_runtime
+from . import storage, writer_first_runtime
 from .scene_compaction_runtime import active_memory_records, complete_knowledge_records
 from .transactional_storage import session_transaction
 
 
 _VERSION = 11
-_ORIGINAL_PREPARE = None
-_ORIGINAL_COMMIT = None
 _ORIGINAL_CREATE_SESSION = None
-_ORIGINAL_PARTICIPATION_BUNDLE = None
 
 _DIRECT_SOURCE_KINDS = {
     "direct_observation",
@@ -53,7 +50,6 @@ _KNOWLEDGE_TOPIC_ROOTS = {
 }
 _TEMPORAL_MARKERS = ("завтра", "послезавтра", "сегодня", "вечером", "утром", "ночью", "во сколько")
 _CONTACT_RE = re.compile(r"(?iu)\b(?:к|ко|с|со|у|от)\s+([^\W\d_][\w-]{2,})")
-
 
 
 def _simple_profile_session(root) -> bool:
@@ -526,10 +522,6 @@ def _rewrite_packet(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
             "strict_knowledge_firewall_version": _VERSION,
         })
         return result
-
-
-def _prepare_turn(session_id: str, user_input: str) -> Dict[str, Any]:
-    return _rewrite_packet(session_id, dict(_ORIGINAL_PREPARE(session_id, user_input)))
 
 
 def _character_alias_map(cards: List[Dict[str, Any]]) -> Dict[str, str]:
@@ -1153,13 +1145,6 @@ def _augment_canon_fill_persistence(payload: Dict[str, Any], turn_events: Dict[s
         generated[detail_key] = fact
 
 
-def _commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
-    turn_events = _validate_knowledge_commit(session_id, payload)
-    if turn_events:
-        _augment_canon_fill_persistence(payload, turn_events)
-    return _ORIGINAL_COMMIT(session_id, payload)
-
-
 def _initial_knowledge_rows(section: Any) -> Iterable[tuple[str, Any]]:
     if not isinstance(section, dict):
         return []
@@ -1253,80 +1238,3 @@ def _create_session(novel: Dict[str, Any], *, session_id: str | None = None, met
     if sid:
         _seed_initial_knowledge(sid, novel)
     return result
-
-
-def _strict_participation_bundle(session_id: str, character_id: str) -> Dict[str, Any]:
-    root = storage.SESSIONS_DIR / session_id
-    if _simple_profile_session(root):
-        return dict(_ORIGINAL_PARTICIPATION_BUNDLE(session_id, character_id))
-    bundle = dict(_ORIGINAL_PARTICIPATION_BUNDLE(session_id, character_id))
-    memory = deepcopy(bundle.get("personal_memory", {})) if isinstance(bundle.get("personal_memory"), dict) else {}
-    bundle["personal_memory"] = memory
-    bundle["character_knowledge"] = {
-        "path": "personal_memory.knowledge",
-        "fact_authority": True,
-    }
-    bundle["author_only_recollection_context"] = {
-        "experiences_path": "personal_memory.experiences",
-        "dialogue_memory_path": "personal_memory.dialogue_memory",
-        "fact_authority": False,
-    }
-    firewall = bundle.get("knowledge_firewall") if isinstance(bundle.get("knowledge_firewall"), dict) else {}
-    firewall.pop("card_is_author_only", None)
-    firewall.update({
-        "allowed_sources": [
-            "personal_memory",
-            "self-known paths from this character's own card",
-            "real perception/contact",
-            "inference from known facts",
-            "canon_fill for a truly undefined self detail",
-        ],
-        "forbidden_sources": [
-            "other character cards/backstory",
-            "own unknown_to_self/hidden_from_self/author_only branches",
-            "chronology/lore/foundation/future",
-            "other private data",
-        ],
-        "version": _VERSION,
-        "closed_world": True,
-        "authoritative_prior_knowledge_path": "personal_memory.knowledge",
-        "card_is_author_only_for_other_characters": True,
-        "self_card_facts_are_speaker_knowledge": True,
-        "experiences_are_not_fact_authority": True,
-        "dialogue_memory_is_not_fact_authority": True,
-        "instruction": (
-            "CARD не даёт знания другим персонажам. Сам персонаж может использовать собственные self-known card facts; "
-            "unknown_to_self/hidden_from_self/author_only остаются запрещены."
-        ),
-    })
-    bundle["knowledge_firewall"] = firewall
-    bundle["dialogue_frame"] = {
-        "character_id": character_id,
-        "behavior_paths": ["card", "relationship_to_pov", "active_intents"],
-        "knowledge_path": "personal_memory.knowledge",
-        "self_card_path": "card",
-        "factual_source_rule": (
-            "Факты реплики: knowledge_path, собственные self-known факты из self_card_path, "
-            "или turn_knowledge этого character_id."
-        ),
-    }
-    bundle["instruction"] = (
-        "Для поведения используй card, relationship_to_pov и active_intents. "
-        "Для фактов реплики используй dialogue_frame.knowledge_path, собственные self-known card paths "
-        "или более ранний turn_knowledge этого персонажа."
-    )
-    return bundle
-
-
-def install() -> None:
-    global _ORIGINAL_PREPARE, _ORIGINAL_COMMIT, _ORIGINAL_CREATE_SESSION, _ORIGINAL_PARTICIPATION_BUNDLE
-    if _ORIGINAL_PREPARE is not None:
-        return
-    _ORIGINAL_PREPARE = session_runtime.prepare_turn_packet
-    _ORIGINAL_COMMIT = session_runtime.commit_turn
-    _ORIGINAL_CREATE_SESSION = storage.create_session
-    _ORIGINAL_PARTICIPATION_BUNDLE = character_chunk_read._participation_bundle
-    session_runtime.prepare_turn_packet = _prepare_turn
-    session_runtime.commit_turn = _commit_turn
-    storage.create_session = _create_session
-    character_chunk_read._participation_bundle = _strict_participation_bundle
