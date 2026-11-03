@@ -23,6 +23,7 @@ jobs:
         run: >
           pytest -q
           tests/test_simple_runtime_repairs.py
+          tests/test_mechanics_commit_repairs.py
           tests/test_knowledge_event_dedup.py
           tests/test_source_line_coverage.py
           tests/test_source_quote_locks.py

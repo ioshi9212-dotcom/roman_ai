@@ -187,56 +187,58 @@ def prepare_turn_request(
 @session_documents.read_view()
 def commit_turn_request(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     root = _session_root(session_id)
-    session_migrations.ensure_current_session_data(session_id, invalidate_pending=False)
-    packet_id = str(payload.get("packet_id") or "").strip()
-    if not packet_id:
-        raise RuntimeError("TURN_PACKET_ID_REQUIRED")
-    fingerprint = request_fingerprint("commit_turn", packet_id, payload)
-    replay = replay_result(
-        root,
-        operation="commit_turn",
-        identity=packet_id,
-        fingerprint=fingerprint,
-    )
-    if replay is not None:
-        replay.setdefault("already_committed", True)
-        meta = storage._read_json(root / "meta.json", {})
-        replay["audit_available"] = bool(meta.get("audit_required"))
-        replay["audit_blocking"] = False
-        replay.pop("required_audit", None)
-        return replay
+    # Receipt lookup and commit share the existing session lock.
+    with session_transaction(root):
+        session_migrations.ensure_current_session_data(session_id, invalidate_pending=False)
+        packet_id = str(payload.get("packet_id") or "").strip()
+        if not packet_id:
+            raise RuntimeError("TURN_PACKET_ID_REQUIRED")
+        fingerprint = request_fingerprint("commit_turn", packet_id, payload)
+        replay = replay_result(
+            root,
+            operation="commit_turn",
+            identity=packet_id,
+            fingerprint=fingerprint,
+        )
+        if replay is not None:
+            replay.setdefault("already_committed", True)
+            meta = storage._read_json(root / "meta.json", {})
+            replay["audit_available"] = bool(meta.get("audit_required"))
+            replay["audit_blocking"] = False
+            replay.pop("required_audit", None)
+            return replay
 
-    packet = storage._read_json(root / "turn_packet.json", {})
-    if isinstance(packet, dict) and str(packet.get("packet_id") or "") == packet_id:
-        if not session_migrations.packet_is_current(packet):
-            session_migrations.invalidate_stale_turn_packet(
-                root,
-                reason="commit_rejected_after_runtime_or_schema_change",
-            )
-            raise RuntimeError("TURN_PACKET_RUNTIME_STALE")
-    if not isinstance(packet, dict) or str(packet.get("packet_id") or "") != packet_id:
-        raise RuntimeError("TURN_PACKET_REQUIRED")
-    packet_status = _packet_status(packet)
-    if packet_status and packet_status.get("unread_chunk_indices"):
-        raise RuntimeError("TURN_PACKET_INCOMPLETE")
-    if bool(packet.get("writer_review_required")):
-        extracted = payload.get("extracted") if isinstance(payload.get("extracted"), dict) else {}
-        if extracted.get("scene_builder_reviewed") is not True:
-            raise RuntimeError("SCENE_BUILDER_REVIEW_REQUIRED")
-        if extracted.get("persistence_reviewed") is not True:
-            raise RuntimeError("PERSISTENCE_REVIEW_REQUIRED")
-        if extracted.get("knowledge_reviewed") is not True:
-            raise RuntimeError("KNOWLEDGE_REVIEW_REQUIRED")
-    prepared = deepcopy(payload)
-    prepared["_operation_receipt"] = {
-        "operation": "commit_turn",
-        "identity": packet_id,
-        "request_fingerprint": fingerprint,
-    }
-    result = dict(session_runtime.commit_turn(session_id, prepared))
-    result.setdefault("already_committed", False)
-    result.setdefault("idempotent_replay", False)
-    return result
+        packet = storage._read_json(root / "turn_packet.json", {})
+        if isinstance(packet, dict) and str(packet.get("packet_id") or "") == packet_id:
+            if not session_migrations.packet_is_current(packet):
+                session_migrations.invalidate_stale_turn_packet(
+                    root,
+                    reason="commit_rejected_after_runtime_or_schema_change",
+                )
+                raise RuntimeError("TURN_PACKET_RUNTIME_STALE")
+        if not isinstance(packet, dict) or str(packet.get("packet_id") or "") != packet_id:
+            raise RuntimeError("TURN_PACKET_REQUIRED")
+        packet_status = _packet_status(packet)
+        if packet_status and packet_status.get("unread_chunk_indices"):
+            raise RuntimeError("TURN_PACKET_INCOMPLETE")
+        if bool(packet.get("writer_review_required")):
+            extracted = payload.get("extracted") if isinstance(payload.get("extracted"), dict) else {}
+            if extracted.get("scene_builder_reviewed") is not True:
+                raise RuntimeError("SCENE_BUILDER_REVIEW_REQUIRED")
+            if extracted.get("persistence_reviewed") is not True:
+                raise RuntimeError("PERSISTENCE_REVIEW_REQUIRED")
+            if extracted.get("knowledge_reviewed") is not True:
+                raise RuntimeError("KNOWLEDGE_REVIEW_REQUIRED")
+        prepared = deepcopy(payload)
+        prepared["_operation_receipt"] = {
+            "operation": "commit_turn",
+            "identity": packet_id,
+            "request_fingerprint": fingerprint,
+        }
+        result = dict(session_runtime.commit_turn(session_id, prepared))
+        result.setdefault("already_committed", False)
+        result.setdefault("idempotent_replay", False)
+        return result
 
 
 def commit_audit_request(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:

@@ -7,6 +7,7 @@ from typing import Any, Dict, List
 from . import session_documents, storage
 from .npc_intent import active_intents_for
 from .scene_compaction_runtime import active_memory_records, complete_knowledge_records, covered_turns, load_scene_history
+from .scene_speech import scene_body_text
 
 
 WRITER_FIRST_VERSION = 15
@@ -309,10 +310,9 @@ def _scene_body_excerpt(value: Any, *, limit: int = 1200) -> str:
     When the message has no recognized header, retain its plain prose instead.
     Privacy redaction is applied afterwards to this excerpt by the packet layer.
     """
-    scene = _strip_relationship_display(value)
+    scene = scene_body_text(_strip_relationship_display(value))
     start = 0
-    choice = scene.find("Что я могу сделать:")
-    cutoff = choice if choice >= 0 else len(scene)
+    cutoff = len(scene)
     prefix = scene[:cutoff]
     separators = list(re.finditer(r"(?m)^(?:-{20,}|─{8,})[ ]*$", prefix))
     if separators:

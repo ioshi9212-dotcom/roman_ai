@@ -53,7 +53,7 @@ _BASE_PARTICIPATION_BUNDLE = character_chunk_read._participation_bundle
 _BASE_CREATE_SESSION = storage.create_session
 _BASE_RECOVER_CURRENT = session_recovery.recover_session_current
 
-PIPELINE_VERSION = 22
+PIPELINE_VERSION = 23
 
 def _packet_manifest(packet: Dict[str, Any], *, reused: bool) -> Dict[str, Any]:
     chunks = packet.get("chunks", []) if isinstance(packet.get("chunks"), list) else []
@@ -668,6 +668,11 @@ def prepare_turn_packet(session_id: str, user_input: str, *, _migrated: bool = F
 def _validate_technical_state_patch(payload: Dict[str, Any]) -> None:
     extracted = payload.get("extracted") if isinstance(payload.get("extracted"), dict) else {}
     patch = extracted.get("state_patch") if isinstance(extracted.get("state_patch"), dict) else {}
+    if "npc_intents" in patch:
+        raise HTTPException(status_code=409, detail={
+            "code": "NPC_INTENTS_UPDATE_PATH_REQUIRED",
+            "message": "Use extracted.npc_intent_updates; state_patch cannot replace the NPC intent store.",
+        })
     if "current" not in patch:
         return
     current = patch.get("current")
@@ -885,11 +890,16 @@ def _prepare_profile_persistence(session_id: str, payload: Dict[str, Any]) -> Di
         state_patch.pop(key, None)
     extracted["state_patch"] = state_patch
 
-    if simple_profile_runtime._simple_session(root):
-        simple_profile_runtime._prepare_journal_entries(root, extracted)
+    simple = simple_profile_runtime._simple_session(root)
+    if simple:
         simple_profile_runtime._normalize_upserts(root, extracted)
 
     result["extracted"] = extracted
+    # Canonicalize owners before V5 journal conversion or knowledge checks.
+    # Otherwise owner_character_id rows could be silently dropped by conversion.
+    result = memory_integrity_runtime._canonicalize_memory_payload(session_id, result, audit=False)
+    if simple:
+        simple_profile_runtime._prepare_journal_entries(root, result["extracted"])
     return result
 
 
@@ -948,12 +958,6 @@ def commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         session_id,
         prepared,
     )
-    prepared = memory_integrity_runtime._canonicalize_memory_payload(
-        session_id,
-        prepared,
-        audit=False,
-    )
-
     saved = dict(stability_runtime._atomic_commit_turn(session_id, prepared))
     saved["saved_chronology_events"] = len(
         prepared.get("extracted", {}).get("chronology", [])

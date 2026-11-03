@@ -25,9 +25,14 @@ _PATTERN = re.compile(
 _ITALIC_OPENING = re.compile(r"^\*(?P<speech>[^*\r\n]+)\*(?P<remainder>.*)$")
 
 
+def scene_body_text(scene_output: str) -> str:
+    """Exclude hypothetical choices from dialogue, continuity and evidence."""
+    return re.split(r"(?m)^\s*(?:\*\*)?Что я могу сделать(?:[ \t]+\([^\r\n)]*\))?:", str(scene_output or ""), maxsplit=1)[0]
+
+
 def iter_scene_speech(scene_output: str) -> Iterator[SpeechLine]:
     """Yield actual speaker lines with Markdown/dash wrappers removed."""
-    story = re.split(r"(?m)^\s*(?:\*\*)?Что я могу сделать(?:[ \t]+\([^\r\n)]*\))?:", str(scene_output or ""), maxsplit=1)[0]
+    story = scene_body_text(scene_output)
     for match in _PATTERN.finditer(story):
         body = match.group("body").strip()
         if body[:1] in {"—", "-"}:
