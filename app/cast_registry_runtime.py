@@ -5,12 +5,10 @@ import re
 from copy import deepcopy
 from typing import Any, Dict, List
 
-from . import scene_presence_runtime, session_runtime, storage, writer_first_runtime
+from . import session_runtime, storage
 from .transactional_storage import session_transaction
 
 
-_ORIGINAL_PREPARE = None
-_ORIGINAL_COMMIT = None
 _VERSION = 11
 _TERMINAL = {"dead", "deceased", "inactive", "removed", "мертв", "мёртв", "погиб", "умер", "неактив"}
 
@@ -600,6 +598,7 @@ def _registry_delta(before: Any, after: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _with_registry_patch(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Update the registry after turn_pipeline has normalized scene presence."""
     root = storage.SESSIONS_DIR / session_id
     with session_transaction(root):
         state = storage._read_json(root / "state.json", {})
@@ -611,7 +610,7 @@ def _with_registry_patch(session_id: str, payload: Dict[str, Any]) -> Dict[str, 
         world_before = state.get("world") if isinstance(state.get("world"), dict) else {}
         registry_before = world_before.get("cast_registry") if isinstance(world_before.get("cast_registry"), dict) else {}
 
-        prepared = scene_presence_runtime._apply_presence_contract(deepcopy(payload), root=root)
+        prepared = deepcopy(payload)
         extracted = prepared.get("extracted") if isinstance(prepared.get("extracted"), dict) else {}
         extracted = deepcopy(extracted)
         _validate_character_upserts(current_cards, extracted, source_ids)
@@ -717,103 +716,3 @@ def _with_registry_patch(session_id: str, payload: Dict[str, Any]) -> Dict[str, 
             extracted["state_patch"] = state_patch
         prepared["extracted"] = extracted
         return prepared
-
-
-def _rewrite_packet(session_id: str, base_result: Dict[str, Any]) -> Dict[str, Any]:
-    root = storage.SESSIONS_DIR / session_id
-    with session_transaction(root):
-        packet = storage._read_json(root / "turn_packet.json", {})
-        if not isinstance(packet, dict) or not packet.get("chunks"):
-            return base_result
-        if packet.get("cast_registry_version") == _VERSION:
-            return base_result
-        raw = "".join(str(chunk) for chunk in packet.get("chunks", []))
-        try:
-            context = json.loads(raw)
-        except json.JSONDecodeError:
-            return base_result
-        state = storage._read_json(root / "state.json", {})
-        source = storage._read_json(root / "source.json", {})
-        cards = storage._load_cards(root, source)
-        source_ids = {storage._card_id(card) for card in storage._normalise_cards(source.get("characters", []))}
-        current_turn = int(storage._read_json(root / "meta.json", {}).get("turn_number", 0) or 0)
-        registry = _ensure_registry(
-            state, cards, current_turn, source_character_ids=source_ids, source=source
-        )
-        pressure = _rotation_pressure(
-            state, cards, current_turn, source_character_ids=source_ids, source=source
-        )
-        active_rows = [row for row in registry.values() if isinstance(row, dict) and not _is_inactive(row.get("status"))]
-        registry_rows = _registry_index(registry)
-        context["character_registry"] = _merge_character_registry(
-            context.get("character_registry"),
-            registry_rows,
-        )
-        context["cast_registry"] = {
-            "version": _VERSION,
-            "persistent": True,
-            "authoritative_live_roster": True,
-            "registry_index_path": "character_registry",
-            "active_count": len(active_rows),
-            "player_created_active_count": sum(1 for row in active_rows if row.get("origin") == "player_created"),
-            "story_created_active_count": sum(1 for row in active_rows if row.get("origin") == "story_created"),
-            "core_active_count": sum(1 for row in active_rows if row.get("importance") == "core"),
-            "rotation_pressure": pressure,
-            "mandatory_rotation_consideration": bool(pressure),
-            "instruction": (
-                "character_registry = единственный полный компактный каталог зарегистрированных персонажей, включая core/story_function и last-seen metadata. "
-                "cast_registry не дублирует каталог: здесь только ротация и агрегаты. "
-                "Перед сценой проверь character_registry, особенно core. rotation_pressure не означает телепортацию: "
-                "ищи ближайшую естественную причинную возможность вернуть персонажа. "
-                "Устойчивого нового NPC сохрани через character_upsert с короткой режиссёрской story_function."
-            ),
-        }
-
-        cast_index = context.get("cast_index")
-        if isinstance(cast_index, list):
-            context["cast_index"] = [
-                {"character_id": str(row.get("character_id"))}
-                for row in cast_index
-                if isinstance(row, dict) and row.get("character_id")
-            ]
-
-        text = json.dumps(context, ensure_ascii=False, separators=(",", ":"))
-        size = writer_first_runtime.WRITER_PACKET_CHARS
-        chunks = [text[index:index + size] for index in range(0, len(text), size)] or ["{}"]
-        packet["chunks"] = chunks
-        packet["chunk_count"] = len(chunks)
-        packet["read_chunks"] = [0]
-        packet["cast_registry_version"] = _VERSION
-        storage._write_json(root / "turn_packet.json", packet)
-        result = dict(base_result)
-        result.update({
-            "chunk_count": len(chunks),
-            "total_chars": len(text),
-            "first_chunk_included": True,
-            "chunk_index": 0,
-            "content": chunks[0],
-            "all_chunks_read": len(chunks) == 1,
-            "next_chunk_index": None if len(chunks) == 1 else 1,
-            "cast_registry": True,
-        })
-        return result
-
-
-def _prepare_turn(session_id: str, user_input: str) -> Dict[str, Any]:
-    return _rewrite_packet(session_id, dict(_ORIGINAL_PREPARE(session_id, user_input)))
-
-
-def _commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
-    result = dict(_ORIGINAL_COMMIT(session_id, _with_registry_patch(session_id, payload)))
-    result["cast_registry_persisted"] = True
-    return result
-
-
-def install() -> None:
-    global _ORIGINAL_PREPARE, _ORIGINAL_COMMIT
-    if _ORIGINAL_PREPARE is not None:
-        return
-    _ORIGINAL_PREPARE = session_runtime.prepare_turn_packet
-    _ORIGINAL_COMMIT = session_runtime.commit_turn
-    session_runtime.prepare_turn_packet = _prepare_turn
-    session_runtime.commit_turn = _commit_turn

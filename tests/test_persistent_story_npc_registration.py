@@ -85,7 +85,8 @@ def test_persistent_named_npc_passes_after_character_upsert():
             },
         }
 
-        prepared = cast_registry_runtime._with_registry_patch(sid, payload)
+        normalized = scene_presence_runtime._apply_presence_contract(payload, root=storage.SESSIONS_DIR / sid)
+        prepared = cast_registry_runtime._with_registry_patch(sid, normalized)
         patch = prepared["extracted"]["state_patch"]["world"]["cast_registry"]
         assert patch["ada"]["origin"] == "story_created"
         assert patch["ada"]["name"] == "Ада"

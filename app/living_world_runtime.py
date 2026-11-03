@@ -8,12 +8,10 @@ from fastapi import HTTPException
 
 from . import runtime_fixes as base
 from . import runtime_fixes_compat as compat
-from . import session_runtime, storage, writer_first_runtime
+from . import storage, writer_first_runtime
 from .transactional_storage import session_transaction
 
 
-_ORIGINAL_PREPARE = None
-_ORIGINAL_COMMIT = None
 _VERSION = 5
 
 # New labels come from one small shared vocabulary. Existing labels in old sessions remain valid.
@@ -763,23 +761,3 @@ def _with_atomic_state_effects(
     if metadata:
         result["_relationship_metadata"] = deepcopy(metadata)
     return result
-
-def _prepare_turn(session_id: str, user_input: str) -> Dict[str, Any]:
-    return _rewrite_packet(session_id, dict(_ORIGINAL_PREPARE(session_id, user_input)))
-
-
-def _commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
-    _validate_relationship_vocabulary(session_id, payload)
-    prepared, metadata = _split_relationship_metadata(session_id, payload)
-    prepared = _with_atomic_state_effects(session_id, prepared, metadata)
-    return _ORIGINAL_COMMIT(session_id, prepared)
-
-
-def install() -> None:
-    global _ORIGINAL_PREPARE, _ORIGINAL_COMMIT
-    if _ORIGINAL_PREPARE is not None:
-        return
-    _ORIGINAL_PREPARE = session_runtime.prepare_turn_packet
-    _ORIGINAL_COMMIT = session_runtime.commit_turn
-    session_runtime.prepare_turn_packet = _prepare_turn
-    session_runtime.commit_turn = _commit_turn

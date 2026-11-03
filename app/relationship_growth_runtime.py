@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import re
 from copy import deepcopy
 from typing import Any, Dict, List
@@ -13,7 +12,6 @@ from . import storage
 
 MAX_RELATIONSHIP_DIMENSIONS = 12
 _RELATIONSHIP_GROWTH_VERSION = 3
-_ORIGINAL_PREPARE_EXTRACTED_FOR_COMMIT = None
 
 # New labels are intentionally small and stable. Existing legacy labels remain valid.
 _FIXED_NEW_LABELS = {
@@ -245,91 +243,3 @@ def _hidden_relationship_scene(
             lines.append(f"{owner_id} - {'; '.join(rendered)}")
 
     return "Отношения:\n" + "\n".join(lines) if lines else ""
-
-
-def _prepare_extracted_for_commit(
-    payload: Dict[str, Any],
-    *,
-    root,
-    turn_number: int,
-) -> tuple[Dict[str, Any], Dict[str, Any]]:
-    if _ORIGINAL_PREPARE_EXTRACTED_FOR_COMMIT is None:
-        raise RuntimeError("RELATIONSHIP_GROWTH_RUNTIME_NOT_INSTALLED")
-    # A first relationship baseline may be initialized from a new NPC's visible footer.
-    # After that, the footer is display-only and causal relationship_updates are required.
-    prepared_payload = _merge_footer_delta_fallbacks(payload, root=root)
-    # Never let the visible footer itself overwrite persistent numeric canon.
-    prepared_payload["scene_output"] = _strip_relationship_footer(str(prepared_payload.get("scene_output") or ""))
-    return _ORIGINAL_PREPARE_EXTRACTED_FOR_COMMIT(
-        prepared_payload,
-        root=root,
-        turn_number=turn_number,
-    )
-
-
-def _install_packet_policy_wrapper() -> None:
-    previous = base._rewrite_turn_packet
-
-    def rewrite(session_id: str, manifest: Dict[str, Any]) -> Dict[str, Any]:
-        result = previous(session_id, manifest)
-        root = storage.SESSIONS_DIR / session_id
-        packet = storage._read_json(root / "turn_packet.json", {})
-        raw = "".join(packet.get("chunks", []))
-        if not raw:
-            return result
-        context = json.loads(raw)
-
-        lens = context.get("relationship_lens") if isinstance(context.get("relationship_lens"), dict) else {}
-        lens["initialization_required"] = False
-        lens["initialization_instruction"] = "Новые dimensions только по реальному основанию; старые сохраняются."
-        context["relationship_lens"] = lens
-        context["relationship_lens_instruction"] = "relationship_lens — текущий канон NPC->POV."
-
-        policy = context.get("relationship_policy") if isinstance(context.get("relationship_policy"), dict) else {}
-        policy.update({
-            "source_of_truth": "persistent relationship state + causal relationship_updates",
-            "footer_is_display_only": True,
-            "footer_is_transaction_gate": False,
-            "footer_required_for_every_present_npc": False,
-            "fresh_baseline_required": False,
-            "zero_dimensions_may_be_hidden": True,
-            "new_dimensions_may_be_appended": True,
-            "instruction": "Изменения только через causal relationship_updates; footer display-only.",
-        })
-        context["relationship_policy"] = policy
-
-        persistence = context.get("persistence_contract") if isinstance(context.get("persistence_contract"), dict) else {}
-        persistence["relationship_updates"] = {
-            "optional": True,
-            "when": "Только при реальном изменении.",
-            "format": '[{"character_id":"npc_id","dimensions":[{"label":"доверие","value":12,"delta":2}]}]',
-            "instruction": "Existing metric → delta; неизменённое не отправляй.",
-        }
-        context["persistence_contract"] = persistence
-
-        text = json.dumps(context, ensure_ascii=False, separators=(",", ":"))
-        packet["chunks"] = [text[i:i + storage.MAX_PACKET_CHARS] for i in range(0, len(text), storage.MAX_PACKET_CHARS)] or ["{}"]
-        packet["chunk_count"] = len(packet["chunks"])
-        packet["read_chunks"] = []
-        packet["relationship_growth_runtime"] = _RELATIONSHIP_GROWTH_VERSION
-        storage._write_json(root / "turn_packet.json", packet)
-        updated = dict(result)
-        updated["chunk_count"] = packet["chunk_count"]
-        return updated
-
-    base._rewrite_turn_packet = rewrite
-
-
-def install() -> None:
-    global _ORIGINAL_PREPARE_EXTRACTED_FOR_COMMIT
-    _ORIGINAL_PREPARE_EXTRACTED_FOR_COMMIT = base._prepare_extracted_for_commit
-    relationship_runtime.MAX_DIMENSIONS = MAX_RELATIONSHIP_DIMENSIONS
-    relationship_runtime._merge_footer_dimensions = _merge_footer_dimensions
-    compat._validate_dimensions = _validate_dimensions
-    compat._validate_visible_footer = _validate_visible_footer
-    compat._hidden_relationship_scene = _hidden_relationship_scene
-    base._validate_dimensions = _validate_dimensions
-    base._validate_visible_footer = _validate_visible_footer
-    base._hidden_relationship_scene = _hidden_relationship_scene
-    base._prepare_extracted_for_commit = _prepare_extracted_for_commit
-    _install_packet_policy_wrapper()

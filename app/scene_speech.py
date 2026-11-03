@@ -33,7 +33,7 @@ def iter_scene_speech(scene_output: str) -> Iterator[SpeechLine]:
         if body[:1] in {"—", "-"}:
             body = body[1:].strip()
         italic = _ITALIC_OPENING.match(body)
-        if italic:
+        if italic and not italic.group("speech").lstrip().startswith("("):
             body = (italic.group("speech") + italic.group("remainder")).strip()
         if body:
             line: SpeechLine = {

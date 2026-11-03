@@ -53,7 +53,7 @@ _BASE_PARTICIPATION_BUNDLE = character_chunk_read._participation_bundle
 _BASE_CREATE_SESSION = storage.create_session
 _BASE_RECOVER_CURRENT = session_recovery.recover_session_current
 
-PIPELINE_VERSION = 21
+PIPELINE_VERSION = 22
 
 def _packet_manifest(packet: Dict[str, Any], *, reused: bool) -> Dict[str, Any]:
     chunks = packet.get("chunks", []) if isinstance(packet.get("chunks"), list) else []
@@ -298,7 +298,8 @@ def _clean_relationship_lens(context: Dict[str, Any]) -> None:
 
 
 def _clean_director_layers(context: Dict[str, Any]) -> Dict[str, Any]:
-    result = deepcopy(context)
+    # This packet is request-owned; do not copy the whole context again.
+    result = context
 
     # relationships.json is the sole relationship canon. Base compatibility
     # builders may still have copied legacy relationship stores into the packet
@@ -403,7 +404,7 @@ def _waiting_momentum_context(user_input: Any, recent_turns: Any) -> Dict[str, A
 
 
 def _move_runtime_documents_last(context: Dict[str, Any]) -> Dict[str, Any]:
-    result = deepcopy(context)
+    result = context
     rules = result.pop("runtime_rules", None)
     builder = result.pop("scene_builder", None)
     result["read_order"] = [
@@ -539,14 +540,8 @@ def _prepare_context(
         "mandatory_causal_review": True,
         "offscreen_bundle_read": {
             "action": "prepareCharacterBundleRead",
-            "then": "read all getCharacterBundleChunk chunks before material participation",
-            "rule": "The bundle may be read to decide whether a candidate should participate; complete it before actual participation.",
+            "then": "getCharacterBundleChunk",
         },
-        "instruction": (
-            "Прочитай cast_registry.characters и relationships. Реестр — director-only индекс ID; "
-            "правила участия определяет scene_builder. "
-            "До реального участия offscreen NPC прочитай его полный character bundle."
-        ),
         "characters": _cast_registry_rows(state, cards, source, current_turn, npc_network, relationship_store),
     }
     context.pop("npc_relationship_network", None)

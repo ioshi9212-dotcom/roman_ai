@@ -1,14 +1,11 @@
 from __future__ import annotations
 
-import json
 from copy import deepcopy
 from typing import Any, Dict, List
 
 from . import runtime_fixes as base, storage
 
 
-_ORIGINAL_PREPARE_EXTRACTED = None
-_ORIGINAL_REWRITE_TURN_PACKET = None
 _ALLOWED_ACTIONS = {"enter", "leave", "move"}
 _POSITION_FIELDS = ("zone", "position", "distance_to_pov", "note")
 
@@ -246,107 +243,3 @@ def _apply_presence_contract(payload: Dict[str, Any], *, root) -> Dict[str, Any]
     extracted["presence_updates"] = updates
     result["extracted"] = extracted
     return result
-
-
-def _prepare_extracted_for_commit(*args, **kwargs):
-    if _ORIGINAL_PREPARE_EXTRACTED is None:
-        raise RuntimeError("PRESENCE_RUNTIME_NOT_INSTALLED")
-    if not args:
-        return _ORIGINAL_PREPARE_EXTRACTED(*args, **kwargs)
-    root = kwargs.get("root")
-    if root is None:
-        return _ORIGINAL_PREPARE_EXTRACTED(*args, **kwargs)
-    payload = _apply_presence_contract(args[0], root=root)
-    return _ORIGINAL_PREPARE_EXTRACTED(payload, *args[1:], **kwargs)
-
-
-def _rewrite_turn_packet(session_id: str, manifest: Dict[str, Any]) -> Dict[str, Any]:
-    if _ORIGINAL_REWRITE_TURN_PACKET is None:
-        raise RuntimeError("PRESENCE_RUNTIME_NOT_INSTALLED")
-    result = _ORIGINAL_REWRITE_TURN_PACKET(session_id, manifest)
-    root = storage.SESSIONS_DIR / session_id
-    packet = storage._read_json(root / "turn_packet.json", {})
-    raw = "".join(packet.get("chunks", []))
-    if not raw:
-        return result
-    context = json.loads(raw)
-
-    source = storage._read_json(root / "source.json", {})
-    cards = storage._load_cards(root, source)
-    state = context.get("scene_state") if isinstance(context.get("scene_state"), dict) else storage._read_json(root / "state.json", {})
-    start_roster = _present_ids(cards, state)
-    remote_roster = _remote_ids(cards, state)
-    scene_roster = list(dict.fromkeys([*start_roster, *remote_roster]))
-    pov = state.get("pov") if isinstance(state.get("pov"), dict) else {}
-    pov_id = _resolve_character_id(cards, pov.get("character_id")) or str(pov.get("character_id") or "")
-
-    roster = [
-        {
-            "character_id": character_id,
-            "name": _card_name(cards, character_id),
-            "full_card_path": f"all_character_cards[{character_id}]",
-            "memory_path": f"memory_full.characters[{character_id}]",
-            "relationship_path": f"relationship_lens owner_character_id={character_id}",
-        }
-        for character_id in scene_roster
-    ]
-
-    context["scene_focus"] = {
-        "pov_character_id": pov_id or None,
-        "present_character_ids": start_roster,
-        "remote_character_ids": remote_roster,
-        "required_full_character_ids": scene_roster,
-        "instruction": (
-            "Физически present остаются до явного leave. remote_character_ids — активный звонок/переписка; "
-            "они считаются участниками сцены для карточки, знаний и отношений, но не имеют физической позиции."
-        ),
-    }
-    context["scene_presence"] = {
-        "start_present_character_ids": start_roster,
-        "start_remote_character_ids": remote_roster,
-        "roster": roster,
-        "final_roster_formula": "start roster + enter - leave; move does not change membership",
-        "pov_must_remain_present": True,
-        "direct_roster_omission_cannot_remove": True,
-        "presence_updates": {
-            "field": "extracted.presence_updates",
-            "actions": ["enter", "leave", "move"],
-        },
-        "instruction": (
-            "Start roster сохраняется. enter/leave/move только при физическом изменении. "
-            "Активный звонок/переписка хранится в state_patch.current.remote_characters; при завершении контакта убери персонажа из этого списка."
-        ),
-    }
-
-    persistence = context.get("persistence_contract") if isinstance(context.get("persistence_contract"), dict) else {}
-    persistence["presence_updates"] = {
-        "optional": True,
-        "field": "extracted.presence_updates",
-        "required_when": "Только при enter/leave/move.",
-        "rule": "Нет update — start roster сохраняется.",
-    }
-    context["persistence_contract"] = persistence
-
-    text = json.dumps(context, ensure_ascii=False, separators=(",", ":"))
-    chunks = [text[i : i + storage.MAX_PACKET_CHARS] for i in range(0, len(text), storage.MAX_PACKET_CHARS)] or ["{}"]
-    packet["chunks"] = chunks
-    packet["chunk_count"] = len(chunks)
-    packet["read_chunks"] = []
-    packet["presence_runtime_version"] = 2
-    storage._write_json(root / "turn_packet.json", packet)
-
-    result = dict(result)
-    result["chunk_count"] = len(chunks)
-    result["instruction"] = (
-        str(result.get("instruction", "")).rstrip()
-        + " Presence: start roster сохраняется; enter/leave/move только при изменении."
-    ).strip()
-    return result
-
-
-def install() -> None:
-    global _ORIGINAL_PREPARE_EXTRACTED, _ORIGINAL_REWRITE_TURN_PACKET
-    _ORIGINAL_PREPARE_EXTRACTED = base._prepare_extracted_for_commit
-    _ORIGINAL_REWRITE_TURN_PACKET = base._rewrite_turn_packet
-    base._prepare_extracted_for_commit = _prepare_extracted_for_commit
-    base._rewrite_turn_packet = _rewrite_turn_packet

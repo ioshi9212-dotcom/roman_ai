@@ -3,12 +3,11 @@ from __future__ import annotations
 import json
 from typing import Any, Dict, Iterable, List
 
-from . import session_runtime, storage, writer_first_runtime
+from . import storage, writer_first_runtime
 from .scene_format import validate_scene_output
 from .transactional_storage import session_transaction
 
 
-_ORIGINAL_PREPARE = None
 _GUARDRAIL_VERSION = 19
 _TERMINAL = {"resolved", "closed", "expired", "cancelled", "canceled", "done", "abandoned"}
 _HOOK_KEYS = (
@@ -303,15 +302,3 @@ def _rewrite_packet(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
             "narrative_guardrails": True,
         })
         return result
-
-
-def _prepare_turn(session_id: str, user_input: str) -> Dict[str, Any]:
-    return _rewrite_packet(session_id, dict(_ORIGINAL_PREPARE(session_id, user_input)))
-
-
-def install() -> None:
-    global _ORIGINAL_PREPARE
-    if _ORIGINAL_PREPARE is not None:
-        return
-    _ORIGINAL_PREPARE = session_runtime.prepare_turn_packet
-    session_runtime.prepare_turn_packet = _prepare_turn

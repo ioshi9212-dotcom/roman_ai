@@ -7,7 +7,7 @@ from typing import Any, Dict, List
 
 from fastapi import HTTPException
 
-from . import character_chunk_read, personal_memory_transport, relationship_file_runtime, session_runtime, storage, writer_first_runtime
+from . import personal_memory_transport, relationship_file_runtime, storage, writer_first_runtime
 from .npc_intent import active_intents_for
 from .profile_templates import (
     normalize_character_profile,
@@ -20,8 +20,6 @@ from .transactional_storage import session_transaction
 
 
 _PROFILE_RUNTIME_VERSION = 4
-_ORIGINAL_PREPARE = None
-_ORIGINAL_COMMIT = None
 _ORIGINAL_PARTICIPATION_BUNDLE = None
 
 
@@ -272,10 +270,6 @@ def _rewrite_packet(session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
         return result
 
 
-def _prepare_turn(session_id: str, user_input: str) -> Dict[str, Any]:
-    return _rewrite_packet(session_id, dict(_ORIGINAL_PREPARE(session_id, user_input)))
-
-
 def _current_date_period(state: Dict[str, Any]) -> tuple[Any, Any]:
     current = state.get("current") if isinstance(state.get("current"), dict) else {}
     date = current.get("date") or current.get("game_date") or current.get("calendar_date")
@@ -341,7 +335,6 @@ def _prepare_journal_entries(root, extracted: Dict[str, Any]) -> None:
             "text": text,
         })
     extracted["knowledge_journal_add"] = clean
-
 
 
 _SPEECH_RE = re.compile(r"(?m)^\s*(?:>\s*)?\*\*(?P<speaker>[^*\n]+)\*\*\s*[—-]\s*(?P<text>.*)$")
@@ -617,25 +610,6 @@ def _validate_simple_private_input_boundary(root, payload: Dict[str, Any]) -> No
                 )
 
 
-def _commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
-    root = storage.SESSIONS_DIR / session_id
-    if not _simple_session(root):
-        return _ORIGINAL_COMMIT(session_id, payload)
-
-    _validate_simple_private_input_boundary(root, payload)
-
-    prepared = deepcopy(payload)
-    extracted = prepared.get("extracted")
-    if isinstance(extracted, dict):
-        _prepare_journal_entries(root, extracted)
-        _normalize_upserts(root, extracted)
-        extracted["turn_knowledge"] = []
-        extracted["knowledge_usage"] = []
-        extracted["knowledge_trace_complete"] = True
-        prepared["extracted"] = extracted
-    return _ORIGINAL_COMMIT(session_id, prepared)
-
-
 def _participation_bundle(session_id: str, character_id: str) -> Dict[str, Any]:
     root = storage.SESSIONS_DIR / session_id
     if not _simple_session(root):
@@ -702,30 +676,5 @@ def _participation_bundle(session_id: str, character_id: str) -> Dict[str, Any]:
                 "known_to_self=false",
                 "author_only",
             ],
-            "rule": (
-                "Персонаж знает self-known части собственной биографии/profile и собственный knowledge journal. "
-                "Каждая запись знания частична ровно до сообщённых деталей: неизвестные время, место, участник, причина или план "
-                "не достраиваются вероятными значениями. Предположение остаётся "
-                "предположением до подтверждения. Явно скрытые от него ветки своего profile, чужие профили, чужая память, chronology, "
-                "hidden lore и приватные мысли POV знанием не становятся."
-            ),
         },
-        "instruction": (
-            "Этот bundle полностью готов для участия offscreen-персонажа: own profile + own complete knowledge "
-            "+ relationship + current state. relationship берётся только из relationships.json. npc_relationships_director_only не является "
-            "личным factual knowledge и не сообщает персонажу неизвестные факты о другом NPC. Используй только явно известные "
-            "детали; не дополняй частичный факт скрытыми или вероятными подробностями. Отдельный knowledge-read не нужен."
-        ),
     }
-
-
-def install() -> None:
-    global _ORIGINAL_PREPARE, _ORIGINAL_COMMIT, _ORIGINAL_PARTICIPATION_BUNDLE
-    if _ORIGINAL_PREPARE is not None:
-        return
-    _ORIGINAL_PREPARE = session_runtime.prepare_turn_packet
-    _ORIGINAL_COMMIT = session_runtime.commit_turn
-    _ORIGINAL_PARTICIPATION_BUNDLE = character_chunk_read._participation_bundle
-    session_runtime.prepare_turn_packet = _prepare_turn
-    session_runtime.commit_turn = _commit_turn
-    character_chunk_read._participation_bundle = _participation_bundle

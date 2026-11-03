@@ -5,7 +5,7 @@ from threading import Event
 
 import pytest
 
-from app import character_chunk_read, novel_drafts, npc_intent, operation_service, storage
+from app import character_chunk_read, novel_drafts, npc_intent, operation_service, scene_presence_runtime, session_runtime, storage
 from app.private_knowledge_runtime import _speaker_units
 from app.scene_choices import parse_choices
 from app.scene_speech import iter_scene_speech
@@ -127,3 +127,36 @@ def test_finalization_serializes_with_an_accepted_author_edit(story, monkeypatch
     assert after["revision"] == before["revision"] + 1
     assert after["sections"]["novel"]["notes"] == "Важная новая авторская правка."
     assert not after["finalized"]
+
+
+@pytest.mark.parametrize("version", [1, 5])
+def test_simplified_turn_preserves_author_text_and_normalizes_presence_once(story, monkeypatch, version):
+    story["version"] = version
+    raw = "  Авторская формулировка:  точная.\nНовая строка.  "
+    story["novel"]["notes"] = raw
+    sid, root = create(story)
+    manifest, packet = prepare(sid)
+    assert packet["novel"]["notes"] == raw
+    assert "offscreen_physical_state_rule" not in packet["scene_state"]
+    assert "instruction" not in packet["cast_registry"]
+    assert "rule" not in packet["private_communication_boundary"]
+    assert "working_context_contract" not in packet
+    assert "offscreen_intent_candidates" not in packet
+    calls = []
+    original = scene_presence_runtime._apply_presence_contract
+
+    def normalize_once(*args, **kwargs):
+        calls.append(1)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(scene_presence_runtime, "_apply_presence_contract", normalize_once)
+    operation_service.commit_turn_request(sid, {
+        "packet_id": manifest["packet_id"], "user_input": "Продолжаю разговор",
+        "scene_output": "**Рен** — Я останусь здесь.",
+        "extracted": {"scene_builder_reviewed": True, "persistence_reviewed": True,
+                      "knowledge_reviewed": True},
+    })
+    assert len(calls) == 1
+    state = storage._read_json(root / "state.json", {})
+    assert set(state["current"]["present_characters"]) == {"pov", "ren"}
+    assert session_runtime.continue_session(sid)["last_committed_turn"]["turn_number"] == 1

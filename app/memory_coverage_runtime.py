@@ -1,15 +1,9 @@
-"""Conservative, non-generative guard against silently forgetting clear promises.
-
-This is a *minimum evidence check*, not a semantic proof that every memory was
-captured. It NEVER invents knowledge or assigns another character POV's thoughts.
-"""
+"""Save explicit spoken commitments without an extra gameplay gate."""
 from __future__ import annotations
 
 import re
 import hashlib
 from typing import Any, Dict, List
-
-from fastapi import HTTPException
 
 from .scene_speech import iter_scene_speech
 
@@ -81,31 +75,3 @@ def preserve_durable_dialogue(session_id: str, payload: Dict[str, Any]) -> None:
         digest = hashlib.sha256(quote.encode("utf-8")).hexdigest()[:12]
         rows.append({"character_id": cid, "event_id": f"spoken_commitment_t{turn}_{digest}",
                      "summary": f"Собственные слова: {quote}", "turn": turn})
-
-
-def validate_durable_dialogue_coverage(payload: Dict[str, Any]) -> None:
-    """Block only the provable blind spot: clear spoken promise + no evidence.
-
-    With some evidence supplied, whether it is *complete and accurate* still
-    belongs to author/character-specific review and chronological audit.
-    """
-    cues = durable_speech_cues(str(payload.get("scene_output") or ""))
-    if not cues:
-        return
-    extracted = payload.get("extracted") if isinstance(payload.get("extracted"), dict) else {}
-    if any(isinstance(extracted.get(key), list) and extracted[key] for key in _EVIDENCE_FIELDS):
-        return
-    raise HTTPException(
-        status_code=409,
-        detail={
-            "code": "DURABLE_DIALOGUE_NOT_PERSISTED",
-            "message": (
-                "Scene contains an explicit spoken promise/agreement but all "
-                "memory, dialogue and chronology updates are empty. Record "
-                "the actual heard statement for its real participants in "
-                "dialogue_memory_add/experiences_add/knowledge_add or chronology. "
-                "Never add knowledge to absent characters."
-            ),
-            "cues": cues[:3],
-        },
-    )

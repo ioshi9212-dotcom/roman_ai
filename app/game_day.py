@@ -58,15 +58,3 @@ def _sync_session_game_day(session_id: str) -> None:
     updated = sync_game_day(state, source)
     if updated != state:
         storage._write_json(root / "state.json", updated)
-
-
-def install() -> None:
-    from . import session_runtime
-
-    original_prepare_turn = session_runtime.prepare_turn_packet
-
-    def prepare_turn_packet(session_id: str, user_input: str):
-        _sync_session_game_day(session_id)
-        return original_prepare_turn(session_id, user_input)
-
-    session_runtime.prepare_turn_packet = prepare_turn_packet

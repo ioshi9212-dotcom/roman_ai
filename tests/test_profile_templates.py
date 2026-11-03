@@ -74,6 +74,13 @@ def test_legacy_pov_silence_story_rule_is_preserved_in_author_canon_but_not_writ
     assert "Романтика остаётся основной линией" in writer_view
 
 
+def test_writer_filter_preserves_unrelated_text_and_empty_author_fields():
+    from app.profile_templates import _strip_legacy_pov_silence_rule
+    value = {"notes": "  Точная  формулировка.\nНовая строка;  ",
+             "sections": ["", [], {}, None, {"detail": "\tБез изменений\n"}]}
+    assert _strip_legacy_pov_silence_rule(value) == value
+
+
 def test_render_character_profile_is_plain_human_readable_text():
     text = render_character_profile({
         "character_id": "silas",

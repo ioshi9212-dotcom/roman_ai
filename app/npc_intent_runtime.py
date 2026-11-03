@@ -5,12 +5,8 @@ from typing import Any, Dict, Iterable
 
 from fastapi import HTTPException
 
-from . import session_runtime, storage
+from . import storage
 from .npc_intent import apply_updates
-
-
-_ORIGINAL_COMMIT_TURN = None
-_ORIGINAL_COMMIT_AUDIT = None
 
 
 def _persistent_fact_ids(root, character_id: str) -> set[str]:
@@ -280,21 +276,3 @@ def _with_intent_patch(session_id: str, payload: Dict[str, Any], *, audit: bool 
     container["state_patch"] = patch
     result[container_key] = container
     return result
-
-
-def _commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
-    return _ORIGINAL_COMMIT_TURN(session_id, _with_intent_patch(session_id, payload, audit=False))
-
-
-def _commit_audit(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
-    return _ORIGINAL_COMMIT_AUDIT(session_id, _with_intent_patch(session_id, payload, audit=True))
-
-
-def install() -> None:
-    global _ORIGINAL_COMMIT_TURN, _ORIGINAL_COMMIT_AUDIT
-    if _ORIGINAL_COMMIT_TURN is not None:
-        return
-    _ORIGINAL_COMMIT_TURN = session_runtime.commit_turn
-    _ORIGINAL_COMMIT_AUDIT = session_runtime.commit_audit
-    session_runtime.commit_turn = _commit_turn
-    session_runtime.commit_audit = _commit_audit

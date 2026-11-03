@@ -1192,9 +1192,5 @@ def redact_private_history(context: Dict[str, Any], *, root, cards: List[Dict[st
 
     result["private_communication_boundary"] = {
         "historical_private_segments_redacted": total,
-        "rule": (
-            "Private messages/calls/shown content from prior turns are not shared character knowledge. "
-            "Their content is available only through the personal memory of characters who actually received it."
-        ),
     }
     return result

@@ -1,70 +1,63 @@
-"""Evidence guard must notice omitted durable dialogue, not hallucinate memories."""
+"""Only actual spoken commitments enter the speaker's personal memory."""
+import json
+
 import pytest
-from fastapi import HTTPException
 
-from app.memory_coverage_runtime import durable_speech_cues, validate_durable_dialogue_coverage
-
-
-def scene(line="**Данте** *Обещаю, завтра принесу ключи.* (Отвернулся.)"):
-    return line + """
-
-Что я могу сделать:
-1. Выйти.
-2. Сесть.
-3. Посмотреть.
-Что я могу сказать:
-1. Обещаю всё исправить.
-2. Нет.
-3. Ладно.
-Что я могу подумать:
-1. Странно.
-2. Злюсь.
-3. Проверю.
-"""
+from app import operation_service, storage
+from app.memory_coverage_runtime import durable_speech_cues, preserve_durable_dialogue
+from test_generator_state_documents import create, prepare, story
 
 
-def extracted(**updates):
-    payload = {"knowledge_add": [], "experiences_add": [],
-               "dialogue_memory_add": [], "knowledge_journal_add": [], "chronology": []}
-    payload.update(updates)
-    return payload
+@pytest.mark.parametrize("line", [
+    "**Рен** *Обещаю вернуть ключи.*",
+    "> **Рен** — Обещаю вернуть ключи.",
+    "**Рен** (сообщение) — *Обещаю вернуть ключи.*",
+])
+def test_actual_spoken_promise_is_detected(line):
+    assert durable_speech_cues(line) == [{"speaker": "Рен", "quote": "Обещаю вернуть ключи."}]
 
 
-def test_explicit_spoken_promise_cannot_disappear_into_empty_commit():
-    with pytest.raises(HTTPException) as exc:
-        validate_durable_dialogue_coverage({
-            "scene_output": scene(), "extracted": extracted()
-        })
-    assert exc.value.status_code == 409
-    assert exc.value.detail["code"] == "DURABLE_DIALOGUE_NOT_PERSISTED"
-    assert "Данте" == exc.value.detail["cues"][0]["speaker"]
+@pytest.mark.parametrize("line", [
+    "**Рен** — *(вспомнил её «обещаю»)* Я тебе не верю.",
+    "**Рен** *(вспомнил её «обещаю»)* Я тебе не верю.",
+    "**Рен** — *Я тебе не верю.* *(вспомнил её «обещаю»)*",
+])
+def test_remembered_promise_in_stage_direction_is_not_spoken(line):
+    assert durable_speech_cues(line) == []
+    payload = {"scene_output": line, "extracted": {}}
+    preserve_durable_dialogue("unused-session", payload)
+    assert payload["extracted"] == {}
 
 
-def test_promise_is_not_assigned_to_unwitnessing_npc_by_guard():
-    evidence = [{"character_id": "dante", "summary": "Данте пообещал принести ключи POV."}]
-    assert validate_durable_dialogue_coverage({
-        "scene_output": scene(), "extracted": extracted(experiences_add=evidence)
-    }) is None
+def test_choices_and_plain_emotions_do_not_create_commitments():
+    assert durable_speech_cues("**Рен** — Свали, блять.") == []
+    assert durable_speech_cues("**Рен** — Ты кто?\nЧто я могу сделать:\n"
+                              "1. Уйти.\nЧто я могу сказать:\n**Рен** — Обещаю вернуться.") == []
 
 
-def test_hypothetical_choices_do_not_create_memory_events():
-    only_choices = "Рина посмотрела на пол.\n" + scene("**Данте** *Ты кто вообще?*")
-    assert durable_speech_cues(only_choices) == []
-    assert validate_durable_dialogue_coverage({
-        "scene_output": only_choices, "extracted": extracted()
-    }) is None
+def test_commit_saves_only_speakers_words_and_replay_does_not_duplicate_them(story):
+    sid, root = create(story)
+    manifest, _ = prepare(sid)
+    payload = {"packet_id": manifest["packet_id"], "user_input": "Продолжаю разговор",
+               "scene_output": "**Рен** — *(пожал плечами)* Обещаю вернуть ключи.",
+               "extracted": {"scene_builder_reviewed": True, "persistence_reviewed": True,
+                             "knowledge_reviewed": True}}
+    operation_service.commit_turn_request(sid, payload)
+    operation_service.commit_turn_request(sid, payload)
+    memory = storage._read_json(root / "memory.json", {})
+    own = memory["characters"]["ren"]["experiences"]
+    assert sum(row.get("summary") == "Собственные слова: Обещаю вернуть ключи." for row in own) == 1
+    for cid in ("pov", "away"):
+        assert "Обещаю вернуть ключи" not in json.dumps(memory["characters"][cid], ensure_ascii=False)
+    assert len(storage._read_turns(root)) == 1
 
 
-def test_old_dash_dialogue_protected_too():
-    with pytest.raises(HTTPException):
-        validate_durable_dialogue_coverage({
-            "scene_output": scene("> **Данте** — Даю слово, я вернусь."),
-            "extracted": extracted()
-        })
-
-
-def test_plain_emotions_without_explicit_oath_do_not_trigger():
-    assert validate_durable_dialogue_coverage({
-        "scene_output": scene("**Данте** *Свали, блять.* (Скривился.)"),
-        "extracted": extracted()
-    }) is None
+@pytest.mark.parametrize("speaker", ["Незнакомец", "Общее имя"])
+def test_unknown_or_ambiguous_speaker_does_not_receive_an_invented_memory(story, speaker):
+    if speaker == "Общее имя":
+        for card in story["characters"]:
+            card["aliases"] = ["Общее имя"]
+    sid, _ = create(story)
+    payload = {"scene_output": f"**{speaker}** — Обещаю вернуть ключи.", "extracted": {}}
+    preserve_durable_dialogue(sid, payload)
+    assert payload["extracted"].get("experiences_add") == []

@@ -1461,8 +1461,8 @@ def test_cast_registry_exposes_context_without_forced_return_pressure():
         assert registry["mandatory_causal_review"] is True
         assert "return_pressure" not in registry
         assert "important_cast_return_required" not in registry
-        assert "правила участия определяет scene_builder" in registry["instruction"]
-        assert "scene_builder" in registry["instruction"]
+        assert "instruction" not in registry
+        assert context["runtime_document_paths"]["scene_builder"] == "scene_builder"
         assert row["story_function"] == "possible romance"
         assert "добиться ответа" in row["goals"]
         assert "initiative_cues" not in row
@@ -1512,8 +1512,10 @@ def test_offscreen_npc_can_be_considered_without_saved_intent_or_forced_timer():
         assert context["relationships"]["npc_to_pov"]["npc"]["dimensions"]["привязанность"]["value"] == 65
         assert "Появление, звонок, сообщение, уход и возвращение персонажей выбирает режиссура сама" not in context["runtime_rules"]
         assert "Новым персонажам придумывай роли, характеры и прошлое в рамках мира" in context["scene_builder"]
-        assert "правила участия определяет scene_builder" in context["cast_registry"]["instruction"]
-        assert "До реального участия offscreen NPC прочитай его полный character bundle." in context["cast_registry"]["instruction"]
+        assert "instruction" not in context["cast_registry"]
+        assert context["cast_registry"]["offscreen_bundle_read"] == {
+            "action": "prepareCharacterBundleRead", "then": "getCharacterBundleChunk",
+        }
 
 
 def test_legacy_pending_packet_is_refreshed_into_current_knowledge_context():
@@ -2131,7 +2133,7 @@ def test_long_absent_core_cast_is_not_forced_back_by_recency_timer():
 
         assert "return_pressure" not in registry
         assert "important_cast_return_required" not in registry
-        assert "правила участия определяет scene_builder" in registry["instruction"]
+        assert "instruction" not in registry
 
 def test_private_perception_is_saved_only_to_actual_recipient():
     with tempfile.TemporaryDirectory() as tmp:
