@@ -300,7 +300,7 @@ def test_macro_missing_date_error_reports_exact_dates_and_never_drops_important_
                     "date": "09.04.2026", "summary": "Сохранено важное событие девятого апреля, но другие важные даты не забываются.",
                 }],
             }, end_turn=60)
-        assert exc.value.missing_dates == ["02.10.2025", "10.04.2026"]
+        assert exc.value.missing_dates == ["02.10.2025", "10.04.2026", "09.10.2026"]
         # The original data remains untouched until a complete audit succeeds.
         assert len(chronology) == 4
         assert chronology[0]["story_date"] == "2025-10-02"

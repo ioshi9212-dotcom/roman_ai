@@ -707,6 +707,8 @@ def _atomic_commit_audit(session_id: str, payload: Dict[str, Any]) -> Dict[str, 
         repairs["scene_compactions"] = resolved_scene_rows
 
         macro_compaction_due = macro_due(source, expected_end)
+        if macro_compaction_due and isinstance(repairs.get("chronology_compactions"), list):
+            repairs["chronology_compaction_version"] = 2
         macro_compaction_requested = isinstance(repairs.get("chronology_compactions"), list)
         chronology = apply_macro_chronology_compaction(
             root,

@@ -13,6 +13,7 @@ SCENE_SUMMARY_MIN_CHARS = 60
 SCENE_SUMMARY_MAX_CHARS = 1200
 MEMORY_SUMMARY_MAX_CHARS = 900
 _MEMORY_ID_KEYS = {
+    "knowledge_journal": "entry_id",
     "knowledge": "fact_id",
     "experiences": "event_id",
     "dialogue_memory": "topic_id",
@@ -407,6 +408,23 @@ def _canonical_memory_record(
         "canonical_compaction": True,
         "compacted_at_audit_turn": int(audit_end_turn),
     }
+    common["source_texts"] = list(dict.fromkeys(
+        text for item in source_rows
+        for text in (item.get("source_texts") or [str(item.get("text") or item.get("fact") or item.get("summary") or "")])
+        if text
+    ))
+
+    if memory_type == "knowledge_journal":
+        facts = list(dict.fromkeys(_clean_text(row.get("text")) for row in source_rows if row.get("text")))
+        # If a rewrite omits a distinct source phrase, retain the original facts
+        # instead of blocking the audit or accepting lossy personal memory.
+        if not all(text in summary for text in facts):
+            summary = " ".join(facts)
+        return {**common, **_source_confidence_metadata(source_rows, source_ids),
+                **_durability_metadata(source_rows),
+                "entry_id": canonical_id, "text": summary,
+                "date": source_rows[0].get("date") or "без даты",
+                "turn": min(_record_turn(row) for row in source_rows)}
 
     if memory_type == "knowledge":
         first_turn = min(ordered_turns) if ordered_turns else int(audit_end_turn)
@@ -498,7 +516,7 @@ def _apply_memory_compactions(
                     except (TypeError, ValueError):
                         pass
             turn = _record_turn(item)
-            if turn > 0:
+            if turn > 0 or int(start_turn) == 0:
                 record_turns.add(turn)
 
             current = any(int(start_turn) <= value <= int(end_turn) for value in record_turns)
@@ -516,6 +534,11 @@ def _apply_memory_compactions(
         if not has_current_audit_evidence:
             raise RuntimeError("MEMORY_COMPACTION_SOURCE_OUT_OF_RANGE")
 
+        if memory_type == "knowledge_journal":
+            dates = {str(item.get("date") or "без даты") for item in source_rows}
+            if len(dates) > 1:
+                raise RuntimeError("MEMORY_COMPACTION_INVALID")
+
         canonical = _canonical_memory_record(
             character_id=character_id,
             memory_type=memory_type,
@@ -527,6 +550,8 @@ def _apply_memory_compactions(
         id_key = _MEMORY_ID_KEYS[memory_type]
         canonical_id = str(canonical[id_key])
         for item in source_rows:
+            if str(item.get(id_key)) == canonical_id:
+                continue  # A repeated unchanged compaction must not supersede itself.
             item["superseded_by"] = canonical_id
             item["compacted_at_audit_turn"] = int(end_turn)
             item["raw_evidence_preserved"] = True
@@ -599,7 +624,7 @@ def apply_audit_compactions(
     compacted_memory = _apply_memory_compactions(
         memory,
         repairs.get("memory_compactions"),
-        start_turn=start_turn,
+        start_turn=0 if int(end_turn) % 60 == 0 else start_turn,
         end_turn=end_turn,
     )
     compacted_chronology = _compact_chronology(
@@ -623,7 +648,7 @@ def replay_audit_compactions(
     replayed_memory = _apply_memory_compactions(
         memory,
         repairs.get("memory_compactions"),
-        start_turn=start_turn,
+        start_turn=0 if int(end_turn) % 60 == 0 else start_turn,
         end_turn=end_turn,
     )
     replayed_chronology = _compact_chronology(

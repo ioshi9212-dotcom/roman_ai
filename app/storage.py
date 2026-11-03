@@ -164,6 +164,12 @@ def _upsert_by_id(items: List[Dict[str, Any]], item: Dict[str, Any], id_key: str
     items.append(deepcopy(item))
 
 
+JOURNAL_METADATA_FIELDS = (
+    "source_character_id", "speaker_id", "source", "source_type", "channel",
+    "confidence", "importance", "pinned", "permanent", "durable",
+)
+
+
 def _apply_memory_events(
     memory: Dict[str, Any],
     extracted: Dict[str, Any],
@@ -193,6 +199,7 @@ def _apply_memory_events(
                 except (TypeError, ValueError):
                     journal_turn = turn_number
             record = {
+                **{key: deepcopy(item[key]) for key in JOURNAL_METADATA_FIELDS if key in item},
                 "entry_id": str(item.get("entry_id") or f"journal_t{journal_turn}_{counters[cid]}"),
                 "date": item.get("date"),
                 "period": item.get("period"),

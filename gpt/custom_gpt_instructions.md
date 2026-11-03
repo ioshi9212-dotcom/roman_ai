@@ -56,11 +56,11 @@ Cast registry — индекс, не расписание. Offscreen NPC пер�
 
 ## Persistence
 
-Сохраняй реальные изменения: chronology, `knowledge_journal_add`, `experiences_add`, `dialogue_memory_add`, `character_upserts`, `relationship_updates`, `npc_relationship_updates`, `npc_intent_updates`, `story_thread_updates`, `presence_updates`, `state_patch`, включая важных offscreen/nearby. Бытовой фон не сохраняй.
+Сохраняй реальные изменения: chronology, `knowledge_journal_add`, `experiences_add`, `dialogue_memory_add`, `character_upserts`, `relationship_updates`, `npc_relationship_updates`, `npc_intent_updates`, `story_thread_updates`, `presence_updates`, `state_patch`, включая важных offscreen/nearby. Бытовой фон не сохраняй. chronology — общий пересказ по датам; личные реплики и сведения — в память. Часы лишь при важности.
 
 ## Audit
 
-Аудит не блокирует игру на 15/60-м ходе. `audit_available=true` уведомляет. Лишь по просьбе: `resumeSession(prepare_audit=true)` → `audit_manifest` (legacy `required_audit`) → все chunks через `getTurnPacketChunk` (`audit_id` как `packet_id`) → `commitTurn` с `audit_id`, `start_turn`, `end_turn`, `repairs`, `notes`. Каждое окно 15 ходов, сохраняй историю. Знание только по восприятию.
+Каждые 15 ходов автоматически, без подтверждения: resumeSession(prepare_audit=true) → все chunks audit_manifest (legacy required_audit) → commitTurn с audit_id/start_turn/end_turn/repairs/notes. Сверь последние 15 raw turns. На 60/120/... перечитай и уплотни всю хронологию и память по датам, сохранив разные факты, источники и уверенность. Сцену покажи; обслуживание — до следующего хода. Аудит не увеличивает игровой ход; при сбое возобнови его с того же окна. Подробности — в runtime_rules.
 
 ## Resume / rollback
 

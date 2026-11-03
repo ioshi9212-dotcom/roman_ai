@@ -12,6 +12,8 @@ def _norm(value: Any) -> str:
 
 def _journal_event_key(row: Dict[str, Any]) -> tuple[str, ...]:
     """Bare repeated facts collapse; source-attributed repeat testimony keeps its turn."""
+    if row.get("canonical_compaction") or row.get("superseded_by"):
+        return ("compaction-source", str(row.get("entry_id") or ""))
     source = _norm(row.get("speaker_id") or row.get("source_character_id") or row.get("source"))
     # A generic repeated *fact* isn't an observed second event. A genuinely
     # attributed quote/report can be heard again in another turn, and the new
