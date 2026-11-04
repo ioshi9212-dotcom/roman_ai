@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import secrets
 from contextlib import contextmanager
 from contextvars import ContextVar
 from pathlib import Path
+from time import perf_counter
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 from typing import Any, Dict, List
 
@@ -49,6 +51,8 @@ def runtime_read_view():
 
 
 def _fetch_github_scene_builder() -> str:
+    started = perf_counter()
+    succeeded = False
     # A unique query defeats edge cache reuse after an author edits the file.
     url = _SCENE_BUILDER_URL + "?live=" + secrets.token_hex(12)
     request = Request(
@@ -61,10 +65,17 @@ def _fetch_github_scene_builder() -> str:
             binary = response.read(_SCENE_BUILDER_MAX_BYTES + 1)
         if not binary or len(binary) > _SCENE_BUILDER_MAX_BYTES:
             raise ValueError("scene_builder is empty or exceeds the size limit")
-        return binary.decode("utf-8-sig")
+        text = binary.decode("utf-8-sig")
+        succeeded = True
+        return text
     except (OSError, UnicodeError, ValueError, RuntimeError) as exc:
         # Do not silently serve an older bundled builder when GitHub is down.
         raise RuntimeError("SCENE_BUILDER_GITHUB_UNAVAILABLE") from exc
+    finally:
+        logging.getLogger("uvicorn.error").info(
+            "roman_timing operation=builder_fetch duration_ms=%.2f success=%s",
+            (perf_counter() - started) * 1000, succeeded,
+        )
 
 
 def author_runtime_sources() -> Dict[str, str]:
