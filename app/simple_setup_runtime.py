@@ -848,6 +848,19 @@ def _draft_status(draft_id: str) -> Dict[str, Any]:
         "published_to_library": bool(draft.get("published_to_library")),
         "simple_profile_mode": True,
         "profile_schema": profile_manifest(),
+        "instruction": (
+            "Финализация подтверждена. Сообщи о готовности и предложи запуск первой сцены."
+            if finalized else
+            "Продолжай подготовку в этом выполнении, без промежуточного отчёта и нового подтверждения. "
+            "finalize_blocker указывает незавершённый шаг, а не повод закончить ответ. "
+            "Исправь формат карточек/отношений по RAW, не меняя смысл. "
+            "Догрузи pending intake с next_chunk_index; уже сохранённый RAW не загружай заново. "
+            "Сверь unreviewed_blocks и отметь каждый через updateDraftIntakeMapping(fact_ids=[],reviewed_against_raw=true). "
+            "После изменений используй свежую revision: полный prepareDraftRead → все chunks → "
+            "confirmDraftReconciliation → finalizeNovelDraft. При той же revision продолжай прежний read_id. "
+            "При ошибке исправь её причину, не повторяй тот же ошибочный запрос и не создавай новый черновик ради обхода. "
+            "Заверши ответ после успешной финализации; раньше — только при реальной невозможности продолжить, с точной причиной."
+        ),
     }
 
 
