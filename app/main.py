@@ -1,5 +1,6 @@
 import hashlib
 import json
+import logging
 import os
 from pathlib import Path
 from time import perf_counter
@@ -61,6 +62,9 @@ from .storage import (
 from .turn_rollback import RollbackError
 from .startup_migration import read_migration_status, run_startup_session_migration
 from .choice_mcp import create_choice_mcp
+
+
+_timing_log = logging.getLogger("uvicorn.error")
 
 
 @asynccontextmanager
@@ -638,6 +642,11 @@ def turn_packet_prepare(session_id: str, body: TurnPrepare):
         if isinstance(result, dict):
             result = dict(result)
             result["server_prepare_ms"] = round((perf_counter() - started) * 1000, 2)
+            _timing_log.info(
+                "roman_timing operation=prepare duration_ms=%s chunk_count=%s total_chars=%s reused=%s",
+                result["server_prepare_ms"], result.get("chunk_count"),
+                result.get("total_chars"), bool(result.get("reused_pending_packet")),
+            )
         return result
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -683,8 +692,15 @@ def turn_packet_prepare(session_id: str, body: TurnPrepare):
 
 @app.get("/sessions/{session_id}/turn-packet/{packet_id}/{chunk_index}", operation_id="getTurnPacketChunk")
 def turn_packet_chunk_get(session_id: str, packet_id: str, chunk_index: int):
+    started = perf_counter()
     try:
-        return get_turn_packet_chunk(session_id, packet_id, chunk_index)
+        result = get_turn_packet_chunk(session_id, packet_id, chunk_index)
+        _timing_log.info(
+            "roman_timing operation=chunk duration_ms=%.2f chunk_index=%s chunk_count=%s content_chars=%s",
+            (perf_counter() - started) * 1000, chunk_index,
+            result.get("chunk_count"), len(result.get("content", "")),
+        )
+        return result
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Session not found")
     except PermissionError:
@@ -834,6 +850,7 @@ def turns_commit(session_id: str, body: CommitTurnRequest):
         if isinstance(result, dict):
             result = dict(result)
             result["server_commit_ms"] = round((perf_counter() - started) * 1000, 2)
+            _timing_log.info("roman_timing operation=commit duration_ms=%s", result["server_commit_ms"])
         return result
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Session not found")
