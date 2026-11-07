@@ -167,7 +167,7 @@ def _update_intake_mapping(
         intake = sections.get("intake")
         if not isinstance(intake, dict):
             raise ValueError("INTAKE_BLOCK_NOT_FOUND")
-        normalized = draft_intake_runtime._normalise_intake(intake)
+        normalized = draft_intake_runtime._normalise_intake(intake, draft_version=draft.get("version", 1))
         target = next(
             (row for row in normalized.get("blocks", []) if str(row.get("block_id") or "") == str(block_id)),
             None,

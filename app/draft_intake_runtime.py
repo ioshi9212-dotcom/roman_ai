@@ -108,7 +108,7 @@ def _lossless_detail_coverage_required(draft: Dict[str, Any]) -> bool:
         return False
 
 
-def _normalise_intake(value: Any, *, reject_placeholders: bool = False) -> Dict[str, Any]:
+def _normalise_intake(value: Any, *, reject_placeholders: bool = False, draft_version: int = 1) -> Dict[str, Any]:
     if not isinstance(value, dict):
         raise TypeError("intake must be a JSON object")
     blocks = value.get("blocks")
@@ -132,8 +132,9 @@ def _normalise_intake(value: Any, *, reject_placeholders: bool = False) -> Dict[
             raise ValueError("INTAKE_FACT_IDS_REQUIRED")
         fact_ids = [str(item).strip() for item in fact_ids if str(item).strip()]
         no_facts = bool(raw.get("contains_no_facts", False))
-        # Raw-first chunked intake is allowed to exist unmapped only while it is unreviewed.
-        if reviewed and not fact_ids and not no_facts:
+        # Legacy drafts map reviewed facts to foundation IDs. V5 reviews fixed
+        # profiles instead, so an already-reviewed block legitimately has no IDs.
+        if int(draft_version or 1) < 5 and reviewed and not fact_ids and not no_facts:
             raise ValueError("INTAKE_FACT_IDS_REQUIRED")
         if no_facts and fact_ids:
             raise ValueError("INTAKE_FACT_IDS_CONFLICT")
@@ -152,9 +153,9 @@ def _normalise_intake(value: Any, *, reject_placeholders: bool = False) -> Dict[
     return result
 
 
-def _merge_intake(existing: Any, incoming: Any) -> Dict[str, Any]:
-    old = _normalise_intake(existing) if isinstance(existing, dict) else {"version": _VERSION, "blocks": []}
-    new = _normalise_intake(incoming, reject_placeholders=True)
+def _merge_intake(existing: Any, incoming: Any, *, draft_version: int = 1) -> Dict[str, Any]:
+    old = _normalise_intake(existing, draft_version=draft_version) if isinstance(existing, dict) else {"version": _VERSION, "blocks": []}
+    new = _normalise_intake(incoming, reject_placeholders=True, draft_version=draft_version)
     merged = {row["block_id"]: deepcopy(row) for row in old["blocks"]}
     order = [row["block_id"] for row in old["blocks"]]
     for row in new["blocks"]:
@@ -230,7 +231,7 @@ def _coverage(draft: Dict[str, Any]) -> Dict[str, Any]:
             "unknown_source_unit_ids": [],
         }
 
-    intake = _normalise_intake(intake)
+    intake = _normalise_intake(intake, draft_version=draft.get("version", 1))
     foundation = sections.get("foundation") if isinstance(sections.get("foundation"), dict) else {}
     facts = foundation.get("facts") if isinstance(foundation.get("facts"), list) else []
     fact_rows = {
@@ -378,7 +379,7 @@ def enrich_template_with_source_evidence(draft: Dict[str, Any], template: Dict[s
     intake_raw = sections.get("intake")
     if not isinstance(intake_raw, dict):
         return result
-    intake = _normalise_intake(intake_raw)
+    intake = _normalise_intake(intake_raw, draft_version=draft.get("version", 1))
     units = _all_source_units(intake)
     if not units:
         return result
@@ -492,7 +493,7 @@ def save_complete_intake_raw(
         uploads = deepcopy(uploads) if isinstance(uploads, dict) else {}
         receipt = uploads.get(block_id)
         existing_intake = draft.get("sections", {}).get("intake")
-        old = _normalise_intake(existing_intake) if isinstance(existing_intake, dict) else {"blocks": []}
+        old = _normalise_intake(existing_intake, draft_version=draft.get("version", 1)) if isinstance(existing_intake, dict) else {"blocks": []}
         blocks = {row["block_id"]: row for row in old["blocks"]}
 
         if block_id in blocks:
@@ -537,7 +538,7 @@ def save_complete_intake_raw(
         }
         # Use the same canonical intake format as the existing chunk uploader.
         # All fields and whitespace in raw_text are left untouched.
-        draft.setdefault("sections", {})["intake"] = _merge_intake(existing_intake, incoming)
+        draft.setdefault("sections", {})["intake"] = _merge_intake(existing_intake, incoming, draft_version=draft.get("version", 1))
         draft["revision"] = int(draft.get("revision", 0) or 0) + 1
         draft["finalized"] = False
         draft.pop("finalized_template", None)
@@ -596,7 +597,7 @@ def append_intake_chunk(
         existing_blocks = {}
         existing_intake = draft.get("sections", {}).get("intake") if isinstance(draft.get("sections"), dict) else None
         if isinstance(existing_intake, dict):
-            normalized = _normalise_intake(existing_intake)
+            normalized = _normalise_intake(existing_intake, draft_version=draft.get("version", 1))
             existing_blocks = {row["block_id"]: row for row in normalized["blocks"]}
 
         receipt = uploads.get(block_id)
@@ -707,7 +708,7 @@ def append_intake_chunk(
                 "contains_no_facts": False,
             }],
         }
-        draft.setdefault("sections", {})["intake"] = _merge_intake(existing_intake, incoming)
+        draft.setdefault("sections", {})["intake"] = _merge_intake(existing_intake, incoming, draft_version=draft.get("version", 1))
         draft["revision"] = int(draft.get("revision", 0) or 0) + 1
         draft["finalized"] = False
         draft.pop("finalized_template", None)
@@ -777,7 +778,7 @@ def update_intake_mapping(
         intake = sections.get("intake")
         if not isinstance(intake, dict):
             raise ValueError("INTAKE_BLOCK_NOT_FOUND")
-        normalized = _normalise_intake(intake)
+        normalized = _normalise_intake(intake, draft_version=draft.get("version", 1))
         blocks = normalized["blocks"]
         target = next((row for row in blocks if row["block_id"] == block_id), None)
         if target is None:
@@ -886,7 +887,7 @@ def _save_section(
             raise ValueError("DRAFT_SECTION_REVISION_MISMATCH")
         was_finalized = bool(draft.get("finalized"))
         parsed = novel_drafts._parse_one_json(section_json)
-        incoming = _normalise_intake(parsed, reject_placeholders=True)
+        incoming = _normalise_intake(parsed, reject_placeholders=True, draft_version=draft.get("version", 1))
 
         uploads = draft.get("intake_uploads") if isinstance(draft.get("intake_uploads"), dict) else {}
         for row in incoming["blocks"]:
@@ -894,7 +895,7 @@ def _save_section(
             if isinstance(upload, dict) and not upload.get("completed"):
                 raise ValueError("INTAKE_UPLOAD_IN_PROGRESS")
 
-        merged = _merge_intake(draft.get("sections", {}).get("intake"), incoming)
+        merged = _merge_intake(draft.get("sections", {}).get("intake"), incoming, draft_version=draft.get("version", 1))
         draft.setdefault("sections", {})["intake"] = merged
         draft["revision"] = current_revision + 1
         draft["finalized"] = False
