@@ -10,7 +10,7 @@ from .scene_compaction_runtime import load_scene_history
 
 
 MACRO_AUDIT_INTERVAL = 60
-MACRO_CHRONOLOGY_VERSION = 1
+MACRO_CHRONOLOGY_VERSION = 2
 MACRO_SUMMARY_MAX_CHARS = 1800
 _DATE_RE = re.compile(r"\b(?P<date>\d{2}\.\d{2}\.\d{4})\b")
 _ISO_DATE_RE = re.compile(r"\b(?P<date>\d{4}-\d{2}-\d{2})\b")
@@ -32,7 +32,7 @@ def macro_due(source: Dict[str, Any], end_turn: int) -> bool:
 
 def macro_range(end_turn: int) -> tuple[int, int]:
     end = max(1, int(end_turn))
-    return max(1, end - MACRO_AUDIT_INTERVAL + 1), end
+    return 1, end
 
 
 def _event_turn(item: Dict[str, Any]) -> int:
@@ -326,11 +326,12 @@ def build_macro_payload(
         return None
 
     start_turn, end_turn = macro_range(end_turn)
+    recent_start = max(1, end_turn - MACRO_AUDIT_INTERVAL + 1)
     chronology_rows = chronology if isinstance(chronology, list) else []
     events = [
         deepcopy(event)
         for event in chronology_rows
-        if isinstance(event, dict) and start_turn <= _event_turn(event) <= end_turn
+        if isinstance(event, dict) and 0 <= _event_turn(event) <= end_turn
     ]
     compact_events = []
     for event in events:
@@ -339,6 +340,7 @@ def build_macro_payload(
             "date": _story_date(event),
             "event": event.get("event") or event.get("summary") or event.get("text") or event.get("description"),
             "importance": event.get("importance"),
+            "source_key_facts": deepcopy(event.get("source_key_facts")),
             "time_critical": event.get("time_critical") is True,
             "exact_time": event.get("exact_time"),
             "participants": deepcopy(
@@ -353,7 +355,7 @@ def build_macro_payload(
     relationship_changes = []
     for turn in turns:
         number = _event_turn(turn)
-        if number < start_turn or number > end_turn:
+        if number < recent_start or number > end_turn:
             continue
         extracted = turn.get("extracted") if isinstance(turn.get("extracted"), dict) else {}
         rows = extracted.get("relationship_updates")
@@ -363,6 +365,8 @@ def build_macro_payload(
     return {
         "required": True,
         "macro_interval": MACRO_AUDIT_INTERVAL,
+        "chronology_compaction_version": MACRO_CHRONOLOGY_VERSION,
+        "history_scope": "entire_chronology",
         "macro_range": [start_turn, end_turn],
         "turn_calendar": _turn_calendar(turns, start_turn, end_turn),
         # Computed by the SAME date/importance rule as commit validation.
@@ -373,13 +377,13 @@ def build_macro_payload(
                 value[6:10], value[3:5], value[:2]
             ) if _DATE_RE.fullmatch(value) else (value, "", ""),
         ),
-        "prior_scene_summaries": _scene_rows_for_range(root, start_turn, end_turn),
+        "prior_scene_summaries": _scene_rows_for_range(root, recent_start, end_turn),
         "chronology_events_before_compaction": compact_events,
         "relationship_changes_60_turns": relationship_changes,
         "cast_registry_audit": cast_audit(
             state,
             [],
-            start_turn,
+            recent_start,
             end_turn,
             include_all=True,
         ),
@@ -406,16 +410,16 @@ def build_macro_payload(
             "do_not_write_clock_time_unless_time_critical": True,
         },
         "instruction": (
-            "60-TURN MACRO AUDIT. После обычной проверки последних 15 ходов собери repairs.chronology_compactions "
-            "по macro_range: по одной записи на каждую дату required_important_dates; короткие датированные абзацы без бытовой воды и повторов, с сохранением причинно важных событий и значимых точных реплик только когда формулировка сама важна. "
+            "60-TURN MACRO AUDIT. После сверки последних 15 ходов перечитай ВСЮ сохранённую хронологию от начала и собери repairs.chronology_compactions "
+            "по macro_range: по одной записи на каждую дату required_important_dates; короткие датированные абзацы без бытовой воды и повторов, с сохранением всех различимых событий и последствий. Личные реплики, обещания и узнанные сведения сохраняй у участников в памяти, а не дублируй здесь. "
             "Одновременно проверь cast за доступный 60-turn evidence: если именованный one-off уже фактически стал повторяющимся или долговременно важным, а карточки всё ещё нет, добавь repairs.character_upserts."
         ),
     }
 
 
 
-def _durable_source_facts_by_date(events: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
-    """Keep significant source facts verbatim alongside every dated macro summary.
+def _durable_source_facts_by_date(events: List[Dict[str, Any]], *, include_normal: bool = True) -> Dict[str, List[Dict[str, Any]]]:
+    """Keep source facts verbatim alongside each dated summary without nesting.
 
     A date-level paragraph cannot be trusted as a complete replacement for
     distinct source events. This metadata remains director-only and is taken
@@ -423,7 +427,17 @@ def _durable_source_facts_by_date(events: List[Dict[str, Any]]) -> Dict[str, Lis
     """
     by_date: Dict[str, List[Dict[str, Any]]] = {}
     seen: set[tuple[str, str]] = set()
+    expanded = []
     for row in events:
+        inherited = row.get("source_key_facts") if isinstance(row, dict) else None
+        if isinstance(inherited, list) and inherited:
+            expanded.extend({**fact, "event_id": fact.get("source_event_id"),
+                             "story_date": _story_date(row), "durable": True,
+                             "time_critical": bool(fact.get("exact_time"))}
+                            for fact in inherited if isinstance(fact, dict))
+        else:
+            expanded.append(row)
+    for row in expanded:
         if not isinstance(row, dict):
             continue
         date = _story_date(row)
@@ -433,14 +447,11 @@ def _durable_source_facts_by_date(events: List[Dict[str, Any]]) -> Dict[str, Lis
             not isinstance(consequences, list)
             or any(str(value).strip() for value in consequences)
         )
-        significant = (
-            importance in {"major", "anchor", "critical"}
-            or row.get("anchor") is True
-            or row.get("time_critical") is True
-            or has_consequences
+        if not date or (not include_normal and not (
+            importance in {"major", "anchor", "critical"} or row.get("anchor") is True
+            or row.get("time_critical") is True or has_consequences
             or any(row.get(key) is True for key in ("durable", "pinned", "permanent"))
-        )
-        if not date or not significant:
+        )):
             continue
         event = str(row.get("event") or row.get("summary") or row.get("text") or "").strip()
         if not event:
@@ -485,6 +496,7 @@ def _apply_macro_chronology_compaction_core(
     repairs: Dict[str, Any],
     *,
     end_turn: int,
+    full_history: bool = True,
 ) -> List[Dict[str, Any]]:
     values = [deepcopy(row) for row in chronology if isinstance(row, dict)] if isinstance(chronology, list) else []
     if not macro_due(source, end_turn):
@@ -497,7 +509,7 @@ def _apply_macro_chronology_compaction_core(
     if not isinstance(raw_rows, list):
         raise RuntimeError("MACRO_CHRONOLOGY_COMPACTION_INVALID")
 
-    start_turn, end_turn = macro_range(end_turn)
+    start_turn, end_turn = macro_range(end_turn) if full_history else (max(1, int(end_turn) - 59), int(end_turn))
     turns = [
         row for row in turns
         if start_turn <= _event_turn(row) <= end_turn
@@ -506,12 +518,12 @@ def _apply_macro_chronology_compaction_core(
 
     source_events = [
         row for row in values
-        if start_turn <= _event_turn(row) <= end_turn
+        if start_turn <= _event_turn(row) <= end_turn or (full_history and _event_turn(row) == 0)
     ]
     important_dates = set(_important_date_rows(source_events))
     # Defined before use: the Amvera crash came from an undefined durable_facts
     # variable at the moment the 60-turn audit tried to preserve source facts.
-    durable_facts = _durable_source_facts_by_date(source_events)
+    durable_facts = _durable_source_facts_by_date(source_events, include_normal=full_history)
     important_dates.update(durable_facts)
 
     normalized: List[Dict[str, Any]] = []
@@ -544,9 +556,10 @@ def _apply_macro_chronology_compaction_core(
         for event in source_events:
             if _story_date(event) != date or event.get("time_critical") is not True:
                 continue
-            exact = str(event.get("exact_time") or "").strip()
-            if exact and exact not in critical_times:
-                critical_times.append(exact)
+            for value in [event.get("exact_time"), *(event.get("critical_times") or [])]:
+                exact = str(value or "").strip()
+                if exact and exact not in critical_times:
+                    critical_times.append(exact)
 
         item: Dict[str, Any] = {
             "event_id": f"macro_{end_turn}_{index}",
@@ -580,7 +593,7 @@ def _apply_macro_chronology_compaction_core(
 
     kept = [
         row for row in values
-        if not (start_turn <= _event_turn(row) <= end_turn)
+        if not (start_turn <= _event_turn(row) <= end_turn or (full_history and _event_turn(row) == 0))
     ]
     return sorted(
         [*kept, *normalized],
@@ -625,4 +638,5 @@ def replay_macro_chronology_compaction(
         chronology,
         repairs,
         end_turn=end_turn,
+        full_history=int(repairs.get("chronology_compaction_version", 1)) >= 2,
     )

@@ -326,29 +326,48 @@ def _encode_records(rows_by_kind: dict, day: str, *, memory: bool,
                     scene_period: str = "события") -> dict:
     result = template("память_персонажа.json" if memory else "хронология.json")
     metadata = []
+    archived = []
+    visible = set()
     for kind, rows in rows_by_kind.items():
+        compacted_ids = {str(row.get("entry_id") or row.get("fact_id") or row.get("event_id") or row.get("topic_id"))
+                         for row in rows if isinstance(row, dict) and row.get("source_texts")} if isinstance(rows, list) else set()
         for record in rows if isinstance(rows, list) else []:
             fields = record if isinstance(record, dict) else {}
+            if memory and fields.get("superseded_by") and (kind == "knowledge_journal" or fields["superseded_by"] in compacted_ids):
+                archived.append({"kind": kind, "record": deepcopy(record)})
+                continue
             key = next((k for k in ("text", "fact", "summary", "event", "content", "question") if fields.get(k) not in (None, "")), None)
             text = _text(record[key]) if key else json.dumps(record, ensure_ascii=False, separators=(",", ":"))
-            date = _day(fields.get("date") or day)
+            original_text = text
+            if memory and fields.get("canonical_compaction") and fields.get("source_texts"):
+                facts = list(dict.fromkeys(str(value) for value in fields["source_texts"] if value))
+                if not all(value in text for value in facts):
+                    text = " ".join(facts)
+                confidence = fields.get("confidence")
+                if confidence not in (None, "", "certain"):
+                    text += " [уверенность: " + str(confidence) + "]"
+            if not memory and fields.get("time_critical") is True:
+                times = fields.get("critical_times") or [fields.get("exact_time")]
+                times = [times] if isinstance(times, str) else times
+                missing_times = [str(value) for value in times if value and str(value) not in text]
+                if missing_times:
+                    text += " [точное время: " + ", ".join(dict.fromkeys(missing_times)) + "]"
+            date = _day(fields.get("date") or fields.get("story_date") or day)
             if memory:
                 section = "знания" if kind in {"knowledge_journal", "knowledge"} else "личные_события"
                 values = result[section].setdefault(date, [])
+                identity = (kind, date, text)
+                if kind == "knowledge_journal" and identity in visible:
+                    archived.append({"kind": kind, "record": deepcopy(record)})
+                    continue
+                visible.add(identity)
                 value = text if section == "знания" else {"с_кем": deepcopy(fields.get("participants") or fields.get("with") or []), "событие": text}
                 index = len(values)
                 values.append(value)
                 pointer = [section, date, index]
             else:
-                # Generator format is date -> period of day -> concise objective facts.
-                # Preserve an event's own period; otherwise use the committed
-                # scene clock, never fabricate a clock time for the event.
-                event_period = fields.get("period") or fields.get("period_of_day")
-                period = (
-                    _scene_period(None, event_period) if event_period
-                    else _scene_period(fields["time"]) if fields.get("time")
-                    else scene_period if date == _day(day) else "события"
-                )
+                # Date-only recap. Preserve clock time in prose only when causal.
+                period = "события"
                 values = result["дни"].setdefault(date, {}).setdefault(period, [])
                 index = len(values)
                 values.append(text)
@@ -356,8 +375,11 @@ def _encode_records(rows_by_kind: dict, day: str, *, memory: bool,
             metadata.append({"pointer": pointer, "kind": kind, "field": key,
                              "sha256": hashlib.sha256(text.encode()).hexdigest(),
                              "json_field": bool(key and not isinstance(record[key], str)),
-                             "fields": _extras(fields, {key}) if key else {}})
+                             "fields": _extras(fields, {key}) if key else {},
+                             **({"source_value": deepcopy(record[key])} if key and original_text != text else {})})
     result["_runtime"] = {"records": metadata}
+    if archived:
+        result["_runtime"]["archived_records"] = archived
     return result
 
 
@@ -380,7 +402,7 @@ def _decode_records(document: dict, *, memory: bool) -> dict:
                 row = json.loads(text)
             else:
                 row = deepcopy(meta["fields"])
-                row[meta["field"]] = json.loads(text) if meta.get("json_field") else text
+                row[meta["field"]] = deepcopy(meta["source_value"]) if "source_value" in meta else json.loads(text) if meta.get("json_field") else text
             kind = meta["kind"]
         elif memory and pointer[0] == "знания":
             kind = "knowledge_journal"
@@ -392,6 +414,9 @@ def _decode_records(document: dict, *, memory: bool) -> dict:
             kind = "chronology"
             row = {"event_id": "native_" + digest[:20], "date": date, "period": pointer[1], "event": text}
         result.setdefault(kind, []).append(row)
+    for archived in rt.get("archived_records", []):
+        if isinstance(archived, dict) and isinstance(archived.get("record"), dict):
+            result.setdefault(archived["kind"], []).append(deepcopy(archived["record"]))
     return result
 
 

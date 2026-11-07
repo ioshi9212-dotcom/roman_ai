@@ -215,7 +215,7 @@ def test_every_old_chronology_event_and_personal_fact_is_read(story):
              "text": f"Со слов свидетеля: личный факт {cid} {i}"} for i in range(1, 141)]
     storage._write_json(root / "memory.json", memory)
     manifest, packet = prepare(sid)
-    chronology = packet["chronology"]["дни"]["01.09.2026"]["вечер"]
+    chronology = packet["chronology"]["дни"]["01.09.2026"]["события"]
     assert chronology == [row["event"] for row in events]
     assert set(packet["character_memory"]) == {"pov", "ren"}
     for cid in ("pov", "ren"):
@@ -360,8 +360,8 @@ def test_migration_failure_keeps_legacy_story_readable(story, monkeypatch):
 
 
 
-def test_generator_chronology_groups_real_events_by_date_and_period(story):
-    """An omitted event period inherits the actual scene clock, never a made-up time."""
+def test_generator_chronology_groups_real_events_by_date_without_clock(story):
+    """Chronology recaps dates without routine period or clock labels."""
     sid, root = create(story)
     events = [
         {"event_id": "morning", "event": "Рен отдал письмо.", "date": "14.10.2026"},
@@ -371,9 +371,8 @@ def test_generator_chronology_groups_real_events_by_date_and_period(story):
     ]
     storage._write_json(root / "chronology.json", events)
     native = documents.read(root / "хронология.json")
-    assert native["дни"]["14.10.2026"]["утро"] == ["Рен отдал письмо."]
-    assert native["дни"]["14.10.2026"]["ночь"] == ["Ночью пришёл ответ."]
-    assert native["дни"]["13.10.2026"]["вечер"] == ["Вчера выяснилась причина."]
+    assert native["дни"]["14.10.2026"]["события"] == ["Рен отдал письмо.", "Ночью пришёл ответ."]
+    assert native["дни"]["13.10.2026"]["события"] == ["Вчера выяснилась причина."]
     assert native["дни"]["12.10.2026"]["события"] == ["Когда-то пропало письмо."]
     assert storage._read_json(root / "chronology.json", []) == events
     _, packet = prepare(sid)
@@ -418,4 +417,4 @@ def test_scene_chronology_uses_clock_if_period_label_is_stale(story):
         "date": "14.10.2026",
     }])
     native = documents.read(root / "хронология.json")
-    assert native["дни"]["14.10.2026"]["ночь"] == ["За окном стемнело."]
+    assert native["дни"]["14.10.2026"]["события"] == ["За окном стемнело."]

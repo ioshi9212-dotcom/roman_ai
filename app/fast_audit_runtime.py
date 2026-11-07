@@ -10,7 +10,7 @@ from .scene_compaction_runtime import audit_scene_context
 from .long_horizon_audit import build_macro_payload, cast_audit, macro_due, relationship_audit
 
 
-FAST_AUDIT_PACKET_VERSION = 12
+FAST_AUDIT_PACKET_VERSION = 13
 AUDIT_PACKET_CHARS = 16000
 
 
@@ -214,7 +214,7 @@ def _build_fast_payload(session_id: str) -> Dict[str, Any]:
         "audit_contract": {
             "exact_range": [start_turn, end_turn],
             "persistent_storage_is_complete": True,
-            "do_not_reaudit_entire_novel": True,
+            "do_not_reaudit_entire_novel": macro_review is None,
             "check": [
                 "missing chronology/journal/memory/intents and missing promoted recurring NPC cards",
                 "state, inventory, scene-item, physical-presence or remote-contact contradictions",
@@ -232,6 +232,8 @@ def _build_fast_payload(session_id: str) -> Dict[str, Any]:
         ),
     }
     if macro_review is not None:
+        macro_review["personal_memory_by_character"] = deepcopy(memory.get("characters", {}))
+        macro_review["output_required"]["repairs.memory_compactions"] = "Review ALL own memory per character and date; merge repetitions without losing distinct facts, attribution, confidence or promises. knowledge_journal uses entry_id source_ids. Never mix owners or different learned dates."
         payload["macro_audit_60"] = macro_review
         payload["audit_mode"] = "fast_chat_reconciliation_plus_macro_60"
     return payload

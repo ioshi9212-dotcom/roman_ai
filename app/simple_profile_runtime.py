@@ -329,6 +329,7 @@ def _prepare_journal_entries(root, extracted: Dict[str, Any]) -> None:
         if not character_id or not text:
             continue
         clean.append({
+            **{key: deepcopy(raw[key]) for key in ("entry_id", *storage.JOURNAL_METADATA_FIELDS) if key in raw},
             "character_id": str(character_id),
             "date": raw.get("date") or date,
             "period": raw.get("period") or period,
