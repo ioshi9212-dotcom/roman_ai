@@ -84,7 +84,6 @@ def prepare_turn_request(
     opening_scene: bool = False,
     scene_archive_capable: bool = False,
     replace_pending: bool = False,
-    known_runtime_revision: str | None = None,
 ) -> Dict[str, Any]:
     root = _session_root(session_id)
     session_migrations.ensure_current_session_data(session_id, invalidate_pending=True)
@@ -113,11 +112,7 @@ def prepare_turn_request(
             same_input = str(packet.get("user_input") or "") == str(user_input)
             pending_id = str(packet.get("request_id") or "").strip()
 
-            reload_runtime = (
-                replace_pending and packet.get("reuse_runtime_documents")
-                and not known_runtime_revision and (not pending_id or identity == pending_id)
-            )
-            if same_input and not reload_runtime:
+            if same_input:
                 if identity and pending_id and identity != pending_id:
                     raise RuntimeError("TURN_IN_PROGRESS")
                 packet_changed = False
@@ -156,10 +151,7 @@ def prepare_turn_request(
             if duplicate is not None:
                 return duplicate_prepare_response(duplicate)
 
-        result = dict(session_runtime.prepare_turn_packet(
-            session_id, user_input, _migrated=True,
-            known_runtime_revision=known_runtime_revision,
-        ))
+        result = dict(session_runtime.prepare_turn_packet(session_id, user_input, _migrated=True))
         packet = storage._read_json(root / "turn_packet.json", {})
         if isinstance(packet, dict) and packet.get("packet_id"):
             if identity:

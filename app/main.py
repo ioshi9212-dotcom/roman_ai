@@ -639,7 +639,6 @@ def turn_packet_prepare(session_id: str, body: TurnPrepare):
             opening_scene=bool(body.opening_scene),
             scene_archive_capable=bool(body.scene_archive_capable),
             replace_pending=bool(body.replace_pending),
-            known_runtime_revision=body.known_runtime_revision,
         )
         if isinstance(result, dict):
             result = dict(result)
@@ -654,10 +653,10 @@ def turn_packet_prepare(session_id: str, body: TurnPrepare):
         raise HTTPException(status_code=404, detail="Session not found")
     except RuntimeError as exc:
         code = str(exc)
-        if code == "SCENE_BUILDER_GITHUB_UNAVAILABLE":
+        if code in {"SCENE_BUILDER_GITHUB_UNAVAILABLE", "RULES_GITHUB_UNAVAILABLE"}:
             raise HTTPException(status_code=503, detail={
                 "code": code,
-                "message": "Cannot load the current Skin Builder from GitHub main. No stale copy was substituted; retry the same request.",
+                "message": "Cannot load the current Rules or Skin Builder from GitHub main. No stale copy was substituted; retry the same request.",
             }) from exc
         if code == "AUDIT_REQUIRED":
             return {
@@ -861,10 +860,10 @@ def turns_commit(session_id: str, body: CommitTurnRequest):
         raise HTTPException(status_code=409, detail="The packet_id was already used with a different commit payload. Prepare a fresh turn packet; no mutation was performed.")
     except RuntimeError as exc:
         code = str(exc)
-        if code == "SCENE_BUILDER_GITHUB_UNAVAILABLE":
+        if code in {"SCENE_BUILDER_GITHUB_UNAVAILABLE", "RULES_GITHUB_UNAVAILABLE"}:
             raise HTTPException(status_code=503, detail={
                 "code": code,
-                "message": "Current Skin Builder could not be verified from GitHub. Retry the same commit; no old builder was accepted.",
+                "message": "Current Rules or Skin Builder could not be verified from GitHub. Retry the same commit.",
             }) from exc
         if code == "TURN_PACKET_RUNTIME_STALE":
             raise HTTPException(

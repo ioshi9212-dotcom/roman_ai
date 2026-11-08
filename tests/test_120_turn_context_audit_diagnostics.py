@@ -104,6 +104,9 @@ def test_packet_has_all_chunks_full_active_cards_and_exact_author_reactions():
         assert manifest["chunk_count"] >= 4
         assert markers["tattoos"] in raw
         assert markers["appearance"] in raw
+        source = storage._read_json(storage.SESSIONS_DIR / sid / "source.json", {})
+        assert context["novel"] == source["novel"]
+        assert context["novel"]["lore"] == markers["lore"]
         assert markers["lore"] in raw
         assert "OFFSCREEN_PRIVATE_CARD_MARKER" not in raw
         assert {row["character_id"] for row in context["character_cards"]} == {
@@ -297,46 +300,3 @@ def test_macro_60_reviews_full_character_memory_not_only_chronology():
         )
         assert macro is not None
         assert "personal_memory_compactions" in macro["output_required"]
-
-
-def test_verified_runtime_revision_reduces_packet_without_removing_scene_data():
-    with tempfile.TemporaryDirectory() as tmp:
-        _temp_storage(tmp)
-        novel, _ = _novel(detailed=True)
-        full_sid = storage.create_session(novel)["session_id"]
-        reused_sid = storage.create_session(novel)["session_id"]
-        full, full_context, _ = _packet(full_sid, "Посмотреть на Сайласа")
-        reduced = session_runtime.prepare_turn_packet(
-            reused_sid, "Посмотреть на Сайласа",
-            known_runtime_revision=full["runtime_revision"],
-        )
-        assert reduced["reuse_runtime_documents"]
-        assert reduced["chunk_count"] < full["chunk_count"]
-        pending = storage._read_json(storage.SESSIONS_DIR / reused_sid / "turn_packet.json", {})
-        context = json.loads("".join(pending["chunks"]))
-        assert context["reuse_runtime_revision"] == full["runtime_revision"]
-        for key in ("chronology", "character_memory", "character_cards"):
-            assert context[key] == full_context[key]
-        assert "scene_builder" not in context
-        fresh_sid = storage.create_session(novel)["session_id"]
-        changed = session_runtime.prepare_turn_packet(
-            fresh_sid, "Посмотреть на Сайласа", known_runtime_revision="0" * 16,
-        )
-        assert not changed["reuse_runtime_documents"]
-
-
-def test_prepare_can_recover_runtime_after_client_loses_cached_copy():
-    from app.operation_service import prepare_turn_request
-    from app.runtime_access import runtime_revision
-
-    with tempfile.TemporaryDirectory() as tmp:
-        _temp_storage(tmp)
-        novel, _ = _novel()
-        sid = storage.create_session(novel)["session_id"]
-        reduced = prepare_turn_request(sid, "Продолжить", "same-request",
-                                       known_runtime_revision=runtime_revision())
-        assert reduced["reuse_runtime_documents"]
-        full = prepare_turn_request(sid, "Продолжить", "same-request", replace_pending=True)
-        assert not full["reuse_runtime_documents"]
-        assert full["packet_id"] != reduced["packet_id"]
-        assert full["request_id"] == reduced["request_id"]

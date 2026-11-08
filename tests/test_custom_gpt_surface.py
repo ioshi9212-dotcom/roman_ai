@@ -58,8 +58,7 @@ def test_static_custom_gpt_schema_has_exact_current_30_actions():
     turn_prepare = schema["components"]["schemas"]["TurnPrepare"]
     assert turn_prepare["required"] == ["user_input"]
     assert set(turn_prepare["properties"]) == {
-        "user_input", "request_id", "opening_scene", "scene_archive_capable",
-        "replace_pending", "known_runtime_revision"
+        "user_input", "request_id", "opening_scene", "scene_archive_capable", "replace_pending"
     }
 
     turn_commit = schema["components"]["schemas"]["TurnCommit"]

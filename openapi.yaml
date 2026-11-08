@@ -656,10 +656,6 @@ components:
         scene_archive_capable:
           type: boolean
           default: false
-        known_runtime_revision:
-          type: string
-          pattern: '^[0-9a-f]{16}$'
-          description: Pass only when both exact runtime documents of this revision are available in this chat.
         replace_pending:
           type: boolean
           default: false

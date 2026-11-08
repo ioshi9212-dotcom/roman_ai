@@ -23,7 +23,7 @@ Every date-level chronology macro-summary preserves source identifiers and impor
 
 ## Writer transport
 
-For opted-in sessions only, the writer gets active, compacted facts from the full native memory file. Superseded records are hidden **only when their actual canonical replacement exists**. The underlying native personal memory and raw audit evidence still contain the sources, so audits, rollback and repairs can inspect them. Only POV and scene participants' memory enters each main packet; absent NPC dossiers are read on demand. The main packet remains chunked at 16,000 characters. The client can pass a known runtime revision when it still has the exact Rules and Skin Builder. The server checks the current revision before omitting those documents from transport.
+For opted-in sessions only, the writer gets active, compacted facts from the full native memory file. Superseded records are hidden **only when their actual canonical replacement exists**. The underlying native personal memory and raw audit evidence still contain the sources, so audits, rollback and repairs can inspect them. Only POV and scene participants' memory enters each main packet; absent NPC dossiers are read on demand. The main packet remains chunked at 16,000 characters. Every new gameplay packet includes both complete current rule documents from GitHub main and the complete approved questionnaire.
 
 ## Limitations and rollout checklist
 

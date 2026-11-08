@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import secrets
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from contextvars import ContextVar
 from pathlib import Path
@@ -24,12 +25,12 @@ ACTIVE_RUNTIME_FILES = {
 }
 
 # The author's GitHub main is the live source for new scenes, even before a
-# hosting provider redeploys. No downloaded builder is written to session files.
-_SCENE_BUILDER_URL = (
+# hosting provider redeploys. Each packet carries the loaded rule documents.
+_RUNTIME_GITHUB_URL = (
     "https://raw.githubusercontent.com/ioshi9212-dotcom/"
-    "roman_ai/main/runtime/scene_builder.md"
+    "roman_ai/main/runtime/"
 )
-_SCENE_BUILDER_MAX_BYTES = 250_000
+_RUNTIME_FILE_MAX_BYTES = 250_000
 _REQUEST_DOCS: ContextVar[Dict[str, str] | None] = ContextVar(
     "roman_runtime_documents_for_request", default=None
 )
@@ -42,7 +43,7 @@ class _NoRedirect(HTTPRedirectHandler):
 
 @contextmanager
 def runtime_read_view():
-    """Freeze one fresh builder for a prepare/commit request, never across turns."""
+    """Freeze the current rule files for one request."""
     token = _REQUEST_DOCS.set({})
     try:
         yield
@@ -50,11 +51,11 @@ def runtime_read_view():
         _REQUEST_DOCS.reset(token)
 
 
-def _fetch_github_scene_builder() -> str:
+def _fetch_github_runtime_file(key: str) -> str:
     started = perf_counter()
     succeeded = False
     # A unique query defeats edge cache reuse after an author edits the file.
-    url = _SCENE_BUILDER_URL + "?live=" + secrets.token_hex(12)
+    url = _RUNTIME_GITHUB_URL + ACTIVE_RUNTIME_FILES[key] + "?live=" + secrets.token_hex(12)
     request = Request(
         url,
         headers={"Cache-Control": "no-cache", "Pragma": "no-cache", "Accept": "text/plain"},
@@ -62,19 +63,19 @@ def _fetch_github_scene_builder() -> str:
     )
     try:
         with build_opener(_NoRedirect).open(request, timeout=6) as response:
-            binary = response.read(_SCENE_BUILDER_MAX_BYTES + 1)
-        if not binary or len(binary) > _SCENE_BUILDER_MAX_BYTES:
-            raise ValueError("scene_builder is empty or exceeds the size limit")
+            binary = response.read(_RUNTIME_FILE_MAX_BYTES + 1)
+        if not binary or len(binary) > _RUNTIME_FILE_MAX_BYTES:
+            raise ValueError("runtime file is empty or exceeds the size limit")
         text = binary.decode("utf-8-sig")
         succeeded = True
         return text
     except (OSError, UnicodeError, ValueError, RuntimeError) as exc:
         # Do not silently serve an older bundled builder when GitHub is down.
-        raise RuntimeError("SCENE_BUILDER_GITHUB_UNAVAILABLE") from exc
+        raise RuntimeError(f"{key.upper()}_GITHUB_UNAVAILABLE") from exc
     finally:
         logging.getLogger("uvicorn.error").info(
-            "roman_timing operation=builder_fetch duration_ms=%.2f success=%s",
-            (perf_counter() - started) * 1000, succeeded,
+            "roman_timing operation=runtime_fetch file=%s duration_ms=%.2f success=%s",
+            key, (perf_counter() - started) * 1000, succeeded,
         )
 
 
@@ -99,15 +100,11 @@ def runtime_documents() -> Dict[str, str]:
     if mode not in {"github", "file"}:
         raise RuntimeError("SCENE_BUILDER_SOURCE_INVALID")
 
-    result: Dict[str, str] = {}
-    for key, name in ACTIVE_RUNTIME_FILES.items():
-        if key == "scene_builder" and mode == "github":
-            result[key] = _fetch_github_scene_builder()
-            continue
-        path = RUNTIME_DIR / name
-        if not path.exists():
-            raise RuntimeError(f"RUNTIME_FILE_MISSING:{name}")
-        result[key] = path.read_text(encoding="utf-8")
+    if mode == "github":
+        with ThreadPoolExecutor(max_workers=len(ACTIVE_RUNTIME_FILES)) as pool:
+            result = dict(zip(ACTIVE_RUNTIME_FILES, pool.map(_fetch_github_runtime_file, ACTIVE_RUNTIME_FILES)))
+    else:
+        result = author_runtime_sources()
     if cached is not None:
         _REQUEST_DOCS.set(dict(result))
     return result

@@ -54,7 +54,7 @@ _BASE_PARTICIPATION_BUNDLE = character_chunk_read._participation_bundle
 _BASE_CREATE_SESSION = storage.create_session
 _BASE_RECOVER_CURRENT = session_recovery.recover_session_current
 
-PIPELINE_VERSION = 24
+PIPELINE_VERSION = 25
 
 def _packet_manifest(packet: Dict[str, Any], *, reused: bool) -> Dict[str, Any]:
     chunks = packet.get("chunks", []) if isinstance(packet.get("chunks"), list) else []
@@ -78,7 +78,6 @@ def _packet_manifest(packet: Dict[str, Any], *, reused: bool) -> Dict[str, Any]:
         "all_chunks_read": not unread,
         "turn_pipeline_version": PIPELINE_VERSION,
         "runtime_revision": packet.get("runtime_revision"),
-        "reuse_runtime_documents": bool(packet.get("reuse_runtime_documents")),
         "data_schema_version": int(packet.get("data_schema_version", 0) or 0),
         "instruction": (
             "Pending packet reused. Read only unread chunks, silently re-check the final scene against Scene Builder, and commit once."
@@ -731,11 +730,8 @@ def _prepare_context(
             "relationships": "отношения.json", "state": "state.json",
         }
 
+    context["novel"] = deepcopy(source.get("novel", {}))
     context = _move_runtime_documents_last(context)
-    if packet.get("reuse_runtime_documents"):
-        for name in ("runtime_rules", "scene_builder"):
-            context.pop(name, None)
-        context["reuse_runtime_revision"] = packet["runtime_revision"]
     packet = _write_packet_context(root, packet, context)
     result = _packet_manifest(packet, reused=False)
     result["scene_character_card_count"] = len(
@@ -746,8 +742,7 @@ def _prepare_context(
     return result
 
 
-def prepare_turn_packet(session_id: str, user_input: str, *, _migrated: bool = False,
-                        known_runtime_revision: str | None = None) -> Dict[str, Any]:
+def prepare_turn_packet(session_id: str, user_input: str, *, _migrated: bool = False) -> Dict[str, Any]:
     root = storage.SESSIONS_DIR / session_id
     if not root.exists():
         raise FileNotFoundError(session_id)
@@ -790,7 +785,6 @@ def prepare_turn_packet(session_id: str, user_input: str, *, _migrated: bool = F
     # Build once in memory, then serialize only the final writer packet.
     # This avoids storage -> packet -> read -> rewrite -> packet round-trips.
     context = session_runtime.build_turn_context(session_id, user_input, lean_native=True)
-    revision = runtime_access.runtime_revision()
     packet = {
         "packet_id": secrets.token_urlsafe(12),
         "prepared_for_turn": expected_turn,
@@ -801,8 +795,7 @@ def prepare_turn_packet(session_id: str, user_input: str, *, _migrated: bool = F
         "chunk_count": 0,
         "read_chunks": [],
         "chunks": [],
-        "runtime_revision": revision,
-        "reuse_runtime_documents": revision == known_runtime_revision,
+        "runtime_revision": runtime_access.runtime_revision(),
         "data_schema_version": session_migrations.CURRENT_DATA_SCHEMA_VERSION,
     }
     base = {
