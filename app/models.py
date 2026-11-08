@@ -107,6 +107,7 @@ class TurnPrepare(BaseModel):
     request_id: Optional[str] = Field(default=None, min_length=1, max_length=120)
     opening_scene: bool = False
     scene_archive_capable: bool = False
+    known_runtime_revision: Optional[str] = Field(default=None, pattern=r"^[0-9a-f]{16}$")
     replace_pending: bool = False
 
 

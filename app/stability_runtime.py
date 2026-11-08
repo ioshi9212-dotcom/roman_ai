@@ -158,7 +158,7 @@ def _atomic_commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, A
 
     with session_transaction(root):
         meta = storage._read_json(root / "meta.json", {})
-        # Audit is maintenance, never a gameplay/commit gate.
+        # Legacy sessions keep their nonblocking behavior.
         turn_number = int(meta.get("turn_number", 0)) + 1
         packet = storage._read_json(root / "turn_packet.json", {})
         packet_id = str(payload.get("packet_id") or "").strip()
@@ -251,7 +251,7 @@ def _atomic_commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, A
             "turn_number": turn_number,
             "audit_due": audit_due,
             "audit_available": bool(meta["audit_required"]),
-            "audit_blocking": False,
+            "audit_blocking": bool(meta.get("safe_audit_v2") is True and meta["audit_required"]),
             "audit_range": [int(meta.get("last_audit_turn", 0) or 0) + 1, min(turn_number, int(meta.get("last_audit_turn", 0) or 0) + 15)] if meta["audit_required"] else None,
             "handoff_required": False,
             "transactional_commit": True,
@@ -366,6 +366,9 @@ def _atomic_commit_audit(session_id: str, payload: Dict[str, Any]) -> Dict[str, 
             if cid and cid not in existing_card_ids and not str(row.get("story_function") or "").strip():
                 raise RuntimeError("CAST_STORY_FUNCTION_REQUIRED")
         cards = storage._apply_character_upserts(pre_audit_cards, repairs)
+        if meta.get("safe_audit_v2") is True and expected_end % 60 == 0:
+            from .safe_audit_v2 import validate_macro_review
+            validate_macro_review(repairs, existing_card_ids)
         state = storage._read_json(root / "state.json", {})
         previous_state = deepcopy(state)
         state = _merge_state_patch_exact_relationships(state, audit_state_patch)
@@ -705,6 +708,20 @@ def _atomic_commit_audit(session_id: str, payload: Dict[str, Any]) -> Dict[str, 
         )
         repairs = deepcopy(repairs)
         repairs["scene_compactions"] = resolved_scene_rows
+
+        from .safe_audit_v2 import enabled as safe_audit_enabled
+        # Internal replay marker must be derived from the persisted session,
+        # never accepted from the client.
+        repairs.pop("_chronology_scope_start", None)
+        if safe_audit_enabled(meta):
+            if expected_end % 60 == 0:
+                repairs["_chronology_scope_start"] = 1
+            elif "chronology_compactions" in repairs or any(
+                isinstance(row, dict)
+                and expected_end - 14 <= int(row.get("turn_number") or row.get("turn") or 0) <= expected_end
+                for row in chronology
+            ):
+                repairs["_chronology_scope_start"] = expected_end - 14
 
         macro_compaction_due = macro_due(source, expected_end)
         macro_compaction_requested = isinstance(repairs.get("chronology_compactions"), list)

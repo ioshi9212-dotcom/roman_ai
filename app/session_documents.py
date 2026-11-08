@@ -606,6 +606,8 @@ def writer_documents(root: Path, participants: list[str]) -> dict:
             raise HTTPException(409, {"code": "SESSION_DOCUMENT_INVALID", "path": name})
         return value
     from .personal_memory_transport import personal_dialogue_record
+    from .safe_audit_v2 import enabled, writer_memory_document
+    safe_audit = enabled(read(root / "сессия.json", {}).get("_runtime", {}))
     cards = _cards(root)
     memories = {}
     for cid in participants:
@@ -629,7 +631,7 @@ def writer_documents(root: Path, participants: list[str]) -> dict:
             for key in ("segments", "question", "answer", "content"):
                 if key in safe and safe[key] not in (None, "", []):
                     event[key] = deepcopy(safe[key])
-        memories[cid] = memory
+        memories[cid] = writer_memory_document(memory, raw) if safe_audit else memory
     return {
         "chronology": public(required("хронология.json")),
         "personal_memory": memories,

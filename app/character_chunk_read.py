@@ -6,7 +6,7 @@ from copy import deepcopy
 from typing import Any, Dict, List
 
 from .character_access import get_character_bundle
-from . import personal_memory_transport, relationship_file_runtime, storage
+from . import personal_memory_transport, relationship_file_runtime, safe_audit_v2, storage
 from .scene_compaction_runtime import active_memory_records, complete_knowledge_records
 
 
@@ -124,9 +124,11 @@ def _working_memory(
     *,
     character_id: str,
     cards: List[Dict[str, Any]],
+    compact_knowledge: bool = False,
 ) -> Dict[str, Any]:
     memory = bundle.get("personal_memory") if isinstance(bundle.get("personal_memory"), dict) else {}
-    all_knowledge = complete_knowledge_records(memory.get("knowledge"))
+    all_knowledge = (active_memory_records(memory.get("knowledge"))
+                     if compact_knowledge else complete_knowledge_records(memory.get("knowledge")))
 
     # Knowledge is factual authority for this character. Do not replace old facts
     # with a tiny historical catalog: the bundle is chunked, so all active facts can
@@ -184,7 +186,12 @@ def _participation_bundle(session_id: str, character_id: str) -> Dict[str, Any]:
         "card": deepcopy(full.get("card", {})),
         "current_state": deepcopy(full.get("current_state", {})),
         "pov_familiarity": deepcopy(full.get("pov_familiarity")),
-        "personal_memory": _working_memory(full, character_id=character_id, cards=cards),
+        "personal_memory": _working_memory(
+            full, character_id=character_id, cards=cards,
+            compact_knowledge=safe_audit_v2.enabled(
+                storage._read_json(root / "meta.json", {})
+            ),
+        ),
         "relationship_to_pov": deepcopy(full.get("relationship_to_pov")),
         "npc_relationships_director_only": relationship_file_runtime.outgoing_npc_relations(relationship_store, character_id),
         "active_intents": deepcopy(full.get("active_intents", [])),

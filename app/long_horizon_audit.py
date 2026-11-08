@@ -321,11 +321,15 @@ def build_macro_payload(
     chronology: Any,
     turns: List[Dict[str, Any]],
     end_turn: int,
+    full_history: bool = False,
 ) -> Dict[str, Any] | None:
     if not macro_due(source, end_turn):
         return None
 
     start_turn, end_turn = macro_range(end_turn)
+    evidence_start = start_turn
+    if full_history:
+        start_turn = 1
     chronology_rows = chronology if isinstance(chronology, list) else []
     events = [
         deepcopy(event)
@@ -353,7 +357,7 @@ def build_macro_payload(
     relationship_changes = []
     for turn in turns:
         number = _event_turn(turn)
-        if number < start_turn or number > end_turn:
+        if number < evidence_start or number > end_turn:
             continue
         extracted = turn.get("extracted") if isinstance(turn.get("extracted"), dict) else {}
         rows = extracted.get("relationship_updates")
@@ -364,7 +368,7 @@ def build_macro_payload(
         "required": True,
         "macro_interval": MACRO_AUDIT_INTERVAL,
         "macro_range": [start_turn, end_turn],
-        "turn_calendar": _turn_calendar(turns, start_turn, end_turn),
+        "turn_calendar": _turn_calendar(turns, evidence_start, end_turn),
         # Computed by the SAME date/importance rule as commit validation.
         # GPT can cover every necessary date without guessing from 60 turns.
         "required_important_dates": sorted(
@@ -373,13 +377,13 @@ def build_macro_payload(
                 value[6:10], value[3:5], value[:2]
             ) if _DATE_RE.fullmatch(value) else (value, "", ""),
         ),
-        "prior_scene_summaries": _scene_rows_for_range(root, start_turn, end_turn),
+        "prior_scene_summaries": _scene_rows_for_range(root, evidence_start, end_turn),
         "chronology_events_before_compaction": compact_events,
         "relationship_changes_60_turns": relationship_changes,
         "cast_registry_audit": cast_audit(
             state,
             [],
-            start_turn,
+            evidence_start,
             end_turn,
             include_all=True,
         ),
@@ -442,6 +446,14 @@ def _durable_source_facts_by_date(events: List[Dict[str, Any]]) -> Dict[str, Lis
         )
         if not date or not significant:
             continue
+        inherited = row.get("source_key_facts")
+        if isinstance(inherited, list) and row.get("canonical_macro_compaction"):
+            for fact in inherited:
+                key = (date, str(fact.get("source_event_id") or ""))
+                if key not in seen:
+                    seen.add(key)
+                    by_date.setdefault(date, []).append(deepcopy(fact))
+            continue
         event = str(row.get("event") or row.get("summary") or row.get("text") or "").strip()
         if not event:
             continue
@@ -487,7 +499,8 @@ def _apply_macro_chronology_compaction_core(
     end_turn: int,
 ) -> List[Dict[str, Any]]:
     values = [deepcopy(row) for row in chronology if isinstance(row, dict)] if isinstance(chronology, list) else []
-    if not macro_due(source, end_turn):
+    scope_start = repairs.get("_chronology_scope_start")
+    if scope_start is None and not macro_due(source, end_turn):
         return values
 
     if "chronology_compactions" not in repairs:
@@ -498,6 +511,8 @@ def _apply_macro_chronology_compaction_core(
         raise RuntimeError("MACRO_CHRONOLOGY_COMPACTION_INVALID")
 
     start_turn, end_turn = macro_range(end_turn)
+    if scope_start is not None:
+        start_turn = scope_start
     turns = [
         row for row in turns
         if start_turn <= _event_turn(row) <= end_turn
@@ -509,6 +524,10 @@ def _apply_macro_chronology_compaction_core(
         if start_turn <= _event_turn(row) <= end_turn
     ]
     important_dates = set(_important_date_rows(source_events))
+    if scope_start is not None:
+        important_dates = {
+            date for row in source_events if _DATE_RE.fullmatch(date := _story_date(row))
+        }
     # Defined before use: the Amvera crash came from an undefined durable_facts
     # variable at the moment the 60-turn audit tried to preserve source facts.
     durable_facts = _durable_source_facts_by_date(source_events)
@@ -581,6 +600,7 @@ def _apply_macro_chronology_compaction_core(
     kept = [
         row for row in values
         if not (start_turn <= _event_turn(row) <= end_turn)
+        or (scope_start is not None and not _DATE_RE.fullmatch(_story_date(row)))
     ]
     return sorted(
         [*kept, *normalized],

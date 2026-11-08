@@ -635,6 +635,9 @@ def _participation_bundle(session_id: str, character_id: str) -> Dict[str, Any]:
 
     memory = storage._normalise_memory(storage._read_json(root / "memory.json", {}))
     bucket = storage._memory_bucket(memory, character_id)
+    from .safe_audit_v2 import enabled, active_bucket
+    if enabled(storage._read_json(root / "meta.json", {})):
+        bucket = active_bucket(bucket)
     journal = deepcopy(
         bucket.get("knowledge_journal", [])
         if isinstance(bucket.get("knowledge_journal"), list)

@@ -78,6 +78,7 @@ def _packet_manifest(packet: Dict[str, Any], *, reused: bool) -> Dict[str, Any]:
         "all_chunks_read": not unread,
         "turn_pipeline_version": PIPELINE_VERSION,
         "runtime_revision": packet.get("runtime_revision"),
+        "reuse_runtime_documents": bool(packet.get("reuse_runtime_documents")),
         "data_schema_version": int(packet.get("data_schema_version", 0) or 0),
         "instruction": (
             "Pending packet reused. Read only unread chunks, silently re-check the final scene against Scene Builder, and commit once."
@@ -731,6 +732,10 @@ def _prepare_context(
         }
 
     context = _move_runtime_documents_last(context)
+    if packet.get("reuse_runtime_documents"):
+        for name in ("runtime_rules", "scene_builder"):
+            context.pop(name, None)
+        context["reuse_runtime_revision"] = packet["runtime_revision"]
     packet = _write_packet_context(root, packet, context)
     result = _packet_manifest(packet, reused=False)
     result["scene_character_card_count"] = len(
@@ -741,7 +746,8 @@ def _prepare_context(
     return result
 
 
-def prepare_turn_packet(session_id: str, user_input: str, *, _migrated: bool = False) -> Dict[str, Any]:
+def prepare_turn_packet(session_id: str, user_input: str, *, _migrated: bool = False,
+                        known_runtime_revision: str | None = None) -> Dict[str, Any]:
     root = storage.SESSIONS_DIR / session_id
     if not root.exists():
         raise FileNotFoundError(session_id)
@@ -751,6 +757,12 @@ def prepare_turn_packet(session_id: str, user_input: str, *, _migrated: bool = F
         session_migrations.ensure_current_session_data(session_id, invalidate_pending=True)
     _current_pointer_guard(session_id)
     game_day._sync_session_game_day(session_id)
+
+    # Audit v2 is per-session opt-in. Block BEFORE issuing the next gameplay
+    # packet, so a missed 15/60 review cannot silently accumulate.
+    from .safe_audit_v2 import enabled
+    if enabled(storage._read_json(root / "meta.json", {})) and storage._read_json(root / "meta.json", {}).get("audit_required"):
+        raise RuntimeError("AUDIT_REQUIRED")
 
     with session_transaction(root):
         meta = storage._read_json(root / "meta.json", {})
@@ -778,6 +790,7 @@ def prepare_turn_packet(session_id: str, user_input: str, *, _migrated: bool = F
     # Build once in memory, then serialize only the final writer packet.
     # This avoids storage -> packet -> read -> rewrite -> packet round-trips.
     context = session_runtime.build_turn_context(session_id, user_input, lean_native=True)
+    revision = runtime_access.runtime_revision()
     packet = {
         "packet_id": secrets.token_urlsafe(12),
         "prepared_for_turn": expected_turn,
@@ -788,7 +801,8 @@ def prepare_turn_packet(session_id: str, user_input: str, *, _migrated: bool = F
         "chunk_count": 0,
         "read_chunks": [],
         "chunks": [],
-        "runtime_revision": runtime_access.runtime_revision(),
+        "runtime_revision": revision,
+        "reuse_runtime_documents": revision == known_runtime_revision,
         "data_schema_version": session_migrations.CURRENT_DATA_SCHEMA_VERSION,
     }
     base = {
@@ -1106,7 +1120,11 @@ def commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     )
     # Creating an audit packet requires an explicit maintenance request.
     saved.pop("required_audit", None)
-    saved["audit_blocking"] = False
+    from .safe_audit_v2 import enabled
+    saved["audit_blocking"] = bool(
+        enabled(storage._read_json(storage.SESSIONS_DIR / session_id / "meta.json", {}))
+        and saved.get("audit_available")
+    )
     saved["turn_pipeline_version"] = PIPELINE_VERSION
     return saved
 
@@ -1147,9 +1165,10 @@ def continue_session(session_id: str) -> Dict[str, Any]:
         result["pending_turn"] = pending
 
     meta = storage._read_json(root / "meta.json", {})
+    from .safe_audit_v2 import enabled
     result["audit_available"] = bool(meta.get("audit_required"))
-    result["audit_blocking"] = False
-    result["audit_required"] = False
+    result["audit_blocking"] = bool(enabled(meta) and meta.get("audit_required"))
+    result["audit_required"] = result["audit_blocking"]
     result.pop("required_audit", None)
 
     if result.get("current_recovery_required"):

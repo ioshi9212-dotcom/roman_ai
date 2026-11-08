@@ -627,7 +627,8 @@ def audit_snapshot_chunk_get(session_id: str, audit_id: str, chunk_index: int):
         raise HTTPException(status_code=404, detail="Audit chunk index out of range")
 
 
-@app.post("/sessions/{session_id}/turn-packet", operation_id="prepareTurn")
+@app.post("/sessions/{session_id}/turn-packet", operation_id="prepareTurn",
+          openapi_extra={"x-openai-isConsequential": False})
 def turn_packet_prepare(session_id: str, body: TurnPrepare):
     started = perf_counter()
     try:
@@ -638,6 +639,7 @@ def turn_packet_prepare(session_id: str, body: TurnPrepare):
             opening_scene=bool(body.opening_scene),
             scene_archive_capable=bool(body.scene_archive_capable),
             replace_pending=bool(body.replace_pending),
+            known_runtime_revision=body.known_runtime_revision,
         )
         if isinstance(result, dict):
             result = dict(result)
@@ -690,7 +692,8 @@ def turn_packet_prepare(session_id: str, body: TurnPrepare):
         raise
 
 
-@app.get("/sessions/{session_id}/turn-packet/{packet_id}/{chunk_index}", operation_id="getTurnPacketChunk")
+@app.get("/sessions/{session_id}/turn-packet/{packet_id}/{chunk_index}", operation_id="getTurnPacketChunk",
+         openapi_extra={"x-openai-isConsequential": False})
 def turn_packet_chunk_get(session_id: str, packet_id: str, chunk_index: int):
     started = perf_counter()
     try:

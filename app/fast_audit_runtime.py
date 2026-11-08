@@ -6,6 +6,7 @@ from copy import deepcopy
 from typing import Any, Dict
 
 from . import audit_runtime, npc_intent, relationship_file_runtime, storage, story_thread
+from .safe_audit_v2 import enabled
 from .scene_compaction_runtime import audit_scene_context
 from .long_horizon_audit import build_macro_payload, cast_audit, macro_due, relationship_audit
 
@@ -173,6 +174,7 @@ def _build_fast_payload(session_id: str) -> Dict[str, Any]:
             chronology=chronology,
             turns=storage._read_turns(root),
             end_turn=end_turn,
+            full_history=enabled(meta),
         )
 
     payload = {
@@ -231,7 +233,46 @@ def _build_fast_payload(session_id: str) -> Dict[str, Any]:
             "Повторы и бытовую воду не размножай: scene compaction должна быть короткой и фактической. Затем один commitTurn с audit payload."
         ),
     }
+    if enabled(meta) and macro_review is None:
+        payload["chronology_compaction_window"] = [
+            deepcopy(row) for row in chronology if isinstance(row, dict)
+            and start_turn <= int(row.get("turn_number") or row.get("turn") or 0) <= end_turn
+        ]
+        payload["audit_repair_policy"]["chronology_compactions"] = (
+            "Provide one concise date + summary per dated plot day in chronology_compaction_window. "
+            "Keep all distinct plot facts. Private observations and thoughts stay with their owners. "
+            "Use morning/day/evening, exact time only if consequential. Use [] for an empty window."
+        )
     if macro_review is not None:
+        from .safe_audit_v2 import macro_knowledge_review
+        if enabled(meta):
+            # The 60-turn review sees the ENTIRE current factual history,
+            # including every character's knowledge, not only the last 15.
+            all_knowledge = macro_knowledge_review(memory)
+            all_character_ids = [
+                storage._card_id(card) for card in cards if storage._card_id(card)
+            ]
+            for cid in all_character_ids:
+                all_knowledge.setdefault(cid, {
+                    "knowledge_journal": [], "knowledge": [],
+                    "experiences": [], "dialogue_memory": [],
+                })
+            macro_review.pop("chronology_events_before_compaction", None)
+            macro_review["full_chronology_review"] = deepcopy(chronology)
+            macro_review["full_personal_memory_review"] = all_knowledge
+            macro_review["required_character_ids"] = all_character_ids
+            macro_review["output_required"]["repairs.macro_knowledge_review"] = (
+                "Object {reviewed_character_ids: ALL required_character_ids}; "
+                "review each owner's distinct facts, contradictions, sources and "
+                "confidence, including absent characters."
+            )
+            macro_review["output_required"]["repairs.memory_compactions"] = (
+                "List of safe fact-preserving merges; [] only when nothing can "
+                "be merged. Maintain numbers, secrets, timing, who knows what "
+                "and all unique consequential details; raw evidence stays archived."
+            )
+            payload["audit_contract"]["do_not_reaudit_entire_novel"] = False
+            payload["audit_contract"]["full_knowledge_review_every_60"] = True
         payload["macro_audit_60"] = macro_review
         payload["audit_mode"] = "fast_chat_reconciliation_plus_macro_60"
     return payload
