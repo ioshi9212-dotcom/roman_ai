@@ -273,6 +273,9 @@ def _cast_registry_rows(
             "npc_relation_refs": npc_relationship_runtime.relation_refs_for_character(npc_network, cid),
             "active_intents": active_intents(cid),
             "active_threads": active_threads(cid),
+            "appearance_count": raw.get("appearance_count", 0),
+            "last_appearance_turn": raw.get("last_appearance_turn", 0),
+            "first_registered_turn": raw.get("first_registered_turn", 0),
             "last_contact_turn": raw.get("last_contact_turn"),
             "last_contact_game_day": raw.get("last_contact_game_day"),
             "last_contact_mode": raw.get("last_contact_mode"),
@@ -291,6 +294,121 @@ def _cast_registry_rows(
         str(row.get("name") or row.get("character_id") or "").casefold(),
     ))
     return rows
+
+
+def _cast_activation_view(
+    cast_rows: List[Dict[str, Any]],
+    state: Dict[str, Any],
+    location_context: Dict[str, Any] | None,
+    current_turn: int,
+) -> Dict[str, Any]:
+    """Keep the absent cast actionable without manufacturing scene entrances.
+
+    All registered characters remain in cast_registry. This short rotating view
+    prevents the writer from repeatedly overlooking never-used cards among a
+    large cast; the writer still decides if/when an entrance is causal.
+    """
+    current = state.get("current") if isinstance(state.get("current"), dict) else {}
+    location = location_context if isinstance(location_context, dict) else {}
+    here = {
+        str(value).strip().casefold()
+        for value in (
+            current.get("location_id"), current.get("location"),
+            location.get("location_id"), location.get("name"),
+        )
+        if str(value or "").strip()
+    }
+    linked = {
+        str(value.get("character_id") or "")
+        if isinstance(value, dict) else str(value or "")
+        for value in location.get("linked_characters", [])
+        if isinstance(location.get("linked_characters", []), list)
+    }
+    scene_ids = {
+        str(value) for value in (
+            storage._present_character_ids(state) + storage._remote_character_ids(state)
+        ) if value
+    }
+    pov = state.get("pov") if isinstance(state.get("pov"), dict) else {}
+    if pov.get("character_id"):
+        scene_ids.add(str(pov["character_id"]))
+
+    eligible: List[tuple[int, Dict[str, Any]]] = []
+    unseen_count = 0
+    for row in cast_rows:
+        if not isinstance(row, dict) or row.get("is_pov") or row.get("present") or row.get("remote"):
+            continue
+        if str(row.get("status") or "active").casefold() in {
+            "inactive", "dead", "deceased", "retired", "removed",
+        }:
+            continue
+        cid = str(row.get("character_id") or "")
+        if not cid:
+            continue
+        never_participated = not (
+            int(row.get("last_appearance_turn") or 0)
+            or int(row.get("last_contact_turn") or 0)
+        )
+        if never_participated:
+            unseen_count += 1
+        signals = []
+        if cid in linked:
+            signals.append("location_link")
+        if here and str(row.get("current_location") or "").strip().casefold() in here:
+            signals.append("same_known_location")
+        if row.get("active_intents"):
+            signals.append("eligible_intent")
+        if row.get("active_threads"):
+            signals.append("open_story_thread")
+        if any(
+            str(ref.get("other_character_id") or "") in scene_ids
+            for ref in row.get("npc_relation_refs", [])
+            if isinstance(ref, dict)
+        ):
+            signals.append("connected_to_scene_participant")
+        weight = (
+            (70 if "location_link" in signals else 0)
+            + (65 if "same_known_location" in signals else 0)
+            + (60 if "eligible_intent" in signals else 0)
+            + (45 if "open_story_thread" in signals else 0)
+            + (35 if "connected_to_scene_participant" in signals else 0)
+            + (35 if never_participated else 0)
+            + (12 if row.get("importance") == "core" else 0)
+        )
+        candidate = {
+            "character_id": cid,
+            "name": row.get("name") or cid,
+            "never_participated": never_participated,
+            "causal_signals": signals,
+            "story_function": row.get("story_function"),
+            "current_location": row.get("current_location"),
+        }
+        eligible.append((weight, {k: v for k, v in candidate.items() if v not in (None, "", [])}))
+
+    # Equal-scoring candidates rotate with the turn, instead of always selecting
+    # the same alphabetical first few names from a cast of twenty or more.
+    rotation = current_turn % len(eligible) if eligible else 0
+    ordered = sorted(
+        enumerate(eligible),
+        key=lambda pair: (
+            -pair[1][0],
+            (pair[0] - rotation) % len(eligible),
+        ),
+    )
+    return {
+        "offscreen_registered_count": len(eligible),
+        "never_participated_count": unseen_count,
+        "candidates": [item for _, (_, item) in ordered[:8]],
+        "instruction": (
+            "Рассмотри кандидатов вместе с полным cast_registry и текущими обстоятельствами. "
+            "Не жди, пока POV позовёт отсутствующего персонажа; действуй от его собственных целей, "
+            "связей, места и сюжетных последствий. Отсутствие causal_signals не запрещает "
+            "самостоятельный обоснованный вход, но кандидат не считается физически присутствующим. "
+            "Это обзор возможностей, НЕ квота на появления и не основание для телепортации. "
+            "При реальном участии зарегистрированного offscreen NPC предварительно загрузи его bundle. "
+            "Временные люди из мира могут появляться без заранее созданной карточки."
+        ),
+    }
 
 
 def _clean_relationship_lens(context: Dict[str, Any]) -> None:
@@ -550,6 +668,7 @@ def _prepare_context(
         for card in storage._normalise_cards(source.get("characters", []))
         if storage._card_id(card)
     }
+    cast_rows = _cast_registry_rows(state, cards, source, current_turn, npc_network, relationship_store)
     context["cast_registry"] = {
         "persistent": True,
         "registry_index_path": "cast_registry.characters",
@@ -558,8 +677,11 @@ def _prepare_context(
             "action": "prepareCharacterBundleRead",
             "then": "getCharacterBundleChunk",
         },
-        "characters": _cast_registry_rows(state, cards, source, current_turn, npc_network, relationship_store),
+        "characters": cast_rows,
     }
+    context["cast_activation"] = _cast_activation_view(
+        cast_rows, state, location_context, current_turn,
+    )
     context.pop("npc_relationship_network", None)
     context["relationships"] = deepcopy(relationship_store)
     # Legacy intent-only candidate list falsely implied that offscreen NPCs
