@@ -10,7 +10,7 @@ from . import runtime_fixes_compat as compat
 from . import storage
 
 
-MAX_RELATIONSHIP_DIMENSIONS = 12
+MAX_RELATIONSHIP_DIMENSIONS = 32
 _RELATIONSHIP_GROWTH_VERSION = 3
 
 # New labels are intentionally small and stable. Existing legacy labels remain valid.
@@ -120,7 +120,6 @@ def _merge_footer_delta_fallbacks(
             value = dim.get("value")
             if (
                 not label
-                or base._relationship_norm(label) not in _FIXED_NEW_LABELS
                 or not _is_number(value)
             ):
                 continue
