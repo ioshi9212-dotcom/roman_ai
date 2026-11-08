@@ -85,30 +85,8 @@ def _incoming_label_set(dimensions: Any) -> set[str]:
 def _validate_labels(owner_id: str, dimensions: Any, state: Dict[str, Any]) -> None:
     if not isinstance(dimensions, list):
         return
-    saved = _existing_metrics(state, owner_id)
-    # relationship_updates are patches, so omitted saved labels are expected and remain persistent.
-    # Validate only labels that are actually being introduced by this update.
-    legacy = set(saved)
-    for item in dimensions:
-        if not isinstance(item, dict):
-            continue
-        label = str(item.get("label") or item.get("key") or "").strip()
-        if not label:
-            continue
-        normalized = base._relationship_norm(label)
-        if normalized in legacy or normalized in _ALLOWED_NORMS:
-            continue
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "code": "RELATIONSHIP_DIMENSION_UNKNOWN",
-                "message": (
-                    f"{owner_id}: do not invent relationship metric {label!r}. "
-                    "Use the fixed relationship vocabulary from living_world; old saved labels stay valid."
-                ),
-            },
-        )
-
+    # Free-form labels are valid; canonical numeric and participation checks run elsewhere.
+    return
 
 def _validate_relationship_vocabulary(session_id: str, payload: Dict[str, Any]) -> None:
     root = storage.SESSIONS_DIR / session_id
@@ -583,7 +561,7 @@ def _rewrite_packet(session_id: str, base_result: Dict[str, Any]) -> Dict[str, A
         context["living_world"] = {
             "mandatory": True,
             "relationship_model": {
-                "fixed_new_dimensions": deepcopy(RELATIONSHIP_DIMENSIONS),
+                "example_dimensions_not_restrictive": deepcopy(RELATIONSHIP_DIMENSIONS),
                 "legacy_rule": "Старые labels не переименовывай.",
                 "rule": "Числа и мнение влияют на поведение; мнение может быть ошибочным.",
             },
