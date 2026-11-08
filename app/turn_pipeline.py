@@ -11,6 +11,7 @@ from .scene_speech import iter_scene_speech
 
 from . import (
     audit_runtime,
+    author_reaction_runtime,
     cast_registry_runtime,
     character_chunk_read,
     chronology_integrity_runtime,
@@ -53,7 +54,7 @@ _BASE_PARTICIPATION_BUNDLE = character_chunk_read._participation_bundle
 _BASE_CREATE_SESSION = storage.create_session
 _BASE_RECOVER_CURRENT = session_recovery.recover_session_current
 
-PIPELINE_VERSION = 23
+PIPELINE_VERSION = 24
 
 def _packet_manifest(packet: Dict[str, Any], *, reused: bool) -> Dict[str, Any]:
     chunks = packet.get("chunks", []) if isinstance(packet.get("chunks"), list) else []
@@ -504,6 +505,21 @@ def _prepare_context(
         if cid in card_map
     ]
     # Active cards preserve biography; current attitudes live in relationships only.
+    # Exact author reactions from archived RAW are scoped to active character pairs.
+    # They are direction for involuntary narrative beats, never character knowledge.
+    author_reactions = author_reaction_runtime.scene_reactions(source, cards, scene_ids)
+    if author_reactions:
+        context["author_reaction_cues"] = {
+            "scope": "director_only",
+            "entries": author_reactions,
+            "instruction": (
+                "Preserve verbatim author conditions for the relevant pair. "
+                "At the actual trigger portray small ambiguous involuntary sensory flashes, "
+                "never full memories or a lore revelation; no POV decision or enduring feeling is imposed."
+            ),
+        }
+    else:
+        context.pop("author_reaction_cues", None)
     # Do not render the same cards a second time into character_profiles.
 
     # Native sessions use full dated personal memory from writer_documents
@@ -1029,10 +1045,27 @@ def continue_session(session_id: str) -> Dict[str, Any]:
 
 
 def _participation_bundle(session_id: str, character_id: str) -> Dict[str, Any]:
-    if simple_profile_runtime._simple_session(storage.SESSIONS_DIR / session_id):
+    root = storage.SESSIONS_DIR / session_id
+    if simple_profile_runtime._simple_session(root):
         simple_profile_runtime._ORIGINAL_PARTICIPATION_BUNDLE = _BASE_PARTICIPATION_BUNDLE
-        return simple_profile_runtime._participation_bundle(session_id, character_id)
-    return dict(_BASE_PARTICIPATION_BUNDLE(session_id, character_id))
+        result = simple_profile_runtime._participation_bundle(session_id, character_id)
+    else:
+        result = dict(_BASE_PARTICIPATION_BUNDLE(session_id, character_id))
+    # An offscreen character can join after prepareTurn. Give its full bundle the
+    # same exact RAW reaction cues before it speaks or acts in the scene.
+    source = storage._read_json(root / "source.json", {})
+    cards = storage._load_cards(root, source)
+    state = storage._read_json(root / "state.json", {})
+    pov = state.get("pov") if isinstance(state.get("pov"), dict) else {}
+    pov_id = str(pov.get("character_id") or "")
+    cues = author_reaction_runtime.scene_reactions(source, cards, [pov_id, character_id])
+    if cues:
+        result["author_reaction_cues"] = {
+            "scope": "director_only",
+            "entries": cues,
+            "instruction": "Apply only when the original reaction conditions occur; do not reveal hidden lore.",
+        }
+    return result
 
 
 def install() -> None:
