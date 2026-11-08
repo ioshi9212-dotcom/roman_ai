@@ -232,6 +232,34 @@ def _build_fast_payload(session_id: str) -> Dict[str, Any]:
         ),
     }
     if macro_review is not None:
+        from .safe_audit_v2 import enabled, macro_knowledge_review
+        if enabled(meta):
+            # The 60-turn review sees the ENTIRE current factual history,
+            # including every character's knowledge, not only the last 15.
+            all_knowledge = macro_knowledge_review(memory)
+            all_character_ids = [
+                storage._card_id(card) for card in cards if storage._card_id(card)
+            ]
+            for cid in all_character_ids:
+                all_knowledge.setdefault(cid, {
+                    "knowledge_journal": [], "knowledge": [],
+                    "experiences": [], "dialogue_memory": [],
+                })
+            macro_review["full_chronology_review"] = deepcopy(chronology)
+            macro_review["full_personal_memory_review"] = all_knowledge
+            macro_review["required_character_ids"] = all_character_ids
+            macro_review["output_required"]["repairs.macro_knowledge_review"] = (
+                "Object {reviewed_character_ids: ALL required_character_ids}; "
+                "review each owner's distinct facts, contradictions, sources and "
+                "confidence, including absent characters."
+            )
+            macro_review["output_required"]["repairs.memory_compactions"] = (
+                "List of safe fact-preserving merges; [] only when nothing can "
+                "be merged. Maintain numbers, secrets, timing, who knows what "
+                "and all unique consequential details; raw evidence stays archived."
+            )
+            payload["audit_contract"]["do_not_reaudit_entire_novel"] = False
+            payload["audit_contract"]["full_knowledge_review_every_60"] = True
         payload["macro_audit_60"] = macro_review
         payload["audit_mode"] = "fast_chat_reconciliation_plus_macro_60"
     return payload
