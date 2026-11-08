@@ -23,3 +23,8 @@ jobs:
           tests/test_61_turn_cycle.py
           tests/test_consolidated_memory_compaction.py
           tests/test_author_reaction_runtime.py
+          tests/test_last_turn_rollback.py
+          tests/test_rollback_diagnostics.py
+          tests/test_commit_idempotency.py
+          tests/test_nonblocking_audit.py
+          tests/test_native_scene_fastpath.py
