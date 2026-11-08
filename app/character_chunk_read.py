@@ -6,7 +6,7 @@ from copy import deepcopy
 from typing import Any, Dict, List
 
 from .character_access import get_character_bundle
-from . import personal_memory_transport, relationship_file_runtime, storage
+from . import personal_memory_transport, relationship_file_runtime, safe_audit_v2, storage
 from .scene_compaction_runtime import active_memory_records, complete_knowledge_records
 
 
@@ -188,7 +188,7 @@ def _participation_bundle(session_id: str, character_id: str) -> Dict[str, Any]:
         "pov_familiarity": deepcopy(full.get("pov_familiarity")),
         "personal_memory": _working_memory(
             full, character_id=character_id, cards=cards,
-            compact_knowledge=__import__("app.safe_audit_v2", fromlist=["enabled"]).enabled(
+            compact_knowledge=safe_audit_v2.enabled(
                 storage._read_json(root / "meta.json", {})
             ),
         ),
