@@ -1,0 +1,25 @@
+name: safe audit v2 isolated branch checks
+on:
+  push:
+    branches:
+      - feature/safe-audit-compaction-15-60
+  workflow_dispatch:
+jobs:
+  opt-in-audit:
+    runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: .
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install -r requirements.txt pytest
+      - name: Strict opt-in and legacy compatibility checks
+        run: >
+          pytest -q
+          tests/test_safe_audit_v2.py
+          tests/test_120_turn_context_audit_diagnostics.py
+          tests/test_61_turn_cycle.py
+          tests/test_consolidated_memory_compaction.py
+          tests/test_author_reaction_runtime.py
