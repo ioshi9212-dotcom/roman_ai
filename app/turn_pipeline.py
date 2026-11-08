@@ -318,11 +318,13 @@ def _cast_activation_view(
         )
         if str(value or "").strip()
     }
+    linked_rows = location.get("linked_characters")
+    if not isinstance(linked_rows, list):
+        linked_rows = []
     linked = {
         str(value.get("character_id") or "")
         if isinstance(value, dict) else str(value or "")
-        for value in location.get("linked_characters", [])
-        if isinstance(location.get("linked_characters", []), list)
+        for value in linked_rows
     }
     scene_ids = {
         str(value) for value in (
