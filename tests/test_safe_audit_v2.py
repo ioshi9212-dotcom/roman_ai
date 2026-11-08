@@ -127,14 +127,21 @@ def test_opted_in_new_session_blocks_turn_16_until_15_audited():
         assert storage._read_json(meta_path, {})["audit_required"]
         with pytest.raises(RuntimeError, match="AUDIT_REQUIRED"):
             packet(sid, "Ход 16 запрещён до аудита")
+        from app.main import turn_packet_prepare
+        from app.models import TurnPrepare
+        routed = turn_packet_prepare(sid, TurnPrepare(user_input="Ход 16 запрещён до аудита"))
+        assert routed["audit_required"] is True
+        assert routed["required_audit"]["audit_range"] == [1, 15]
         manifest, evidence = read_audit(sid)
         assert evidence["audit_range"] == [1, 15]
         assert evidence["turn_evidence_backup"][-1]["turn_number"] == 15
-        result = session_runtime.commit_audit(sid, {
-            "start_turn": 1, "end_turn": 15,
-            "repairs": {"scene_compactions": scene(1, 15)},
-            "notes": [],
-        })
+        from app.main import turns_commit
+        from app.models import CommitTurnRequest
+        result = turns_commit(sid, CommitTurnRequest(
+            audit_id=manifest["audit_id"], start_turn=1, end_turn=15,
+            repairs={"scene_compactions": scene(1, 15)},
+            notes=[],
+        ))
         assert result["audited_through"] == 15
         audit_runtime.clear_audit_packet(sid)
         after, _ = packet(sid, "Ход 16 теперь разрешён")
