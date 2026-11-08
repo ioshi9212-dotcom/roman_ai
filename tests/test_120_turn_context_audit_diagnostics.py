@@ -124,11 +124,14 @@ def test_packet_has_all_chunks_full_active_cards_and_exact_author_reactions():
                    for row in reactions)
 
 
-def test_120_turn_eight_audits_two_macro_60_and_raw_archive_survives():
+@pytest.mark.parametrize("safe_opt_in", [False, True], ids=["existing-session", "safe-audit-v2"])
+def test_120_turn_eight_audits_two_macro_60_and_raw_archive_survives(safe_opt_in):
     with tempfile.TemporaryDirectory() as tmp:
         _temp_storage(tmp)
         novel, _ = _novel()
-        sid = storage.create_session(novel)["session_id"]
+        sid = storage.create_session(
+            novel, meta_patch={"safe_audit_v2": True} if safe_opt_in else None
+        )["session_id"]
         root = storage.SESSIONS_DIR / sid
         dates = ["01.09.2026", "02.09.2026", "03.09.2026", "04.09.2026"]
         landmark_turns = {2, 17, 32, 47, 62, 77, 92, 107}
@@ -169,6 +172,9 @@ def test_120_turn_eight_audits_two_macro_60_and_raw_archive_survives():
             assert committed["turn_number"] == turn
             if turn % 15:
                 continue
+            if safe_opt_in:
+                with pytest.raises(RuntimeError, match="AUDIT_REQUIRED"):
+                    session_runtime.prepare_turn_packet(sid, f"next-{turn + 1}")
             manifest = audit_runtime.get_audit_snapshot(sid)
             assert manifest["audit_range"] == [turn - 14, turn]
             for index in range(1, manifest["chunk_count"]):
@@ -176,6 +182,23 @@ def test_120_turn_eight_audits_two_macro_60_and_raw_archive_survives():
                     sid, manifest["audit_id"], index
                 )
             repairs = {"scene_compactions": _scene_summary(turn - 14, turn)}
+            if turn in (60, 120) and safe_opt_in:
+                full = json.loads("".join([
+                    manifest["content"],
+                    *[
+                        audit_runtime.get_audit_snapshot_chunk(
+                            sid, manifest["audit_id"], i
+                        )["content"]
+                        for i in range(1, manifest["chunk_count"])
+                    ],
+                ]))
+                required_ids = full["macro_audit_60"]["required_character_ids"]
+                assert set(required_ids) == {"rinata", "silas", "absent"}
+                assert "full_personal_memory_review" in full["macro_audit_60"]
+                repairs["macro_knowledge_review"] = {
+                    "reviewed_character_ids": required_ids
+                }
+                repairs["memory_compactions"] = []
             if turn in (60, 120):
                 start = 0 if turn == 60 else 2
                 repairs["chronology_compactions"] = [
