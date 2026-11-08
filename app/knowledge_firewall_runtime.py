@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from copy import deepcopy
 from typing import Any, Dict, Iterable, List
@@ -1233,6 +1234,10 @@ def _seed_initial_knowledge(session_id: str, novel: Dict[str, Any]) -> None:
         storage._write_json(root / "memory.json", memory)
 
 def _create_session(novel: Dict[str, Any], *, session_id: str | None = None, meta_patch: Dict[str, Any] | None = None) -> Dict[str, Any]:
+    # Explicit opt-in affects NEW sessions only. Existing sessions are never
+    # enabled by deploy, migration or replay, and never rewritten in bulk.
+    if os.getenv("ROMAN_SAFE_AUDIT_NEW_SESSIONS") == "1":
+        meta_patch = {**(meta_patch or {}), "safe_audit_v2": True}
     result = dict(_ORIGINAL_CREATE_SESSION(novel, session_id=session_id, meta_patch=meta_patch))
     sid = str(result.get("session_id") or session_id or "")
     if sid:
