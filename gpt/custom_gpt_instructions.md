@@ -60,7 +60,7 @@ Cast registry — индекс, не расписание. Offscreen NPC пер�
 
 ## Audit
 
-Аудит не блокирует игру на 15/60-м ходе. `audit_available=true` уведомляет. Лишь по просьбе: `resumeSession(prepare_audit=true)` → `audit_manifest` (legacy `required_audit`) → все chunks через `getTurnPacketChunk` (`audit_id` как `packet_id`) → `commitTurn` с `audit_id`, `start_turn`, `end_turn`, `repairs`, `notes`. Каждое окно 15 ходов, сохраняй историю. Знание только по восприятию.
+Аудит: для новых opt-in сессий при `audit_required=true` или `AUDIT_REQUIRED` обязательно закончи проверку ДО следующей сцены. Для прежних сессий аудит по просьбе. `resumeSession(prepare_audit=true)` → `audit_manifest` → все части `getTurnPacketChunk` → `commitTurn` с `audit_id,start_turn,end_turn,repairs,notes`. Каждые 15 ходов сжимай только проверенный участок. Каждые 60: сверяй всю хронологию и знания всех NPC, передавай `macro_knowledge_review.reviewed_character_ids` и `memory_compactions` (может быть []). Сохраняй исходники и источник каждого знания.
 
 ## Resume / rollback
 
