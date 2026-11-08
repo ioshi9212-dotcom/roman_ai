@@ -14,6 +14,7 @@ SCENE_SUMMARY_MAX_CHARS = 1200
 MEMORY_SUMMARY_MAX_CHARS = 900
 _MEMORY_ID_KEYS = {
     "knowledge": "fact_id",
+    "knowledge_journal": "entry_id",
     "experiences": "event_id",
     "dialogue_memory": "topic_id",
 }
@@ -421,6 +422,15 @@ def _canonical_memory_record(
             "first_learned_turn": first_turn,
             "last_learned_turn": last_turn,
         }
+    if memory_type == "knowledge_journal":
+        return {
+            **common,
+            **_source_confidence_metadata(source_rows, source_ids),
+            **_durability_metadata(source_rows),
+            "entry_id": canonical_id,
+            "text": summary,
+            "turn": min(ordered_turns) if ordered_turns else int(audit_end_turn),
+        }
     if memory_type == "experiences":
         return {
             **common,
@@ -451,6 +461,7 @@ def _apply_memory_compactions(
     *,
     start_turn: int,
     end_turn: int,
+    safe_mode: bool = False,
 ) -> Dict[str, Any]:
     if rows in (None, []):
         return deepcopy(memory)
@@ -516,6 +527,9 @@ def _apply_memory_compactions(
         if not has_current_audit_evidence:
             raise RuntimeError("MEMORY_COMPACTION_SOURCE_OUT_OF_RANGE")
 
+        if safe_mode and memory_type in {"knowledge", "knowledge_journal"}:
+            from .safe_audit_v2 import verify_critical_literals
+            verify_critical_literals(source_rows, summary)
         canonical = _canonical_memory_record(
             character_id=character_id,
             memory_type=memory_type,
@@ -596,11 +610,14 @@ def apply_audit_compactions(
         store=store,
     )
     store = _merge_scene_rows(store, scene_rows, audit_end_turn=end_turn)
+    from .safe_audit_v2 import enabled
+    safe_mode = enabled(storage._read_json(root / "meta.json", {}))
     compacted_memory = _apply_memory_compactions(
         memory,
         repairs.get("memory_compactions"),
-        start_turn=start_turn,
+        start_turn=max(1, end_turn - 59) if safe_mode and end_turn % 60 == 0 else start_turn,
         end_turn=end_turn,
+        safe_mode=safe_mode,
     )
     compacted_chronology = _compact_chronology(
         chronology,
