@@ -1112,6 +1112,7 @@ def commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     )
     # Creating an audit packet requires an explicit maintenance request.
     saved.pop("required_audit", None)
+    from .safe_audit_v2 import enabled
     saved["audit_blocking"] = bool(
         enabled(storage._read_json(storage.SESSIONS_DIR / session_id / "meta.json", {}))
         and saved.get("audit_available")
