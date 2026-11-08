@@ -615,7 +615,7 @@ def apply_audit_compactions(
     compacted_memory = _apply_memory_compactions(
         memory,
         repairs.get("memory_compactions"),
-        start_turn=max(1, end_turn - 59) if safe_mode and end_turn % 60 == 0 else start_turn,
+        start_turn=1 if safe_mode and end_turn % 60 == 0 else start_turn,
         end_turn=end_turn,
         safe_mode=safe_mode,
     )
