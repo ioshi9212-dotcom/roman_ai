@@ -82,6 +82,7 @@ jobs:
           tests/test_native_scene_fastpath.py
           tests/test_commit_idempotency.py
           tests/test_61_turn_cycle.py
+          tests/test_120_turn_context_audit_diagnostics.py
           tests/test_300_turn_longevity.py
           tests/test_audit_snapshot_compact.py
           tests/test_scene_audit_compaction.py
