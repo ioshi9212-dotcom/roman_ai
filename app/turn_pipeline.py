@@ -730,7 +730,9 @@ def _prepare_context(
             "relationships": "отношения.json", "state": "state.json",
         }
 
-    context["novel"] = deepcopy(source.get("novel", {}))
+    # Keep the complete questionnaire while excluding the retired POV-silence
+    # directive from the writer view. The saved author source stays intact.
+    context["novel"] = profile_templates._strip_legacy_pov_silence_rule(source.get("novel", {}))
     context = _move_runtime_documents_last(context)
     packet = _write_packet_context(root, packet, context)
     result = _packet_manifest(packet, reused=False)
