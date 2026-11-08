@@ -149,7 +149,7 @@ def test_120_turn_eight_audits_two_macro_60_and_raw_archive_survives(safe_opt_in
                 "event_id": f"e{turn}",
                 "event": f"Важное контрольное событие {turn} на дате {day}.",
                 "date": day,
-                "importance": "major",
+                "importance": "normal" if safe_opt_in else "major",
                 "participants_present": ["rinata", "silas"],
             }] if turn in landmark_turns else []
             _packet(sid, f"Действие {turn}")
@@ -240,6 +240,10 @@ def test_120_turn_eight_audits_two_macro_60_and_raw_archive_survives(safe_opt_in
         assert {r.get("story_date") for r in macro} == set(dates)
         for row in macro:
             assert row.get("source_key_facts")
+        if safe_opt_in:
+            assert {
+                fact["turn_number"] for row in macro for fact in row["source_key_facts"]
+            } == landmark_turns
         assert len(storage._read_json(root / "audits.json", [])) == 8
         # The 121st scene must still be possible after two macro audits.
         next_packet, context, _ = _packet(sid, "Продолжить на 121-м ходе")

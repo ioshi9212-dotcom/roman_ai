@@ -418,7 +418,7 @@ def build_macro_payload(
 
 
 
-def _durable_source_facts_by_date(events: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
+def _durable_source_facts_by_date(events: List[Dict[str, Any]], *, include_all: bool = False) -> Dict[str, List[Dict[str, Any]]]:
     """Keep significant source facts verbatim alongside every dated macro summary.
 
     A date-level paragraph cannot be trusted as a complete replacement for
@@ -444,7 +444,7 @@ def _durable_source_facts_by_date(events: List[Dict[str, Any]]) -> Dict[str, Lis
             or has_consequences
             or any(row.get(key) is True for key in ("durable", "pinned", "permanent"))
         )
-        if not date or not significant:
+        if not date or (not significant and not include_all):
             continue
         inherited = row.get("source_key_facts")
         if isinstance(inherited, list) and row.get("canonical_macro_compaction"):
@@ -530,8 +530,8 @@ def _apply_macro_chronology_compaction_core(
         }
     # Defined before use: the Amvera crash came from an undefined durable_facts
     # variable at the moment the 60-turn audit tried to preserve source facts.
-    durable_facts = _durable_source_facts_by_date(source_events)
-    important_dates.update(durable_facts)
+    durable_facts = _durable_source_facts_by_date(source_events, include_all=scope_start is not None)
+    important_dates.update(date for date in durable_facts if scope_start is None or _DATE_RE.fullmatch(date))
 
     normalized: List[Dict[str, Any]] = []
     represented_dates: set[str] = set()
