@@ -369,7 +369,6 @@ def _validate_update_rows(
         dimensions = raw.get("dimensions") if isinstance(raw.get("dimensions"), list) else []
         metadata_change = any(raw.get(key) is not None for key in _META_KEYS)
         baseline = _numeric_baseline(state_before, owner_id)
-        allowed_new = {_norm(label) for label in RELATIONSHIP_DIMENSIONS}
         changed = metadata_change
         owner_dims: Dict[str, Dict[str, Any]] = {}
 
@@ -380,11 +379,6 @@ def _validate_update_rows(
             if not label:
                 _error("RELATIONSHIP_UPDATES_INVALID", "Relationship dimension requires label.")
             key = _norm(label)
-            if key not in baseline and key not in allowed_new:
-                _error(
-                    "RELATIONSHIP_DIMENSION_UNKNOWN",
-                    f"{owner_id}: unknown relationship metric {label!r}. Use the fixed relationship vocabulary.",
-                )
             value = dim.get("value")
             delta = dim.get("delta")
             if not _is_number(value):
