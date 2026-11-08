@@ -752,6 +752,12 @@ def prepare_turn_packet(session_id: str, user_input: str, *, _migrated: bool = F
     _current_pointer_guard(session_id)
     game_day._sync_session_game_day(session_id)
 
+    # Audit v2 is per-session opt-in. Block BEFORE issuing the next gameplay
+    # packet, so a missed 15/60 review cannot silently accumulate.
+    from .safe_audit_v2 import enabled
+    if enabled(storage._read_json(root / "meta.json", {})) and storage._read_json(root / "meta.json", {}).get("audit_required"):
+        raise RuntimeError("AUDIT_REQUIRED")
+
     with session_transaction(root):
         meta = storage._read_json(root / "meta.json", {})
         expected_turn = int(meta.get("turn_number", 0) or 0) + 1
@@ -1106,7 +1112,10 @@ def commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     )
     # Creating an audit packet requires an explicit maintenance request.
     saved.pop("required_audit", None)
-    saved["audit_blocking"] = False
+    saved["audit_blocking"] = bool(
+        enabled(storage._read_json(storage.SESSIONS_DIR / session_id / "meta.json", {}))
+        and saved.get("audit_available")
+    )
     saved["turn_pipeline_version"] = PIPELINE_VERSION
     return saved
 
@@ -1147,9 +1156,10 @@ def continue_session(session_id: str) -> Dict[str, Any]:
         result["pending_turn"] = pending
 
     meta = storage._read_json(root / "meta.json", {})
+    from .safe_audit_v2 import enabled
     result["audit_available"] = bool(meta.get("audit_required"))
-    result["audit_blocking"] = False
-    result["audit_required"] = False
+    result["audit_blocking"] = bool(enabled(meta) and meta.get("audit_required"))
+    result["audit_required"] = result["audit_blocking"]
     result.pop("required_audit", None)
 
     if result.get("current_recovery_required"):
