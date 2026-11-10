@@ -627,7 +627,8 @@ def audit_snapshot_chunk_get(session_id: str, audit_id: str, chunk_index: int):
         raise HTTPException(status_code=404, detail="Audit chunk index out of range")
 
 
-@app.post("/sessions/{session_id}/turn-packet", operation_id="prepareTurn")
+@app.post("/sessions/{session_id}/turn-packet", operation_id="prepareTurn",
+          openapi_extra={"x-openai-isConsequential": False})
 def turn_packet_prepare(session_id: str, body: TurnPrepare):
     started = perf_counter()
     try:
@@ -652,10 +653,10 @@ def turn_packet_prepare(session_id: str, body: TurnPrepare):
         raise HTTPException(status_code=404, detail="Session not found")
     except RuntimeError as exc:
         code = str(exc)
-        if code == "SCENE_BUILDER_GITHUB_UNAVAILABLE":
+        if code in {"SCENE_BUILDER_GITHUB_UNAVAILABLE", "RULES_GITHUB_UNAVAILABLE"}:
             raise HTTPException(status_code=503, detail={
                 "code": code,
-                "message": "Cannot load the current Skin Builder from GitHub main. No stale copy was substituted; retry the same request.",
+                "message": "Cannot load the current Rules or Skin Builder from GitHub main. No stale copy was substituted; retry the same request.",
             }) from exc
         if code == "AUDIT_REQUIRED":
             return {
@@ -690,7 +691,8 @@ def turn_packet_prepare(session_id: str, body: TurnPrepare):
         raise
 
 
-@app.get("/sessions/{session_id}/turn-packet/{packet_id}/{chunk_index}", operation_id="getTurnPacketChunk")
+@app.get("/sessions/{session_id}/turn-packet/{packet_id}/{chunk_index}", operation_id="getTurnPacketChunk",
+         openapi_extra={"x-openai-isConsequential": False})
 def turn_packet_chunk_get(session_id: str, packet_id: str, chunk_index: int):
     started = perf_counter()
     try:
@@ -858,10 +860,10 @@ def turns_commit(session_id: str, body: CommitTurnRequest):
         raise HTTPException(status_code=409, detail="The packet_id was already used with a different commit payload. Prepare a fresh turn packet; no mutation was performed.")
     except RuntimeError as exc:
         code = str(exc)
-        if code == "SCENE_BUILDER_GITHUB_UNAVAILABLE":
+        if code in {"SCENE_BUILDER_GITHUB_UNAVAILABLE", "RULES_GITHUB_UNAVAILABLE"}:
             raise HTTPException(status_code=503, detail={
                 "code": code,
-                "message": "Current Skin Builder could not be verified from GitHub. Retry the same commit; no old builder was accepted.",
+                "message": "Current Rules or Skin Builder could not be verified from GitHub. Retry the same commit.",
             }) from exc
         if code == "TURN_PACKET_RUNTIME_STALE":
             raise HTTPException(

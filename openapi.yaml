@@ -1146,6 +1146,7 @@ paths:
   /sessions/{session_id}/turn-packet:
     post:
       operationId: prepareTurn
+      x-openai-isConsequential: false
       summary: Build or reuse one bounded gameplay packet from persistent canon
       description: Use one stable request_id per gameplay turn. Read all chunks. Active POV/NPC already include their own cards and complete factual knowledge. Write from runtime_rules and scene_builder.
       parameters:
@@ -1161,6 +1162,7 @@ paths:
   /sessions/{session_id}/turn-packet/{packet_id}/{chunk_index}:
     get:
       operationId: getTurnPacketChunk
+      x-openai-isConsequential: false
       summary: Read one remaining gameplay or required-audit chunk
       description: For a gameplay packet use packet_id. For required_audit use its audit_id as packet_id. Chunk 0 is already included when first_chunk_included=true; read only remaining indices.
       parameters:

@@ -104,6 +104,9 @@ def test_packet_has_all_chunks_full_active_cards_and_exact_author_reactions():
         assert manifest["chunk_count"] >= 4
         assert markers["tattoos"] in raw
         assert markers["appearance"] in raw
+        source = storage._read_json(storage.SESSIONS_DIR / sid / "source.json", {})
+        assert context["novel"] == source["novel"]
+        assert context["novel"]["lore"] == markers["lore"]
         assert markers["lore"] in raw
         assert "OFFSCREEN_PRIVATE_CARD_MARKER" not in raw
         assert {row["character_id"] for row in context["character_cards"]} == {
@@ -124,11 +127,14 @@ def test_packet_has_all_chunks_full_active_cards_and_exact_author_reactions():
                    for row in reactions)
 
 
-def test_120_turn_eight_audits_two_macro_60_and_raw_archive_survives():
+@pytest.mark.parametrize("safe_opt_in", [False, True], ids=["existing-session", "safe-audit-v2"])
+def test_120_turn_eight_audits_two_macro_60_and_raw_archive_survives(safe_opt_in):
     with tempfile.TemporaryDirectory() as tmp:
         _temp_storage(tmp)
         novel, _ = _novel()
-        sid = storage.create_session(novel)["session_id"]
+        sid = storage.create_session(
+            novel, meta_patch={"safe_audit_v2": True} if safe_opt_in else None
+        )["session_id"]
         root = storage.SESSIONS_DIR / sid
         dates = ["01.09.2026", "02.09.2026", "03.09.2026", "04.09.2026"]
         landmark_turns = {2, 17, 32, 47, 62, 77, 92, 107}
@@ -143,7 +149,7 @@ def test_120_turn_eight_audits_two_macro_60_and_raw_archive_survives():
                 "event_id": f"e{turn}",
                 "event": f"Важное контрольное событие {turn} на дате {day}.",
                 "date": day,
-                "importance": "major",
+                "importance": "normal" if safe_opt_in else "major",
                 "participants_present": ["rinata", "silas"],
             }] if turn in landmark_turns else []
             _packet(sid, f"Действие {turn}")
@@ -169,6 +175,9 @@ def test_120_turn_eight_audits_two_macro_60_and_raw_archive_survives():
             assert committed["turn_number"] == turn
             if turn % 15:
                 continue
+            if safe_opt_in:
+                with pytest.raises(RuntimeError, match="AUDIT_REQUIRED"):
+                    session_runtime.prepare_turn_packet(sid, f"next-{turn + 1}")
             manifest = audit_runtime.get_audit_snapshot(sid)
             assert manifest["audit_range"] == [turn - 14, turn]
             for index in range(1, manifest["chunk_count"]):
@@ -176,8 +185,30 @@ def test_120_turn_eight_audits_two_macro_60_and_raw_archive_survives():
                     sid, manifest["audit_id"], index
                 )
             repairs = {"scene_compactions": _scene_summary(turn - 14, turn)}
+            if turn in (60, 120) and safe_opt_in:
+                full = json.loads("".join([
+                    manifest["content"],
+                    *[
+                        audit_runtime.get_audit_snapshot_chunk(
+                            sid, manifest["audit_id"], i
+                        )["content"]
+                        for i in range(1, manifest["chunk_count"])
+                    ],
+                ]))
+                required_ids = full["macro_audit_60"]["required_character_ids"]
+                assert full["macro_audit_60"]["macro_range"] == [1, turn]
+                assert set(required_ids) == {"rinata", "silas", "absent"}
+                assert "full_personal_memory_review" in full["macro_audit_60"]
+                repairs["macro_knowledge_review"] = {
+                    "reviewed_character_ids": required_ids
+                }
+                repairs["memory_compactions"] = []
+            if safe_opt_in and turn % 60:
+                repairs["chronology_compactions"] = [{
+                    "date": day, "summary": f"Событие этого окна произошло в день {day}."
+                }]
             if turn in (60, 120):
-                start = 0 if turn == 60 else 2
+                start = 0 if turn == 60 or safe_opt_in else 2
                 repairs["chronology_compactions"] = [
                     {
                         "date": date,
@@ -188,7 +219,7 @@ def test_120_turn_eight_audits_two_macro_60_and_raw_archive_survives():
                         ),
                         "participants": ["rinata", "silas"],
                     }
-                    for date in dates[start:start + 2]
+                    for date in dates[start:turn // 30]
                 ]
             audited = session_runtime.commit_audit(sid, {
                 "start_turn": turn - 14,
@@ -209,6 +240,10 @@ def test_120_turn_eight_audits_two_macro_60_and_raw_archive_survives():
         assert {r.get("story_date") for r in macro} == set(dates)
         for row in macro:
             assert row.get("source_key_facts")
+        if safe_opt_in:
+            assert {
+                fact["turn_number"] for row in macro for fact in row["source_key_facts"]
+            } == landmark_turns
         assert len(storage._read_json(root / "audits.json", [])) == 8
         # The 121st scene must still be possible after two macro audits.
         next_packet, context, _ = _packet(sid, "Продолжить на 121-м ходе")

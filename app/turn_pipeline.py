@@ -54,7 +54,7 @@ _BASE_PARTICIPATION_BUNDLE = character_chunk_read._participation_bundle
 _BASE_CREATE_SESSION = storage.create_session
 _BASE_RECOVER_CURRENT = session_recovery.recover_session_current
 
-PIPELINE_VERSION = 24
+PIPELINE_VERSION = 25
 
 def _packet_manifest(packet: Dict[str, Any], *, reused: bool) -> Dict[str, Any]:
     chunks = packet.get("chunks", []) if isinstance(packet.get("chunks"), list) else []
@@ -730,6 +730,9 @@ def _prepare_context(
             "relationships": "отношения.json", "state": "state.json",
         }
 
+    # Keep the complete questionnaire while excluding the retired POV-silence
+    # directive from the writer view. The saved author source stays intact.
+    context["novel"] = profile_templates._strip_legacy_pov_silence_rule(source.get("novel", {}))
     context = _move_runtime_documents_last(context)
     packet = _write_packet_context(root, packet, context)
     result = _packet_manifest(packet, reused=False)
@@ -751,6 +754,12 @@ def prepare_turn_packet(session_id: str, user_input: str, *, _migrated: bool = F
         session_migrations.ensure_current_session_data(session_id, invalidate_pending=True)
     _current_pointer_guard(session_id)
     game_day._sync_session_game_day(session_id)
+
+    # Audit v2 is per-session opt-in. Block BEFORE issuing the next gameplay
+    # packet, so a missed 15/60 review cannot silently accumulate.
+    from .safe_audit_v2 import enabled
+    if enabled(storage._read_json(root / "meta.json", {})) and storage._read_json(root / "meta.json", {}).get("audit_required"):
+        raise RuntimeError("AUDIT_REQUIRED")
 
     with session_transaction(root):
         meta = storage._read_json(root / "meta.json", {})
@@ -1106,7 +1115,11 @@ def commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     )
     # Creating an audit packet requires an explicit maintenance request.
     saved.pop("required_audit", None)
-    saved["audit_blocking"] = False
+    from .safe_audit_v2 import enabled
+    saved["audit_blocking"] = bool(
+        enabled(storage._read_json(storage.SESSIONS_DIR / session_id / "meta.json", {}))
+        and saved.get("audit_available")
+    )
     saved["turn_pipeline_version"] = PIPELINE_VERSION
     return saved
 
@@ -1147,9 +1160,10 @@ def continue_session(session_id: str) -> Dict[str, Any]:
         result["pending_turn"] = pending
 
     meta = storage._read_json(root / "meta.json", {})
+    from .safe_audit_v2 import enabled
     result["audit_available"] = bool(meta.get("audit_required"))
-    result["audit_blocking"] = False
-    result["audit_required"] = False
+    result["audit_blocking"] = bool(enabled(meta) and meta.get("audit_required"))
+    result["audit_required"] = result["audit_blocking"]
     result.pop("required_audit", None)
 
     if result.get("current_recovery_required"):
