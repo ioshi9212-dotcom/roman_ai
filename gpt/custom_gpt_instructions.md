@@ -34,7 +34,7 @@ RAW и карточки: не смягчай, не обобщай, не сокр
 
 Новый ход → новый `request_id`; повтор → тот же. `prepareTurn`: exact raw, `replace_pending=false`; не читай chunk 0 повторно, остальные → `getTurnPacketChunk`.
 
-Packet: анкета и правила новеллы, current/recent, хронология, отношения/intents и индекс cast. Для ПЕРВОЙ сцены полные карточки и `character_memory` только POV и физически присутствующих, отсутствующих не загружай. `location_context` только текущего физического места. `chronology` — вся режиссёрская история; `character_memory[id]` — вся личная память участника. Прочти полную анкету и оба документа runtime_rules и scene_builder из каждого нового packet. Соединяй все части в порядке индексов, ничего не сокращай.
+Packet: Собери все chunks по индексам, ничего не сокращай. Затем СНАЧАЛА прочти целиком `scene_builder` и `runtime_rules`, только после них — анкету, current/recent, хронологию, отношения/intents и cast. Для ПЕРВОЙ сцены полные карточки и `character_memory` только POV и физически присутствующих; отсутствующих не загружай. `location_context` только текущего физического места. `chronology` — вся режиссёрская история; `character_memory[id]` — вся личная память участника.
 
 `commitTurn`: `scene_builder_reviewed=true` лишь после сверки текста со свежим Skin Builder; `persistence_reviewed=true` после проверки фактов. `relationships.json`: существующие оси меняй через delta, новые через value; обычно ±1–3, серьёзное событие допускает больший скачок; без события нет сдвига. NPC↔NPC — словесно.
 
