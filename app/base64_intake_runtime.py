@@ -54,7 +54,9 @@ def append_base64_intake_chunk(
         if not isinstance(uploads, dict):
             raise ValueError("INTAKE_UPLOAD_CORRUPT")
         intake = draft.get("sections", {}).get("intake")
-        previous = draft_intake_runtime._normalise_intake(intake) if isinstance(intake, dict) else {"blocks": []}
+        previous = draft_intake_runtime._normalise_intake(
+            intake, allow_unmapped_reviewed=int(draft.get("version", 1) or 1) >= 5
+        ) if isinstance(intake, dict) else {"blocks": []}
         existing = {row["block_id"]: row for row in previous["blocks"]}
         receipt = uploads.get(block_id)
         if receipt is None and block_id in existing:
@@ -157,7 +159,9 @@ def append_base64_intake_chunk(
                 "contains_no_facts": False,
             }],
         }
-        draft.setdefault("sections", {})["intake"] = draft_intake_runtime._merge_intake(intake, incoming)
+        draft.setdefault("sections", {})["intake"] = draft_intake_runtime._merge_intake(
+            intake, incoming, allow_unmapped_reviewed=int(draft.get("version", 1) or 1) >= 5
+        )
         draft["revision"] = int(draft.get("revision", 0) or 0) + 1
         draft["finalized"] = False
         draft.pop("finalized_template", None)
