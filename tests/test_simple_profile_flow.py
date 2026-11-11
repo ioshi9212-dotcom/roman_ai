@@ -109,6 +109,66 @@ def _build_simple_draft(*, raw_text=None, silas_notes=None) -> str:
 
 
 
+def test_v5_twenty_factual_raw_blocks_can_all_be_reviewed_without_fact_ids():
+    # Previously the SECOND review raised INTAKE_FACT_IDS_REQUIRED because
+    # legacy normalization rejected an already-reviewed V5 block.
+    with tempfile.TemporaryDirectory() as tmp:
+        _setup(tmp)
+        draft = novel_drafts.create_draft("v5_many_raw", "Академия Астрейн", version=5)
+        draft_id = draft["draft_id"]
+        for index in range(20):
+            draft_intake_runtime.append_intake_chunk(
+                draft_id,
+                block_id=f"raw_{index:02d}",
+                stage="source",
+                chunk_index=0,
+                raw_text=f"Важный канонический факт номер {index}: персонаж помнит событие.",
+                is_last=True,
+            )
+
+        for index in range(20):
+            revision = novel_drafts.draft_status(draft_id)["revision"]
+            draft_intake_runtime.update_intake_mapping(
+                draft_id,
+                f"raw_{index:02d}",
+                fact_ids=[],
+                reviewed_against_raw=True,
+                contains_no_facts=False,
+                expected_revision=revision,
+            )
+
+        intake = novel_drafts._read(draft_id)["sections"]["intake"]
+        assert len(intake["blocks"]) == 20
+        assert all(
+            row["reviewed_against_raw"] is True
+            and row["fact_ids"] == []
+            and row["contains_no_facts"] is False
+            for row in intake["blocks"]
+        )
+        assert draft_intake_runtime._normalise_intake(
+            intake, allow_unmapped_reviewed=True
+        )["blocks"][19]["raw_text"].startswith("Важный канонический факт")
+
+        # New RAW uploads after review must also preserve existing V5 blocks.
+        draft_intake_runtime.append_intake_chunk(
+            draft_id, block_id="raw_20", stage="source", chunk_index=0,
+            raw_text="Ещё один содержательный факт.", is_last=True,
+        )
+        assert len(novel_drafts._read(draft_id)["sections"]["intake"]["blocks"]) == 21
+
+
+def test_legacy_intake_still_rejects_unmapped_reviewed_factual_blocks():
+    intake = {"version": 5, "blocks": [{
+        "block_id": "raw", "stage": "source", "raw_text": "Содержит факт.",
+        "fact_ids": [], "reviewed_against_raw": True, "contains_no_facts": False,
+    }]}
+    with pytest.raises(ValueError, match="INTAKE_FACT_IDS_REQUIRED"):
+        draft_intake_runtime._normalise_intake(intake)
+    assert draft_intake_runtime._normalise_intake(
+        intake, allow_unmapped_reviewed=True
+    )["blocks"][0]["contains_no_facts"] is False
+
+
 def test_identical_v5_section_resave_does_not_invalidate_completed_full_read():
     with tempfile.TemporaryDirectory() as tmp:
         _setup(tmp)
