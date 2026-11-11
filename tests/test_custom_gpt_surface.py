@@ -288,3 +288,15 @@ def test_optional_chat_picker_only_transports_selected_user_input():
     assert "Что я могу сделать:" in builder
     assert "Что я могу сказать:" in builder
     assert "Что я могу подумать:" in builder
+
+
+def test_organic_opening_and_spontaneous_cast_rules_are_present():
+    instructions = (ROOT / "gpt" / "custom_gpt_instructions.md").read_text(encoding="utf-8")
+    builder = (ROOT / "runtime" / "scene_builder.md").read_text(encoding="utf-8")
+    assert "Если его нет, выбери из анкеты необычную, но правдоподобную" in instructions
+    assert "не начинай по привычке с дома, школы или пробуждения" in instructions
+    assert len(instructions) <= 8000
+    assert "Обычная личная причина достаточна" in builder
+    assert "Не береги героев на потом" in builder
+    assert "не обязаны быстро понимать свои чувства" in builder
+    assert "не выбирай автоматически самый безопасный и привычный" in builder
