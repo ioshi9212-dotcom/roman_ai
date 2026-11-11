@@ -524,11 +524,20 @@ def _waiting_momentum_context(user_input: Any, recent_turns: Any) -> Dict[str, A
     }
 
 
-def _move_runtime_documents_last(context: Dict[str, Any]) -> Dict[str, Any]:
-    result = context
-    rules = result.pop("runtime_rules", None)
-    builder = result.pop("scene_builder", None)
+def _move_runtime_documents_first(context: Dict[str, Any]) -> Dict[str, Any]:
+    """Put the complete live writing contracts before all story context.
+
+    Only reorder the writer packet; do not change its facts, rule texts,
+    character selection, or how chunks are read and committed.
+    """
+    result: Dict[str, Any] = {}
+    if "scene_builder" in context:
+        result["scene_builder"] = context["scene_builder"]
+    if "runtime_rules" in context:
+        result["runtime_rules"] = context["runtime_rules"]
     result["read_order"] = [
+        "scene_builder",
+        "runtime_rules",
         "novel/director context",
         "chronology and recent continuity",
         "current scene state",
@@ -538,13 +547,10 @@ def _move_runtime_documents_last(context: Dict[str, Any]) -> Dict[str, Any]:
         "each active character's own knowledge",
         "relationships and active intents",
         "cast registry",
-        "runtime_rules",
-        "scene_builder",
     ]
-    if rules is not None:
-        result["runtime_rules"] = rules
-    if builder is not None:
-        result["scene_builder"] = builder
+    for key, value in context.items():
+        if key not in {"scene_builder", "runtime_rules", "read_order"}:
+            result[key] = value
     return result
 
 
@@ -733,7 +739,7 @@ def _prepare_context(
     # Keep the complete questionnaire while excluding the retired POV-silence
     # directive from the writer view. The saved author source stays intact.
     context["novel"] = profile_templates._strip_legacy_pov_silence_rule(source.get("novel", {}))
-    context = _move_runtime_documents_last(context)
+    context = _move_runtime_documents_first(context)
     packet = _write_packet_context(root, packet, context)
     result = _packet_manifest(packet, reused=False)
     result["scene_character_card_count"] = len(
