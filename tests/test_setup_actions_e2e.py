@@ -183,7 +183,7 @@ def test_anketa_to_61_http_turns_retry_resume_manual_audit_and_rollback(client):
         request = opening_request if turn == 1 else {"user_input": f"(Продолжить {turn})", "request_id": f"turn-{turn}"}
         prepared = post(client, base + "/turn-packet", request)
         context = read_packet(client, sid, prepared)
-        assert list(context)[-2:] == ["runtime_rules", "scene_builder"]
+        assert list(context)[:3] == ["scene_builder", "runtime_rules", "read_order"]
         assert set(context["character_memory"]) == {"pov", "ren"}
         assert "writer_cue" not in json.dumps(context.get("waiting_momentum", {}))
         assert "source_intake" not in context
