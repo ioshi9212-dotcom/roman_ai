@@ -193,6 +193,8 @@ def test_pov_activity_keeps_visible_presence_and_ordinary_dialogue():
     assert "одни ощущения, наблюдения и описание состояния не считаются" in text
     assert "POV отвечает словами" in text
     assert "не заменяй естественный ответ" in text
+    assert "user_input не содержал речи" in text
+    assert "NPC не обращались к ней напрямую" in text
 
 
 def test_npc_intent_drive_treats_evasion_as_unresolved():
