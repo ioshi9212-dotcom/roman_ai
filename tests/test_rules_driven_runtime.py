@@ -104,7 +104,7 @@ def test_character_perception_and_scene_quality_stay_in_builder_without_pacing_m
         assert removed not in builder
 
 
-def test_packet_has_no_hidden_director_guard_stack_and_rules_are_last():
+def test_packet_has_no_hidden_director_guard_stack_and_rules_are_first():
     with tempfile.TemporaryDirectory() as tmp:
         setup_temp_storage(tmp)
         sid = storage.create_session(base_novel())["session_id"]
@@ -128,7 +128,8 @@ def test_packet_has_no_hidden_director_guard_stack_and_rules_are_last():
         ):
             assert removed not in context
 
-        assert list(context)[-2:] == ["runtime_rules", "scene_builder"]
+        assert list(context)[:3] == ["scene_builder", "runtime_rules", "read_order"]
+        assert context["read_order"][:2] == ["scene_builder", "runtime_rules"]
         active = {row["character_id"] for row in context["character_cards"]}
         assert active == {"pov", "npc"}
         assert "away" not in active
