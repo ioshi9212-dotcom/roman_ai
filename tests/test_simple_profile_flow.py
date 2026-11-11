@@ -360,6 +360,11 @@ def test_v5_session_packet_exposes_profiles_and_full_read_contract_without_fact_
             chunks.append(row["content"])
         context = json.loads("".join(chunks))
 
+        pov_speech = context["simple_knowledge_rules"]["pov_ai_speech"]
+        assert "Речь POV веди по scene_builder" in pov_speech
+        assert "не ограничивай её бытовыми нейтральными ответами" in pov_speech.casefold()
+        assert "player_input не содержит реплики" in pov_speech
+        assert "значимое согласие/отказ" in pov_speech
         assert context["character_profiles"]["silas"].startswith("Имя: Сайлас")
         assert "Возраст: 400" in context["character_profiles"]["silas"]
         assert "knowledge_journals" not in context
