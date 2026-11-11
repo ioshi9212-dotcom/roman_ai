@@ -85,6 +85,9 @@ def test_writer_first_packet_has_small_runtime_surface_and_first_chunk_inline():
 
         manifest, context = read_context(sid, "(посмотреть на NPC)")
         assert manifest["chunk_count"] <= 8
+        assert manifest["content"].startswith('{"scene_builder":')
+        assert list(context)[:3] == ["scene_builder", "runtime_rules", "read_order"]
+        assert context["read_order"][:2] == ["scene_builder", "runtime_rules"]
         packet = storage._read_json(root / "turn_packet.json", {})
         assert packet["read_chunks"] == list(range(manifest["chunk_count"]))
         assert "writer_contract" not in context
