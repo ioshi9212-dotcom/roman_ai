@@ -29,6 +29,8 @@ def test_pov_activity_rule_keeps_pov_active_without_stealing_meaningful_choice()
     assert "сам user_input не засчитывай" in text
     assert "POV отвечает словами" in text
     assert "не заменяй естественный ответ" in text
+    assert "user_input не содержал речи" in text
+    assert "NPC не обращались к ней напрямую" in text
     assert "reserved_for_player" in text
     assert "серьёзный риск" in rule["reserved_for_player"]
 
