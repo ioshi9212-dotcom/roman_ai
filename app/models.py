@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
@@ -108,6 +108,7 @@ class TurnPrepare(BaseModel):
     opening_scene: bool = False
     scene_archive_capable: bool = False
     replace_pending: bool = False
+    builder_version: Optional[Literal["orig", "v2", "v3"]] = None
 
 
 class SceneArchiveRead(BaseModel):
