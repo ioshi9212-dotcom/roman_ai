@@ -1156,7 +1156,11 @@ def continue_session(session_id: str) -> Dict[str, Any]:
     result = dict(_BASE_CONTINUE(session_id))
     result["data_schema_version"] = migration["data_schema_version"]
     pending_packet = storage._read_json(storage.SESSIONS_DIR / session_id / "turn_packet.json", {})
-    result["runtime_revision"] = runtime_access.runtime_revision_for_builder(pending_packet.get("builder_version") if isinstance(pending_packet, dict) else None)
+    from . import builder_settings
+    selected = builder_settings.infer_builder(storage.SESSIONS_DIR / session_id, pending_packet)
+    result["builder_version"] = selected
+    active = pending_packet.get("builder_version") if isinstance(pending_packet, dict) and pending_packet.get("packet_id") else selected
+    result["runtime_revision"] = runtime_access.runtime_revision_for_builder(active)
     for key in ("relationships", "relationship_documents", "relationship_schemas", "npc_relationships"):
         result.pop(key, None)
     status = session_recovery.current_recovery_status(session_id)
