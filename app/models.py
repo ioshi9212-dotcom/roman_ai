@@ -109,6 +109,7 @@ class TurnPrepare(BaseModel):
     scene_archive_capable: bool = False
     replace_pending: bool = False
     builder_version: Optional[Literal["orig", "v2", "v3"]] = None
+    select_builder_only: bool = False
 
 
 class SceneArchiveRead(BaseModel):
