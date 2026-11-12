@@ -42,6 +42,7 @@ def _packet_status(packet: Any) -> Dict[str, Any] | None:
         "packet_id": str(packet.get("packet_id")),
         "prepared_for_turn": int(packet.get("prepared_for_turn", 0) or 0),
         "request_id": str(packet.get("request_id") or "") or None,
+        "builder_version": runtime_access.normalize_builder_version(packet.get("builder_version")),
         "user_input": str(packet.get("user_input") or ""),
         "chunk_count": len(chunks),
         "read_chunks": read,
@@ -84,12 +85,19 @@ def prepare_turn_request(
     opening_scene: bool = False,
     scene_archive_capable: bool = False,
     replace_pending: bool = False,
+    builder_version: str | None = None,
 ) -> Dict[str, Any]:
     root = _session_root(session_id)
-    session_migrations.ensure_current_session_data(session_id, invalidate_pending=True)
     identity = str(request_id or "").strip()
     if opening_scene:
         user_input = ""
+    # A chat chooses the variant for every new turn. An old client retrying the
+    # same pending input without a variant continues that packet, not Orig.
+    pending = storage._read_json(root / "turn_packet.json", {})
+    if builder_version is None and isinstance(pending, dict) and pending.get("packet_id") and str(pending.get("user_input") or "") == str(user_input):
+        builder_version = pending.get("builder_version")
+    runtime_access.select_builder_version(builder_version)
+    session_migrations.ensure_current_session_data(session_id, invalidate_pending=True)
 
     with session_transaction(root):
         # A completed request replay is independent of any newer pending turn and must
@@ -111,7 +119,16 @@ def prepare_turn_request(
         if status is not None:
             same_input = str(packet.get("user_input") or "") == str(user_input)
             pending_id = str(packet.get("request_id") or "").strip()
+            if same_input and runtime_access.normalize_builder_version(packet.get("builder_version")) != runtime_access.selected_builder_version():
+                if identity and pending_id and identity != pending_id:
+                    raise RuntimeError("TURN_IN_PROGRESS")
+                # Explicit variant change on the same uncommitted input: rebuild
+                # only that packet, without modifying any committed story data.
+                _archive_abandoned_pending(root, packet, reason="builder_version_changed")
+                (root / "turn_packet.json").unlink(missing_ok=True)
+                status = None
 
+        if status is not None:
             if same_input:
                 if identity and pending_id and identity != pending_id:
                     raise RuntimeError("TURN_IN_PROGRESS")
@@ -210,6 +227,7 @@ def commit_turn_request(session_id: str, payload: Dict[str, Any]) -> Dict[str, A
 
         packet = storage._read_json(root / "turn_packet.json", {})
         if isinstance(packet, dict) and str(packet.get("packet_id") or "") == packet_id:
+            runtime_access.select_builder_version(packet.get("builder_version"))
             if not session_migrations.packet_is_current(packet):
                 session_migrations.invalidate_stale_turn_packet(
                     root,
