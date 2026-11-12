@@ -1,15 +1,39 @@
-"""Independent live author builders: transport, revision and presentation."""
+"""Single active author builder; historical alternate headers remain readable."""
 import json
 
-from app import runtime_access, session_migrations, session_runtime, storage
-from app.operation_service import commit_turn_request, prepare_turn_request
+from app import runtime_access, session_migrations, storage
+from app.operation_service import prepare_turn_request
 from app.scene_header import parse_scene_header
 from app.scene_format import validate_scene_output
 
 
-def _new_session():
-    return storage.create_session({
-        "novel_id": "builder-variant-test",
+def test_only_original_builder_is_live_and_reserves_remain(monkeypatch):
+    files = runtime_access.RUNTIME_DIR
+    assert (files / "scene_builder_v2.md").is_file()
+    assert (files / "scene_builder_v3.md").is_file()
+    calls = []
+    def fetch(key):
+        calls.append(key)
+        return (files / runtime_access.ACTIVE_RUNTIME_FILES[key]).read_text(encoding="utf-8")
+    monkeypatch.setenv("ROMAN_SCENE_BUILDER_SOURCE", "github")
+    monkeypatch.setattr(runtime_access, "_fetch_github_runtime_file", fetch)
+    with runtime_access.runtime_read_view():
+        docs = runtime_access.runtime_documents()
+        assert docs == {
+            "rules": (files / "rules.md").read_text(encoding="utf-8"),
+            "scene_builder": (files / "scene_builder.md").read_text(encoding="utf-8"),
+        }
+    assert sorted(calls) == ["rules", "scene_builder"]
+
+
+def test_old_session_selection_is_ignored_without_resetting_session(monkeypatch, tmp_path):
+    monkeypatch.setattr(storage, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(storage, "LIBRARY_DIR", tmp_path / "library")
+    monkeypatch.setattr(storage, "SESSIONS_DIR", tmp_path / "sessions")
+    storage.ensure_dirs()
+    monkeypatch.setenv("ROMAN_SCENE_BUILDER_SOURCE", "file")
+    sid = storage.create_session({
+        "novel_id": "single-builder-test",
         "title": "Test",
         "novel": {"pov_character": "pov"},
         "characters": [{"character_id": "pov", "name": "POV", "is_pov": True}],
@@ -21,174 +45,30 @@ def _new_session():
             },
         },
     })["session_id"]
-
-
-def _context(sid):
-    packet = storage._read_json(storage.SESSIONS_DIR / sid / "turn_packet.json", {})
-    return packet, json.loads("".join(packet["chunks"]))
-
-
-def _setup(monkeypatch, tmp_path):
-    monkeypatch.setattr(storage, "DATA_DIR", tmp_path)
-    monkeypatch.setattr(storage, "LIBRARY_DIR", tmp_path / "library")
-    monkeypatch.setattr(storage, "SESSIONS_DIR", tmp_path / "sessions")
-    storage.ensure_dirs()
-    monkeypatch.setenv("ROMAN_SCENE_BUILDER_SOURCE", "github")
-    docs = {
-        key: (runtime_access.RUNTIME_DIR / filename).read_text(encoding="utf-8")
-        for key, filename in runtime_access.ACTIVE_RUNTIME_FILES.items()
-    }
-    monkeypatch.setattr(runtime_access, "_fetch_github_runtime_file", docs.__getitem__)
-    return docs
-
-
-def test_variants_share_rules_but_load_only_selected_builder(monkeypatch, tmp_path):
-    docs = _setup(monkeypatch, tmp_path)
-    with runtime_access.runtime_read_view("v2"):
-        assert runtime_access.runtime_documents() == {
-            "rules": docs["rules"], "scene_builder": docs["scene_builder_v2"],
-        }
-        revision = runtime_access.runtime_revision()
-        docs["scene_builder_v3"] += "\nV3 edit"
-        assert runtime_access.runtime_revision_for_builder("v2") == revision
-    assert runtime_access.selected_builder_version() == "orig"
-    with runtime_access.runtime_read_view("v3"):
-        assert runtime_access.runtime_documents()["scene_builder"] == docs["scene_builder_v3"]
-    with runtime_access.runtime_read_view("v2"):
-        assert runtime_access.runtime_revision() == revision
-
-
-def test_chat_variants_have_independent_packets_and_commit_revision(monkeypatch, tmp_path):
-    docs = _setup(monkeypatch, tmp_path)
-    a, b = _new_session(), _new_session()
-    v2 = prepare_turn_request(a, "ход A", "request-a", builder_version="v2")
-    v3 = prepare_turn_request(b, "ход B", "request-b", builder_version="v3")
-    for sid, result, variant in ((a, v2, "v2"), (b, v3, "v3")):
-        packet, context = _context(sid)
-        assert result["builder_version"] == packet["builder_version"] == variant
-        assert context["builder_version"] == variant
-        assert context["scene_builder"] == docs[f"scene_builder_{variant}"]
-        assert context["runtime_rules"] == docs["rules"]
-        assert runtime_access.BUILDER_LABELS[variant] in context["builder_header_instruction"]
-    docs["scene_builder_v3"] += "\nNew V3 rule."
-    retry_a = prepare_turn_request(a, "ход A", "request-a", builder_version="v2")
-    retry_b = prepare_turn_request(b, "ход B", "request-b", builder_version="v3")
-    assert retry_a["packet_id"] == v2["packet_id"]
-    assert retry_b["packet_id"] != v3["packet_id"]
-    assert session_migrations.packet_is_current(_context(a)[0])
-    assert _context(b)[1]["scene_builder"].endswith("New V3 rule.")
-    for index in range(1, retry_a["chunk_count"]):
-        storage.get_turn_packet_chunk(a, retry_a["packet_id"], index)
-    def fake_commit(sid, payload):
-        assert sid == a
-        assert runtime_access.selected_builder_version() == "v2"
-        assert runtime_access.runtime_documents()["scene_builder"] == docs["scene_builder_v2"]
-        return {"ok": True}
-    monkeypatch.setattr(session_runtime, "commit_turn", fake_commit)
-    assert commit_turn_request(a, {
-        "packet_id": retry_a["packet_id"], "user_input": "ход A",
-        "scene_output": "scene",
-        "extracted": {"scene_builder_reviewed": True, "persistence_reviewed": True, "knowledge_reviewed": True},
-    })["ok"]
-    assert runtime_access.selected_builder_version() == "orig"
-
-
-def test_selection_only_does_not_create_or_rewrite_a_turn(monkeypatch, tmp_path):
-    docs = _setup(monkeypatch, tmp_path)
-    sid = _new_session()
     root = storage.SESSIONS_DIR / sid
-    chosen = prepare_turn_request(sid, "", builder_version="v2", select_builder_only=True)
-    assert chosen["builder_selected"] is True
-    assert chosen["builder_version"] == "v2"
-    assert not (root / "turn_packet.json").exists()
+    reserve_settings = root / ".runtime" / "builder_settings.json"
+    storage._write_json(reserve_settings, {"builder_version": "v3"})
+    before_meta = storage._read_json(root / "meta.json", {})
+    first = prepare_turn_request(sid, "старый ход", "old-request")
+    packet = storage._read_json(root / "turn_packet.json", {})
+    # Emulate a pending packet issued by the alternate runtime before deployment.
+    packet["runtime_revision"] = "obsolete-v3-revision"
+    packet["builder_version"] = "v3"
+    storage._write_json(root / "turn_packet.json", packet)
+    result = prepare_turn_request(sid, "старый ход", "old-request")
+    assert result["packet_id"] != first["packet_id"]
+    saved = storage._read_json(root / "turn_packet.json", {})
+    context = json.loads("".join(saved["chunks"]))
+    assert context["scene_builder"] == (runtime_access.RUNTIME_DIR / "scene_builder.md").read_text(encoding="utf-8")
+    assert "builder_version" not in context
+    assert "builder_header_instruction" not in context
+    assert storage._read_json(reserve_settings, {}) == {"builder_version": "v3"}
+    assert storage._read_json(root / "meta.json", {})["turn_number"] == before_meta["turn_number"]
     assert storage._read_turns(root) == []
-    first = prepare_turn_request(sid, "тот же ход", "request-1")
-    assert first["builder_version"] == "v2"
-    for index in range(1, min(3, first["chunk_count"])):
-        storage.get_turn_packet_chunk(sid, first["packet_id"], index)
-    before = _context(sid)[0]
-    # Stale parameters from a client cannot silently change session settings.
-    retry = prepare_turn_request(sid, "тот же ход", "request-1", builder_version="v3")
-    assert retry["packet_id"] == first["packet_id"]
-    assert retry["builder_version"] == "v2"
-    assert _context(sid)[0] == before
-    switched = prepare_turn_request(sid, "", builder_version="v3", select_builder_only=True)
-    assert switched["builder_version"] == "v3"
-    assert switched["pending_turn"]["builder_version"] == "v2"
-    assert _context(sid)[0] == before
-    # Retry retains read progress and the original packet even after selection.
-    retry = prepare_turn_request(sid, "тот же ход", "request-1")
-    assert retry["packet_id"] == first["packet_id"]
-    assert retry["selected_builder_version"] == "v3"
-    assert _context(sid)[0] == before
-    # Explicitly abandoning a pending turn is still supported.
-    second = prepare_turn_request(sid, "тот же ход", "request-1", replace_pending=True)
-    assert second["packet_id"] != first["packet_id"]
-    assert _context(sid)[1]["scene_builder"] == docs["scene_builder_v3"]
-    assert storage._read_turns(root) == []
-    assert storage._read_json(root / "meta.json", {})["turn_number"] == 0
-
-
-def test_three_parallel_sessions_keep_their_selected_builders(monkeypatch, tmp_path):
-    from concurrent.futures import ThreadPoolExecutor
-    from app import builder_settings
-    docs = _setup(monkeypatch, tmp_path)
-    variants = ("orig", "v2", "v3")
-    sessions = [_new_session() for _ in variants]
-    for sid, version in zip(sessions, variants):
-        prepare_turn_request(sid, "", builder_version=version, select_builder_only=True)
-
-    def play(item):
-        sid, version = item
-        first = prepare_turn_request(sid, "первый ход", "request-shared")
-        assert first["builder_version"] == version
-        root = storage.SESSIONS_DIR / sid
-        for index in range(1, first["chunk_count"]):
-            storage.get_turn_packet_chunk(sid, first["packet_id"], index)
-        # A real saved turn, not a mocked commit.
-        header = {
-            "orig": "🎭 Test · лето · Orig\n🕒 День 1 · вторник, 01.09.2026, 10:01 · 📍 room",
-            "v2": "**◈ Test · V2** · лето\n◷ День 1 · вторник, 01.09.2026 · 10:01\n⌖ room",
-            "v3": "📖 Test · лето · V3\n🗓️ День 1 · вторник, 01.09.2026, 10:01\n📌 room",
-        }[version]
-        saved = commit_turn_request(sid, {
-            "packet_id": first["packet_id"], "user_input": "первый ход",
-            "scene_output": header + "\n\nPOV осматривает комнату.\n\nСостояние: спокойно\nОтношения:\nХод 1 · цикл 1/15",
-            "extracted": {
-                "scene_builder_reviewed": True, "persistence_reviewed": True,
-                "knowledge_reviewed": True, "chronology": [], "knowledge_add": [],
-                "experiences_add": [], "dialogue_memory_add": [],
-                "npc_intent_updates": [], "story_thread_updates": [],
-            },
-        })
-        assert saved["turn_number"] == 1
-        assert saved["builder_version"] == version
-        assert builder_settings.stored_builder(root) == version
-        second = prepare_turn_request(sid, "второй ход", "request-next")
-        assert second["builder_version"] == version
-        packet, context = _context(sid)
-        key = "scene_builder" if version == "orig" else f"scene_builder_{version}"
-        assert context["scene_builder"] == docs[key]
-        assert packet["prepared_for_turn"] == 2
-        assert len(storage._read_turns(root)) == 1
-        return packet["packet_id"]
-
-    with ThreadPoolExecutor(max_workers=3) as pool:
-        packet_ids = list(pool.map(play, zip(sessions, variants)))
-    assert len(set(packet_ids)) == 3
-    assert runtime_access.selected_builder_version() == "orig"
-
-
-def test_existing_pending_variant_is_recovered_without_reselection(monkeypatch, tmp_path):
-    from app import builder_settings
-    docs = _setup(monkeypatch, tmp_path)
-    sid = _new_session()
-    root = storage.SESSIONS_DIR / sid
-    first = prepare_turn_request(sid, "старый ход", "old-request", builder_version="v3")
-    (root / builder_settings.SETTINGS_FILE).unlink()
-    retry = prepare_turn_request(sid, "старый ход", "old-request")
-    assert retry["packet_id"] == first["packet_id"]
-    assert builder_settings.stored_builder(root) == "v3"
+    abandoned = storage._read_json(root / "abandoned_turn_packets.json", [])
+    assert abandoned[-1]["packet_id"] == first["packet_id"]
+    assert abandoned[-1]["user_input"] == "старый ход"
+    assert session_migrations.packet_is_current(saved)
 
 
 def test_v2_v3_headers_parse_and_validate():
@@ -205,43 +85,3 @@ def test_v2_v3_headers_parse_and_validate():
         }
         assert validate_scene_output(scene) == scene
 
-
-def test_archive_gameplay_uses_16k_chunks_and_preserves_pending_progress(monkeypatch, tmp_path):
-    docs = _setup(monkeypatch, tmp_path)
-    sid = _new_session()
-    root = storage.SESSIONS_DIR / sid
-    first = prepare_turn_request(sid, "archive turn", "archive-request", builder_version="v3", scene_archive_capable=True)
-    packet, context = _context(sid)
-    raw = "".join(packet["chunks"])
-    assert first["chunk_chars_max"] == 16000
-    assert packet["chunk_chars_max"] == 16000
-    assert first["chunk_count"] == (len(raw) + 15999) // 16000
-    assert all(len(chunk) == 16000 for chunk in packet["chunks"][:-1])
-    assert context["scene_builder"] == docs["scene_builder_v3"]
-    assert context["runtime_rules"] == docs["rules"]
-    assert "scene_history" in context
-    assert "character_memory" in context
-    for index in range(1, min(3, first["chunk_count"])):
-        storage.get_turn_packet_chunk(sid, first["packet_id"], index)
-    before = _context(sid)[0]
-    retry = prepare_turn_request(sid, "archive turn", "archive-request", scene_archive_capable=True)
-    assert retry["packet_id"] == first["packet_id"]
-    assert retry["chunk_chars_max"] == 16000
-    assert retry["scene_history_bounded"] is True
-    assert retry["read_chunks"] == before["read_chunks"]
-    assert _context(sid)[0] == before
-
-    # Emulate a packet already issued before this deployment. Never re-slice
-    # it on retry: indices read by the client must retain the same meaning.
-    legacy = dict(before)
-    legacy.pop("chunk_chars_max")
-    legacy["chunks"] = [raw[i:i + 12000] for i in range(0, len(raw), 12000)]
-    legacy["chunk_count"] = len(legacy["chunks"])
-    legacy["read_chunks"] = [0, 1]
-    storage._write_json(root / "turn_packet.json", legacy)
-    retry = prepare_turn_request(sid, "archive turn", "archive-request", scene_archive_capable=True)
-    assert retry["chunk_chars_max"] == 12000
-    assert retry["chunk_count"] == legacy["chunk_count"]
-    assert retry["read_chunks"] == [0, 1]
-    assert retry["next_chunk_index"] == 2
-    assert _context(sid)[0] == legacy
