@@ -67,6 +67,12 @@ from .choice_mcp import create_choice_mcp
 _timing_log = logging.getLogger("uvicorn.error")
 
 
+def _safe_error_code(value):
+    # Log machine codes, never user prose, dialogue or knowledge payloads.
+    code = str(value).split(":", 1)[0].strip()
+    return code if len(code) <= 120 and code and all(c.isascii() and (c.isupper() or c.isdigit() or c == "_") for c in code) else "UNSTRUCTURED_ERROR"
+
+
 @asynccontextmanager
 async def lifespan(app):
     startup_session_migration()
@@ -640,20 +646,29 @@ def turn_packet_prepare(session_id: str, body: TurnPrepare):
             scene_archive_capable=bool(body.scene_archive_capable),
             replace_pending=bool(body.replace_pending),
             builder_version=body.builder_version,
+            select_builder_only=body.select_builder_only,
         )
         if isinstance(result, dict):
             result = dict(result)
             result["server_prepare_ms"] = round((perf_counter() - started) * 1000, 2)
             _timing_log.info(
-                "roman_timing operation=prepare duration_ms=%s chunk_count=%s total_chars=%s reused=%s",
-                result["server_prepare_ms"], result.get("chunk_count"),
+                "roman_timing operation=prepare session_id=%s builder=%s turn=%s packet_id=%s duration_ms=%s chunk_count=%s total_chars=%s reused=%s",
+                session_id, result.get("builder_version"), result.get("prepared_for_turn"), result.get("packet_id"), result["server_prepare_ms"], result.get("chunk_count"),
                 result.get("total_chars"), bool(result.get("reused_pending_packet")),
             )
         return result
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Session not found")
+    except HTTPException as exc:
+        detail = exc.detail
+        code = detail.get("code", "HTTP_ERROR") if isinstance(detail, dict) else str(detail).split(":", 1)[0]
+        _timing_log.warning("roman_rejection operation=prepare session_id=%s status=%s code=%s", session_id, exc.status_code, _safe_error_code(code))
+        raise
     except RuntimeError as exc:
         code = str(exc)
+        _timing_log.warning("roman_rejection operation=prepare session_id=%s code=%s", session_id, _safe_error_code(code))
+        if code in {"BUILDER_SELECTION_REQUIRED", "BUILDER_SELECTION_ONLY"}:
+            raise HTTPException(status_code=400, detail={"code": code, "message": "Selection requires select_builder_only=true, builder_version, and empty user_input; no opening_scene or replace_pending."}) from exc
         if code in {"SCENE_BUILDER_GITHUB_UNAVAILABLE", "RULES_GITHUB_UNAVAILABLE"}:
             raise HTTPException(status_code=503, detail={
                 "code": code,
@@ -699,8 +714,8 @@ def turn_packet_chunk_get(session_id: str, packet_id: str, chunk_index: int):
     try:
         result = get_turn_packet_chunk(session_id, packet_id, chunk_index)
         _timing_log.info(
-            "roman_timing operation=chunk duration_ms=%.2f chunk_index=%s chunk_count=%s content_chars=%s",
-            (perf_counter() - started) * 1000, chunk_index,
+            "roman_timing operation=chunk session_id=%s packet_id=%s duration_ms=%.2f chunk_index=%s chunk_count=%s content_chars=%s",
+            session_id, packet_id, (perf_counter() - started) * 1000, chunk_index,
             result.get("chunk_count"), len(result.get("content", "")),
         )
         return result
@@ -853,14 +868,21 @@ def turns_commit(session_id: str, body: CommitTurnRequest):
         if isinstance(result, dict):
             result = dict(result)
             result["server_commit_ms"] = round((perf_counter() - started) * 1000, 2)
-            _timing_log.info("roman_timing operation=commit duration_ms=%s", result["server_commit_ms"])
+            _timing_log.info("roman_timing operation=commit session_id=%s builder=%s turn=%s packet_id=%s duration_ms=%s", session_id, result.get("builder_version"), result.get("prepared_for_turn"), body.packet_id, result["server_commit_ms"])
         return result
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Session not found")
     except OperationReceiptConflict:
+        _timing_log.warning("roman_rejection operation=commit session_id=%s packet_id=%s status=409 code=OPERATION_RECEIPT_CONFLICT", session_id, body.packet_id)
         raise HTTPException(status_code=409, detail="The packet_id was already used with a different commit payload. Prepare a fresh turn packet; no mutation was performed.")
+    except HTTPException as exc:
+        detail = exc.detail
+        code = detail.get("code", "HTTP_ERROR") if isinstance(detail, dict) else str(detail).split(":", 1)[0]
+        _timing_log.warning("roman_rejection operation=commit session_id=%s packet_id=%s status=%s code=%s", session_id, body.packet_id, exc.status_code, _safe_error_code(code))
+        raise
     except RuntimeError as exc:
         code = str(exc)
+        _timing_log.warning("roman_rejection operation=commit session_id=%s packet_id=%s code=%s", session_id, body.packet_id, _safe_error_code(code))
         if code in {"SCENE_BUILDER_GITHUB_UNAVAILABLE", "RULES_GITHUB_UNAVAILABLE"}:
             raise HTTPException(status_code=503, detail={
                 "code": code,
