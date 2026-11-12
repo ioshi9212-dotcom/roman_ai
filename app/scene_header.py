@@ -3,12 +3,12 @@ import re
 from typing import Any
 
 _CLOCK = re.compile(
-    r"^(?:🕒|◷)\s*День\s+(?P<game_day>\d+)\s*·[^\n]*?"
+    r"^(?:🕒|◷|🗓️?)\s*День\s+(?P<game_day>\d+)\s*·[^\n]*?"
     r"(?P<date>\d{2}\.\d{2}\.\d{4})\s*[,·]\s*(?P<time>\d{1,2}:\d{2})",
     re.MULTILINE,
 )
-_LOCATION = re.compile(r"^(?:📍|⌖)\s*(?P<location>[^\n]+)", re.MULTILINE)
-_SCENE = re.compile(r"^(?:⚙️\s*Сцена:|▸)\s*(?P<scene>.+?)\s*$", re.MULTILINE)
+_LOCATION = re.compile(r"^(?:📍|⌖|📌)\s*(?P<location>[^\n]+)", re.MULTILINE)
+_SCENE = re.compile(r"^(?:(?:⚙️|🎬)\s*Сцена:|▸)\s*(?P<scene>.+?)\s*$", re.MULTILINE)
 
 
 def parse_scene_header(text: Any) -> dict:
@@ -23,7 +23,7 @@ def parse_scene_header(text: Any) -> dict:
         # Old archives may place the location on the same line as the clock.
         location = _LOCATION.search(text) or re.search(r"📍\s*(?P<location>[^\n]+)", clock.string[clock.end():])
         if location:
-            result["location"] = re.split(r"\s*🌦️|\s*·\s*☁[︎️]?", location["location"], maxsplit=1)[0].strip()
+            result["location"] = re.split(r"\s*🌦️|\s*·\s*(?:☁[︎️]?|🌤️?)", location["location"], maxsplit=1)[0].strip()
     scene = _SCENE.search(text)
     if scene:
         result["scene"] = scene["scene"].strip()
