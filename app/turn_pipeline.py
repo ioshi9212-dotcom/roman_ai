@@ -78,6 +78,7 @@ def _packet_manifest(packet: Dict[str, Any], *, reused: bool) -> Dict[str, Any]:
         "all_chunks_read": not unread,
         "turn_pipeline_version": PIPELINE_VERSION,
         "runtime_revision": packet.get("runtime_revision"),
+        "builder_version": runtime_access.normalize_builder_version(packet.get("builder_version")),
         "data_schema_version": int(packet.get("data_schema_version", 0) or 0),
         "instruction": (
             "Pending packet reused. Read only unread chunks, silently re-check the final scene against Scene Builder, and commit once."
@@ -115,6 +116,7 @@ def _write_packet_context(root, packet: Dict[str, Any], context: Dict[str, Any])
     packet["writer_first_payload_chars"] = len(text)
     packet["turn_pipeline_version"] = PIPELINE_VERSION
     packet["runtime_revision"] = runtime_access.runtime_revision()
+    packet["builder_version"] = runtime_access.selected_builder_version()
     packet["data_schema_version"] = session_migrations.CURRENT_DATA_SCHEMA_VERSION
     storage._write_json(root / "turn_packet.json", packet)
     return packet
@@ -739,6 +741,9 @@ def _prepare_context(
     # Keep the complete questionnaire while excluding the retired POV-silence
     # directive from the writer view. The saved author source stays intact.
     context["novel"] = profile_templates._strip_legacy_pov_silence_rule(source.get("novel", {}))
+    context["builder_version"] = runtime_access.selected_builder_version()
+    label = runtime_access.BUILDER_LABELS[context["builder_version"]]
+    context["builder_header_instruction"] = f"В первой строке шапки каждой новой сцены укажи ровно одну метку {label}. Используй оформление текущего scene_builder, а не предыдущих сцен."
     context = _move_runtime_documents_first(context)
     packet = _write_packet_context(root, packet, context)
     result = _packet_manifest(packet, reused=False)
@@ -779,7 +784,8 @@ def prepare_turn_packet(session_id: str, user_input: str, *, _migrated: bool = F
             and isinstance(pending.get("chunks"), list)
             and pending.get("chunks")
         ):
-            if int(pending.get("turn_pipeline_version", 0) or 0) == PIPELINE_VERSION:
+            if (int(pending.get("turn_pipeline_version", 0) or 0) == PIPELINE_VERSION
+                    and runtime_access.normalize_builder_version(pending.get("builder_version")) == runtime_access.selected_builder_version()):
                 return _packet_manifest(pending, reused=True)
             (root / "turn_packet.json").unlink(missing_ok=True)
             pending = {}
