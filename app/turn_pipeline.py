@@ -70,7 +70,7 @@ def _packet_manifest(packet: Dict[str, Any], *, reused: bool) -> Dict[str, Any]:
         "writer_first": True,
         "writer_first_version": writer_first_runtime.WRITER_FIRST_VERSION,
         "relationship_review_required": False,
-        "chunk_chars_max": max((len(str(chunk)) for chunk in chunks), default=0) if packet.get("scene_history_transport_version") and not packet.get("chunk_chars_max") else packet.get("chunk_chars_max", writer_first_runtime.WRITER_PACKET_CHARS),
+        "chunk_chars_max": packet.get("chunk_chars_max", 12000 if packet.get("scene_history_transport_version") else writer_first_runtime.WRITER_PACKET_CHARS),
         "scene_history_bounded": bool(packet.get("scene_history_transport_version")),
         "first_chunk_included": bool(chunks),
         "reused_pending_packet": reused,
