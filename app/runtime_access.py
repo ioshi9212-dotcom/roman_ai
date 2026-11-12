@@ -19,17 +19,9 @@ from . import storage
 RUNTIME_DIR = Path(__file__).resolve().parent.parent / "runtime"
 RUNTIME_VERSION = "3.3.0-scene-picker"
 AUTHOR_RUNTIME_FILES = ("rules.md", "scene_builder.md")
-BUILDER_FILES = {
-    "orig": "scene_builder.md",
-    "v2": "scene_builder_v2.md",
-    "v3": "scene_builder_v3.md",
-}
-BUILDER_LABELS = {"orig": "Orig", "v2": "V2", "v3": "V3"}
 ACTIVE_RUNTIME_FILES = {
     "rules": "rules.md",
-    "scene_builder": BUILDER_FILES["orig"],
-    "scene_builder_v2": BUILDER_FILES["v2"],
-    "scene_builder_v3": BUILDER_FILES["v3"],
+    "scene_builder": "scene_builder.md",
 }
 
 # The author's GitHub main is the live source for new scenes, even before a
@@ -42,26 +34,6 @@ _RUNTIME_FILE_MAX_BYTES = 250_000
 _REQUEST_DOCS: ContextVar[Dict[str, str] | None] = ContextVar(
     "roman_runtime_documents_for_request", default=None
 )
-_REQUEST_BUILDER: ContextVar[str] = ContextVar("roman_builder_version", default="orig")
-
-
-def normalize_builder_version(version: str | None = None) -> str:
-    value = str(version or "orig").strip().lower()
-    if value not in BUILDER_FILES:
-        raise ValueError("BUILDER_VERSION_INVALID")
-    return value
-
-
-def selected_builder_version() -> str:
-    return _REQUEST_BUILDER.get()
-
-
-def select_builder_version(version: str | None = None) -> None:
-    value = normalize_builder_version(version)
-    if value != selected_builder_version():
-        _REQUEST_BUILDER.set(value)
-        if _REQUEST_DOCS.get() is not None:
-            _REQUEST_DOCS.set({})
 
 
 class _NoRedirect(HTTPRedirectHandler):
@@ -70,16 +42,13 @@ class _NoRedirect(HTTPRedirectHandler):
 
 
 @contextmanager
-def runtime_read_view(builder_version: str | None = None):
-    """Freeze the selected live rules for one request, never across requests."""
-    version = normalize_builder_version(builder_version or selected_builder_version())
-    builder_token = _REQUEST_BUILDER.set(version)
+def runtime_read_view():
+    """Freeze the current rule files for one request."""
     token = _REQUEST_DOCS.set({})
     try:
         yield
     finally:
         _REQUEST_DOCS.reset(token)
-        _REQUEST_BUILDER.reset(builder_token)
 
 
 def _fetch_github_runtime_file(key: str) -> str:
@@ -102,7 +71,7 @@ def _fetch_github_runtime_file(key: str) -> str:
         return text
     except (OSError, UnicodeError, ValueError, RuntimeError) as exc:
         # Do not silently serve an older bundled builder when GitHub is down.
-        raise RuntimeError(f"{'RULES' if key == 'rules' else 'SCENE_BUILDER'}_GITHUB_UNAVAILABLE") from exc
+        raise RuntimeError(f"{key.upper()}_GITHUB_UNAVAILABLE") from exc
     finally:
         logging.getLogger("uvicorn.error").info(
             "roman_timing operation=runtime_fetch file=%s duration_ms=%.2f success=%s",
@@ -112,11 +81,11 @@ def _fetch_github_runtime_file(key: str) -> str:
 
 def author_runtime_sources() -> Dict[str, str]:
     result: Dict[str, str] = {}
-    for key, name in (("rules", "rules.md"), ("scene_builder", BUILDER_FILES[selected_builder_version()])):
+    for name in AUTHOR_RUNTIME_FILES:
         path = RUNTIME_DIR / name
         if not path.exists():
             raise RuntimeError(f"RUNTIME_FILE_MISSING:{name}")
-        result[key] = path.read_text(encoding="utf-8")
+        result[name.removesuffix(".md")] = path.read_text(encoding="utf-8")
     return result
 
 
@@ -132,10 +101,8 @@ def runtime_documents() -> Dict[str, str]:
         raise RuntimeError("SCENE_BUILDER_SOURCE_INVALID")
 
     if mode == "github":
-        version = selected_builder_version()
-        keys = ("rules", "scene_builder" if version == "orig" else f"scene_builder_{version}")
-        with ThreadPoolExecutor(max_workers=2) as pool:
-            result = dict(zip(("rules", "scene_builder"), pool.map(_fetch_github_runtime_file, keys)))
+        with ThreadPoolExecutor(max_workers=len(ACTIVE_RUNTIME_FILES)) as pool:
+            result = dict(zip(ACTIVE_RUNTIME_FILES, pool.map(_fetch_github_runtime_file, ACTIVE_RUNTIME_FILES)))
     else:
         result = author_runtime_sources()
     if cached is not None:
@@ -154,14 +121,6 @@ def runtime_revision(documents: Dict[str, str] | None = None) -> str:
         digest.update(docs[key].encode("utf-8"))
         digest.update(b"\0")
     return digest.hexdigest()[:16]
-
-def runtime_revision_for_builder(version: str | None = None) -> str:
-    selected = normalize_builder_version(version)
-    if selected == selected_builder_version():
-        return runtime_revision()
-    with runtime_read_view(selected):
-        return runtime_revision()
-
 
 def runtime_payload() -> Dict[str, Any]:
     documents = runtime_documents()

@@ -1,13 +1,10 @@
 from __future__ import annotations
 
-import hashlib
-import json
-import logging
 from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Any, Dict
 
-from . import audit_runtime, builder_settings, runtime_access, session_migrations, session_runtime, storage, session_documents
+from . import audit_runtime, runtime_access, session_migrations, session_runtime, storage, session_documents
 from .operation_receipts import (
     OperationReceiptConflict,
     current_turn_identity,
@@ -22,14 +19,6 @@ from .turn_duplicate_guard import (
     recent_duplicate_turn,
 )
 from .turn_rollback import RollbackError, rollback_last_turn
-
-
-_timing_log = logging.getLogger("uvicorn.error")
-
-
-def diagnostic_ref(value: Any) -> str:
-    """Stable log correlation tag without exposing the full session/packet ID."""
-    return hashlib.sha256(str(value or "").encode("utf-8")).hexdigest()[:12] if value else "-"
 
 
 def _session_root(session_id: str):
@@ -53,7 +42,6 @@ def _packet_status(packet: Any) -> Dict[str, Any] | None:
         "packet_id": str(packet.get("packet_id")),
         "prepared_for_turn": int(packet.get("prepared_for_turn", 0) or 0),
         "request_id": str(packet.get("request_id") or "") or None,
-        "builder_version": runtime_access.normalize_builder_version(packet.get("builder_version")),
         "user_input": str(packet.get("user_input") or ""),
         "chunk_count": len(chunks),
         "read_chunks": read,
@@ -86,21 +74,6 @@ def _archive_abandoned_pending(root, packet: Dict[str, Any], *, reason: str) -> 
     storage._write_json(path, rows[-20:])
 
 
-def _log_packet_sizes(session_id: str, result: Dict[str, Any]) -> None:
-    try:
-        packet = storage._read_json(_session_root(session_id) / "turn_packet.json", {})
-        context = json.loads("".join(packet["chunks"]))
-        sizes = {key: len(json.dumps(value, ensure_ascii=False, separators=(",", ":"))) for key, value in context.items()}
-        _timing_log.info(
-            "roman_packet session_ref=%s turn=%s builder=%s packet_ref=%s chunks=%s total_chars=%s sections=%s",
-            diagnostic_ref(session_id), packet.get("prepared_for_turn"), packet.get("builder_version"),
-            diagnostic_ref(packet.get("packet_id")), len(packet["chunks"]), result.get("total_chars"),
-            json.dumps(sizes, sort_keys=True, separators=(",", ":")),
-        )
-    except (OSError, ValueError, TypeError, KeyError, AttributeError):
-        _timing_log.warning("roman_packet_stats_unavailable session_ref=%s", diagnostic_ref(session_id))
-
-
 @runtime_access.runtime_read_view()
 @session_documents.read_view()
 def prepare_turn_request(
@@ -111,35 +84,12 @@ def prepare_turn_request(
     opening_scene: bool = False,
     scene_archive_capable: bool = False,
     replace_pending: bool = False,
-    builder_version: str | None = None,
-    select_builder_only: bool = False,
 ) -> Dict[str, Any]:
     root = _session_root(session_id)
+    session_migrations.ensure_current_session_data(session_id, invalidate_pending=True)
     identity = str(request_id or "").strip()
     if opening_scene:
         user_input = ""
-
-    # Selection is session metadata, not a gameplay turn. Existing pending
-    # scenes keep their original builder until committed or explicitly abandoned.
-    if select_builder_only:
-        if builder_version is None:
-            raise RuntimeError("BUILDER_SELECTION_REQUIRED")
-        if opening_scene or user_input or replace_pending:
-            raise RuntimeError("BUILDER_SELECTION_ONLY")
-        with session_transaction(root):
-            selected = builder_settings.save_builder(root, builder_version)
-            pending = pending_turn_status(session_id)
-            _timing_log.info(
-                "roman_builder session_ref=%s selected=%s pending_builder=%s",
-                diagnostic_ref(session_id), selected, pending.get("builder_version") if pending else None,
-            )
-            return {
-                "ok": True, "builder_selected": True, "session_id": session_id,
-                "builder_version": selected, "pending_turn": pending,
-                "instruction": "Selection saved. No gameplay turn created. Finish any pending packet with its original builder; the next new packet uses the saved selection.",
-            }
-
-    session_migrations.ensure_current_session_data(session_id, invalidate_pending=False)
 
     with session_transaction(root):
         # A completed request replay is independent of any newer pending turn and must
@@ -147,9 +97,7 @@ def prepare_turn_request(
         if identity:
             committed = committed_request_turn(session_id, identity, user_input)
             if committed is not None:
-                result = duplicate_prepare_response(committed)
-                result["builder_version"] = builder_settings.infer_builder(root)
-                return result
+                return duplicate_prepare_response(committed)
 
         # An exact retry of the opening request above is still valid after its
         # commit. Only a genuinely new opening request is restricted to turn 0.
@@ -159,25 +107,12 @@ def prepare_turn_request(
                 raise RuntimeError("OPENING_SCENE_ONLY_BEFORE_TURN_ONE")
 
         packet = storage._read_json(root / "turn_packet.json", {})
-        stored = builder_settings.stored_builder(root)
-        if stored is None:
-            # Compatibility with the old client: accept its first selection.
-            # A pending packet or previous scene can recover an existing choice.
-            stored = builder_settings.save_builder(
-                root, builder_version if builder_version is not None else builder_settings.infer_builder(root, packet),
-            )
-        elif builder_version is not None and runtime_access.normalize_builder_version(builder_version) != stored:
-            _timing_log.info("roman_builder session_ref=%s ignored_implicit=%s selected=%s", diagnostic_ref(session_id), builder_version, stored)
-
         status = _packet_status(packet)
-        runtime_access.select_builder_version(status["builder_version"] if status else stored)
-        if status and session_migrations.invalidate_stale_turn_packet(root):
-            packet = {}
-            status = None
         if status is not None:
             same_input = str(packet.get("user_input") or "") == str(user_input)
             pending_id = str(packet.get("request_id") or "").strip()
-            if same_input and not (replace_pending and status["builder_version"] != stored):
+
+            if same_input:
                 if identity and pending_id and identity != pending_id:
                     raise RuntimeError("TURN_IN_PROGRESS")
                 packet_changed = False
@@ -201,7 +136,6 @@ def prepare_turn_request(
                 result["writer_review_required"] = bool(packet.get("writer_review_required"))
                 result["relationship_review_required"] = False
                 result["pending_turn"] = pending_turn_status(session_id)
-                result["selected_builder_version"] = stored
                 return result
 
             if not replace_pending:
@@ -210,16 +144,12 @@ def prepare_turn_request(
             _archive_abandoned_pending(root, packet, reason="explicit_replace_pending")
             (root / "turn_packet.json").unlink(missing_ok=True)
 
-        runtime_access.select_builder_version(stored)
-
         if not identity:
             # Backward-compatible path for an old Custom GPT schema. It behaves exactly
             # like the legacy client until request_id support is enabled client-side.
             duplicate = recent_duplicate_turn(session_id, user_input)
             if duplicate is not None:
-                result = duplicate_prepare_response(duplicate)
-                result["builder_version"] = stored
-                return result
+                return duplicate_prepare_response(duplicate)
 
         result = dict(session_runtime.prepare_turn_packet(session_id, user_input, _migrated=True))
         packet = storage._read_json(root / "turn_packet.json", {})
@@ -248,8 +178,6 @@ def prepare_turn_request(
         result["writer_review_required"] = bool(packet.get("writer_review_required"))
         result["relationship_review_required"] = False
         result["pending_turn"] = pending_turn_status(session_id)
-        result["selected_builder_version"] = stored
-        _log_packet_sizes(session_id, result)
         return result
 
 
@@ -282,7 +210,6 @@ def commit_turn_request(session_id: str, payload: Dict[str, Any]) -> Dict[str, A
 
         packet = storage._read_json(root / "turn_packet.json", {})
         if isinstance(packet, dict) and str(packet.get("packet_id") or "") == packet_id:
-            runtime_access.select_builder_version(packet.get("builder_version"))
             if not session_migrations.packet_is_current(packet):
                 session_migrations.invalidate_stale_turn_packet(
                     root,
@@ -309,8 +236,6 @@ def commit_turn_request(session_id: str, payload: Dict[str, Any]) -> Dict[str, A
             "request_fingerprint": fingerprint,
         }
         result = dict(session_runtime.commit_turn(session_id, prepared))
-        result["builder_version"] = runtime_access.selected_builder_version()
-        result["prepared_for_turn"] = packet.get("prepared_for_turn")
         result.setdefault("already_committed", False)
         result.setdefault("idempotent_replay", False)
         return result

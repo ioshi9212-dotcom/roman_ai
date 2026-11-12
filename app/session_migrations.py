@@ -83,7 +83,7 @@ def packet_is_current(packet: Any) -> bool:
 
     return (
         int(packet.get("data_schema_version", 0) or 0) == CURRENT_DATA_SCHEMA_VERSION
-        and str(packet.get("runtime_revision") or "") == runtime_access.runtime_revision_for_builder(packet.get("builder_version"))
+        and str(packet.get("runtime_revision") or "") == runtime_access.runtime_revision()
         and int(packet.get("turn_pipeline_version", 0) or 0) == PIPELINE_VERSION
     )
 
@@ -106,8 +106,7 @@ def invalidate_stale_turn_packet(root: Path, *, reason: str = "runtime_or_schema
         "user_input": str(packet.get("user_input") or ""),
         "reason": reason,
         "old_runtime_revision": packet.get("runtime_revision"),
-        "new_runtime_revision": runtime_access.runtime_revision_for_builder(packet.get("builder_version")),
-        "builder_version": runtime_access.normalize_builder_version(packet.get("builder_version")),
+        "new_runtime_revision": runtime_access.runtime_revision(),
         "old_data_schema_version": int(packet.get("data_schema_version", 0) or 0),
         "new_data_schema_version": CURRENT_DATA_SCHEMA_VERSION,
         "old_turn_pipeline_version": int(packet.get("turn_pipeline_version", 0) or 0),

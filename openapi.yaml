@@ -659,14 +659,6 @@ components:
         replace_pending:
           type: boolean
           default: false
-        builder_version:
-          type: string
-          enum: [orig, v2, v3]
-          description: Initial session choice, or explicit selection with select_builder_only=true. Later gameplay requests use the persisted session choice; pending packets keep their original version.
-        select_builder_only:
-          type: boolean
-          default: false
-          description: Explicitly select builder_version for this session with empty user_input. Does not create a turn or replace a pending packet.
       additionalProperties: false
 
     SceneArchiveRead:

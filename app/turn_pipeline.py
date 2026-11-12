@@ -70,8 +70,7 @@ def _packet_manifest(packet: Dict[str, Any], *, reused: bool) -> Dict[str, Any]:
         "writer_first": True,
         "writer_first_version": writer_first_runtime.WRITER_FIRST_VERSION,
         "relationship_review_required": False,
-        "chunk_chars_max": packet.get("chunk_chars_max", 12000 if packet.get("scene_history_transport_version") else writer_first_runtime.WRITER_PACKET_CHARS),
-        "scene_history_bounded": bool(packet.get("scene_history_transport_version")),
+        "chunk_chars_max": writer_first_runtime.WRITER_PACKET_CHARS,
         "first_chunk_included": bool(chunks),
         "reused_pending_packet": reused,
         "read_chunks": read,
@@ -79,7 +78,6 @@ def _packet_manifest(packet: Dict[str, Any], *, reused: bool) -> Dict[str, Any]:
         "all_chunks_read": not unread,
         "turn_pipeline_version": PIPELINE_VERSION,
         "runtime_revision": packet.get("runtime_revision"),
-        "builder_version": runtime_access.normalize_builder_version(packet.get("builder_version")),
         "data_schema_version": int(packet.get("data_schema_version", 0) or 0),
         "instruction": (
             "Pending packet reused. Read only unread chunks, silently re-check the final scene against Scene Builder, and commit once."
@@ -87,8 +85,6 @@ def _packet_manifest(packet: Dict[str, Any], *, reused: bool) -> Dict[str, Any]:
             else "Chunk 0 is included. Read remaining unread chunks, write from Rules + Scene Builder, silently re-check the final scene against Scene Builder, and commit once."
         ),
     }
-    label = runtime_access.BUILDER_LABELS[result["builder_version"]]
-    result["instruction"] += f" Use the selected builder only; include its version marker {label} once in the scene title."
     if chunks:
         result["chunk_index"] = 0
         result["content"] = chunks[0]
@@ -114,13 +110,11 @@ def _write_packet_context(root, packet: Dict[str, Any], context: Dict[str, Any])
     packet = deepcopy(packet)
     packet["chunks"] = chunks
     packet["chunk_count"] = len(chunks)
-    packet["chunk_chars_max"] = size
     packet["read_chunks"] = [0]
     packet["writer_first_version"] = writer_first_runtime.WRITER_FIRST_VERSION
     packet["writer_first_payload_chars"] = len(text)
     packet["turn_pipeline_version"] = PIPELINE_VERSION
     packet["runtime_revision"] = runtime_access.runtime_revision()
-    packet["builder_version"] = runtime_access.selected_builder_version()
     packet["data_schema_version"] = session_migrations.CURRENT_DATA_SCHEMA_VERSION
     storage._write_json(root / "turn_packet.json", packet)
     return packet
@@ -554,11 +548,8 @@ def _move_runtime_documents_first(context: Dict[str, Any]) -> Dict[str, Any]:
         "relationships and active intents",
         "cast registry",
     ]
-    for key in ("builder_version", "builder_header_instruction"):
-        if key in context:
-            result[key] = context[key]
     for key, value in context.items():
-        if key not in result:
+        if key not in {"scene_builder", "runtime_rules", "read_order"}:
             result[key] = value
     return result
 
@@ -748,9 +739,6 @@ def _prepare_context(
     # Keep the complete questionnaire while excluding the retired POV-silence
     # directive from the writer view. The saved author source stays intact.
     context["novel"] = profile_templates._strip_legacy_pov_silence_rule(source.get("novel", {}))
-    context["builder_version"] = runtime_access.selected_builder_version()
-    label = runtime_access.BUILDER_LABELS[context["builder_version"]]
-    context["builder_header_instruction"] = f"В первой строке шапки каждой новой сцены укажи ровно одну метку {label}. Используй оформление текущего scene_builder, а не предыдущих сцен."
     context = _move_runtime_documents_first(context)
     packet = _write_packet_context(root, packet, context)
     result = _packet_manifest(packet, reused=False)
@@ -791,8 +779,7 @@ def prepare_turn_packet(session_id: str, user_input: str, *, _migrated: bool = F
             and isinstance(pending.get("chunks"), list)
             and pending.get("chunks")
         ):
-            if (int(pending.get("turn_pipeline_version", 0) or 0) == PIPELINE_VERSION
-                    and runtime_access.normalize_builder_version(pending.get("builder_version")) == runtime_access.selected_builder_version()):
+            if int(pending.get("turn_pipeline_version", 0) or 0) == PIPELINE_VERSION:
                 return _packet_manifest(pending, reused=True)
             (root / "turn_packet.json").unlink(missing_ok=True)
             pending = {}
@@ -1152,30 +1139,12 @@ def commit_audit(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     return dict(stability_runtime._atomic_commit_audit(session_id, prepared))
 
 
-@runtime_access.runtime_read_view()
 def continue_session(session_id: str) -> Dict[str, Any]:
-    from . import builder_settings
-    root = storage.SESSIONS_DIR / session_id
     stability_runtime._recover_session(session_id)
-    with session_transaction(root):
-        pending_packet = storage._read_json(root / "turn_packet.json", {})
-        selected = builder_settings.infer_builder(root, pending_packet)
-        # Recover a pre-settings session from its pending packet before a
-        # newer live Builder revision can invalidate that packet.
-        if isinstance(pending_packet, dict) and pending_packet.get("packet_id"):
-            if builder_settings.stored_builder(root) is None:
-                builder_settings.save_builder(root, selected)
-            runtime_access.select_builder_version(pending_packet.get("builder_version"))
-        else:
-            runtime_access.select_builder_version(selected)
-        migration = session_migrations.ensure_current_session_data(session_id, invalidate_pending=True)
-        result = dict(_BASE_CONTINUE(session_id))
-        pending_packet = storage._read_json(root / "turn_packet.json", {})
-        active = pending_packet.get("builder_version") if isinstance(pending_packet, dict) and pending_packet.get("packet_id") else selected
-        runtime_access.select_builder_version(active)
-        result["runtime_revision"] = runtime_access.runtime_revision()
+    migration = session_migrations.ensure_current_session_data(session_id, invalidate_pending=True)
+    result = dict(_BASE_CONTINUE(session_id))
     result["data_schema_version"] = migration["data_schema_version"]
-    result["builder_version"] = selected
+    result["runtime_revision"] = runtime_access.runtime_revision()
     for key in ("relationships", "relationship_documents", "relationship_schemas", "npc_relationships"):
         result.pop(key, None)
     status = session_recovery.current_recovery_status(session_id)
