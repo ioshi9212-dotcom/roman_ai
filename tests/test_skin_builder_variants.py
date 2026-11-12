@@ -204,3 +204,44 @@ def test_v2_v3_headers_parse_and_validate():
             "location": "room", "scene": "разговор",
         }
         assert validate_scene_output(scene) == scene
+
+
+def test_archive_gameplay_uses_16k_chunks_and_preserves_pending_progress(monkeypatch, tmp_path):
+    docs = _setup(monkeypatch, tmp_path)
+    sid = _new_session()
+    root = storage.SESSIONS_DIR / sid
+    first = prepare_turn_request(sid, "archive turn", "archive-request", builder_version="v3", scene_archive_capable=True)
+    packet, context = _context(sid)
+    raw = "".join(packet["chunks"])
+    assert first["chunk_chars_max"] == 16000
+    assert packet["chunk_chars_max"] == 16000
+    assert first["chunk_count"] == (len(raw) + 15999) // 16000
+    assert all(len(chunk) == 16000 for chunk in packet["chunks"][:-1])
+    assert context["scene_builder"] == docs["scene_builder_v3"]
+    assert context["runtime_rules"] == docs["rules"]
+    assert "scene_history" in context
+    assert "character_memory" in context
+    for index in range(1, min(3, first["chunk_count"])):
+        storage.get_turn_packet_chunk(sid, first["packet_id"], index)
+    before = _context(sid)[0]
+    retry = prepare_turn_request(sid, "archive turn", "archive-request", scene_archive_capable=True)
+    assert retry["packet_id"] == first["packet_id"]
+    assert retry["chunk_chars_max"] == 16000
+    assert retry["scene_history_bounded"] is True
+    assert retry["read_chunks"] == before["read_chunks"]
+    assert _context(sid)[0] == before
+
+    # Emulate a packet already issued before this deployment. Never re-slice
+    # it on retry: indices read by the client must retain the same meaning.
+    legacy = dict(before)
+    legacy.pop("chunk_chars_max")
+    legacy["chunks"] = [raw[i:i + 12000] for i in range(0, len(raw), 12000)]
+    legacy["chunk_count"] = len(legacy["chunks"])
+    legacy["read_chunks"] = [0, 1]
+    storage._write_json(root / "turn_packet.json", legacy)
+    retry = prepare_turn_request(sid, "archive turn", "archive-request", scene_archive_capable=True)
+    assert retry["chunk_chars_max"] == 12000
+    assert retry["chunk_count"] == legacy["chunk_count"]
+    assert retry["read_chunks"] == [0, 1]
+    assert retry["next_chunk_index"] == 2
+    assert _context(sid)[0] == legacy
