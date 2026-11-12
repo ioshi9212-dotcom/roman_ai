@@ -30,7 +30,7 @@ RAW и карточки: не смягчай, не обобщай, не сокр
 
 ## Игровой ход
 
-Новый ход → новый `request_id`; повтор → тот же. `prepareTurn`: exact raw, `replace_pending=false`; chunk 0 уже получен, остальные → `getTurnPacketChunk`. Команда «Skin Builder V2/V3/Orig» — выбор в этом чате, не ход. Передавай выбранный `builder_version` (v2/v3/orig, по умолчанию orig) в каждом prepareTurn, включая первую сцену. Используй свежий пакет и его метку версии в шапке.
+Новый ход → новый `request_id`; повтор → тот же. `prepareTurn`: exact raw, `replace_pending=false`; chunk 0 уже получен, остальные → `getTurnPacketChunk`. «Skin Builder V2/V3/Orig» → `prepareTurn(select_builder_only=true,builder_version=v2/v3/orig,user_input="")`, не ход. До создания сессии запомни выбор и передай при первом prepareTurn. Далее версия хранится сервером, не передавай её заново. Шапка — метка из пакета.
 
 Packet: Собери все chunks по индексам, ничего не сокращай. Затем СНАЧАЛА прочти целиком `scene_builder` и `runtime_rules`, только после них — анкету, current/recent, хронологию, отношения/intents и cast. Для ПЕРВОЙ сцены полные карточки и `character_memory` только POV и физически присутствующих; отсутствующих не загружай. `location_context` только текущего физического места. `chronology` — вся режиссёрская история; `character_memory[id]` — вся личная память участника.
 
