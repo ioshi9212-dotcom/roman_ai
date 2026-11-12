@@ -659,6 +659,10 @@ components:
         replace_pending:
           type: boolean
           default: false
+        builder_version:
+          type: string
+          enum: [orig, v2, v3]
+          description: Selected Skin Builder for this chat; send on every new turn. Omitted uses Orig, or the version of an identical pending turn retry.
       additionalProperties: false
 
     SceneArchiveRead:
