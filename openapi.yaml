@@ -662,7 +662,11 @@ components:
         builder_version:
           type: string
           enum: [orig, v2, v3]
-          description: Selected Skin Builder for this chat; send on every new turn. Omitted uses Orig, or the version of an identical pending turn retry.
+          description: Initial session choice, or explicit selection with select_builder_only=true. Later gameplay requests use the persisted session choice; pending packets keep their original version.
+        select_builder_only:
+          type: boolean
+          default: false
+          description: Explicitly select builder_version for this session with empty user_input. Does not create a turn or replace a pending packet.
       additionalProperties: false
 
     SceneArchiveRead:
