@@ -86,6 +86,8 @@ def _packet_manifest(packet: Dict[str, Any], *, reused: bool) -> Dict[str, Any]:
             else "Chunk 0 is included. Read remaining unread chunks, write from Rules + Scene Builder, silently re-check the final scene against Scene Builder, and commit once."
         ),
     }
+    label = runtime_access.BUILDER_LABELS[result["builder_version"]]
+    result["instruction"] += f" Use the selected builder only; include its version marker {label} once in the scene title."
     if chunks:
         result["chunk_index"] = 0
         result["content"] = chunks[0]
@@ -550,8 +552,11 @@ def _move_runtime_documents_first(context: Dict[str, Any]) -> Dict[str, Any]:
         "relationships and active intents",
         "cast registry",
     ]
+    for key in ("builder_version", "builder_header_instruction"):
+        if key in context:
+            result[key] = context[key]
     for key, value in context.items():
-        if key not in {"scene_builder", "runtime_rules", "read_order"}:
+        if key not in result:
             result[key] = value
     return result
 
@@ -1150,7 +1155,8 @@ def continue_session(session_id: str) -> Dict[str, Any]:
     migration = session_migrations.ensure_current_session_data(session_id, invalidate_pending=True)
     result = dict(_BASE_CONTINUE(session_id))
     result["data_schema_version"] = migration["data_schema_version"]
-    result["runtime_revision"] = runtime_access.runtime_revision()
+    pending_packet = storage._read_json(storage.SESSIONS_DIR / session_id / "turn_packet.json", {})
+    result["runtime_revision"] = runtime_access.runtime_revision_for_builder(pending_packet.get("builder_version") if isinstance(pending_packet, dict) else None)
     for key in ("relationships", "relationship_documents", "relationship_schemas", "npc_relationships"):
         result.pop(key, None)
     status = session_recovery.current_recovery_status(session_id)
