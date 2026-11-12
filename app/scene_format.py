@@ -12,8 +12,7 @@ TURN_RE = re.compile(r"^Ход\s+\d+\s*·\s*цикл\s+\d+/15\s*$", re.MULTILINE
 NUMBERED_RE = re.compile(r"^\s*([1-3])\.\s+\S.*$", re.MULTILINE)
 LEGACY_PREFIXES = ("🎭 ", "🕒 День ", "🌦️ Погода:", "⚙️ Сцена:", "✦ ", "🧥 Одежда, волосы:")
 CURRENT_PREFIXES = ("**◈ ", "◷ День ", "⌖ ", "▸ ", "◇ **", "▣ При себе:")
-V3_PREFIXES = ("📖 ", "🗓️ День ", "📌 ", "🌤️ Погода:", "🎬 Сцена:", "👤 ", "👕 Одежда, волосы:", "🎒 Инвентарь:")
-INLINE_HEADER_PREFIXES = {"🌦️ Погода:", "🧥 Одежда, волосы:", "🌤️ Погода:"}
+INLINE_HEADER_PREFIXES = {"🌦️ Погода:", "🧥 Одежда, волосы:"}
 
 
 def _first_line_index(lines: List[str], prefix: str) -> int:
@@ -38,8 +37,6 @@ def _header_errors(lines: List[str]) -> List[str]:
         prefixes = LEGACY_PREFIXES
     elif first.startswith("**◈ "):
         prefixes = CURRENT_PREFIXES
-    elif first.startswith("📖 "):
-        prefixes = V3_PREFIXES
     else:
         return ["title_header"]
 
@@ -74,8 +71,7 @@ def validate_scene_output(scene_output: Any) -> str:
         errors.append("divider")
     else:
         divider_line = text[:divider.start()].count("\n")
-        prefixes = (V3_PREFIXES if nonempty and nonempty[0].startswith("📖 ")
-                    else CURRENT_PREFIXES if nonempty and nonempty[0].startswith("**◈ ") else LEGACY_PREFIXES)
+        prefixes = CURRENT_PREFIXES if nonempty and nonempty[0].startswith("**◈ ") else LEGACY_PREFIXES
         if any(_first_line_index(lines, prefix) > divider_line for prefix in prefixes
                if _first_line_index(lines, prefix) >= 0):
             errors.append("header_order")

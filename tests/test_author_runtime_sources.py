@@ -13,11 +13,7 @@ def test_active_runtime_is_exactly_the_two_author_documents():
     for key, content in active.items():
         name = "rules.md" if key == "rules" else "scene_builder.md"
         assert content == (ROOT / "runtime" / name).read_text(encoding="utf-8")
-    from app.runtime_access import ACTIVE_RUNTIME_FILES
-    assert set(ACTIVE_RUNTIME_FILES.values()) == {"rules.md", "scene_builder.md"}
-    # Reserve files are retained on disk but never included in active transport.
-    assert (ROOT / "runtime/scene_builder_v2.md").is_file()
-    assert (ROOT / "runtime/scene_builder_v3.md").is_file()
+    assert {p.name for p in (ROOT / "runtime").glob("*.md")} == {"rules.md", "scene_builder.md"}
 
 
 def test_runtime_chunks_ship_the_same_documents_without_a_second_contract():
