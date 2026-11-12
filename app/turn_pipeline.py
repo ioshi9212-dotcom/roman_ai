@@ -1150,13 +1150,30 @@ def commit_audit(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     return dict(stability_runtime._atomic_commit_audit(session_id, prepared))
 
 
+@runtime_access.runtime_read_view()
 def continue_session(session_id: str) -> Dict[str, Any]:
+    from . import builder_settings
+    root = storage.SESSIONS_DIR / session_id
     stability_runtime._recover_session(session_id)
-    migration = session_migrations.ensure_current_session_data(session_id, invalidate_pending=True)
-    result = dict(_BASE_CONTINUE(session_id))
+    with session_transaction(root):
+        pending_packet = storage._read_json(root / "turn_packet.json", {})
+        selected = builder_settings.infer_builder(root, pending_packet)
+        # Recover a pre-settings session from its pending packet before a
+        # newer live Builder revision can invalidate that packet.
+        if isinstance(pending_packet, dict) and pending_packet.get("packet_id"):
+            if builder_settings.stored_builder(root) is None:
+                builder_settings.save_builder(root, selected)
+            runtime_access.select_builder_version(pending_packet.get("builder_version"))
+        else:
+            runtime_access.select_builder_version(selected)
+        migration = session_migrations.ensure_current_session_data(session_id, invalidate_pending=True)
+        result = dict(_BASE_CONTINUE(session_id))
+        pending_packet = storage._read_json(root / "turn_packet.json", {})
+        active = pending_packet.get("builder_version") if isinstance(pending_packet, dict) and pending_packet.get("packet_id") else selected
+        runtime_access.select_builder_version(active)
+        result["runtime_revision"] = runtime_access.runtime_revision()
     result["data_schema_version"] = migration["data_schema_version"]
-    pending_packet = storage._read_json(storage.SESSIONS_DIR / session_id / "turn_packet.json", {})
-    result["runtime_revision"] = runtime_access.runtime_revision_for_builder(pending_packet.get("builder_version") if isinstance(pending_packet, dict) else None)
+    result["builder_version"] = selected
     for key in ("relationships", "relationship_documents", "relationship_schemas", "npc_relationships"):
         result.pop(key, None)
     status = session_recovery.current_recovery_status(session_id)
