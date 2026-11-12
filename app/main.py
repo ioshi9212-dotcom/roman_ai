@@ -639,6 +639,7 @@ def turn_packet_prepare(session_id: str, body: TurnPrepare):
             opening_scene=bool(body.opening_scene),
             scene_archive_capable=bool(body.scene_archive_capable),
             replace_pending=bool(body.replace_pending),
+            builder_version=body.builder_version,
         )
         if isinstance(result, dict):
             result = dict(result)
