@@ -11,7 +11,7 @@ from .transactional_storage import session_transaction
 
 
 SCENE_ARCHIVE_CHUNK_CHARS = 12000
-SCENE_HISTORY_PACKET_CHARS = 12000
+SCENE_HISTORY_PACKET_CHARS = 16000  # same tested limit as ordinary gameplay packets
 MAX_WORKING_SCENES = 12
 MAX_RECENT_SCENES = 8
 MAX_SCENES_PER_CHARACTER = 2
@@ -285,6 +285,7 @@ def apply_bounded_scene_history(session_id: str, manifest: Dict[str, Any]) -> Di
         ] or ["{}"]
         packet["chunks"] = chunks
         packet["chunk_count"] = len(chunks)
+        packet["chunk_chars_max"] = SCENE_HISTORY_PACKET_CHARS
         packet["read_chunks"] = [0]
         packet["scene_history_transport_version"] = SCENE_HISTORY_TRANSPORT_VERSION
         packet["scene_archive_capable"] = True
