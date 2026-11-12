@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 from copy import deepcopy
@@ -24,6 +25,11 @@ from .turn_rollback import RollbackError, rollback_last_turn
 
 
 _timing_log = logging.getLogger("uvicorn.error")
+
+
+def diagnostic_ref(value: Any) -> str:
+    """Stable log correlation tag without exposing the full session/packet ID."""
+    return hashlib.sha256(str(value or "").encode("utf-8")).hexdigest()[:12] if value else "-"
 
 
 def _session_root(session_id: str):
@@ -86,13 +92,13 @@ def _log_packet_sizes(session_id: str, result: Dict[str, Any]) -> None:
         context = json.loads("".join(packet["chunks"]))
         sizes = {key: len(json.dumps(value, ensure_ascii=False, separators=(",", ":"))) for key, value in context.items()}
         _timing_log.info(
-            "roman_packet session_id=%s turn=%s builder=%s packet_id=%s chunks=%s total_chars=%s sections=%s",
-            session_id, packet.get("prepared_for_turn"), packet.get("builder_version"),
-            packet.get("packet_id"), len(packet["chunks"]), result.get("total_chars"),
+            "roman_packet session_ref=%s turn=%s builder=%s packet_ref=%s chunks=%s total_chars=%s sections=%s",
+            diagnostic_ref(session_id), packet.get("prepared_for_turn"), packet.get("builder_version"),
+            diagnostic_ref(packet.get("packet_id")), len(packet["chunks"]), result.get("total_chars"),
             json.dumps(sizes, sort_keys=True, separators=(",", ":")),
         )
     except (OSError, ValueError, TypeError, KeyError, AttributeError):
-        _timing_log.warning("roman_packet_stats_unavailable session_id=%s", session_id)
+        _timing_log.warning("roman_packet_stats_unavailable session_ref=%s", diagnostic_ref(session_id))
 
 
 @runtime_access.runtime_read_view()
@@ -124,8 +130,8 @@ def prepare_turn_request(
             selected = builder_settings.save_builder(root, builder_version)
             pending = pending_turn_status(session_id)
             _timing_log.info(
-                "roman_builder session_id=%s selected=%s pending_builder=%s",
-                session_id, selected, pending.get("builder_version") if pending else None,
+                "roman_builder session_ref=%s selected=%s pending_builder=%s",
+                diagnostic_ref(session_id), selected, pending.get("builder_version") if pending else None,
             )
             return {
                 "ok": True, "builder_selected": True, "session_id": session_id,
@@ -161,7 +167,7 @@ def prepare_turn_request(
                 root, builder_version if builder_version is not None else builder_settings.infer_builder(root, packet),
             )
         elif builder_version is not None and runtime_access.normalize_builder_version(builder_version) != stored:
-            _timing_log.info("roman_builder session_id=%s ignored_implicit=%s selected=%s", session_id, builder_version, stored)
+            _timing_log.info("roman_builder session_ref=%s ignored_implicit=%s selected=%s", diagnostic_ref(session_id), builder_version, stored)
 
         status = _packet_status(packet)
         runtime_access.select_builder_version(status["builder_version"] if status else stored)
