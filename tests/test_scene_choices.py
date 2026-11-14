@@ -81,10 +81,11 @@ def test_mcp_reads_saved_choices_without_creating_turn_or_exposing_private_state
         init = rpc("initialize", {"protocolVersion": "2025-11-25", "capabilities": {},
                                   "clientInfo": {"name": "test", "version": "1"}})
         assert "tools" in init["capabilities"]
-        tools = rpc("tools/list", {})["tools"]
-        assert {t["name"] for t in tools} == {"show_scene_choices", "check_scene_choices"}
-        assert all(t["annotations"]["readOnlyHint"] for t in tools)
-        assert tools[0]["_meta"]["ui"]["resourceUri"] == RESOURCE
+        tools = {tool["name"]: tool for tool in rpc("tools/list", {})["tools"]}
+        assert tools["show_scene_choices"]["annotations"]["readOnlyHint"] is True
+        assert tools["check_scene_choices"]["annotations"]["readOnlyHint"] is True
+        assert tools["show_scene_choices"]["_meta"]["ui"]["resourceUri"] == RESOURCE
+        assert tools["check_scene_choices"]["_meta"]["ui"]["visibility"] == ["app"]
         resource = rpc("resources/read", {"uri": RESOURCE})["contents"][0]
         assert resource["mimeType"] == "text/html;profile=mcp-app"
         assert "/* CHOICE_APP */" not in resource["text"]

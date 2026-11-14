@@ -2,8 +2,10 @@
 import hashlib
 import json
 from copy import deepcopy
+from pathlib import Path
 
 import pytest
+import yaml
 from fastapi.testclient import TestClient
 
 from app import novel_drafts, session_documents, storage
@@ -135,6 +137,75 @@ def scene(turn):
             "Что я могу сказать:\n1. Да.\n2. Нет.\n3. Продолжай.\n\n"
             "Что я могу подумать:\n1. Интересно.\n2. Странно.\n3. Посмотрим.\n\n"
             f"Состояние: спокойствие\nОтношения:\nРен - доверие 25.5/{delta}\n\nХод {turn} · цикл {((turn-1)%15)+1}/15")
+
+
+def mcp_rpc(client, method, params):
+    response = client.post(
+        "/mcp/", headers={"Accept": "application/json, text/event-stream"},
+        json={"jsonrpc": "2.0", "id": 1, "method": method, "params": params},
+    )
+    assert response.status_code == 200, response.text
+    return response.json()["result"]
+
+
+def test_mcp_exports_current_actions_and_runs_the_same_turn(client):
+    def call(name, **arguments):
+        return mcp_rpc(client, "tools/call", {"name": name, "arguments": arguments})
+
+    def result(name, **arguments):
+        reply = call(name, **arguments)
+        assert not reply.get("isError"), reply
+        return json.loads(reply["content"][0]["text"])
+
+    init = mcp_rpc(client, "initialize", {
+        "protocolVersion": "2025-03-26", "capabilities": {},
+        "clientInfo": {"name": "romanai-test", "version": "1"},
+    })
+    assert init["serverInfo"]["name"] == "Roman AI"
+    assert client.post("/mcp/", headers={"Accept": "application/json, text/event-stream"},
+                       json={"jsonrpc": "2.0", "method": "notifications/initialized"}).status_code == 202
+
+    catalog = {tool["name"]: tool for tool in mcp_rpc(client, "tools/list", {})["tools"]}
+    contract = yaml.safe_load((Path(__file__).resolve().parents[1] / "openapi.yaml").read_text(encoding="utf-8"))
+    actions = {op["operationId"] for methods in contract["paths"].values() for op in methods.values()}
+    assert set(catalog) == actions | {"show_scene_choices", "check_scene_choices"}
+    assert catalog["listNovels"]["annotations"]["readOnlyHint"] is True
+    assert catalog["getTurnPacketChunk"]["annotations"]["readOnlyHint"] is False
+    assert catalog["commitTurn"]["annotations"]["readOnlyHint"] is False
+    assert set(catalog["commitTurn"]["inputSchema"]["required"]) == {"session_id", "body"}
+    assert result("listNovels") == client.get("/novels").json()
+
+    draft = result("createNovelDraft", body={"novel_id": "mcp-raw", "title": "RAW", "request_id": "mcp-draft"})
+    raw = "  Дословный RAW.\r\nПоследняя строка.\n"
+    uploaded = result("appendDraftIntakeChunk", draft_id=draft["draft_id"], body={
+        "block_id": "raw", "stage": "source", "chunk_index": 0, "full_raw": True, "raw_text": raw,
+    })
+    assert uploaded["raw_sha256"] == hashlib.sha256(raw.encode()).hexdigest()
+    assert result("listNovels", include_drafts=True, draft_title="RAW")["drafts"][0]["draft_id"] == draft["draft_id"]
+
+    sid = complete_setup(client)
+    dossier = result("prepareCharacterBundleRead", session_id=sid, character_id="away")
+    assert dossier["character_id"] == "away"
+    prepared = result("prepareTurn", session_id=sid, body={"opening_scene": True, "user_input": "", "request_id": "mcp-opening"})
+    assert prepared["chunk_count"] > 1
+    packet_id = prepared["packet_id"]
+    commit = {"packet_id": packet_id, "user_input": "", "scene_output": scene(1),
+              "extracted": {"scene_builder_reviewed": True, "persistence_reviewed": True, "knowledge_reviewed": True}}
+    blocked = call("commitTurn", session_id=sid, body=commit)
+    assert blocked["isError"] is True
+    assert "TURN_PACKET_INCOMPLETE" in blocked["content"][0]["text"]
+    parts = [prepared["content"]]
+    for index in range(1, prepared["chunk_count"]):
+        chunk = result("getTurnPacketChunk", session_id=sid, packet_id=packet_id, chunk_index=index)
+        parts.append(chunk["content"])
+    assert json.loads("".join(parts))["scene_builder"]
+    assert result("commitTurn", session_id=sid, body=commit)["turn_number"] == 1
+    assert result("commitTurn", session_id=sid, body=commit)["idempotent_replay"] is True
+    assert post(client, f"/sessions/{sid}/resume")["turn_number"] == 1
+    assert call("show_scene_choices", session_id=sid, expected_turn=1)["structuredContent"]["turn_number"] == 1
+    invalid = call("resumeSession", session_id="../outside")
+    assert invalid["isError"] is True
+    assert "HTTP 422" in invalid["content"][0]["text"]
 
 
 def test_compact_header_survives_commit_resume_next_packet_and_choice_read(client):
