@@ -62,6 +62,7 @@ from .storage import (
 from .turn_rollback import RollbackError
 from .startup_migration import read_migration_status, run_startup_session_migration
 from .choice_mcp import create_choice_mcp
+from .mcp_transport import register_actions
 
 
 _timing_log = logging.getLogger("uvicorn.error")
@@ -70,14 +71,15 @@ _timing_log = logging.getLogger("uvicorn.error")
 @asynccontextmanager
 async def lifespan(app):
     startup_session_migration()
-    choice_mcp = create_choice_mcp()
-    app.state.choice_http_app = choice_mcp.streamable_http_app()
-    async with choice_mcp.session_manager.run():
+    mcp = create_choice_mcp()
+    register_actions(mcp, app)
+    app.state.mcp_http_app = mcp.streamable_http_app()
+    async with mcp.session_manager.run():
         yield
 
 
-async def choice_http_app(scope, receive, send):
-    await app.state.choice_http_app(scope, receive, send)
+async def mcp_http_app(scope, receive, send):
+    await app.state.mcp_http_app(scope, receive, send)
 
 app = FastAPI(
     title="Roman AI",
@@ -85,7 +87,7 @@ app = FastAPI(
     description="Persistent interactive-novel sessions with rules-driven scenes, character-scoped knowledge, dynamic relationships, cast continuity, recovery, rollback and lossless setup intake.",
     lifespan=lifespan,
 )
-app.mount("/mcp", choice_http_app)
+app.mount("/mcp", mcp_http_app)
 
 
 def startup_session_migration():

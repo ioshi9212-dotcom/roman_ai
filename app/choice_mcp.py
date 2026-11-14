@@ -37,9 +37,18 @@ def create_choice_mcp() -> FastMCP:
     # StreamableHTTP managers have a single lifespan. Construct a fresh manager
     # for each application startup, including test clients and worker restarts.
     mcp = FastMCP(
-        "Roman AI choices", host="0.0.0.0", streamable_http_path="/",
+        "Roman AI", host="0.0.0.0", streamable_http_path="/",
         stateless_http=True, json_response=True,
-        instructions="After committing a scene with existing Actions, call show_scene_choices with its session_id and committed turn number. This tool only reads; selected text returns as the user's exact next input. Never generate or commit a turn just to display choices.",
+        instructions=(
+            "Tool names match RomanAI Actions. Pass path and query parameters by name "
+            "and the JSON request payload under body. Preserve exact user input and RAW. "
+            "When an Actions file reference is unavailable, send original RAW text or "
+            "verified base64 chunks through appendDraftIntakeChunk. "
+            "Read all required chunks and reuse request_id for retries of the same operation. "
+            "After a successful commitTurn, call show_scene_choices with its session_id and "
+            "committed turn number. Never generate or commit a turn just to display choices. "
+            "Selected text returns as the user's exact next input."
+        ),
     )
     mcp.resource(RESOURCE, mime_type="text/html;profile=mcp-app", meta={
         "ui": {"csp": {"connectDomains": [], "resourceDomains": []}},
