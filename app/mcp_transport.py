@@ -2,14 +2,17 @@
 
 import json
 from functools import wraps
+from inspect import signature
 from pathlib import Path
+from typing import Annotated, Any
 
 import yaml
 from fastapi import FastAPI, HTTPException
 from fastapi.routing import APIRoute
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.exceptions import ToolError
-from mcp.types import ToolAnnotations
+from mcp.types import CallToolResult, TextContent, ToolAnnotations
+from pydantic import BaseModel, ConfigDict
 from starlette.concurrency import run_in_threadpool
 
 
@@ -23,7 +26,41 @@ READ_ONLY_ACTIONS = {
 }
 
 
+class TurnPrepareOutput(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    packet_id: str | None = None
+    chunk_index: int | None = None
+    chunk_count: int | None = None
+    content: str | None = None
+    request_id: str | None = None
+    first_chunk_included: bool | None = None
+    next_chunk_index: int | None = None
+    pending_turn: dict[str, Any] | None = None
+    audit_required: bool | None = None
+    required_audit: dict[str, Any] | None = None
+    already_committed_duplicate: bool | None = None
+    scene_output: str | None = None
+
+
+class TurnChunkOutput(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    packet_id: str
+    chunk_index: int
+    chunk_count: int
+    content: str
+    all_chunks_read: bool
+
+
+PACKET_OUTPUTS = {
+    "prepareTurn": Annotated[CallToolResult, TurnPrepareOutput],
+    "getTurnPacketChunk": Annotated[CallToolResult, TurnChunkOutput],
+}
+
+
 def _tool_endpoint(route: APIRoute):
+    packet_output = PACKET_OUTPUTS.get(route.operation_id)
     # Preserve the handler signature so FastMCP validates the original Pydantic body.
     @wraps(route.endpoint)
     async def call(**kwargs):
@@ -35,11 +72,23 @@ def _tool_endpoint(route: APIRoute):
             ):
                 raise ToolError(f"HTTP 422: Invalid path parameter {name}")
         try:
-            return await run_in_threadpool(route.endpoint, **kwargs)
+            result = await run_in_threadpool(route.endpoint, **kwargs)
         except HTTPException as exc:
             detail = json.dumps(exc.detail, ensure_ascii=False)
             raise ToolError(f"HTTP {exc.status_code}: {detail}") from exc
 
+        if packet_output is None:
+            return result
+        # Keep the exact packet fields available to both structured and text clients.
+        return CallToolResult(
+            structuredContent=result,
+            content=[TextContent(type="text", text=json.dumps(result, ensure_ascii=False))],
+        )
+
+    if packet_output is not None:
+        call.__signature__ = signature(route.endpoint, eval_str=True).replace(
+            return_annotation=packet_output,
+        )
     return call
 
 
