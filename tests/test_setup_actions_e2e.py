@@ -8,7 +8,7 @@ import pytest
 import yaml
 from fastapi.testclient import TestClient
 
-from app import novel_drafts, session_documents, storage
+from app import character_chunk_read, novel_drafts, session_documents, storage
 from app.main import app
 
 
@@ -148,7 +148,9 @@ def mcp_rpc(client, method, params):
     return response.json()["result"]
 
 
-def test_mcp_exports_current_actions_and_runs_the_same_turn(client):
+def test_mcp_exports_current_actions_and_runs_the_same_turn(client, monkeypatch):
+    character_tools = {"prepareCharacterBundleRead", "getCharacterBundleChunk"}
+
     def call(name, **arguments):
         return mcp_rpc(client, "tools/call", {"name": name, "arguments": arguments})
 
@@ -156,7 +158,7 @@ def test_mcp_exports_current_actions_and_runs_the_same_turn(client):
         reply = call(name, **arguments)
         assert not reply.get("isError"), reply
         text_result = json.loads(reply["content"][0]["text"])
-        if name in {"prepareTurn", "getTurnPacketChunk"}:
+        if name in character_tools | {"prepareTurn", "getTurnPacketChunk"}:
             assert reply["structuredContent"] == text_result
         return text_result
 
@@ -178,6 +180,8 @@ def test_mcp_exports_current_actions_and_runs_the_same_turn(client):
     assert set(catalog["commitTurn"]["inputSchema"]["required"]) == {"session_id", "body"}
     assert "content" in catalog["prepareTurn"]["outputSchema"]["properties"]
     assert "content" in catalog["getTurnPacketChunk"]["outputSchema"]["required"]
+    for name in character_tools:
+        assert "content" in catalog[name]["outputSchema"]["required"]
     assert result("listNovels") == client.get("/novels").json()
 
     draft = result("createNovelDraft", body={"novel_id": "mcp-raw", "title": "RAW", "request_id": "mcp-draft"})
@@ -189,8 +193,20 @@ def test_mcp_exports_current_actions_and_runs_the_same_turn(client):
     assert result("listNovels", include_drafts=True, draft_title="RAW")["drafts"][0]["draft_id"] == draft["draft_id"]
 
     sid = complete_setup(client)
-    dossier = result("prepareCharacterBundleRead", session_id=sid, character_id="away")
-    assert dossier["character_id"] == "away"
+    with monkeypatch.context() as patch:
+        patch.setattr(character_chunk_read, "CHARACTER_CHUNK_CHARS", 256)
+        dossier = result("prepareCharacterBundleRead", session_id=sid, character_id="away")
+        assert dossier["character_id"] == "away"
+        assert dossier["first_chunk_included"] is True
+        assert dossier["chunk_count"] > 1
+        dossier_parts = [dossier["content"]]
+        for index in range(1, dossier["chunk_count"]):
+            chunk = result("getCharacterBundleChunk", session_id=sid, character_id="away",
+                           read_id=dossier["read_id"], chunk_index=index)
+            assert chunk["chunk_index"] == index
+            dossier_parts.append(chunk["content"])
+        assert chunk["next_chunk_index"] is None
+        assert json.loads("".join(dossier_parts))["character_id"] == "away"
     prepared = result("prepareTurn", session_id=sid, body={"opening_scene": True, "user_input": "", "request_id": "mcp-opening"})
     assert prepared["chunk_count"] > 1
     packet_id = prepared["packet_id"]

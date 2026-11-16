@@ -53,14 +53,30 @@ class TurnChunkOutput(BaseModel):
     all_chunks_read: bool
 
 
-PACKET_OUTPUTS = {
+class CharacterBundleOutput(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    session_id: str
+    character_id: str
+    read_id: str
+    chunk_index: int
+    chunk_count: int
+    content: str
+    next_chunk_index: int | None
+    first_chunk_included: bool | None = None
+    all_chunks_read: bool | None = None
+
+
+STRUCTURED_OUTPUTS = {
     "prepareTurn": Annotated[CallToolResult, TurnPrepareOutput],
     "getTurnPacketChunk": Annotated[CallToolResult, TurnChunkOutput],
+    "prepareCharacterBundleRead": Annotated[CallToolResult, CharacterBundleOutput],
+    "getCharacterBundleChunk": Annotated[CallToolResult, CharacterBundleOutput],
 }
 
 
 def _tool_endpoint(route: APIRoute):
-    packet_output = PACKET_OUTPUTS.get(route.operation_id)
+    structured_output = STRUCTURED_OUTPUTS.get(route.operation_id)
     # Preserve the handler signature so FastMCP validates the original Pydantic body.
     @wraps(route.endpoint)
     async def call(**kwargs):
@@ -77,17 +93,17 @@ def _tool_endpoint(route: APIRoute):
             detail = json.dumps(exc.detail, ensure_ascii=False)
             raise ToolError(f"HTTP {exc.status_code}: {detail}") from exc
 
-        if packet_output is None:
+        if structured_output is None:
             return result
-        # Keep the exact packet fields available to both structured and text clients.
+        # Keep the exact response fields available to both structured and text clients.
         return CallToolResult(
             structuredContent=result,
             content=[TextContent(type="text", text=json.dumps(result, ensure_ascii=False))],
         )
 
-    if packet_output is not None:
+    if structured_output is not None:
         call.__signature__ = signature(route.endpoint, eval_str=True).replace(
-            return_annotation=packet_output,
+            return_annotation=structured_output,
         )
     return call
 
