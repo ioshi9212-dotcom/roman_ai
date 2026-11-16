@@ -155,7 +155,10 @@ def test_mcp_exports_current_actions_and_runs_the_same_turn(client):
     def result(name, **arguments):
         reply = call(name, **arguments)
         assert not reply.get("isError"), reply
-        return json.loads(reply["content"][0]["text"])
+        text_result = json.loads(reply["content"][0]["text"])
+        if name in {"prepareTurn", "getTurnPacketChunk"}:
+            assert reply["structuredContent"] == text_result
+        return text_result
 
     init = mcp_rpc(client, "initialize", {
         "protocolVersion": "2025-03-26", "capabilities": {},
@@ -173,6 +176,8 @@ def test_mcp_exports_current_actions_and_runs_the_same_turn(client):
     assert catalog["getTurnPacketChunk"]["annotations"]["readOnlyHint"] is False
     assert catalog["commitTurn"]["annotations"]["readOnlyHint"] is False
     assert set(catalog["commitTurn"]["inputSchema"]["required"]) == {"session_id", "body"}
+    assert "content" in catalog["prepareTurn"]["outputSchema"]["properties"]
+    assert "content" in catalog["getTurnPacketChunk"]["outputSchema"]["required"]
     assert result("listNovels") == client.get("/novels").json()
 
     draft = result("createNovelDraft", body={"novel_id": "mcp-raw", "title": "RAW", "request_id": "mcp-draft"})
@@ -199,8 +204,14 @@ def test_mcp_exports_current_actions_and_runs_the_same_turn(client):
         chunk = result("getTurnPacketChunk", session_id=sid, packet_id=packet_id, chunk_index=index)
         parts.append(chunk["content"])
     assert json.loads("".join(parts))["scene_builder"]
+    reread = result("getTurnPacketChunk", session_id=sid, packet_id=packet_id, chunk_index=1)
+    assert reread["content"] == parts[1]
+    assert reread["all_chunks_read"] is True
     assert result("commitTurn", session_id=sid, body=commit)["turn_number"] == 1
     assert result("commitTurn", session_id=sid, body=commit)["idempotent_replay"] is True
+    assert result("prepareTurn", session_id=sid, body={
+        "opening_scene": True, "user_input": "", "request_id": "mcp-opening",
+    })["already_committed_duplicate"] is True
     assert post(client, f"/sessions/{sid}/resume")["turn_number"] == 1
     assert call("show_scene_choices", session_id=sid, expected_turn=1)["structuredContent"]["turn_number"] == 1
     invalid = call("resumeSession", session_id="../outside")
