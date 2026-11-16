@@ -17,7 +17,7 @@ READ_ONLY = ToolAnnotations(readOnlyHint=True, destructiveHint=False, openWorldH
 
 
 def show_scene_choices(session_id: str, expected_turn: int) -> CallToolResult:
-    """Display interactive choices from an already committed scene. Does not change the session."""
+    """Show buttons for a committed scene only when the user asks for interactive choices."""
     data = saved_scene_choices(session_id, expected_turn)
     return CallToolResult(content=[TextContent(type="text", text="Варианты сохранённого хода.")],
                           structuredContent=data)
@@ -45,8 +45,9 @@ def create_choice_mcp() -> FastMCP:
             "When an Actions file reference is unavailable, send original RAW text or "
             "verified base64 chunks through appendDraftIntakeChunk. "
             "Read all required chunks and reuse request_id for retries of the same operation. "
-            "After a successful commitTurn, call show_scene_choices with its session_id and "
-            "committed turn number. Never generate or commit a turn just to display choices. "
+            "Return the saved scene and its choices as normal chat text by default. "
+            "Only if the user asks for interactive choices, call show_scene_choices with "
+            "the session_id and already committed turn number. "
             "Selected text returns as the user's exact next input."
         ),
     )
