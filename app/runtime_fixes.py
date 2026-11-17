@@ -124,10 +124,10 @@ def prepare_turn_packet(session_id: str, user_input: str) -> Dict[str, Any]:
         return _rewrite_turn_packet(session_id, manifest)
 
 
-def get_turn_packet_chunk(session_id: str, packet_id: str, chunk_index: int) -> Dict[str, Any]:
+def get_turn_packet_chunk(session_id: str, packet_id: str, chunk_index: int, chunk_limit: int = 1) -> Dict[str, Any]:
     with _session_lock(session_id):
         try:
-            return _ORIGINAL_GET_TURN_PACKET_CHUNK(session_id, packet_id, chunk_index)
+            return _ORIGINAL_GET_TURN_PACKET_CHUNK(session_id, packet_id, chunk_index, chunk_limit)
         except PermissionError:
             row = dict(_ORIGINAL_GET_AUDIT_CHUNK(session_id, packet_id, chunk_index))
             row["packet_id"] = packet_id

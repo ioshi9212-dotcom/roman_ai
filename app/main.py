@@ -1,3 +1,4 @@
+from typing import Annotated
 import hashlib
 import json
 import logging
@@ -7,7 +8,7 @@ from time import perf_counter
 from threading import Thread
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 
 from .audit_runtime import get_audit_snapshot, get_audit_snapshot_chunk
 from .character_access import get_character_bundle
@@ -695,10 +696,15 @@ def turn_packet_prepare(session_id: str, body: TurnPrepare):
 
 @app.get("/sessions/{session_id}/turn-packet/{packet_id}/{chunk_index}", operation_id="getTurnPacketChunk",
          openapi_extra={"x-openai-isConsequential": False})
-def turn_packet_chunk_get(session_id: str, packet_id: str, chunk_index: int):
+def turn_packet_chunk_get(
+    session_id: str, packet_id: str, chunk_index: int, chunk_limit: Annotated[int, Query(ge=1, le=3)] = 1,
+):
     started = perf_counter()
     try:
-        result = get_turn_packet_chunk(session_id, packet_id, chunk_index)
+        if chunk_limit == 1:
+            result = get_turn_packet_chunk(session_id, packet_id, chunk_index)
+        else:
+            result = get_turn_packet_chunk(session_id, packet_id, chunk_index, chunk_limit)
         _timing_log.info(
             "roman_timing operation=chunk duration_ms=%.2f chunk_index=%s chunk_count=%s content_chars=%s",
             (perf_counter() - started) * 1000, chunk_index,
