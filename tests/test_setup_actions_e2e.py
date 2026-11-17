@@ -262,9 +262,21 @@ def test_mcp_exports_current_actions_and_runs_the_same_turn(client, monkeypatch)
     assert blocked["isError"] is True
     assert "TURN_PACKET_INCOMPLETE" in blocked["content"][0]["text"]
     parts = [prepared["content"]]
-    for index in range(1, prepared["chunk_count"]):
-        chunk = result("getTurnPacketChunk", session_id=sid, packet_id=packet_id, chunk_index=index)
-        parts.append(chunk["content"])
+    total = prepared["chunk_count"]
+    assert total >= 4
+    for index in range(1, total, 3):
+        batch = result("getTurnPacketChunk", session_id=sid, packet_id=packet_id,
+                       chunk_index=index, chunk_limit=3)
+        indices = list(range(index, min(index + 3, total)))
+        assert batch["chunk_indices"] == indices
+        assert batch["unread_chunk_indices"] == list(range(indices[-1] + 1, total))
+        assert batch["all_chunks_read"] == (indices[-1] == total - 1)
+        singles = [
+            result("getTurnPacketChunk", session_id=sid, packet_id=packet_id, chunk_index=i)["content"]
+            for i in indices
+        ]
+        assert batch["content"].encode() == "".join(singles).encode()
+        parts.extend(singles)
     assert json.loads("".join(parts))["scene_builder"]
     reread = result("getTurnPacketChunk", session_id=sid, packet_id=packet_id, chunk_index=1)
     assert reread["content"] == parts[1]
@@ -449,3 +461,29 @@ def test_conflicting_pov_is_reported_before_final_read(client, reference, flags,
     response = client.post(base + "/finalize")
     assert response.status_code == 409
     assert response.json()["detail"] == blocker
+
+
+def test_full_size_turn_packet_batch_is_lossless_over_mcp(client):
+    sid = "batch-test"
+    root = storage.SESSIONS_DIR / sid
+    root.mkdir()
+    chunks = [str(index).rjust(2, "0") + "Х" * 15998 for index in range(18)]
+    storage._write_json(root / "turn_packet.json", {
+        "packet_id": "batch-packet", "chunks": chunks, "chunk_count": len(chunks),
+        "read_chunks": [0],
+    })
+    responses = []
+    for index in range(1, len(chunks), 3):
+        result = mcp_rpc(client, "tools/call", {
+            "name": "getTurnPacketChunk",
+            "arguments": {"session_id": sid, "packet_id": "batch-packet",
+                          "chunk_index": index, "chunk_limit": 3},
+        })
+        assert result.get("isError") is not True, result
+        batch = result["structuredContent"]
+        assert json.loads(result["content"][0]["text"])["content"] == batch["content"]
+        responses.append(batch["content"])
+    assert len(responses) == 6
+    assert (chunks[0] + "".join(responses)).encode() == "".join(chunks).encode()
+    assert batch["unread_chunk_indices"] == []
+    assert batch["all_chunks_read"] is True

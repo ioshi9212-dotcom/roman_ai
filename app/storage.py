@@ -748,7 +748,7 @@ def prepare_turn_packet(session_id: str, user_input: str) -> Dict[str, Any]:
     }
 
 
-def get_turn_packet_chunk(session_id: str, packet_id: str, chunk_index: int) -> Dict[str, Any]:
+def get_turn_packet_chunk(session_id: str, packet_id: str, chunk_index: int, chunk_limit: int = 1) -> Dict[str, Any]:
     root = SESSIONS_DIR / session_id
     if not root.exists():
         raise FileNotFoundError(session_id)
@@ -759,10 +759,21 @@ def get_turn_packet_chunk(session_id: str, packet_id: str, chunk_index: int) -> 
     if chunk_index < 0 or chunk_index >= len(chunks):
         raise IndexError("CHUNK_OUT_OF_RANGE")
     read_chunks = set(packet.get("read_chunks", []))
-    read_chunks.add(chunk_index)
+    if not 1 <= chunk_limit <= 3:
+        raise ValueError("INVALID_CHUNK_LIMIT")
+    indices = list(range(chunk_index, min(len(chunks), chunk_index + chunk_limit)))
+    read_chunks.update(indices)
     packet["read_chunks"] = sorted(read_chunks)
     _write_json(root / "turn_packet.json", packet)
-    return {"packet_id": packet_id, "chunk_index": chunk_index, "chunk_count": len(chunks), "content": chunks[chunk_index], "all_chunks_read": len(read_chunks) == len(chunks)}
+    result = {
+        "packet_id": packet_id, "chunk_index": chunk_index, "chunk_count": len(chunks),
+        "content": "".join(chunks[index] for index in indices),
+        "all_chunks_read": len(read_chunks) == len(chunks),
+    }
+    if chunk_limit > 1:
+        result["chunk_indices"] = indices
+        result["unread_chunk_indices"] = [index for index in range(len(chunks)) if index not in read_chunks]
+    return result
 
 
 def commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:

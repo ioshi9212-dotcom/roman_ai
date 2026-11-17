@@ -51,6 +51,8 @@ class TurnChunkOutput(BaseModel):
     chunk_count: int
     content: str
     all_chunks_read: bool
+    chunk_indices: list[int] | None = None
+    unread_chunk_indices: list[int] | None = None
 
 
 class CharacterBundleOutput(BaseModel):
