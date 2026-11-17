@@ -168,6 +168,9 @@ class StoryThreadUpdate(BaseModel):
     premise: Optional[str] = None
     current_goal: Optional[str] = None
     current_phase: Optional[str] = None
+    current_circumstances: Optional[str] = None
+    next_possible_events: Optional[List[str]] = None
+    advance_conditions: Optional[List[str]] = None
     unresolved: Optional[List[Any]] = None
     end_conditions: Optional[List[Any]] = None
     possible_routes: Optional[List[Any]] = None
