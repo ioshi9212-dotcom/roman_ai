@@ -63,6 +63,7 @@ def test_four_barren_turns_warn_and_fifth_requires_real_plot_result(tmp_path):
             "relationship_updates": [{"character_id": "ren"}],
             "presence_updates": [{"character_id": "mark", "action": "enter"}]}
     _write_turns(root, [soft] * 4)
+    (root / "meta.json").write_text(json.dumps({"source_type": "session_draft_v3"}), encoding="utf-8")
     assert plot.trailing_plot_stagnant_turns(root) == 4
     with pytest.raises(HTTPException) as error:
         plot.validate_plot_momentum(root, {"extracted": soft})
@@ -70,6 +71,13 @@ def test_four_barren_turns_warn_and_fifth_requires_real_plot_result(tmp_path):
     assert error.value.detail["code"] == "PLOT_MOMENTUM_REQUIRED"
     plot.validate_plot_momentum(root, {
         "extracted": {"chronology": [{"event": "В бар пришло письмо с угрозой"}]}})
+
+
+def test_direct_synthetic_storage_sessions_do_not_get_blocked(tmp_path):
+    root = Path(tmp_path) / "synthetic"
+    _write_turns(root, [{"scene_progressed": True}] * 8)
+    # This is a storage replay fixture, not a draft-launched interactive novel.
+    plot.validate_plot_momentum(root, {"extracted": {}})
 
 
 def test_packet_pressure_has_durable_threads_and_offscreen_intents(tmp_path):
