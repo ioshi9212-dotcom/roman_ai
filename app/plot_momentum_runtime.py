@@ -40,6 +40,11 @@ def has_plot_consequence(extracted: Any) -> bool:
     if any(_has_text(row, "event", "summary", "description", "text")
            for row in _rows(extracted.get("chronology"))):
         return True
+    # A genuinely learned new fact can change the available choices even
+    # before the external world or a plot phase visibly changes.
+    if any(_has_text(row, "text")
+           for row in _rows(extracted.get("knowledge_journal_add"))):
+        return True
 
     for row in _rows(extracted.get("story_thread_updates")):
         op = str(row.get("operation") or "upsert").casefold().strip()
