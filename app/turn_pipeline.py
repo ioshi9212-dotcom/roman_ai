@@ -27,6 +27,7 @@ from . import (
     npc_relationship_runtime,
     private_knowledge_runtime,
     profile_templates,
+    plot_momentum_runtime,
     relationship_file_runtime,
     resume_compact_runtime,
     runtime_access,
@@ -54,7 +55,7 @@ _BASE_PARTICIPATION_BUNDLE = character_chunk_read._participation_bundle
 _BASE_CREATE_SESSION = storage.create_session
 _BASE_RECOVER_CURRENT = session_recovery.recover_session_current
 
-PIPELINE_VERSION = 25
+PIPELINE_VERSION = 26
 
 def _packet_manifest(packet: Dict[str, Any], *, reused: bool) -> Dict[str, Any]:
     chunks = packet.get("chunks", []) if isinstance(packet.get("chunks"), list) else []
@@ -740,6 +741,8 @@ def _prepare_context(
     # Keep the complete questionnaire while excluding the retired POV-silence
     # directive from the writer view. The saved author source stays intact.
     context["novel"] = profile_templates._strip_legacy_pov_silence_rule(source.get("novel", {}))
+    # Unlike retired wrapper modules, this reaches the active single writer pipeline.
+    context["plot_momentum"] = plot_momentum_runtime.plot_packet(root, state, context)
     context = _move_runtime_documents_first(context)
     packet = _write_packet_context(root, packet, context)
     result = _packet_manifest(packet, reused=False)
@@ -1114,6 +1117,8 @@ def commit_turn(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         session_id,
         prepared,
     )
+    # Validate the actual final extracted state before any turn is committed.
+    plot_momentum_runtime.validate_plot_momentum(storage.SESSIONS_DIR / session_id, prepared)
     saved = dict(stability_runtime._atomic_commit_turn(session_id, prepared))
     saved["saved_chronology_events"] = len(
         prepared.get("extracted", {}).get("chronology", [])
