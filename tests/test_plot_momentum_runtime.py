@@ -35,6 +35,9 @@ def test_real_causal_result_and_durable_thread_progress_are_accepted():
     assert plot.has_plot_consequence({
         "chronology": [{"event": "Рен вернулся с новым доказательством"}]})
     assert plot.has_plot_consequence({
+        "knowledge_journal_add": [{"character_id": "emily",
+                                   "text": "Зажигалка связана со старой мастерской"}]})
+    assert plot.has_plot_consequence({
         "story_thread_updates": [{
             "thread_id": "lighter",
             "progressed_now": True,
