@@ -48,7 +48,8 @@ def has_plot_consequence(extracted: Any) -> bool:
         if op == "upsert":
             # A newly established causal line is a development; a bare name is not.
             created = (
-                _has_text(row, "premise", "summary")
+                row.get("progressed_now") is True
+                and _has_text(row, "premise", "summary")
                 and (
                     _has_text(row, "current_goal", "current_phase", "progress_summary")
                     or bool(row.get("unresolved"))
