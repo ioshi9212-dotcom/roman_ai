@@ -389,7 +389,7 @@ components:
           type: string
           minLength: 1
           maxLength: 120
-          description: Stable for one draft creation attempt. Retry the same request_id, novel_id, title and version after 503/timeout; never generate a new key for a retry.
+          description: Fresh random UUID per new chat/playthrough, never derived from the title. Stable only within this creation attempt. Retry the same request_id, novel_id, title and version after 503/timeout.
       additionalProperties: false
 
     NovelDraftMetadata:
@@ -995,7 +995,7 @@ paths:
     post:
       operationId: createNovelDraft
       summary: Start a staged session-only draft for a new novel
-      description: New drafts default to version 5. Supply a stable request_id; on timeout reuse it to retrieve the SAME draft_id without duplicate creation. If an earlier draft lost its ID, call listNovels with include_drafts=true and exact draft_title BEFORE creating another. The response always contains draft_id.
+      description: After author confirmation, create a v5 draft with a fresh random UUID request_id for each new chat/playthrough, even for the same title. On timeout retry the SAME request_id and payload. Do not adopt a draft from another chat or search by title for a new game. Returns draft_id.
       requestBody:
         required: true
         content:
@@ -1108,6 +1108,7 @@ paths:
     post:
       operationId: createSessionFromDraft
       summary: Create or safely replay the isolated session for this finalized draft revision
+      description: Only after the explicit first-scene launch command, use the draft_id created in this chat. A fresh draft starts at turn 0. Repeating this call returns that draft's existing session, even after gameplay; it does not start a new playthrough. New games need their own draft.
       parameters:
         - {in: path, name: draft_id, required: true, schema: {type: string}}
       responses:
@@ -1304,7 +1305,7 @@ paths:
     get:
       operationId: listNovels
       summary: List reusable saved novels or recover exact-title unfinalized drafts without creating new ones
-      description: For lost createNovelDraft results call include_drafts=true with draft_title equal to the exact novel title. The response includes candidate draft_id values, revisions and saved_sections. Choose the matching existing draft instead of POSTing another creation. By default behavior is unchanged.
+      description: List saved novels. Draft title search is only for explicitly requested recovery; matching titles do not identify the current chat. For a lost creation response, retry createNovelDraft with the same request_id. For a new game create a fresh draft; never adopt a title match automatically.
       parameters:
         - {in: query, name: include_drafts, required: false, schema: {type: boolean, default: false}}
         - {in: query, name: draft_title, required: false, schema: {type: string}}
