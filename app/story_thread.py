@@ -82,12 +82,14 @@ def apply_updates(state: Dict[str, Any], updates: Iterable[Dict[str, Any]], *, c
         scalar_fields = (
             "title", "summary", "priority", "premise", "current_goal", "current_phase",
             "progress_summary", "resolution", "next_eligible_game_day",
+            "current_circumstances",
         )
         for key in scalar_fields:
             if key in raw and raw.get(key) not in (None, ""):
                 item[key] = deepcopy(raw[key])
 
-        for key in ("unresolved", "end_conditions", "possible_routes"):
+        for key in ("unresolved", "end_conditions", "possible_routes",
+                    "next_possible_events", "advance_conditions"):
             if key in raw and isinstance(raw.get(key), list):
                 item[key] = deepcopy(raw[key])
 
