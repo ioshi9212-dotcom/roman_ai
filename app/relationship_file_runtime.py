@@ -380,6 +380,12 @@ def apply_updates(
                     if len(dimensions) >= MAX_DIMENSIONS_PER_NPC:
                         raise ValueError("RELATIONSHIP_DIMENSION_LIMIT")
                     dimensions[label] = {"value": value}
+    # Trust and distrust cannot coexist as current attitudes; love/hate can.
+    for owner_id, relation in result["npc_to_pov"].items():
+        dimensions = relation.get("dimensions", {})
+        labels = {_norm(label) for label in dimensions}
+        if "доверие" in labels and "недоверие" in labels:
+            raise ValueError("RELATIONSHIP_INCOMPATIBLE_DIMENSIONS")
     return result
 
 
