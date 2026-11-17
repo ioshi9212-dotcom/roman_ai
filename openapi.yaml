@@ -777,6 +777,9 @@ components:
           minimum: 0
         pursued_now:
           type: boolean
+        last_outcome:
+          type: string
+          description: Actual result or obstacle after an NPC attempts a plan.
         resolution:
           type: string
       additionalProperties: false
@@ -802,6 +805,19 @@ components:
           type: string
         current_phase:
           type: string
+        current_circumstances:
+          type: string
+          description: Current concrete constraints and conditions; never an invented event.
+        next_possible_events:
+          type: array
+          items:
+            type: string
+          description: Plausible next causal beats, not guarantees or future facts.
+        advance_conditions:
+          type: array
+          items:
+            type: string
+          description: Conditions for the plot line to progress without forcing player decisions.
         unresolved:
           type: array
           items:
