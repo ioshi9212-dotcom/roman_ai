@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import json
 from pathlib import Path
 from typing import Any, Callable, Dict
 
@@ -76,16 +77,30 @@ _MIGRATIONS: Dict[int, Callable[[Path], None]] = {
 
 
 def packet_is_current(packet: Any) -> bool:
+    """Check compatibility and integrity against the rules embedded at prepare time."""
     if not isinstance(packet, dict) or not packet.get("packet_id"):
         return False
     from . import runtime_access
     from .turn_pipeline import PIPELINE_VERSION
 
-    return (
-        int(packet.get("data_schema_version", 0) or 0) == CURRENT_DATA_SCHEMA_VERSION
-        and str(packet.get("runtime_revision") or "") == runtime_access.runtime_revision()
-        and int(packet.get("turn_pipeline_version", 0) or 0) == PIPELINE_VERSION
-    )
+    if (
+        int(packet.get("data_schema_version", 0) or 0) != CURRENT_DATA_SCHEMA_VERSION
+        or int(packet.get("turn_pipeline_version", 0) or 0) != PIPELINE_VERSION
+    ):
+        return False
+    chunks = packet.get("chunks")
+    if not isinstance(chunks, list) or not chunks:
+        return False
+    try:
+        context = json.loads("".join(chunks))
+    except (TypeError, ValueError):
+        return False
+    if not isinstance(context, dict):
+        return False
+    documents = {"rules": context.get("runtime_rules"), "scene_builder": context.get("scene_builder")}
+    if not all(isinstance(document, str) and document for document in documents.values()):
+        return False
+    return packet.get("runtime_revision") == runtime_access.runtime_revision(documents)
 
 
 def invalidate_stale_turn_packet(root: Path, *, reason: str = "runtime_or_schema_changed") -> bool:
@@ -93,7 +108,6 @@ def invalidate_stale_turn_packet(root: Path, *, reason: str = "runtime_or_schema
     if not isinstance(packet, dict) or not packet.get("packet_id") or packet_is_current(packet):
         return False
 
-    from . import runtime_access
     from .turn_pipeline import PIPELINE_VERSION
 
     path = root / "abandoned_turn_packets.json"
@@ -106,7 +120,6 @@ def invalidate_stale_turn_packet(root: Path, *, reason: str = "runtime_or_schema
         "user_input": str(packet.get("user_input") or ""),
         "reason": reason,
         "old_runtime_revision": packet.get("runtime_revision"),
-        "new_runtime_revision": runtime_access.runtime_revision(),
         "old_data_schema_version": int(packet.get("data_schema_version", 0) or 0),
         "new_data_schema_version": CURRENT_DATA_SCHEMA_VERSION,
         "old_turn_pipeline_version": int(packet.get("turn_pipeline_version", 0) or 0),

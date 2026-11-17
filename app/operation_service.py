@@ -183,7 +183,6 @@ def prepare_turn_request(
 
 
 
-@runtime_access.runtime_read_view()
 @session_documents.read_view()
 def commit_turn_request(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     root = _session_root(session_id)

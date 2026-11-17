@@ -74,6 +74,7 @@ def _packet_manifest(packet: Dict[str, Any], *, reused: bool) -> Dict[str, Any]:
         "first_chunk_included": bool(chunks),
         "reused_pending_packet": reused,
         "read_chunks": read,
+        "unread_chunk_indices": unread,
         "next_chunk_index": unread[0] if unread else None,
         "all_chunks_read": not unread,
         "turn_pipeline_version": PIPELINE_VERSION,
@@ -1144,7 +1145,6 @@ def continue_session(session_id: str) -> Dict[str, Any]:
     migration = session_migrations.ensure_current_session_data(session_id, invalidate_pending=True)
     result = dict(_BASE_CONTINUE(session_id))
     result["data_schema_version"] = migration["data_schema_version"]
-    result["runtime_revision"] = runtime_access.runtime_revision()
     for key in ("relationships", "relationship_documents", "relationship_schemas", "npc_relationships"):
         result.pop(key, None)
     status = session_recovery.current_recovery_status(session_id)
@@ -1162,6 +1162,7 @@ def continue_session(session_id: str) -> Dict[str, Any]:
     result["resume_payload_compact"] = True
     result["last_committed_turn"] = resume_compact_runtime._last_committed_turn(root)
     pending = resume_compact_runtime._pending_turn(root)
+    result["runtime_revision"] = pending["runtime_revision"] if pending else runtime_access.runtime_revision()
     if pending:
         result["pending_turn"] = pending
 
@@ -1177,7 +1178,8 @@ def continue_session(session_id: str) -> Dict[str, Any]:
             result["pending_turn_before_current_recovery"] = pending
     elif pending:
         result["instruction"] = (
-            "An uncommitted turn packet already exists. Reuse pending_turn and commit it once. "
+            "Reuse the pending packet. Request only pending_turn.unread_chunk_indices. "
+            "If ready_for_commit is true, use the prepared scene and commit once. "
             "recoverSessionCurrent is not a turn-packet recovery tool."
         )
     else:
