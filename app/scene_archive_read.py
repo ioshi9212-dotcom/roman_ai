@@ -298,6 +298,7 @@ def apply_bounded_scene_history(session_id: str, manifest: Dict[str, Any]) -> Di
             "first_chunk_included": True,
             "chunk_index": 0,
             "content": chunks[0],
+            "unread_chunk_indices": list(range(1, len(chunks))),
             "next_chunk_index": 1 if len(chunks) > 1 else None,
             "all_chunks_read": len(chunks) == 1,
             "scene_history_bounded": True,

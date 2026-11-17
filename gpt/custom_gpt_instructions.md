@@ -32,11 +32,11 @@ RAW и карточки: не смягчай, не обобщай, не сокр
 
 ## Игровой ход
 
-Новый ход → новый `request_id`; повтор → тот же. `prepareTurn`: exact raw, `replace_pending=false`; не читай chunk 0 повторно, остальные → `getTurnPacketChunk`.
+Новый ход → новый `request_id`; повтор → тот же. `prepareTurn`: exact raw, `replace_pending=false`. Читай только `unread_chunk_indices` через `getTurnPacketChunk`. Если список пуст, продолжай работу с уже прочитанным пакетом.
 
 Packet: Собери все chunks по индексам, ничего не сокращай. Затем СНАЧАЛА прочти целиком `scene_builder` и `runtime_rules`, только после них — анкету, current/recent, хронологию, отношения/intents и cast. Для ПЕРВОЙ сцены полные карточки и `character_memory` только POV и физически присутствующих; отсутствующих не загружай. `location_context` только текущего физического места. `chronology` — вся режиссёрская история; `character_memory[id]` — вся личная память участника.
 
-`commitTurn`: `scene_builder_reviewed=true` лишь после сверки текста со свежим Skin Builder; `persistence_reviewed=true` после проверки фактов. `relationships.json`: существующие оси меняй через delta, новые через value; обычно ±1–3, серьёзное событие допускает больший скачок; без события нет сдвига. NPC↔NPC — словесно.
+`commitTurn`: `scene_builder_reviewed=true` после сверки текста со Skin Builder из этого пакета; `persistence_reviewed=true` после проверки фактов. `relationships.json`: существующие оси меняй через delta, новые через value; обычно ±1–3, серьёзное событие допускает больший скачок; без события нет сдвига. NPC↔NPC — словесно.
 
 Знания проверь отдельно: `knowledge_journal_add` только реально узнавшему информацию, без доступа к мыслям, шёпоту и личной переписке других → `knowledge_reviewed=true`. Chronology и personal knowledge независимы.
 

@@ -4,10 +4,10 @@ from pathlib import Path
 import pytest
 from fastapi import HTTPException
 
-from app import session_runtime, storage
+from app import runtime_access, session_runtime, storage
 from app.main import turns_commit
 from app.models import TurnCommit
-from app.operation_service import prepare_turn_request
+from app.operation_service import commit_turn_request, prepare_turn_request
 from app.session_recovery import recover_session_current
 
 
@@ -101,6 +101,53 @@ def test_resume_exposes_existing_uncommitted_turn_instead_of_guessing_recovery()
         assert pending["user_input"] == "(продолжить)"
         assert pending["unread_chunk_indices"]
         assert "recoverSessionCurrent is not a turn-packet recovery tool" in resumed["instruction"]
+
+
+def test_pending_turn_retries_and_commits_offline_then_next_turn_loads_fresh_rules(monkeypatch, tmp_path):
+    setup_temp_storage(str(tmp_path))
+    sid = storage.create_session(novel())["session_id"]
+    documents = runtime_access.author_runtime_sources()
+    fetches = []
+    offline = False
+
+    def fetch(key):
+        fetches.append(key)
+        if offline:
+            raise RuntimeError("GITHUB_UNAVAILABLE")
+        return documents[key]
+
+    monkeypatch.setenv("ROMAN_SCENE_BUILDER_SOURCE", "github")
+    monkeypatch.setattr(runtime_access, "_fetch_github_runtime_file", fetch)
+
+    user_input = "(продолжить)"
+    first = prepare_turn_request(sid, user_input, "first", scene_archive_capable=True)
+    assert first["unread_chunk_indices"] == first["pending_turn"]["unread_chunk_indices"]
+    storage.get_turn_packet_chunk(sid, first["packet_id"], first["unread_chunk_indices"][0])
+
+    offline = True
+    retry = prepare_turn_request(sid, user_input, "first", scene_archive_capable=True)
+    pending = session_runtime.continue_session(sid)["pending_turn"]
+    assert retry["packet_id"] == pending["packet_id"] == first["packet_id"]
+    assert retry["unread_chunk_indices"] == pending["unread_chunk_indices"] == first["unread_chunk_indices"][1:]
+    for index in pending["unread_chunk_indices"]:
+        storage.get_turn_packet_chunk(sid, first["packet_id"], index)
+
+    result = commit_turn_request(sid, {
+        "packet_id": first["packet_id"],
+        "user_input": user_input,
+        "scene_output": scene(),
+        "extracted": {**extracted(), "scene_builder_reviewed": True, "knowledge_reviewed": True},
+    })
+    assert result["turn_number"] == 1
+    assert sorted(fetches) == ["rules", "scene_builder"]
+
+    offline = False
+    documents["scene_builder"] += "\nНовое правило для следующего хода."
+    second = prepare_turn_request(sid, "(осмотреться)", "second")
+    assert second["prepared_for_turn"] == 2
+    assert second["runtime_revision"] == runtime_access.runtime_revision(documents)
+    assert second["runtime_revision"] != first["runtime_revision"]
+    assert sorted(fetches) == ["rules", "rules", "scene_builder", "scene_builder"]
 
 
 def test_commit_incomplete_returns_exact_unread_chunks_without_deleting_pending_packet():

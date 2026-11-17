@@ -29,6 +29,7 @@ def _pending_turn(root) -> Dict[str, Any] | None:
         "packet_id": str(packet.get("packet_id")),
         "prepared_for_turn": int(packet.get("prepared_for_turn", 0) or 0),
         "request_id": str(packet.get("request_id") or "") or None,
+        "runtime_revision": packet.get("runtime_revision"),
         "user_input": str(packet.get("user_input") or ""),
         "chunk_count": len(chunks),
         "read_chunks": read,
