@@ -24,7 +24,7 @@ class NovelDraftCreate(BaseModel):
     version: int = 5
     request_id: Optional[str] = Field(
         default=None, min_length=1, max_length=120,
-        description="Stable identifier for this creation attempt. Retry after a timeout with the exact same request_id, novel_id and title to receive the same draft_id.",
+        description="Fresh random UUID for each new chat/playthrough, never derived from the novel title. Keep it stable only for retries of this creation attempt; identical retries return the same draft_id.",
     )
 
 

@@ -3,6 +3,7 @@ import hashlib
 import json
 from copy import deepcopy
 from pathlib import Path
+from uuid import uuid4
 
 import pytest
 import yaml
@@ -28,17 +29,20 @@ def post(client, path, body=None):
     return response.json()
 
 
-def new_draft(client):
+def new_draft(client, request_id=None):
     # Deliberately omit version: static and live schemas must agree on v5.
-    draft = post(client, "/novel-drafts", {"novel_id": "setup-http", "title": "Аудит"})
+    body = {"novel_id": "setup-http", "title": "Аудит"}
+    if request_id is not None:
+        body["request_id"] = request_id
+    draft = post(client, "/novel-drafts", body)
     assert draft["version"] == 5
     assert draft["simple_profile_mode"] is True
     assert draft["profile_schema"]["save_requires_expected_revision"] is True
     return draft
 
 
-def complete_setup(client):
-    draft = new_draft(client)
+def complete_setup(client, request_id=None):
+    draft = new_draft(client, request_id=request_id)
     did = draft["draft_id"]
     base = f"/novel-drafts/{did}"
     raw = ("  Елена знакома с Реном. Рен знает Елену.\n" * 400) + "КОНЕЦ\n"
@@ -114,6 +118,48 @@ def complete_setup(client):
     assert post(client, base + "/session")["session_id"] == sid
     assert storage.load_session(sid)["source"]["source_intake"][0]["raw_text"] == raw
     return sid
+
+
+def test_same_title_in_another_chat_creates_isolated_v5_playthrough(client):
+    first_key = uuid4().hex
+    first_sid = complete_setup(client, request_id=first_key)
+    first = storage.load_session(first_sid)
+    first_root = storage.SESSIONS_DIR / first_sid
+
+    # Existing playthrough has advanced. Starting the same canon elsewhere
+    # must neither adopt these events nor reset this save.
+    first["meta"]["turn_number"] = 7
+    first["state"]["current"].update(date="22.10.2026", location="старое прохождение")
+    storage._write_json(first_root / "meta.json", first["meta"])
+    storage._write_json(first_root / "state.json", first["state"])
+    storage._write_json(first_root / "chronology.json", [{"turn": 7, "summary": "OLD_RUN_EVENT"}])
+    storage._write_json(first_root / "memory.json", {"characters": {"pov": {"knowledge": ["OLD_RUN_KNOWLEDGE"]}}})
+    (first_root / "turns.jsonl").write_text(json.dumps({
+        "turn_number": 7, "user_input": "OLD_RUN_INPUT", "scene_output": "OLD_RUN_SCENE",
+    }) + "\n", encoding="utf-8")
+    before = {p.relative_to(first_root): p.read_bytes() for p in first_root.rglob("*") if p.is_file()}
+
+    second_key = uuid4().hex
+    second_sid = complete_setup(client, request_id=second_key)
+    second = storage.load_session(second_sid)
+    assert second_sid != first_sid
+    assert second["meta"]["source_novel_id"] == first["meta"]["source_novel_id"]
+    assert second["meta"]["source_draft_id"] != first["meta"]["source_draft_id"]
+    assert second["meta"]["turn_number"] == 0
+    assert second["state"]["current"]["date"] == "21.10.2026"
+    assert second["state"]["current"]["location"] == "комната"
+    assert second["chronology"] == []
+    assert second["recent_turns"] == []
+    assert "OLD_RUN_" not in json.dumps(second, ensure_ascii=False)
+
+    # Lost replies remain retryable within each playthrough, even after play.
+    for key, sid in ((first_key, first_sid), (second_key, second_sid)):
+        draft = new_draft(client, request_id=key)
+        replay = post(client, f"/novel-drafts/{draft['draft_id']}/session")
+        assert replay["session_id"] == sid
+        assert replay["idempotent_replay"] is True
+    assert len(list(storage.SESSIONS_DIR.iterdir())) == 2
+    assert before == {p.relative_to(first_root): p.read_bytes() for p in first_root.rglob("*") if p.is_file()}
 
 
 def read_packet(client, sid, manifest):
