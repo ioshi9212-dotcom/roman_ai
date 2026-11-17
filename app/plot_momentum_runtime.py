@@ -172,6 +172,16 @@ def plot_packet(root: Path, state: Dict[str, Any], context: Dict[str, Any]) -> D
 
 
 def validate_plot_momentum(root: Path, payload: Dict[str, Any]) -> None:
+    # Draft-launched interactive novels use the hard causal gate. Direct
+    # storage.create_session() is also used by technical replay/audit fixtures
+    # that deliberately save dozens of plotless synthetic turns; they still
+    # receive prepare-time guidance but opt in to the hard gate explicitly.
+    meta = storage._read_json(root / "meta.json", {})
+    enforced = meta.get("plot_momentum_enforced")
+    if enforced is False:
+        return
+    if enforced is not True and not str(meta.get("source_type") or "").startswith("session_draft"):
+        return
     streak = trailing_plot_stagnant_turns(root)
     if streak < PLOT_STAGNATION_LIMIT:
         return
