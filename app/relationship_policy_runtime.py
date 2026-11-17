@@ -207,7 +207,7 @@ def _update_scope(raw: Dict[str, Any]) -> tuple[str, float]:
             )
         return scope, min(30.0, max(3.0, math.ceil(float(days)) * 3.0))
     if scope == "critical_event":
-        return scope, 25.0
+        return scope, 100.0
     _error(
         "RELATIONSHIP_CHANGE_SCALE_INVALID",
         "change_scale must be ordinary, timeskip or critical_event.",
