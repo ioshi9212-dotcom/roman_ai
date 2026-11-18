@@ -55,7 +55,7 @@ _BASE_PARTICIPATION_BUNDLE = character_chunk_read._participation_bundle
 _BASE_CREATE_SESSION = storage.create_session
 _BASE_RECOVER_CURRENT = session_recovery.recover_session_current
 
-PIPELINE_VERSION = 26
+PIPELINE_VERSION = 27
 
 def _packet_manifest(packet: Dict[str, Any], *, reused: bool) -> Dict[str, Any]:
     chunks = packet.get("chunks", []) if isinstance(packet.get("chunks"), list) else []
@@ -712,6 +712,30 @@ def _prepare_context(
         "values_path": "relationships.npc_to_pov",
         "footer_character_ids": list(dict.fromkeys([*physical_ids, *remote_ids])),
         "remote_participant_ids": remote_ids,
+    }
+    # Relationship state is a live behavioral input, not merely a footer value.
+    # Keep it pointer-based: full cards and numeric relationships are already
+    # present in the same packet, and must not be duplicated or reinterpreted.
+    context["npc_voice_relationship_contract"] = {
+        "mandatory": True,
+        "scope": "director_only",
+        "character_cards_path": "character_cards",
+        "relationship_values_path": "relationships.npc_to_pov",
+        "npc_relationship_values_path": "relationships.npc_to_npc",
+        "scene_npc_ids": list(dict.fromkeys([*physical_ids, *remote_ids])),
+        "rule": (
+            "Перед каждой репликой и значимым действием NPC используй его полную карточку, "
+            "индивидуальную манеру речи, доступные ему личные знания, цели и текущую направленную "
+            "связь к POV из relationships.npc_to_pov. Это влияет на обращение, дистанцию, "
+            "откровенность, помощь, противодействие, скрытность и инициативу уже В СЦЕНЕ, "
+            "а не только на подписи в футере. Не делай всех NPC одинаково деликатными, "
+            "остроумными, многословными или терапевтическими. Любовь не гарантирует "
+            "согласия или раскрытия тайн; ненависть не означает обязательной агрессии. "
+            "Характер, личные знания и обстоятельства определяют форму реакции; "
+            "чувство может оставаться скрытым. Не навязывай POV взаимность. "
+            "Сначала правдоподобные реплика и поступок, потом — только реально "
+            "обоснованные relationship_updates; ноль изменений допустим."
+        ),
     }
 
     # Persistence/chronology instructions live once in runtime_rules.
