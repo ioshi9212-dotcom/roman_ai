@@ -665,3 +665,32 @@ def test_v5_explicit_recipient_may_persist_addressed_message_content():
                 },
             },
         )
+
+
+def test_v5_launch_preserves_current_when_pov_id_alias_is_used():
+    with tempfile.TemporaryDirectory() as tmp:
+        _setup(tmp)
+        draft_id = _build_simple_draft()
+        novel_drafts.finalize_draft(draft_id)
+        finalized = novel_drafts._read(draft_id)
+        starting_state = {
+            "current": {
+                "date": "02.05.2026", "time": "12:00", "location": "ярмарка",
+                "present_characters": ["rinata", "silas"],
+            },
+            "pov_id": "rinata",
+        }
+        setup_draft_v3_runtime.set_launch_state(
+            draft_id,
+            expected_finalized_revision=finalized["finalized_revision"],
+            starting_state_json=json.dumps(starting_state, ensure_ascii=False),
+        )
+        saved = novel_drafts._read(draft_id)
+        assert saved["finalized_revision"] == finalized["finalized_revision"]
+        sid = novel_drafts.create_session_from_draft(draft_id)["session_id"]
+        state = storage._read_json(storage.SESSIONS_DIR / sid / "state.json", {})
+        assert state["current"]["location"] == "ярмарка"
+        assert state["current"]["date"] == "02.05.2026"
+        assert state["current"]["time"] == "12:00"
+        assert state["current"]["present_characters"] == ["rinata", "silas"]
+        assert state["pov"]["character_id"] == "rinata"

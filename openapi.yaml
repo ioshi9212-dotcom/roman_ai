@@ -628,6 +628,9 @@ components:
           minimum: 0
         starting_state_json:
           type: string
+          description: >-
+            JSON string with current (date, time, location, present_characters: character IDs) and pov (character_id). Use IDs from the finalized character cards. Do not wrap in starting_state.
+          example: '{"current":{"date":"02.05.2026","time":"12:00","location":"ярмарка","present_characters":["rinata"]},"pov":{"character_id":"rinata"}}'
         launch_hint:
           type: string
       additionalProperties: false
