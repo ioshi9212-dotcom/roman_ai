@@ -487,3 +487,62 @@ def test_full_size_turn_packet_batch_is_lossless_over_mcp(client):
     assert (chunks[0] + "".join(responses)).encode() == "".join(chunks).encode()
     assert batch["unread_chunk_indices"] == []
     assert batch["all_chunks_read"] is True
+
+
+def test_mcp_read_schema_and_traces_distinguish_repeat_reads(client, caplog):
+    caplog.set_level("INFO", logger="uvicorn.error")
+    catalog = {row["name"]: row for row in mcp_rpc(client, "tools/list", {})["tools"]}
+    props = catalog["prepareTurn"]["outputSchema"]["properties"]
+    assert {"unread_chunk_indices", "all_chunks_read", "reused_pending_packet", "read_chunks"} <= props.keys()
+    sid = "trace-test"
+    root = storage.SESSIONS_DIR / sid
+    root.mkdir()
+    private = "PRIVATE_RAW_AND_SCENE_MUST_NOT_APPEAR_IN_TRACE"
+    storage._write_json(root / "turn_packet.json", {
+        "packet_id": "trace-packet", "chunks": [private] * 4,
+        "chunk_count": 4, "read_chunks": [0],
+    })
+    arguments = {"session_id": sid, "packet_id": "trace-packet", "chunk_index": 1, "chunk_limit": 3}
+    first = mcp_rpc(client, "tools/call", {"name": "getTurnPacketChunk", "arguments": arguments})
+    second = mcp_rpc(client, "tools/call", {"name": "getTurnPacketChunk", "arguments": arguments})
+    assert first["structuredContent"]["previously_read_chunk_indices"] == []
+    assert second["structuredContent"]["previously_read_chunk_indices"] == [1, 2, 3]
+    assert second["structuredContent"]["all_chunks_read"] is True
+    assert second["structuredContent"]["unread_chunk_indices"] == []
+    bad = mcp_rpc(client, "tools/call", {
+        "name": "getTurnPacketChunk", "arguments": {**arguments, "packet_id": "stale"},
+    })
+    assert bad["isError"] is True
+    rows = [json.loads(r.getMessage().split("romanai_tool ", 1)[1])
+            for r in caplog.records if r.getMessage().startswith("romanai_tool ")]
+    assert [r["event"] for r in rows] == ["start", "end", "start", "end", "start", "error"]
+    assert rows[2]["call_id"] == rows[3]["call_id"] != rows[0]["call_id"]
+    assert rows[3]["session_id"] == sid
+    assert rows[3]["packet_id"] == "trace-packet"
+    assert rows[3]["previously_read_chunk_indices"] == [1, 2, 3]
+    assert rows[-1]["status"] == 403
+    assert private not in json.dumps(rows)
+
+
+def test_mcp_commit_trace_identifies_idempotent_replay_without_scene_text(client, monkeypatch, caplog):
+    import app.main as main
+    caplog.set_level("INFO", logger="uvicorn.error")
+    calls = []
+    def commit(sid, payload):
+        replay = bool(calls)
+        calls.append(payload)
+        return {"turn_number": 7, "already_committed": replay, "idempotent_replay": replay}
+    monkeypatch.setattr(main, "commit_turn_request", commit)
+    args = {"session_id": "trace-game", "body": {
+        "packet_id": "same-packet", "user_input": "PRIVATE_USER_INPUT",
+        "scene_output": "PRIVATE_SCENE", "extracted": {},
+    }}
+    for _ in range(2):
+        result = mcp_rpc(client, "tools/call", {"name": "commitTurn", "arguments": args})
+        assert not result.get("isError"), result
+    rows = [json.loads(r.getMessage().split("romanai_tool ", 1)[1])
+            for r in caplog.records if r.getMessage().startswith("romanai_tool ")]
+    ends = [r for r in rows if r["event"] == "end"]
+    assert [r["idempotent_replay"] for r in ends] == [False, True]
+    assert all(r["packet_id"] == "same-packet" and r["turn_number"] == 7 for r in ends)
+    assert "PRIVATE_" not in json.dumps(rows)

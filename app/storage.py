@@ -762,6 +762,7 @@ def get_turn_packet_chunk(session_id: str, packet_id: str, chunk_index: int, chu
     if not 1 <= chunk_limit <= 3:
         raise ValueError("INVALID_CHUNK_LIMIT")
     indices = list(range(chunk_index, min(len(chunks), chunk_index + chunk_limit)))
+    previously_read = [index for index in indices if index in read_chunks]
     read_chunks.update(indices)
     packet["read_chunks"] = sorted(read_chunks)
     _write_json(root / "turn_packet.json", packet)
@@ -769,6 +770,7 @@ def get_turn_packet_chunk(session_id: str, packet_id: str, chunk_index: int, chu
         "packet_id": packet_id, "chunk_index": chunk_index, "chunk_count": len(chunks),
         "content": "".join(chunks[index] for index in indices),
         "all_chunks_read": len(read_chunks) == len(chunks),
+        "previously_read_chunk_indices": previously_read,
     }
     if chunk_limit > 1:
         result["chunk_indices"] = indices

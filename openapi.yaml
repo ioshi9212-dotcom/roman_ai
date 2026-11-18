@@ -1168,7 +1168,7 @@ paths:
       operationId: prepareTurn
       x-openai-isConsequential: false
       summary: Build or reuse one bounded gameplay packet from persistent canon
-      description: Use one stable request_id per gameplay turn. Read only unread_chunk_indices from this packet, in order. An empty list means no further chunk calls. Active POV/NPC already include their own cards and complete factual knowledge. Write from the packet's runtime_rules and scene_builder.
+      description: Use one stable request_id per turn. Read only unread_chunk_indices in order. Empty or all_chunks_read=true means commit; do not prepare or read again for a final review. Reused packets preserve progress. Active characters already include cards and knowledge. Use this packet's rules and scene_builder.
       parameters:
         - {in: path, name: session_id, required: true, schema: {type: string}}
       requestBody:

@@ -399,3 +399,19 @@ def test_repeated_cached_prepare_skips_knowledge_journal_cleanup(monkeypatch):
         third = session_runtime.prepare_turn_packet(sid, "Другой ход.")
         assert third["reused_pending_packet"] is False
         assert len(runs) == 2
+
+
+def test_complete_batched_read_stays_complete_after_prepare_retry():
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_temp_storage(tmp)
+        sid = make_session()
+        first = prepare_turn_request(sid, "Тот же ход.", "complete-read-retry")
+        for index in range(1, first["chunk_count"], 3):
+            storage.get_turn_packet_chunk(sid, first["packet_id"], index, 3)
+        retry = prepare_turn_request(sid, "Тот же ход.", "complete-read-retry")
+        assert retry["packet_id"] == first["packet_id"]
+        assert retry["reused_pending_packet"] is True
+        assert retry["all_chunks_read"] is True
+        assert retry["unread_chunk_indices"] == []
+        assert retry["next_chunk_index"] is None
+        assert retry["pending_turn"]["ready_for_commit"] is True
