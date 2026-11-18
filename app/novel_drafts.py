@@ -389,7 +389,10 @@ def _normalise_starting_state_for_session(template: Dict[str, Any]) -> Dict[str,
     result = deepcopy(template)
     from .session_documents import state_to_internal
     if isinstance(result.get("starting_state"), dict) and "pov_id" in result["starting_state"]:
-        result["starting_state"] = state_to_internal(result["starting_state"])
+        # A top-level pov_id can also accompany our internal current shape.
+        # The native document converter would discard that scene pointer.
+        if not isinstance(result["starting_state"].get("current"), dict):
+            result["starting_state"] = state_to_internal(result["starting_state"])
     cards = storage._normalise_cards(result.get("characters", []))
     raw = result.get("starting_state")
     state = deepcopy(raw) if isinstance(raw, dict) else {}
@@ -420,7 +423,7 @@ def _normalise_starting_state_for_session(template: Dict[str, Any]) -> Dict[str,
     if present_supplied:
         current["present_characters"] = list(dict.fromkeys(canonical_present))
 
-    pov_raw = state.get("pov") or state.get("pov_character_id") or state.get("pov_character") or state.get("protagonist")
+    pov_raw = state.get("pov") or state.get("pov_id") or state.get("pov_character_id") or state.get("pov_character") or state.get("protagonist")
     if isinstance(pov_raw, dict):
         pov = deepcopy(pov_raw)
         resolved = _resolve_character_ref(cards, pov.get("character_id") or pov.get("id") or pov.get("name"))
@@ -434,6 +437,8 @@ def _normalise_starting_state_for_session(template: Dict[str, Any]) -> Dict[str,
         if inferred:
             pov["character_id"] = inferred
     state["pov"] = pov
+    # Keep the normalized state unambiguously internal on subsequent reads.
+    state.pop("pov_id", None)
 
     pov_id = str(pov.get("character_id") or "")
     if present_supplied and canonical_present and pov_id and pov_id not in canonical_present:

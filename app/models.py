@@ -94,7 +94,7 @@ class NovelDraftReconciliation(BaseModel):
 
 class NovelDraftLaunchState(BaseModel):
     expected_finalized_revision: int = Field(ge=0)
-    starting_state_json: str
+    starting_state_json: str = Field(description='JSON string with current (date, time, location, present_characters: character IDs) and pov (character_id). Use IDs from the finalized character cards. Do not wrap in starting_state.')
     launch_hint: Optional[str] = None
 
 
